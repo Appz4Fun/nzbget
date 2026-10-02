@@ -1,0 +1,335 @@
+# Builds Debian packages from the dupe-article-fallback branch (nzbgetcom/nzbget#850)
+# and publishes one GitHub release per branch commit on this fork.
+#
+# Lives on the fork's default branch because GitHub only runs scheduled workflows
+# from there; the source branch itself carries no fork-specific workflow.
+#
+# Required repository secrets:
+#   RELEASE_TOKEN        fine-grained PAT of xbmc4lyfe (this repo only; Contents and
+#                        Workflows read/write) so tags and releases are made by xbmc4lyfe
+#   RELEASE_SIGNING_KEY  SSH private key registered as an xbmc4lyfe signing key; signs
+#                        the release tag and SHA256SUMS
+
+name: dupe-article-fallback release
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild and replace the release for the current branch head'
+        type: boolean
+        default: false
+
+concurrency:
+  group: dupe-article-fallback-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_BRANCH: dupe-article-fallback
+  UPSTREAM_REPO: nzbgetcom/nzbget
+  PR_NUMBER: '850'
+  TAG_PREFIX: dupe-article-fallback-
+  BUILD_ARCHS: 'x86_64 aarch64 armhf'
+  SIGNER_NAME: xbmc4lyfe
+  SIGNER_EMAIL: 273732874+xbmc4lyfe@users.noreply.github.com
+
+jobs:
+
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      sha: ${{ steps.check.outputs.sha }}
+      tag: ${{ steps.check.outputs.tag }}
+      commit_date: ${{ steps.check.outputs.commit_date }}
+      suffix: ${{ steps.check.outputs.suffix }}
+      archs: ${{ steps.check.outputs.archs }}
+    steps:
+
+    - name: Look for a release of the branch head
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+        FORCE: ${{ inputs.force == true }}
+      run: |
+        set -euo pipefail
+        REPO_URL="https://github.com/${GITHUB_REPOSITORY}.git"
+
+        SHA=$(git ls-remote "$REPO_URL" "refs/heads/$SOURCE_BRANCH" | cut -f1)
+        if [ -z "$SHA" ]; then
+          echo "::error::Branch $SOURCE_BRANCH not found in $GITHUB_REPOSITORY"
+          exit 1
+        fi
+        TAG="${TAG_PREFIX}${SHA::7}"
+        echo "branch head: $SHA -> $TAG"
+
+        # a tag left behind by a failed publish doesn't count; only a release does
+        if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "$FORCE" != "true" ]; then
+          echo "$TAG already released, nothing to do."
+          echo "build=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # commit time + sha makes every build a strictly newer, unique package version
+        COMMIT_DATE=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq .commit.committer.date)
+        STAMP=$(date -u -d "$COMMIT_DATE" '+%Y%m%d%H%M')
+        SUFFIX="-pr${PR_NUMBER}-${STAMP}-g${SHA::7}"
+        ARCHS=$(echo "[\"$BUILD_ARCHS\"]" | sed 's| |","|g')
+
+        echo "version suffix: $SUFFIX"
+        {
+          echo "build=true"
+          echo "sha=$SHA"
+          echo "tag=$TAG"
+          echo "commit_date=$COMMIT_DATE"
+          echo "suffix=$SUFFIX"
+          echo "archs=$ARCHS"
+        } >> "$GITHUB_OUTPUT"
+
+  build-bin:
+    runs-on: ubuntu-24.04
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        arch: ${{ fromJSON(needs.check.outputs.archs) }}
+    steps:
+
+    - name: Checkout ${{ env.SOURCE_BRANCH }}
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        ref: ${{ needs.check.outputs.sha }}
+        persist-credentials: false
+
+    - name: Apply version suffix
+      env:
+        SUFFIX: ${{ needs.check.outputs.suffix }}
+      run: |
+        sed -i -E "s|^([[:space:]]*VERSION_SUFFIX=)\"-testing-.*\"[[:space:]]*$|\1\"${SUFFIX}\"|" linux/build-nzbget.sh
+        grep -qF "VERSION_SUFFIX=\"${SUFFIX}\"" linux/build-nzbget.sh \
+          || echo "::warning::Could not patch VERSION_SUFFIX in linux/build-nzbget.sh; falling back to the date-based testing suffix"
+
+    # keep in sync with .github/workflows/linux.yml on the source branch
+    - name: Prepare ${{ matrix.arch }} environment
+      run: |
+        sudo mkdir -p /build
+        sudo chown "$USER:$USER" /build
+        mkdir -p /build/buildroot /build/lib
+        curl -fL https://github.com/nzbgetcom/build-files/releases/download/v1.0/buildroot-${{ matrix.arch }}.tar.gz -o /build/buildroot/buildroot.tar.gz
+        curl -fL https://github.com/nzbgetcom/build-files/releases/download/v6.0/lib-${{ matrix.arch }}.tar.gz -o /build/lib/lib.tar.gz
+        tar zxf /build/buildroot/buildroot.tar.gz -C /build/buildroot
+        tar zxf /build/lib/lib.tar.gz -C /build/lib
+        sudo apt-get update
+        sudo apt-get install -y autoconf automake bc build-essential cmake cpio curl file git libtool pkg-config rsync unzip wget libtinfo6
+
+    - name: Build
+      run: bash linux/build-nzbget.sh bin ${{ matrix.arch }} release testing
+
+    - name: Upload full build log on failure
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      if: failure()
+      with:
+        name: build-log-${{ matrix.arch }}
+        path: build/*/build.log
+        retention-days: 5
+
+    - name: Upload binaries
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: nzbget-linux-bin-${{ matrix.arch }}
+        path: build/*.tar.gz
+        retention-days: 1
+
+  build-pkg:
+    runs-on: ubuntu-24.04
+    needs: [check, build-bin]
+    timeout-minutes: 60
+    steps:
+
+    - name: Checkout ${{ env.SOURCE_BRANCH }}
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        ref: ${{ needs.check.outputs.sha }}
+        persist-credentials: false
+
+    - name: Apply version suffix
+      env:
+        SUFFIX: ${{ needs.check.outputs.suffix }}
+      run: |
+        sed -i -E "s|^([[:space:]]*VERSION_SUFFIX=)\"-testing-.*\"[[:space:]]*$|\1\"${SUFFIX}\"|" linux/build-nzbget.sh
+        grep -qF "VERSION_SUFFIX=\"${SUFFIX}\"" linux/build-nzbget.sh \
+          || echo "::warning::Could not patch VERSION_SUFFIX in linux/build-nzbget.sh; falling back to the date-based testing suffix"
+
+    - name: Prepare build environment
+      run: |
+        sudo mkdir -p /build
+        sudo chown "$USER:$USER" /build
+        curl -fL https://github.com/nzbgetcom/build-files/releases/download/v10.0/linux-unpack.tar.gz -o /build/unpack.tar.gz
+        tar zxf /build/unpack.tar.gz -C /build
+        command -v fakeroot >/dev/null || { sudo apt-get update && sudo apt-get install -y fakeroot; }
+
+    - name: Download binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        pattern: nzbget-linux-bin-*
+        path: build
+        merge-multiple: true
+
+    # build-pkg.sh repackages the .deb files from the self-contained installer
+    - name: Build installer
+      run: bash linux/build-nzbget.sh linux installer $BUILD_ARCHS release testing  # word-split on purpose
+
+    - name: Build DEB packages
+      run: |
+        mkdir -p nzbget-linux-installers
+        mv build/*.run nzbget-linux-installers/
+        bash linux/pkg/build-pkg.sh "" deb "$BUILD_ARCHS"
+        ls -l build/deb
+
+    - name: Upload DEB packages
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: deb-packages
+        path: build/deb/*.deb
+        retention-days: 5
+
+  publish:
+    runs-on: ubuntu-24.04
+    needs: [check, build-pkg]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+      TAG: ${{ needs.check.outputs.tag }}
+      COMMIT_DATE: ${{ needs.check.outputs.commit_date }}
+      FORCE: ${{ inputs.force == true }}
+    steps:
+
+    - name: Check release secrets
+      env:
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+      run: |
+        [ -n "$RELEASE_TOKEN" ] || { echo "::error::RELEASE_TOKEN secret is not set"; exit 1; }
+        [ -n "$RELEASE_SIGNING_KEY" ] || { echo "::error::RELEASE_SIGNING_KEY secret is not set"; exit 1; }
+
+    - name: Checkout ${{ env.SOURCE_BRANCH }}
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        ref: ${{ needs.check.outputs.sha }}
+        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - name: Download DEB packages
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: deb-packages
+        path: ${{ runner.temp }}/dist
+
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: ${{ runner.temp }}/dist/*.deb
+
+    - name: Set up xbmc4lyfe signing
+      env:
+        RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+      run: |
+        KEY="$RUNNER_TEMP/signing_key"
+        (umask 077 && printf '%s\n' "$RELEASE_SIGNING_KEY" > "$KEY")
+        echo "$SIGNER_EMAIL namespaces=\"git,file\" $(ssh-keygen -y -f "$KEY")" > "$RUNNER_TEMP/allowed_signers"
+        git config user.name "$SIGNER_NAME"
+        git config user.email "$SIGNER_EMAIL"
+        git config gpg.format ssh
+        git config user.signingkey "$KEY"
+        git config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/allowed_signers"
+
+    - name: Checksum and sign packages
+      working-directory: ${{ runner.temp }}/dist
+      run: |
+        sha256sum -- *.deb > SHA256SUMS
+        ssh-keygen -Y sign -f "$RUNNER_TEMP/signing_key" -n file SHA256SUMS
+        ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed_signers" -I "$SIGNER_EMAIL" -n file -s SHA256SUMS.sig < SHA256SUMS
+        cat SHA256SUMS
+
+    - name: Write release notes
+      env:
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        REPO="$GITHUB_REPOSITORY"
+        SUBJECT=$(git log -1 --format=%s "$SHA")
+        COMMITTED=$(date -u -d "$COMMIT_DATE" '+%Y-%m-%d %H:%M UTC')
+        BUILT=$(date -u '+%Y-%m-%d %H:%M UTC')
+        DEB_AMD64=$(cd "$RUNNER_TEMP/dist" && find . -name '*-amd64.deb' -printf '%f\n' | head -n1)
+
+        {
+          echo "Test build of [\`${SOURCE_BRANCH}\`](https://github.com/${REPO}/tree/${SOURCE_BRANCH}) for [${UPSTREAM_REPO}#${PR_NUMBER}](https://github.com/${UPSTREAM_REPO}/pull/${PR_NUMBER}) (DupeArticleFallback). Not an official nzbget release."
+          echo
+          echo "| | |"
+          echo "|---|---|"
+          echo "| Branch | [\`${SOURCE_BRANCH}\`](https://github.com/${REPO}/tree/${SOURCE_BRANCH}) |"
+          echo "| Commit | [\`${SHA::7}\`](https://github.com/${REPO}/commit/${SHA}) ${SUBJECT} |"
+          echo "| Committed | ${COMMITTED} |"
+          echo "| Built | ${BUILT} ([workflow run](${RUN_URL})) |"
+          echo
+          echo "### Install"
+          echo
+          echo "Debian / Ubuntu / Raspberry Pi OS. Pick the \`.deb\` for your CPU: \`amd64\` (x86_64 PC/server), \`arm64\` (64-bit ARM), \`armhf\` (32-bit ARM)."
+          echo
+          echo '```sh'
+          echo "sudo apt install ./${DEB_AMD64:-nzbget-<version>-<arch>.deb}"
+          echo '```'
+          echo
+          echo "Newer builds have higher package versions, so installing a newer \`.deb\` upgrades in place."
+          echo
+          echo "### Verify"
+          echo
+          echo "The tag \`${TAG}\` is signed by ${SIGNER_NAME}. Check a package's build provenance:"
+          echo
+          echo '```sh'
+          echo "gh attestation verify ${DEB_AMD64:-<file>.deb} -R ${REPO}"
+          echo '```'
+          echo
+          echo "Or check \`SHA256SUMS\` against ${SIGNER_NAME}'s published signing keys:"
+          echo
+          echo '```sh'
+          echo "curl -s https://api.github.com/users/${SIGNER_NAME}/ssh_signing_keys | jq -r '.[].key | \"${SIGNER_NAME} \" + .' > allowed_signers"
+          echo "ssh-keygen -Y verify -f allowed_signers -I ${SIGNER_NAME} -n file -s SHA256SUMS.sig < SHA256SUMS"
+          echo "sha256sum -c --ignore-missing SHA256SUMS"
+          echo '```'
+        } > "$RUNNER_TEMP/notes.md"
+        cat "$RUNNER_TEMP/notes.md"
+
+    - name: Create signed tag
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        set -euo pipefail
+        if [ "$FORCE" = "true" ] && gh release view "$TAG" >/dev/null 2>&1; then
+          gh release delete "$TAG" --yes
+        fi
+        git tag -s -f "$TAG" -m "${SOURCE_BRANCH} build of ${SHA}" "$SHA"
+        git tag -v "$TAG"
+        git push --force origin "refs/tags/$TAG"
+
+    - name: Publish release
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        gh release create "$TAG" "$RUNNER_TEMP"/dist/* \
+          --verify-tag \
+          --title "${SOURCE_BRANCH} @ ${SHA::7}" \
+          --notes-file "$RUNNER_TEMP/notes.md" \
+          --latest
+
+    - name: Remove signing key
+      if: always()
+      run: rm -f "$RUNNER_TEMP/signing_key"
