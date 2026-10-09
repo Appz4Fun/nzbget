@@ -177,12 +177,6 @@ bool TlsSocket::Start()
 		return false;
 	}
 
-	if (!SSL_CTX_set_min_proto_version(m_context.get(), SSL3_VERSION))
-	{
-		ReportError("Could not set minimum protocol to SSL3", false);
-		return false;
-	}
-
 	int ec = m_isClient ? SSL_connect(m_session.get()) : SSL_accept(m_session.get());
 	bool shouldVerify = m_X509Store && m_certVerifLevel > Options::ECertVerifLevel::cvNone;
 	if (ec < 1)
