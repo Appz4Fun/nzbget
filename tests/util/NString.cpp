@@ -189,4 +189,27 @@ BOOST_AUTO_TEST_CASE(CharBufferTest)
 	BOOST_CHECK(buf.Size() == 0);
 }
 
+BOOST_AUTO_TEST_CASE(CStringEdgeTest)
+{
+	// an empty result freed the string's block and left it pointing there
+	CString str("some text that's long enough to move");
+	BOOST_CHECK_EQUAL(str.Format("%s", ""), 1);
+	BOOST_CHECK_EQUAL(str.Length(), 0);
+	BOOST_CHECK_EQUAL(*str, "");
+	str.Append("next");
+	BOOST_CHECK_EQUAL(*str, "next");
+	str.AppendFmt("%s", "");
+	BOOST_CHECK_EQUAL(*str, "next");
+
+	// a deletion reaching past the end: the tail was copied from beyond it
+	CString text("abcdef");
+	text.Replace(4, 10, "XY");
+	BOOST_CHECK_EQUAL(*text, "abcdXY");
+
+	// an empty (null) string
+	CString none;
+	BOOST_CHECK_EQUAL(none.Find("a"), -1);
+	none.Replace("a", "b");
+}
+
 BOOST_AUTO_TEST_SUITE_END()

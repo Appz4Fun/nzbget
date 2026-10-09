@@ -177,13 +177,12 @@ void CString::AppendFmtV(const char* format, va_list ap)
 		return;
 	}
 
-	if (vsnprintf(data + curLen, static_cast<size_t>(addLen + 1), format, ap2) > 0)
+	// the block is ours from here: realloc may have freed the old one, and
+	// freeing this one on a failed write left m_data pointing to freed memory
+	m_data = data;
+	if (vsnprintf(m_data + curLen, static_cast<size_t>(addLen + 1), format, ap2) < 0)
 	{
-		m_data = data;
-	}
-	else
-	{
-		free(data);
+		m_data[curLen] = '\0';
 	}
 
 	va_end(ap2);
@@ -218,21 +217,24 @@ int CString::FormatV(const char* format, va_list ap)
 		return 0;
 	}
 
-	if (vsnprintf(data, static_cast<size_t>(newLen), format, ap2) > 0)
+	// the block is ours from here (see AppendFmtV). An empty result (a "%s" of
+	// "") wrote 0 characters, freed the block and left m_data dangling: the
+	// string was freed twice later
+	m_data = data;
+	if (vsnprintf(m_data, static_cast<size_t>(newLen), format, ap2) < 0)
 	{
-		m_data = data;
+		m_data[0] = '\0';
 		va_end(ap2);
-		return newLen;
+		return 0;
 	}
 
-	free(data);
 	va_end(ap2);
-	return 0;
+	return newLen;
 }
 
 int CString::Find(const char* str, int pos)
 {
-	if (pos != 0 && pos >= Length())
+	if (!m_data || (pos != 0 && pos >= Length()))
 	{
 		return -1;
 	}
@@ -258,7 +260,8 @@ void CString::Replace(int pos, int len, const char* str, int strLen)
 
 	strncpy(newvalue, m_data, pos);
 	strncpy(newvalue + pos, str, addLen);
-	strcpy(newvalue + pos + addLen, m_data + pos + len);
+	// the tail starts after what was deleted (len may reach past the end)
+	strcpy(newvalue + pos + addLen, m_data + pos + delLen);
 
 	free(m_data);
 	m_data = newvalue;
@@ -397,11 +400,14 @@ void StringBuilder::Reserve(int capacity, bool exact)
 		// we may grow more than requested
 		int smartCapacity = exact ? 0 : (int)(oldCapacity * 1.5);
 
-		m_capacity = smartCapacity > capacity ? smartCapacity : capacity;
+		int newCapacity = smartCapacity > capacity ? smartCapacity : capacity;
 
-		char* data = static_cast<char*>(realloc(m_data, static_cast<size_t>(m_capacity + 1)));
+		char* data = static_cast<char*>(realloc(m_data, static_cast<size_t>(newCapacity + 1)));
 		if (!data) return;
 
+		// only now: a failed realloc kept the old block, and appends trusted
+		// the larger capacity
+		m_capacity = newCapacity;
 		m_data = data;
 		if (!oldData)
 		{
