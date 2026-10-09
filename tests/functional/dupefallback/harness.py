@@ -9351,24 +9351,24 @@ def scenario_parvolnames(daemon, t):
             % (h['Status'], h['ParStatus'], unpaused, len(vols)))
 
 
-def _pardamage_release(t, tag, seed, missing):
-    """8 data files of 2 MB (50 KB articles) and a par2 set of 512 KB blocks with
-    only 3 recovery blocks; <missing> part numbers lost in every data file."""
+def _pardamage_release(t, tag, seed, missing, size=2_000_000, block=524288):
+    """8 data files of <size> (50 KB articles) and a par2 set of 512 KB blocks
+    with only 3 recovery blocks; <missing> part numbers lost in every data file."""
     import subprocess as _sp
     work = t.path('data', tag)
     os.makedirs(work, exist_ok=True)
     names = []
     for i in range(8):
         name = 'data%d.bin' % i
-        t.write_file(os.path.join('data', tag, name), _payload(2_000_000, seed + i))
+        t.write_file(os.path.join('data', tag, name), _payload(size, seed + i))
         names.append(name)
-    _sp.run(['par2', 'create', '-q', '-q', '-s524288', '-c3', '-n1', '-a', 'rel', 'rel.par2'] + names,
+    _sp.run(['par2', 'create', '-q', '-q', '-s%d' % block, '-c3', '-n1', '-a', 'rel', 'rel.par2'] + names,
             cwd=work, check=True, capture_output=True)
     members = []
     for name in sorted(n for n in os.listdir(work) if n.endswith('.par2')):
         members.append(('%s/%s' % (tag, name), name, os.path.getsize(os.path.join(work, name)), 50_000, set()))
     for name in names:
-        members.append(('%s/%s' % (tag, name), name, 2_000_000, 50_000, set(missing)))
+        members.append(('%s/%s' % (tag, name), name, size, 50_000, set(missing)))
     return members
 
 
@@ -9394,6 +9394,31 @@ def scenario_pardamagefailover(daemon, t):
     over = _grep_log(t, "par-repair can't fix it")
     ok = over == 1 and not hp['Status'].startswith('FAILURE/PAR') and hb['Status'].startswith('SUCCESS')
     return ('pardamagefailover', ok, 'primary=%s backup=%s failover_logs=%d' % (hp['Status'], hb['Status'], over))
+
+
+def scenario_pardamageborrow(daemon, t):
+    """The par-damage failover with borrowing on (DupeArticleFallback=live): the
+    spoiled blocks end its wait for par-check, it gets its turn, and the
+    failover comes once it tried 32 articles and found under half (the backup
+    waits in history: another encode, other sizes, nothing it can lend)."""
+    # 1 MB blocks: a par2 set big enough that health (87%) stays above critical
+    # (81%), while 48 lost articles spoil 16 blocks of the 3 it can recover
+    primary = _pardamage_release(t, 'pbP', 12480, {3, 10, 17, 24, 31, 38}, block=1048576)
+    backup = _pardamage_release(t, 'pbB', 12490, set(), size=2_100_000, block=1048576)
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'pb-key', 100)
+    daemon.append(api, 'Backup', build_multi_nzb(backup), False, 'pb-key', 90)
+    daemon.wait_history(api, 'Backup', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=300)
+    deadline = time.time() + 240
+    hb = daemon.wait_history(api, 'Backup')
+    while hb['Status'].startswith('DELETED') and time.time() < deadline:
+        time.sleep(1)
+        hb = daemon.wait_history(api, 'Backup')
+    over = _grep_log(t, "par-repair can't fix it")
+    ok = over == 1 and hb['Status'].startswith('SUCCESS')
+    return ('pardamageborrow', ok, 'primary=%s backup=%s failover_logs=%d' % (hp['Status'], hb['Status'], over))
 
 
 def scenario_pardamagerepairable(daemon, t):
@@ -9889,6 +9914,7 @@ SCENARIOS = {
     'connectioncap': scenario_connectioncap,
     'parvolnames': scenario_parvolnames,
     'pardamagefailover': scenario_pardamagefailover,
+    'pardamageborrow': scenario_pardamageborrow,
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
     'parlesstwin': scenario_parlesstwin,
@@ -10205,6 +10231,7 @@ SCENARIO_OPTIONS = {
     'scriptsockets': ['Extensions=fdlist'],
     'parvolnames': ['ParCheck=auto'],
     'pardamagefailover': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
+    'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],

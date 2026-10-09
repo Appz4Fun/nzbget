@@ -1947,6 +1947,20 @@ bool QueueCoordinator::CheckParDamage(DownloadQueue* downloadQueue, NzbInfo* nzb
 		return false;
 	}
 
+	// borrowing the missing articles from duplicates gets its turn first (B36):
+	// the damage ends its wait for par-check (ParCannotCover), and the failover
+	// comes when it tried DupeFailoverSample articles and recovered under half
+	if (g_Options->GetDupeArticleFallback() != Options::dafNone && !g_Options->GetRawArticle() &&
+		nzbInfo->GetDupeMode() != dmForce && DupeArticleFallback::HasPar2(nzbInfo))
+	{
+		int attempted = nzbInfo->GetDupeAttemptedArticles() + nzbInfo->GetDupeUnsourcedArticles();
+		if (nzbInfo->GetDupeParDeferState() == NzbInfo::dpDeferred ||
+			attempted < DupeFailoverSample || nzbInfo->GetDupeRecoveredArticles() * 2 >= attempted)
+		{
+			return false;
+		}
+	}
+
 	// a duplicate of it queued and not paused: a dupe tool is swapping it for a
 	// backup just now, and failing over too would fetch a second one (paused
 	// duplicates are borrowing donors, no reason to wait)

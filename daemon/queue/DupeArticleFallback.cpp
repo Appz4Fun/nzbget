@@ -24,6 +24,7 @@
 #include <map>
 #include <set>
 #include "DupeArticleFallback.h"
+#include "ParDamage.h"
 #include "DupeCoordinator.h"
 #include "NzbFile.h"
 #include "Options.h"
@@ -122,7 +123,6 @@ bool DupeArticleFallback::ParCannotCover(NzbInfo* nzbInfo, bool withMargin)
 	{
 		return true;
 	}
-
 	// what the data tried so far projects (B59: Dark Matter S02E05 lost 21% of its
 	// data, its par2 covered 20%; the failures outgrew the par2 data only at the end)
 	int tried = nzbInfo->GetCurrentSuccessArticles() + nzbInfo->GetCurrentFailedArticles();
@@ -180,8 +180,12 @@ bool DupeArticleFallback::TryFallback(DownloadQueue* downloadQueue, FileInfo* fi
 		// Once lifted, the wait stays lifted: a projection can fall back below the
 		// par2 data (articles fetched from a lead duplicate count as arrived).
 		bool parDefer = ShouldDeferToPar(nzbInfo);
+		// par2 repairs whole blocks: the blocks the failed articles spoiled may
+		// be more than its volumes hold long before the bytes are (ParDamage);
+		// borrowing then starts, and the par-damage failover waits for it
 		bool defer = parDefer && articleInfo->GetPartNumber() != 1 &&
-			nzbInfo->GetDupeParDeferState() != NzbInfo::dpLifted && !ParCannotCover(nzbInfo);
+			nzbInfo->GetDupeParDeferState() != NzbInfo::dpLifted && !ParCannotCover(nzbInfo) &&
+			!ParDamage::Judge(nzbInfo).Certain();
 		// say once per collection which way the par-first rule went, so a
 		// download that borrowed nothing can be told apart from one that tried
 		if (defer && nzbInfo->GetDupeParDeferState() == NzbInfo::dpNone &&
