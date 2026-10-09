@@ -218,6 +218,11 @@ private:
 
 	Repairer* GetRepairer() { return m_repairer->GetRepairer(); }
 
+public:
+	// the par-set's block size once a par2-file is loaded, else 0
+	int64 GetBlockSize();
+private:
+
 	void Cleanup();
 	EStatus RunParCheckAll();
 	EStatus RunParCheck(std::string parFilename);

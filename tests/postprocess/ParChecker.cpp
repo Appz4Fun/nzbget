@@ -22,6 +22,7 @@
 #include "nzbget.h"
 
 #include <boost/test/unit_test.hpp>
+#include "ParParser.h"
 #include "Options.h"
 #include "ParChecker.h"
 #include "FileSystem.h"
@@ -327,6 +328,23 @@ BOOST_AUTO_TEST_CASE(ExtCleanupDiskDatTest)
 	parChecker.Execute();
 
 	BOOST_CHECK_EQUAL(parChecker.GetStatus(), expectedStatus);
+}
+
+BOOST_AUTO_TEST_CASE(ParFilenameBlockCountTest)
+{
+	int baseLen = 0;
+	int blocks = 0;
+	BOOST_CHECK(ParParser::ParseParFilename("movie.vol07+08.par2", true, &baseLen, &blocks));
+	BOOST_CHECK_EQUAL(blocks, 8);
+	BOOST_CHECK_EQUAL(baseLen, 5);
+
+	// numbered volumes without a block count: unknown, not the volume number
+	BOOST_CHECK(ParParser::ParseParFilename("movie.vol-06.par2", true, &baseLen, &blocks));
+	BOOST_CHECK_EQUAL(blocks, -1);
+	BOOST_CHECK_EQUAL(baseLen, 5);
+
+	BOOST_CHECK(ParParser::ParseParFilename("movie.par2", true, &baseLen, &blocks));
+	BOOST_CHECK_EQUAL(blocks, 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

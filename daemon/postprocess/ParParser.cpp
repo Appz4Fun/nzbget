@@ -111,7 +111,11 @@ bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename
 		}
 		if (b)
 		{
-			blockcnt = atoi(b+1);
+			// "name.vol-06.par2" (some posters number the volumes only): the
+			// number is the volume's, not a block count. The count is unknown
+			// (-1); it read as 6, and a set of such volumes added up to far fewer
+			// blocks than it holds, so none was ever requested
+			blockcnt = b == p + 4 ? -1 : atoi(b+1);
 			*p = '\0';
 		}
 	}

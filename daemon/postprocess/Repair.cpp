@@ -469,8 +469,15 @@ void RepairController::FindPars(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, 
 	for (FileInfo* fileInfo : nzbInfo->GetFileList())
 	{
 		int blockCount = 0;
-		if (ParParser::ParseParFilename(fileInfo->GetFilename(), fileInfo->GetFilenameConfirmed(), nullptr, &blockCount) &&
-			blockCount > 0)
+		bool parsed = ParParser::ParseParFilename(fileInfo->GetFilename(), fileInfo->GetFilenameConfirmed(), nullptr, &blockCount);
+		if (parsed && blockCount < 0)
+		{
+			// a volume named without its block count ("vol-06"): estimated from
+			// its size (a recovery packet is a block and 68 bytes)
+			int64 blockSize = m_parChecker.GetBlockSize();
+			blockCount = blockSize > 0 ? (int)std::max<int64>(1, fileInfo->GetSize() / (blockSize + 68)) : 1;
+		}
+		if (parsed && blockCount > 0)
 		{
 			bool useFile = true;
 
