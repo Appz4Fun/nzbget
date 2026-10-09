@@ -46,6 +46,9 @@ private:
 	std::unique_ptr<Connection> m_connection;
 	RequestProcessors m_activeProcessors;
 	Mutex m_processorsMutex;
+	time_t m_lastCapWarning = 0;
+	// concurrent web interface/API connections, one thread each
+	static const int MaxProcessors = 256;
 };
 
 class RequestProcessor : public Thread, public Subject

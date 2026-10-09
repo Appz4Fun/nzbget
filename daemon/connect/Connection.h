@@ -73,6 +73,8 @@ public:
 	void SetTimeout(int timeout) { m_timeout = timeout; }
 	void SetIPVersion(EIPVersion ipVersion) { m_ipVersion = ipVersion; }
 	EStatus GetStatus() { return m_status; }
+	// the last Accept() failed for lack of descriptors or memory, not on the listener
+	bool GetAcceptBusy() { return m_acceptBusy; }
 	// the peer can't be relied on any more (a timeout mid-reply): Disconnect sends
 	// nothing and waits for nothing
 	void SetBroken() { m_status = csBroken; }
@@ -101,6 +103,7 @@ protected:
 	std::atomic<EStatus> m_status{csDisconnected};
 	int m_timeout = 60;
 	bool m_suppressErrors = true;
+	bool m_acceptBusy = false;
 	BString<100> m_remoteAddr;
 	int m_totalBytesRead = 0;
 	bool m_gracefull = false;

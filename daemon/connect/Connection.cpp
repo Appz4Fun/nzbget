@@ -26,6 +26,20 @@
 #include "FileSystem.h"
 #include "Options.h"
 
+// sockets aren't inherited by the scripts nzbget starts: a script that outlived
+// the program kept the control port listening, and copies of client sockets kept
+// connections from closing
+#ifdef SOCK_CLOEXEC
+#define SOCKET_CLOEXEC SOCK_CLOEXEC
+#else
+#define SOCKET_CLOEXEC 0
+#endif
+
+#ifndef WIN32
+#include <poll.h>
+#endif
+
+
 static const int CONNECTION_READBUFFER_SIZE = 1024;
 // past the data read into a buffer: a decoder writing into it (uuencoded lines) may
 // write up to one line's worth more than it was given
@@ -221,7 +235,7 @@ bool Connection::Bind()
 		}
 		strcpy(addr.sun_path, m_host.c_str());
 
-		m_socket = socket(PF_UNIX, SOCK_STREAM, 0);
+		m_socket = socket(PF_UNIX, SOCK_STREAM | SOCKET_CLOEXEC, 0);
 		if (m_socket == INVALID_SOCKET)
 		{
 			ReportError("Socket creation failed for %s", m_host.c_str(), true);
@@ -265,7 +279,7 @@ bool Connection::Bind()
 		m_socket = INVALID_SOCKET;
 		for (addr = addr_list; addr != nullptr; addr = addr->ai_next)
 		{
-			m_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+			m_socket = socket(addr->ai_family, addr->ai_socktype | SOCKET_CLOEXEC, addr->ai_protocol);
 #ifdef WIN32
 			SetHandleInformation((HANDLE)m_socket, HANDLE_FLAG_INHERIT, 0);
 #endif
@@ -307,7 +321,7 @@ bool Connection::Bind()
 		}
 		sSocketAddress.sin_port = htons(m_port);
 
-		m_socket = socket(PF_INET, SOCK_STREAM, 0);
+		m_socket = socket(PF_INET, SOCK_STREAM | SOCKET_CLOEXEC, 0);
 		if (m_socket == INVALID_SOCKET)
 		{
 			ReportError("Socket creation failed for %s", m_host.c_str(), true);
@@ -479,7 +493,37 @@ std::unique_ptr<Connection> Connection::Accept()
 		return nullptr;
 	}
 
-	SOCKET socket = accept(m_socket, nullptr, nullptr);
+	m_acceptBusy = false;
+	SOCKET socket;
+	for (;;)
+	{
+#if defined(__linux__) && defined(SOCK_CLOEXEC)
+		socket = accept4(m_socket, nullptr, nullptr, SOCK_CLOEXEC);
+#else
+		socket = accept(m_socket, nullptr, nullptr);
+#endif
+#ifndef WIN32
+		if (socket == INVALID_SOCKET && m_status != csCancelled)
+		{
+			// a connection that failed before it was taken: take the next one
+			// (the listener was torn down and rebound for each of these)
+			int err = errno;
+			if (err == EINTR || err == ECONNABORTED || err == EPROTO || err == ENETDOWN ||
+				err == ENOPROTOOPT || err == EHOSTDOWN || err == EHOSTUNREACH ||
+				err == EOPNOTSUPP || err == ENETUNREACH
+#ifdef ENONET
+				|| err == ENONET
+#endif
+				)
+			{
+				continue;
+			}
+			// out of descriptors or memory: the listener is fine, the caller waits
+			m_acceptBusy = err == EMFILE || err == ENFILE || err == ENOBUFS || err == ENOMEM;
+		}
+#endif
+		break;
+	}
 	if (socket == INVALID_SOCKET && m_status != csCancelled)
 	{
 		ReportError("Could not accept connection for %s", m_host.c_str(), true);
@@ -568,7 +612,7 @@ bool Connection::DoConnect()
 		}
 		strcpy(addr.sun_path, m_host.c_str());
 
-		m_socket = socket(PF_UNIX, SOCK_STREAM, 0);
+		m_socket = socket(PF_UNIX, SOCK_STREAM | SOCKET_CLOEXEC, 0);
 		if (m_socket == INVALID_SOCKET)
 		{
 			ReportError("Socket creation failed for %s", m_host.c_str(), true);
@@ -638,7 +682,7 @@ bool Connection::DoConnect()
 				closesocket(m_socket);
 			}
 
-			m_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+			m_socket = socket(addr->ai_family, addr->ai_socktype | SOCKET_CLOEXEC, addr->ai_protocol);
 #ifdef WIN32
 			SetHandleInformation((HANDLE)m_socket, HANDLE_FLAG_INHERIT, 0);
 #endif
@@ -687,7 +731,7 @@ bool Connection::DoConnect()
 			return false;
 		}
 
-		m_socket = socket(PF_INET, SOCK_STREAM, 0);
+		m_socket = socket(PF_INET, SOCK_STREAM | SOCKET_CLOEXEC, 0);
 		if (m_socket == INVALID_SOCKET)
 		{
 			ReportError("Socket creation failed for %s", m_host.c_str(), true);
@@ -752,9 +796,10 @@ bool Connection::InitSocketOpts(SOCKET socket)
 bool Connection::ConnectWithTimeout(void* address, int address_len)
 {
 	int flags = 0, error = 0, ret = 0;
-	fd_set rset, wset;
 	socklen_t len = sizeof(error);
 
+#ifdef WIN32
+	fd_set rset, wset;
 	struct timeval ts;
 	ts.tv_sec = m_timeout;
 	ts.tv_usec = 0;
@@ -764,6 +809,7 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 	FD_ZERO(&rset);
 	FD_SET(m_socket, &rset);
 	wset = rset;    //structure assignment ok
+#endif
 
 	//set socket nonblocking flag
 #ifdef WIN32
@@ -803,7 +849,17 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 	//connect succeeded right away?
 	if (ret != 0)
 	{
+#ifdef WIN32
 		ret = select((int)m_socket + 1, &rset, &wset, nullptr, m_timeout ? &ts : nullptr);
+#else
+		// poll: an fd_set holds descriptors below 1024 only, and FD_SET of a
+		// higher one (many connections, a raised descriptor limit) wrote past it
+		struct pollfd pfd;
+		pfd.fd = m_socket;
+		pfd.events = POLLIN | POLLOUT;
+		pfd.revents = 0;
+		ret = poll(&pfd, 1, m_timeout ? m_timeout * 1000 : -1);
+#endif
 		//we are waiting for connect to complete now
 		if (ret < 0)
 		{
@@ -820,10 +876,17 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 			return false;
 		}
 
+#ifdef WIN32
 		if (!(FD_ISSET(m_socket, &rset) || FD_ISSET(m_socket, &wset)))
 		{
 			return false;
 		}
+#else
+		if (!(pfd.revents & (POLLIN | POLLOUT | POLLERR | POLLHUP)))
+		{
+			return false;
+		}
+#endif
 		//we had a positivite return so a descriptor is ready
 
 		if (getsockopt(m_socket, SOL_SOCKET, SO_ERROR, (char*)&error, &len) < 0)

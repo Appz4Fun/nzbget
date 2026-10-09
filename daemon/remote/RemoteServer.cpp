@@ -21,6 +21,8 @@
 
 
 #include "nzbget.h"
+
+#include <system_error>
 #include "RemoteServer.h"
 #include "BinRpc.h"
 #include "WebServer.h"
@@ -71,6 +73,12 @@ void RemoteServer::Run()
 			m_connection->SetTimeout(g_Options->GetRemoteTimeout());
 			m_connection->SetSuppressErrors(false);
 			bind = m_connection->Bind();
+			// a Stop() before the socket existed couldn't cancel it: accept()
+			// waited for the next client
+			if (IsStopped())
+			{
+				break;
+			}
 		}
 
 		// Accept connections and store the new Connection
@@ -78,6 +86,13 @@ void RemoteServer::Run()
 		if (bind)
 		{
 			acceptedConnection = m_connection->Accept();
+		}
+		if (bind && !acceptedConnection && m_connection->GetAcceptBusy() && !IsStopped())
+		{
+			// out of descriptors or memory: the listener is fine, and tearing it
+			// down dropped the clients waiting in its backlog
+			Util::Sleep(200);
+			continue;
 		}
 		if (!bind || !acceptedConnection)
 		{
@@ -93,16 +108,41 @@ void RemoteServer::Run()
 
 		if (!IsStopped())
 		{
+			Guard guard(m_processorsMutex);
+			// a thread per connection: past the cap a connection is closed at once
+			// (clients that connect and wait ran the program out of threads)
+			if ((int)m_activeProcessors.size() >= MaxProcessors)
+			{
+				time_t now = Util::CurrentTime();
+				if (now - m_lastCapWarning >= 60)
+				{
+					m_lastCapWarning = now;
+					warn("Too many connections to the web interface/API (%i); refusing new ones", MaxProcessors);
+				}
+				continue;
+			}
 			RequestProcessor* commandThread = new RequestProcessor();
 			commandThread->SetAutoDestroy(true);
 			commandThread->SetConnection(std::move(acceptedConnection));
 #ifndef DISABLE_TLS
 			commandThread->SetTls(m_tls);
 #endif
-			Guard guard(m_processorsMutex);
 			m_activeProcessors.push_back(commandThread);
 			commandThread->Attach(this);
-			commandThread->Start();
+			try
+			{
+				commandThread->Start();
+			}
+			catch (const std::system_error& e)
+			{
+				// no thread could be made (a process or thread limit): the
+				// exception ended the program
+				m_activeProcessors.pop_back();
+				commandThread->Detach(this);
+				delete commandThread;
+				warn("Could not start a thread for a web interface/API connection: %s", e.what());
+				Util::Sleep(200);
+			}
 		}
 	}
 
@@ -135,15 +175,18 @@ void RemoteServer::Stop()
 		m_connection->SetSuppressErrors(true);
 		m_connection->SetForceClose(true);
 		m_connection->Cancel();
+	}
 
-		debug("Stopping RequestProcessors");
+	// also while no listener exists (between retries): they were left running
+	debug("Stopping RequestProcessors");
+	{
 		Guard guard(m_processorsMutex);
 		for (RequestProcessor* requestProcessor : m_activeProcessors)
 		{
 			requestProcessor->Stop();
 		}
-		debug("RequestProcessors are notified");
 	}
+	debug("RequestProcessors are notified");
 	debug("RemoteServer stop end");
 }
 
@@ -165,7 +208,12 @@ void RemoteServer::Update(Subject* caller, void* aspect)
 
 	RequestProcessor* requestProcessor = (RequestProcessor*)caller;
 	Guard guard(m_processorsMutex);
-	m_activeProcessors.erase(std::find(m_activeProcessors.begin(), m_activeProcessors.end(), requestProcessor));
+	// not listed after ForceStop() cleared the list: erasing end() is undefined
+	auto it = std::find(m_activeProcessors.begin(), m_activeProcessors.end(), requestProcessor);
+	if (it != m_activeProcessors.end())
+	{
+		m_activeProcessors.erase(it);
+	}
 }
 
 //*****************************************************************
