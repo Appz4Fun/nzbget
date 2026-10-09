@@ -3348,23 +3348,33 @@ void DownloadExtensionXmlCommand::Execute()
 	}
 
 	const auto result = g_ExtensionManager->DownloadExtension(url, extName);
+	const auto& filename = std::get<1>(result);
+	// the downloaded archive stayed in TempDir whenever the install didn't
+	// happen (a successful install removes it)
+	auto removeDownload = [&filename]()
+		{
+			fs::error_code ec;
+			fs::remove(filename, ec);
+		};
 	bool ok = std::get<0>(result) == WebDownloader::adFinished;
 	if (!ok)
 	{
+		removeDownload();
 		BuildErrorResponse(3, "Failed to read URL");
 		return;
 	}
 
 	if (g_Options->GetScriptDirPaths().empty())
 	{
+		removeDownload();
 		BuildErrorResponse(3, "\"ScriptDir\" is not specified");
 		return;
 	}
 
-	const auto& filename = std::get<1>(result);
 	const auto error = g_ExtensionManager->InstallExtension(filename, g_Options->GetScriptDirPaths().front());
 	if (error)
 	{
+		removeDownload();
 		BuildErrorResponse(3, "%s", error.value().c_str());
 		return;
 	}
@@ -3394,6 +3404,9 @@ void UpdateExtensionXmlCommand::Execute()
 	bool ok = std::get<0>(result) == WebDownloader::adFinished;
 	if (!ok)
 	{
+		// a partly downloaded archive stayed in TempDir
+		fs::error_code ec;
+		fs::remove(std::get<1>(result), ec);
 		BuildErrorResponse(3, "Failed to read URL");
 		return;
 	}

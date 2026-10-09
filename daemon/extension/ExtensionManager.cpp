@@ -19,6 +19,8 @@
 
 #include "nzbget.h"
 
+#include <atomic>
+
 #include "Util.h"
 #include "Unpack.h"
 #include "ExtensionLoader.h"
@@ -56,7 +58,12 @@ namespace ExtensionManager
 	std::pair<WebDownloader::EStatus, fs::path>
 	Manager::DownloadExtension(const std::string& url, const std::string& extName)
 	{
-		fs::path tmpFileName = g_Options->GetTempDirPath() / (extName + ".tmp.zip");
+		// a name of our own, not the extension's: that one comes from the request
+		// ("../x" wrote anywhere the daemon can), and two downloads of one
+		// extension at once wrote the same file
+		static std::atomic<int> counter{0};
+		fs::path tmpFileName = g_Options->GetTempDirPath() /
+			("extension-" + std::to_string(Util::CurrentTime()) + "-" + std::to_string(++counter) + ".tmp.zip");
 
 		const auto tmpFileNameStr = fs::u8string(tmpFileName);
 
