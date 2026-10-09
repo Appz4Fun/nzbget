@@ -170,6 +170,7 @@ void NzbFile::AddFileInfo(std::unique_ptr<FileInfo> fileInfo)
 	if (int declared = DeclaredTail(fileInfo.get()))
 	{
 		totalArticles = declared;
+		m_cutShortFiles.insert(fileInfo.get());
 	}
 	int missedArticles = totalArticles - (int)articles->size();
 	int64 oneSize = articles->front()->GetSize();

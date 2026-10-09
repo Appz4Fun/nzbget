@@ -23,6 +23,7 @@
 #ifndef NZBFILE_H
 #define NZBFILE_H
 
+#include <set>
 #include "NString.h"
 #include "DownloadInfo.h"
 
@@ -41,6 +42,8 @@ public:
 	void LogDebugInfo();
 	// part count declared at the end of a subject ("... yEnc (1/N)"), or 0
 	static int DeclaredParts(const char* subject);
+	// the files whose nzb stops short of the parts their subject declares
+	const std::set<FileInfo*>& GetCutShortFiles() const { return m_cutShortFiles; }
 
 private:
 	std::unique_ptr<NzbInfo> m_nzbInfo;
@@ -49,6 +52,7 @@ private:
 	std::string m_password;
 	std::string m_metaName;
 	std::string m_metaTitle;
+	std::set<FileInfo*> m_cutShortFiles;
 
 	ArticleInfo* AddArticle(FileInfo* fileInfo, std::unique_ptr<ArticleInfo> articleInfo);
 	void AddFileInfo(std::unique_ptr<FileInfo> fileInfo);

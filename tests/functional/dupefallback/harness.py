@@ -8969,9 +8969,20 @@ def scenario_partialnzbdeclared(daemon, t):
     time.sleep(2)
     group = next(g for g in api.listgroups() if g['NZBName'] == 'RelPD')
     health = int(group['Health'])
-    warned = _grep_log(t, 'lists only 100 of the 200 articles of movie.mkv')
-    ok = warned == 1 and health <= 550
-    return ('partialnzbdeclared', ok, 'health=%d warned=%d' % (health, warned))
+    warned = _grep_log(t, 'WARNING\tCollection RelPD lists only 100 of the 200 articles of movie.mkv')
+    # one segment an indexer dropped (a gap, nothing past the end): a detail,
+    # not a warning for every such release
+    g = _payload(400_000, 12444)
+    pg = _place_copy(t, 'pgA', g, 'gap.mkv')
+    daemon.append(api, 'RelPG', build_nzb(pg, 'gap.mkv', len(g), 20_000, set()).replace(
+        _re.search(r'<segment bytes="\d+" number="5">[^<]*</segment>\n', build_nzb(pg, 'gap.mkv', len(g), 20_000, set())).group(0), ''),
+        False, 'pg-key', 100)
+    time.sleep(2)
+    gap_detail = _grep_log(t, 'DETAIL\tCollection RelPG lists only 19 of the 20 articles of gap.mkv')
+    gap_warned = _grep_log(t, 'WARNING\tCollection RelPG')
+    ok = warned == 1 and health <= 550 and gap_detail == 1 and gap_warned == 0
+    return ('partialnzbdeclared', ok, 'health=%d warned=%d gap_detail=%d gap_warned=%d'
+            % (health, warned, gap_detail, gap_warned))
 
 
 def scenario_daemonlock(daemon, t):
