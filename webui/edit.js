@@ -1302,6 +1302,7 @@ var DownloadsMultiDialog = (new function($)
 		{
 			var group = groups[i];
 			FileSizeMB += group.FileSizeMB;
+			FileSizeLo += group.FileSizeLo;
 			RemainingSizeMB += group.RemainingSizeMB;
 			RemainingSizeLo += group.RemainingSizeLo;
 			PausedSizeMB += group.PausedSizeMB;

@@ -395,7 +395,7 @@ var Upload = (new function($)
 		var failure = result < 0 || (result == 0 && Options.option('ScanScript') === '');
 		errors |= failure;
 		needRefresh |= !failure;
-		if (result)
+		if (!failure)
 		{
 			filesSuccess.push(files[index]);
 			$('#AddDialog_Files table:eq(' + index + ') i.material-icon--success').toggleClass('hide');
@@ -412,7 +412,9 @@ var Upload = (new function($)
 	function fileFailure(res)
 	{
 		failure_message = res;
-		fileCompleted(false);
+		// an RPC error: false read as 0, which counts as success when a scan
+		// script is set, and the error was never shown
+		fileCompleted(-1);
 	}
 
 	function urlNext()

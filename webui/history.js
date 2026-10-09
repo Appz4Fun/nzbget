@@ -40,6 +40,7 @@ var History = (new function($)
 
 	// State
 	var history = [];
+	var firstLoad = true;
 	var notification = null;
 	var updateTabInfo;
 	var curFilter = 'ALL';
@@ -124,8 +125,11 @@ var History = (new function($)
 
 	function loaded(_history, _cached)
 	{
-		if (!history)
+		// once, on the first load ("!history" never held: it starts as [], so the
+		// DUPE filter stayed shown without DupeCheck)
+		if (firstLoad)
 		{
+			firstLoad = false;
 			$('#HistoryTable_Category').css('width', DownloadsUI.calcCategoryColumnWidth());
 			initFilterButtons();
 		}
@@ -199,7 +203,7 @@ var History = (new function($)
 			var kind = hist.Kind;
 			hist.status = HistoryUI.buildStatusText(hist);
 			hist.name = hist.Name;
-			hist.size = kind === 'URL' && hist.FileSizeLo == 0 && hist.FileSizeHi == 0 ? '' : Util.formatSizeMB(hist.FileSizeMB);
+			hist.size = kind === 'URL' && hist.FileSizeLo == 0 && hist.FileSizeHi == 0 ? '' : Util.formatSizeMB(hist.FileSizeMB, hist.FileSizeLo);
 			hist.sizemb = hist.FileSizeMB;
 			hist.sizegb = hist.FileSizeMB / 1024;
 			hist.time = Util.formatDateTime(hist.HistoryTime + UISettings.timeZoneCorrection*60*60);

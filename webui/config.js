@@ -4011,16 +4011,18 @@ var ExtensionManager = (new function($)
 				}
 				deleteGlobalSettings(ext.name);
 
+				// the failure handler is the call's own (a misplaced parenthesis left
+				// it outside, and failures went to the general error banner)
 				RPC.call('saveconfig', [Config.config().values], 
 				function(_) 
 				{
 					updatePage();
-				}),
+				},
 				function(error) 
 				{
 					updatePage();
 					showErrorBanner(I18n.translate('msg_save_config_failed'), error);
-				}
+				});
 			},
 			function(error) 
 			{
@@ -4146,11 +4148,11 @@ var ExtensionManager = (new function($)
 			function(_) 
 			{
 				updatePage();
-			}),
+			},
 			function(error) 
 			{
 				showErrorBanner(I18n.translate('msg_save_config_failed'), error);
-			}
+			})
 		}
 		else
 		{
