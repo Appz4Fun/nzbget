@@ -89,7 +89,7 @@ DupeProbe::EAnswer DupeProbe::Classify(const char* response)
 bool DupeProbe::IsDead(int existing, int definitiveServers, int activeServers)
 {
 	return existing < MinAliveSamples && definitiveServers > 0 &&
-		definitiveServers >= std::min(MinMissingServers, activeServers);
+		definitiveServers >= activeServers;
 }
 
 void DupeProbe::Start(int nzbId, std::vector<Sample> samples, int recoveredAtStart)
@@ -254,6 +254,13 @@ bool DupeProbe::ProbeServer(int serverId, std::set<int>& probed, ServerResult& r
 	}
 	if (!connection)
 	{
+		// none free (the download holds them all: it's no evidence) or the
+		// server is down: blocked after failing to connect, or blocked within
+		// the last minute (its block ran out, and the download's own retries
+		// hold its connections)
+		time_t blockTime = wanted->GetBlockTime();
+		result.Unreachable = g_ServerPool->IsServerBlocked(wanted) ||
+			(blockTime > 0 && Util::CurrentTime() - blockTime < RecentBlockSec);
 		return false;
 	}
 
@@ -285,6 +292,7 @@ bool DupeProbe::ProbeServer(int serverId, std::set<int>& probed, ServerResult& r
 			if (!connection->Connect())
 			{
 				result.Unknown += remaining + 1;
+				result.Unreachable = result.Exists + result.Missing == 0;
 				break;
 			}
 
@@ -389,7 +397,13 @@ DupeProbe::Verdict DupeProbe::Measure(int limitSec)
 		}
 
 		ServerResult result;
-		if (!ProbeServer(entry.second, probed, result))
+		bool reached = ProbeServer(entry.second, probed, result);
+		if (result.Unreachable)
+		{
+			verdict.ActiveServers--;
+			verdict.UnreachableServers++;
+		}
+		if (!reached)
 		{
 			// not reached (no connection, not asked): no evidence either way
 			continue;
@@ -489,6 +503,19 @@ void DupeProbe::Recheck()
 	}
 }
 
+namespace
+{
+BString<100> Unreachable(const DupeProbe::Verdict& verdict)
+{
+	BString<100> text;
+	if (verdict.UnreachableServers > 0)
+	{
+		text.Format(", %i unreachable left out", verdict.UnreachableServers);
+	}
+	return text;
+}
+}
+
 void DupeProbe::Run()
 {
 	if (m_countAll)
@@ -510,8 +537,9 @@ void DupeProbe::Run()
 	if (verdict.Dead())
 	{
 		Note(Message::mkInfo, "Dupe probe: %i of %i sampled articles exist (%i of %i servers answered "
-			"definitively)%s%s: the posting is dead", verdict.Existing, sampled, verdict.MissingServers,
-			verdict.ActiveServers, verdict.FoundOn.empty() ? "" : ", found on ", verdict.FoundOn.c_str());
+			"definitively%s)%s%s: the posting is dead", verdict.Existing, sampled, verdict.MissingServers,
+			verdict.ActiveServers, *Unreachable(verdict), verdict.FoundOn.empty() ? "" : ", found on ",
+			verdict.FoundOn.c_str());
 		Abandon(verdict.MissingServers, verdict.ActiveServers);
 	}
 	else if (verdict.Existing >= MinAliveSamples)
@@ -536,7 +564,8 @@ void DupeProbe::Run()
 	else if (verdict.Finished)
 	{
 		Note(Message::mkInfo, "Dupe probe: no verdict (%i of %i sampled articles exist, %i of %i servers "
-			"answered definitively)", verdict.Existing, sampled, verdict.MissingServers, verdict.ActiveServers);
+			"answered definitively%s)", verdict.Existing, sampled, verdict.MissingServers, verdict.ActiveServers,
+			*Unreachable(verdict));
 	}
 
 	Unregister();

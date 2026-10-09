@@ -80,8 +80,9 @@ BOOST_AUTO_TEST_CASE(DupeProbeIsDeadTest)
 {
 	// nothing exists and enough servers answered definitively
 	BOOST_CHECK(DupeProbe::IsDead(0, 8, 8));
-	BOOST_CHECK(DupeProbe::IsDead(0, 5, 8));
-	BOOST_CHECK(!DupeProbe::IsDead(0, 4, 8));
+	// a server that didn't answer may hold the posting: not dead with 7 of 8 (or 5)
+	BOOST_CHECK(!DupeProbe::IsDead(0, 7, 8));
+	BOOST_CHECK(!DupeProbe::IsDead(0, 5, 8));
 
 	// with fewer servers than the minimum, all of them must agree
 	BOOST_CHECK(DupeProbe::IsDead(0, 1, 1));

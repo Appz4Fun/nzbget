@@ -65,11 +65,11 @@ public:
 	static constexpr int SampleCount = 10;
 	// postings of fewer articles than this are not probed
 	static constexpr int MinArticles = 4;
-	// servers that must answer definitively for a verdict, if there are that many
-	static constexpr int MinMissingServers = 5;
 	// samples that must exist somewhere for a download to count as alive: a single
 	// stray article doesn't keep a dead posting going (B45)
 	static constexpr int MinAliveSamples = 2;
+	// a server blocked this recently counts as down for the verdict
+	static constexpr int RecentBlockSec = 60;
 
 	/* indexes of <count> samples spread evenly over <total> articles (at the
 	 * middle of each of <count> equal parts) */
@@ -81,8 +81,11 @@ public:
 	static EAnswer Classify(const char* response);
 
 	/* the verdict: fewer than MinAliveSamples sampled articles exist anywhere,
-	 * and at least min(MinMissingServers, activeServers) servers answered every
-	 * sample they were asked definitively (<definitiveServers>) */
+	 * and every active server answered every sample it was asked definitively
+	 * (<definitiveServers>). A server that didn't (busy, errors) may be the one
+	 * that has the posting: with 5 of them enough, a posting only one provider
+	 * keeps read dead whenever that provider was busy (Velvet Underground 7913:
+	 * "0 of 10 exist, 7 of 9 servers answered" with 48% of it arriving) */
 	static bool IsDead(int existing, int definitiveServers, int activeServers);
 
 	/* samples spread over the articles of <files>, treated as one run;
@@ -100,7 +103,8 @@ public:
 		int Existing = 0;			// samples found on some server
 		int MissingServers = 0;		// servers that answered every sample asked definitively
 		std::string FoundOn;		// where the first sample found was, for the log
-		int ActiveServers = 0;
+		int ActiveServers = 0;		// those that count: the unreachable ones are left out
+		int UnreachableServers = 0;
 		int ReachedServers = 0;	// servers asked at all (a free connection was had)
 		bool Finished = true;
 		bool Dead() const { return Finished && IsDead(Existing, MissingServers, ActiveServers); }
@@ -143,6 +147,10 @@ private:
 		int Exists = 0;
 		int Missing = 0;
 		int Unknown = 0;
+		// down (blocked by the pool, or its connection failed): it can't deliver
+		// the posting either, and is left out of the verdict. A busy server isn't:
+		// it may be the one that has the posting
+		bool Unreachable = false;
 	};
 
 	int m_nzbId;
