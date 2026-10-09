@@ -90,6 +90,7 @@ target_sources(libnzbget PRIVATE
 	${CMAKE_SOURCE_DIR}/daemon/dupesearch/XmlReader.cpp
 	${CMAKE_SOURCE_DIR}/daemon/dupesearch/ReleaseName.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/DupeStreamRepair.cpp
+	${CMAKE_SOURCE_DIR}/daemon/queue/ParDamage.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/HistoryCoordinator.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/NzbFile.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/QueueCoordinator.cpp

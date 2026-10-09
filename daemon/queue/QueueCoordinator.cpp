@@ -36,6 +36,7 @@
 #include "DupeCoordinator.h"
 #include "DupeProbe.h"
 #include "DupeStreamRepair.h"
+#include "ParDamage.h"
 #include "DupeArticleFallback.h"
 #include "StreamRepair.h"
 
@@ -1154,6 +1155,12 @@ void QueueCoordinator::DeleteFileInfo(DownloadQueue* downloadQueue, FileInfo* fi
 			filename = fileInfo->GetFilename();
 		}
 
+		// the par2 blocks its failed articles spoil (CheckParDamage)
+		if (completed)
+		{
+			ParDamage::FileCompleted(nzbInfo, fileInfo, filename);
+		}
+
 		// capture the missing byte ranges of an incomplete file for
 		// post-processing stream repair while the article list still exists
 		// (see option <DupeArticleFallback> value "stream"). A file none of
@@ -1525,7 +1532,7 @@ void QueueCoordinator::CheckHealth(DownloadQueue* downloadQueue, FileInfo* fileI
 	if (g_Options->GetHealthCheck() == Options::hcNone ||
 		fileInfo->GetNzbInfo()->GetHealthPaused() ||
 		fileInfo->GetNzbInfo()->GetDeleteStatus() == NzbInfo::dsHealth ||
-		fileInfo->GetNzbInfo()->CalcHealth() >= fileInfo->GetNzbInfo()->CalcCriticalHealth(true) ||
+		fileInfo->GetNzbInfo()->CalcHealth() >= DownloadCriticalHealth(downloadQueue, fileInfo->GetNzbInfo()) ||
 		(g_Options->GetParScan() == Options::psDupe && g_Options->GetHealthCheck() == Options::hcPark &&
 		 fileInfo->GetNzbInfo()->GetSuccessArticles() * 100 / fileInfo->GetNzbInfo()->GetTotalArticles() > 10))
 	{
@@ -1555,6 +1562,128 @@ void QueueCoordinator::CheckHealth(DownloadQueue* downloadQueue, FileInfo* fileI
 	{
 		CheckDupeFailover(downloadQueue, fileInfo->GetNzbInfo());
 	}
+}
+
+/*
+ * The critical health of the download-time checks under HealthCheck=dupe. Seeing
+ * no par2-files, nzbget assumes 85% (the files may be renamed par2-files). A
+ * download that certainly has none - every file named as data - and no duplicate
+ * holding a file of its size that stream repair could fill the holes from can't
+ * lose an article: 100% (Velvet Underground 7913, a single .mp4, 52% of its
+ * articles failing, kept downloading at health 97.5%; TEPES 7909 failed over
+ * only at 84.9%, after 2.4 GB and 3,886 failed articles).
+ */
+int QueueCoordinator::DownloadCriticalHealth(DownloadQueue* downloadQueue, NzbInfo* nzbInfo)
+{
+	int critical = nzbInfo->CalcCriticalHealth(true);
+	if (g_Options->GetHealthCheck() != Options::hcDupe || nzbInfo->CalcCriticalHealth(false) != 1000 ||
+		!CertainlyParless(nzbInfo) || HasSizeTwin(downloadQueue, nzbInfo))
+	{
+		return critical;
+	}
+	return 1000;
+}
+
+bool QueueCoordinator::CertainlyParless(NzbInfo* nzbInfo)
+{
+	// a renamed par2-file loses its extension: only names that are data count
+	auto dataName = [](const char* filename)
+		{
+			const char* dot = strrchr(filename, '.');
+			if (!dot || Util::EmptyStr(dot + 1))
+			{
+				return false;
+			}
+			static const char* extensions[] = { ".mkv", ".mp4", ".avi", ".m4v", ".ts", ".m2ts", ".mov",
+				".wmv", ".mpg", ".mpeg", ".iso", ".rar", ".7z", ".zip", ".nfo", ".sfv", ".srr", ".srt",
+				".sub", ".idx", ".jpg", ".png", ".txt", ".flac", ".mp3", ".m4a" };
+			for (const char* extension : extensions)
+			{
+				if (!strcasecmp(dot, extension))
+				{
+					return true;
+				}
+			}
+			// rar volumes (.r00) and split archives (.001)
+			const char* digits = dot[1] == 'r' || dot[1] == 'R' ? dot + 2 : dot + 1;
+			size_t len = strlen(digits);
+			return len >= 2 && len <= 3 && strspn(digits, "0123456789") == len;
+		};
+
+	if (DupeArticleFallback::HasPar2(nzbInfo))
+	{
+		return false;
+	}
+	int files = 0;
+	for (FileInfo* fileInfo : nzbInfo->GetFileList())
+	{
+		if (!dataName(fileInfo->GetFilename()))
+		{
+			return false;
+		}
+		files++;
+	}
+	for (CompletedFile& completedFile : nzbInfo->GetCompletedFiles())
+	{
+		if (!dataName(completedFile.GetFilename()))
+		{
+			return false;
+		}
+		files++;
+	}
+	return files > 0;
+}
+
+bool QueueCoordinator::HasSizeTwin(DownloadQueue* downloadQueue, NzbInfo* nzbInfo)
+{
+	int64 largest = 0;
+	for (FileInfo* fileInfo : nzbInfo->GetFileList())
+	{
+		largest = std::max(largest, fileInfo->GetSize());
+	}
+	if (largest <= 0)
+	{
+		return false;
+	}
+
+	// a duplicate with a file of that size, or of the same size in all (a
+	// download in history has no file list): within 0.3%, nzb sizes are encoded
+	auto near = [](int64 size1, int64 size2) { return std::llabs(size1 - size2) * 1000 <= size1 * 3; };
+	auto twin = [nzbInfo, largest, &near](NzbInfo* other)
+		{
+			if (other == nzbInfo || !DupeCoordinator::SameNameOrKey(other->GetName(), other->GetDupeKey(),
+				nzbInfo->GetName(), nzbInfo->GetDupeKey()))
+			{
+				return false;
+			}
+			if (near(nzbInfo->GetSize(), other->GetSize()))
+			{
+				return true;
+			}
+			for (FileInfo* fileInfo : other->GetFileList())
+			{
+				if (near(largest, fileInfo->GetSize()))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+	for (NzbInfo* queued : downloadQueue->GetQueue())
+	{
+		if (twin(queued))
+		{
+			return true;
+		}
+	}
+	for (HistoryInfo* historyInfo : downloadQueue->GetHistory())
+	{
+		if (historyInfo->GetKind() == HistoryInfo::hkNzb && twin(historyInfo->GetNzbInfo()))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 /*
@@ -1626,14 +1755,17 @@ void QueueCoordinator::CheckDupeFailover(DownloadQueue* downloadQueue, NzbInfo* 
 	HistoryInfo* backup = DupeCoordinator::FailsOver(nzbInfo) ?
 		g_DupeCoordinator->FindDupeBackup(downloadQueue, nzbInfo, nzbInfo->GetName(), nzbInfo->GetDupeKey()) :
 		nullptr;
+	// one that can't lose an article (DownloadCriticalHealth raised the critical
+	// health to 100%) has lost one: it fails, whatever its health, like a dead one
+	bool doomed = DownloadCriticalHealth(downloadQueue, nzbInfo) > nzbInfo->CalcCriticalHealth(true);
 	if (backup && DupeCoordinator::DupeFailoverWarranted(nzbInfo->GetDupeScore(),
-		nzbInfo->CalcHealth(), backup->GetNzbInfo()->GetDupeScore()))
+		doomed ? 0 : nzbInfo->CalcHealth(), backup->GetNzbInfo()->GetDupeScore()))
 	{
 		nzbInfo->PrintMessage(Message::mkWarning,
 			"Failing over %s to duplicate %s: health %.1f%% below critical %.1f%%, "
 			"%i of %i missing article(s) recovered from duplicates",
 			nzbInfo->GetName(), backup->GetNzbInfo()->GetName(),
-			nzbInfo->CalcHealth() / 10.0, nzbInfo->CalcCriticalHealth(true) / 10.0,
+			nzbInfo->CalcHealth() / 10.0, DownloadCriticalHealth(downloadQueue, nzbInfo) / 10.0,
 			recovered, attempted);
 	}
 	else if (DownloadHopeless(nzbInfo))
@@ -1642,7 +1774,7 @@ void QueueCoordinator::CheckDupeFailover(DownloadQueue* downloadQueue, NzbInfo* 
 		nzbInfo->PrintMessage(Message::mkWarning,
 			"Parking %s: health %.1f%% below critical %.1f%%, %i of %i missing article(s) "
 			"recovered from duplicates, %i of %i tried article(s) exist and no better duplicate in history (%s)",
-			nzbInfo->GetName(), nzbInfo->CalcHealth() / 10.0, nzbInfo->CalcCriticalHealth(true) / 10.0,
+			nzbInfo->GetName(), nzbInfo->CalcHealth() / 10.0, DownloadCriticalHealth(downloadQueue, nzbInfo) / 10.0,
 			recovered, attempted, nzbInfo->GetCurrentSuccessArticles(), tried,
 			g_DupeCoordinator->NoBackupReason(downloadQueue, nzbInfo).c_str());
 	}
@@ -1695,7 +1827,7 @@ void QueueCoordinator::CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* 
 	// ParEdgeMargin of critical counts too (B58: Dark Matter S02E05 projected 79-81%
 	// against a critical 80% for its whole download): par-repair can't be counted on
 	int projected = tried > 0 ? (int)((int64)own * 1000 / tried) : 1000;
-	int critical = nzbInfo->CalcCriticalHealth(true);
+	int critical = DownloadCriticalHealth(downloadQueue, nzbInfo);
 	bool doomed = !dead && tried >= ProjectedFailureSample && FilesTried(nzbInfo) >= 3 &&
 		projected < critical + DupeArticleFallback::ParEdgeMargin;
 
@@ -1705,6 +1837,10 @@ void QueueCoordinator::CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* 
 	// S02E01 4948: 1,120 failed in the 34 s its probe took)
 	int probing = DupeProbe::ProbingFor(nzbInfo->GetId());
 	bool hopeless = own == 0 && failed >= ProjectedFailureSample && probing >= SlowProbeSec;
+	if (!dead && !doomed && CheckParDamage(downloadQueue, nzbInfo))
+	{
+		return;
+	}
 	if ((!dead && !doomed) || (probing >= 0 && !hopeless))
 	{
 		return;
@@ -1788,6 +1924,78 @@ void QueueCoordinator::CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* 
 	}
 	nzbInfo->SetDeleteStatus(NzbInfo::dsHealth);
 	downloadQueue->EditEntry(nzbInfo->GetId(), DownloadQueue::eaGroupParkDelete, nullptr);
+}
+
+/*
+ * Health counts articles, par2 repairs blocks: with par2 blocks of 15-25 MB each
+ * lost article of 0.7 MB spoils a block, and a download at health 98% can have
+ * most of its blocks damaged (FUZEER Joker 7826: 6.8% of articles lost, 87% of
+ * blocks; House of the Dragon 7896: 1.5% lost, 153 blocks short with 97 to
+ * recover). It downloaded in full and failed par-repair; a duplicate then
+ * succeeded. Once the blocks spoiled in the files finished so far exceed all the
+ * recovery blocks its par2-files hold, or at that rate will exceed them by a
+ * quarter with a fifth of it done, it fails over to the duplicate (for the
+ * projection only one known to be whole, 99.9% or more). Without a duplicate
+ * it's left to finish: stream repair may still fill the holes.
+ */
+bool QueueCoordinator::CheckParDamage(DownloadQueue* downloadQueue, NzbInfo* nzbInfo)
+{
+	ParDamage::Verdict verdict = ParDamage::Judge(nzbInfo);
+	bool certain = verdict.Certain();
+	if (!certain && !verdict.Projected())
+	{
+		return false;
+	}
+
+	// a duplicate of it queued and not paused: a dupe tool is swapping it for a
+	// backup just now, and failing over too would fetch a second one (paused
+	// duplicates are borrowing donors, no reason to wait)
+	for (NzbInfo* queued : downloadQueue->GetQueue())
+	{
+		if (queued != nzbInfo && queued->GetPausedSize() < queued->GetRemainingSize() &&
+			DupeCoordinator::SameNameOrKey(queued->GetName(), queued->GetDupeKey(),
+				nzbInfo->GetName(), nzbInfo->GetDupeKey()))
+		{
+			return false;
+		}
+	}
+
+	HistoryInfo* backup = g_DupeCoordinator->FindDupeBackup(downloadQueue, nzbInfo,
+		nzbInfo->GetName(), nzbInfo->GetDupeKey());
+	BString<1024> damage("%i par2 block(s) of %.1f MB damaged%s, its par2-files hold %i recovery block(s)",
+		certain ? verdict.damagedBlocks : verdict.projectedBlocks, verdict.blockSize / 1024.0 / 1024.0,
+		certain ? "" : " at the rate so far", verdict.recoveryBlocks);
+	if (!backup)
+	{
+		if (ParDamage::FirstReport(nzbInfo->GetId()))
+		{
+			nzbInfo->PrintMessage(Message::mkInfo, "%s: %s; no duplicate in history to fail over to",
+				nzbInfo->GetName(), *damage);
+		}
+		return false;
+	}
+
+	int backupAlive = -1;
+	for (const char* name : {"DupeAlive", "DupeHealth"})
+	{
+		NzbParameter* parameter = backup->GetNzbInfo()->GetParameters()->Find(name);
+		if (parameter)
+		{
+			backupAlive = std::max(backupAlive, atoi(parameter->GetValue()) * 10);
+		}
+	}
+	if ((!certain && backupAlive < 999) ||
+		!DupeCoordinator::DupeFailoverWarranted(nzbInfo->GetDupeScore(), 0, backup->GetNzbInfo()->GetDupeScore()))
+	{
+		return false;
+	}
+
+	nzbInfo->PrintMessage(Message::mkWarning, "Failing over %s to duplicate %s: %s, par-repair can't fix it",
+		nzbInfo->GetName(), backup->GetNzbInfo()->GetName(), *damage);
+	ParDamage::Forget(nzbInfo->GetId());
+	nzbInfo->SetDeleteStatus(NzbInfo::dsHealth);
+	downloadQueue->EditEntry(nzbInfo->GetId(), DownloadQueue::eaGroupParkDelete, nullptr);
+	return true;
 }
 
 /*

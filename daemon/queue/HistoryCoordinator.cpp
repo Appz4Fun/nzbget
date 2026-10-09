@@ -35,6 +35,7 @@
 #include "DupeCoordinator.h"
 #include "ServerPool.h"
 #include "DupeProbe.h"
+#include "ParDamage.h"
 
 /**
  * Removes old entries from (recent) history
@@ -212,6 +213,7 @@ void HistoryCoordinator::AddToHistory(DownloadQueue* downloadQueue, NzbInfo* nzb
 	nzbInfo->PrintMessage(Message::mkInfo, "Collection %s added to history", nzbInfo->GetName());
 
 	RecheckFailedArticles(downloadQueue, nzbInfo);
+	ParDamage::Forget(nzbInfo->GetId());
 }
 
 /*

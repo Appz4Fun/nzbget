@@ -80,6 +80,14 @@ public:
 	static bool IsParFile(FileInfo* fileInfo);
 	/* does the collection have par2 files (the only check a borrowed article's bytes get) */
 	static bool HasPar2(NzbInfo* nzbInfo);
+	/* the files the par2-files in <dir> describe: name, length and their set's block size */
+	struct Par2Desc
+	{
+		std::string name;
+		uint64 length = 0;
+		uint64 blockSize = 0;
+	};
+	static std::vector<Par2Desc> ListPar2Files(const char* dir);
 
 	/* Defer download-time donor recovery while parity is being discovered or
 	 * a known PAR set has not failed ordinary repair. Must be called within

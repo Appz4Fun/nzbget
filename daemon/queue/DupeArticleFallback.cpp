@@ -1411,3 +1411,18 @@ bool DupeArticleFallback::MergeDecodedFileSize(FileInfo* fileInfo, int64 article
 	fileInfo->SetDecodedFileSize(-1);
 	return true;
 }
+
+std::vector<DupeArticleFallback::Par2Desc> DupeArticleFallback::ListPar2Files(const char* dir)
+{
+	std::vector<Par2Desc> list;
+	uint64 blockSize = 0;
+	for (auto& entry : LoadPar2Sums(dir, blockSize))
+	{
+		Par2Desc desc;
+		desc.name = entry.second.name;
+		desc.length = entry.second.length;
+		desc.blockSize = entry.second.blockSize;
+		list.push_back(std::move(desc));
+	}
+	return list;
+}

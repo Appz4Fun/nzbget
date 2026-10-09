@@ -127,6 +127,10 @@ private:
 	void CheckDupeFailover(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 	void StartDeadPickProbe(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 	void CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
+	bool CheckParDamage(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
+	int DownloadCriticalHealth(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
+	static bool CertainlyParless(NzbInfo* nzbInfo);
+	static bool HasSizeTwin(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 	static int FilesTried(NzbInfo* nzbInfo);
 	void RejectBorrowedArticles(FileInfo* fileInfo, const std::vector<ArticleInfo*>& articles);
 	void CountAsFailed(FileInfo* fileInfo, ArticleInfo* articleInfo);

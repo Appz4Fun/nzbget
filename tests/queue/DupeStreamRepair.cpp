@@ -26,6 +26,7 @@
 #include <fstream>
 #include "DownloadInfo.h"
 #include "DupeStreamRepair.h"
+#include "ParDamage.h"
 #include "DupeArticleFallback.h"
 #include "FileSystem.h"
 #include "Options.h"
@@ -836,6 +837,23 @@ BOOST_AUTO_TEST_CASE(ExceedsDecompressCapTest)
 
 	// nowhere near either bound: not exceeded
 	BOOST_CHECK(!DupeStreamRepair::ExceedsDecompressCap(0, 1024, 0, 1024));
+}
+
+BOOST_AUTO_TEST_CASE(ParDamageBlocksTouchedTest)
+{
+	const uint64 block = 1000;
+	// one article-sized hole inside a block, one across a boundary
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 100, 200 } }, block), 1);
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 900, 200 } }, block), 2);
+	// holes in the same block count once; unsorted input
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 5300, 10 }, { 100, 10 }, { 150, 10 }, { 5900, 200 } }, block), 3);
+	// a hole ending exactly at a block's end
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 0, 1000 } }, block), 1);
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 0, 1001 } }, block), 2);
+	// a big hole spanning others
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 0, 10000 }, { 3500, 10 } }, block), 10);
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({}, block), 0);
+	BOOST_CHECK_EQUAL(ParDamage::BlocksTouched({ { 0, 10 } }, 0), 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

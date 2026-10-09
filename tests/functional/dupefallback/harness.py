@@ -6499,34 +6499,39 @@ def _deadpick_servers(daemon, t, tag):
 
 def scenario_deadpickservers(daemon, t):
     """Six news servers, one of them unreachable (an optional server nothing
-    listens on): five servers answer definitively, which is the minimum for a
-    verdict, and the unreachable one is ignored, not counted as missing. Under
+    listens on): it's left out of the verdict (it can't deliver the posting
+    either), and the five others answer definitively. Under
     load the probe can take over 10 s; the dead download then fails over by the
     rule that doesn't wait for a slow probe (B83) - the probe still gives its
     verdict, which is what this checks."""
     hp, hb, integ = _deadpick_servers(daemon, t, 'ds')
     deadline = time.time() + 60
-    while time.time() < deadline and _grep_log(t, '5 of 6 servers answered definitively') == 0:
+    while time.time() < deadline and _grep_log(t, '5 of 5 servers answered definitively') == 0:
         time.sleep(0.5)
-    probed = _grep_log(t, '0 of 10 sampled articles exist (5 of 6 servers answered definitively): the posting is dead')
+    probed = _grep_log(t, '0 of 10 sampled articles exist (5 of 5 servers answered definitively, '
+                          '1 unreachable left out): the posting is dead')
     return ('deadpickservers', probed == 1 and integ and hb['Status'].startswith('SUCCESS'),
             'status=%s backup_status=%s probe_logs=%d failed_articles=%s integrity=%s'
             % (hp['Status'], hb['Status'], probed, hp.get('FailedArticles'), integ))
 
 
 def scenario_deadpickfewservers(daemon, t):
-    """Six news servers, two of them unreachable: only four answer
-    definitively, below the minimum of five, so the probe gives no verdict.
-    The dead posting fails over by the other rules: the health check, or
-    (while the slow probe still waits on the unreachable servers) 200 failed
-    articles with none of its own arrived; the probe never calls it dead."""
+    """Six news servers, two of them unreachable: they're left out (down, they
+    can't deliver the posting), and the four others answer definitively: dead.
+    (It needed five definitive answers; but a server that didn't answer may be
+    the one that has the posting - only one that is down is left out.) The
+    dead posting fails over, by the probe or the rule that doesn't wait for a
+    slow one."""
     hp, hb, integ = _deadpick_servers(daemon, t, 'df')
-    probed = _grep_log(t, 'none of 10 sampled articles exists on any server')
-    no_verdict = _grep_log(t, '4 of 6 servers answered definitively)')
-    return ('deadpickfewservers', probed == 0 and integ and
-            hb['Status'].startswith('SUCCESS'),
-            'status=%s backup_status=%s probe_logs=%d no_verdict_logs=%d integrity=%s'
-            % (hp['Status'], hb['Status'], probed, no_verdict, integ))
+    deadline = time.time() + 60
+    while time.time() < deadline and _grep_log(t, '2 unreachable left out') == 0:
+        time.sleep(0.5)
+    verdict = _grep_log(t, '(4 of 4 servers answered definitively, 2 unreachable left out): the posting is dead')
+    # the old rule: "no verdict (... 4 of 6 servers answered definitively)"
+    no_verdict = _grep_log(t, 'Dupe probe: no verdict')
+    return ('deadpickfewservers', no_verdict == 0 and integ and hb['Status'].startswith('SUCCESS'),
+            'status=%s backup_status=%s verdict_logs=%d no_verdict_logs=%d integrity=%s'
+            % (hp['Status'], hb['Status'], verdict, no_verdict, integ))
 
 
 def scenario_deadpickstray(daemon, t):
@@ -9346,6 +9351,108 @@ def scenario_parvolnames(daemon, t):
             % (h['Status'], h['ParStatus'], unpaused, len(vols)))
 
 
+def _pardamage_release(t, tag, seed, missing):
+    """8 data files of 2 MB (50 KB articles) and a par2 set of 512 KB blocks with
+    only 3 recovery blocks; <missing> part numbers lost in every data file."""
+    import subprocess as _sp
+    work = t.path('data', tag)
+    os.makedirs(work, exist_ok=True)
+    names = []
+    for i in range(8):
+        name = 'data%d.bin' % i
+        t.write_file(os.path.join('data', tag, name), _payload(2_000_000, seed + i))
+        names.append(name)
+    _sp.run(['par2', 'create', '-q', '-q', '-s524288', '-c3', '-n1', '-a', 'rel', 'rel.par2'] + names,
+            cwd=work, check=True, capture_output=True)
+    members = []
+    for name in sorted(n for n in os.listdir(work) if n.endswith('.par2')):
+        members.append(('%s/%s' % (tag, name), name, os.path.getsize(os.path.join(work, name)), 50_000, set()))
+    for name in names:
+        members.append(('%s/%s' % (tag, name), name, 2_000_000, 50_000, set(missing)))
+    return members
+
+
+def scenario_pardamagefailover(daemon, t):
+    """Health counts articles, par2 repairs blocks: one lost article in each of
+    8 files spoils 8 blocks of 512 KB, and the par2-files hold 3. Health stays at
+    97%, so no gate saw it: the download ran to the end and failed par-repair
+    before its duplicate was fetched. Now, once the blocks spoiled in the files
+    finished exceed the recovery blocks, it fails over to the duplicate."""
+    primary = _pardamage_release(t, 'pdP', 12450, {5})
+    backup = _pardamage_release(t, 'pdB', 12450, set())
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'pd-key', 100)
+    daemon.append(api, 'Backup', build_multi_nzb(backup), False, 'pd-key', 90)
+    daemon.wait_history(api, 'Backup', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=300)
+    deadline = time.time() + 240
+    hb = daemon.wait_history(api, 'Backup')
+    while hb['Status'].startswith('DELETED') and time.time() < deadline:
+        time.sleep(1)
+        hb = daemon.wait_history(api, 'Backup')
+    over = _grep_log(t, "par-repair can't fix it")
+    ok = over == 1 and not hp['Status'].startswith('FAILURE/PAR') and hb['Status'].startswith('SUCCESS')
+    return ('pardamagefailover', ok, 'primary=%s backup=%s failover_logs=%d' % (hp['Status'], hb['Status'], over))
+
+
+def scenario_pardamagerepairable(daemon, t):
+    """The same release with the lost articles inside 2 blocks (fewer than its 3
+    recovery blocks): repairable, no failover, par-repair fixes it."""
+    primary = _pardamage_release(t, 'prP', 12460, set())
+    # two files lose an article each: 2 blocks
+    primary = [m[:4] + ({5},) if m[1] in ('data0.bin', 'data1.bin') else m for m in primary]
+    backup = _pardamage_release(t, 'prB', 12460, set())
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'pr-key', 100)
+    daemon.append(api, 'Backup', build_multi_nzb(backup), False, 'pr-key', 90)
+    daemon.wait_history(api, 'Backup', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=300)
+    over = _grep_log(t, "par-repair can't fix it")
+    ok = over == 0 and hp['Status'].startswith('SUCCESS')
+    return ('pardamagerepairable', ok, 'primary=%s failover_logs=%d' % (hp['Status'], over))
+
+
+def _parless_run(daemon, t, tag, backup_size):
+    """A single .mkv without par2 (400 articles, every 10th missing: health
+    90%, and enough failures for the failover check) and a duplicate in
+    history whose file is <backup_size> bytes."""
+    size, seg = 20_000_000, 50_000
+    data = _payload(size, 12470)
+    pp = _place_copy(t, tag + 'P', data, 'movie.mkv')
+    primary = build_nzb(pp, 'movie.mkv', size, seg, set(range(5, 401, 10)))
+    bdata = _payload(backup_size, 12471)
+    pb = _place_copy(t, tag + 'B', bdata, 'movie.mkv')
+    backup = build_nzb(pb, 'movie.mkv', backup_size, seg, set())
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', primary, True, tag + '-key', 100)
+    daemon.append(api, 'Backup', backup, False, tag + '-key', 90)
+    daemon.wait_history(api, 'Backup', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    return daemon.wait_history(api, 'Primary', timeout=300)
+
+
+def scenario_parlesscritical(daemon, t):
+    """A download that certainly has no par2 (one .mkv) and no duplicate with a
+    file of its size to repair holes from can't lose an article: under
+    HealthCheck=dupe it fails over below 100%, not only at the 85% nzbget
+    assumes for downloads whose par2-files may be renamed (Velvet Underground
+    7913 kept downloading with half its articles failing)."""
+    hp = _parless_run(daemon, t, 'pc', 10_000_000)
+    over = _grep_log(t, 'below critical 100.0%')
+    return ('parlesscritical', over >= 1 and hp['Status'].startswith(('DELETED', 'FAILURE')),
+            'primary=%s failover_logs=%d' % (hp['Status'], over))
+
+
+def scenario_parlesstwin(daemon, t):
+    """The same with a duplicate holding a file of the same size (stream repair
+    could fill the holes from it): the 85% stays."""
+    hp = _parless_run(daemon, t, 'pt', 20_000_000)
+    hundred = _grep_log(t, 'below critical 100.0%')
+    return ('parlesstwin', hundred == 0, 'primary=%s logs_100=%d' % (hp['Status'], hundred))
+
+
 def scenario_clientcommands(daemon, t):
     """The command-line client over the binary protocol after its requests got
     stricter checks: list, edit (pause a group) and write-log still work."""
@@ -9781,6 +9888,10 @@ SCENARIOS = {
     'scriptsockets': scenario_scriptsockets,
     'connectioncap': scenario_connectioncap,
     'parvolnames': scenario_parvolnames,
+    'pardamagefailover': scenario_pardamagefailover,
+    'pardamagerepairable': scenario_pardamagerepairable,
+    'parlesscritical': scenario_parlesscritical,
+    'parlesstwin': scenario_parlesstwin,
     'movemissingtarget': scenario_movemissingtarget,
     'scangrowing': scenario_scangrowing,
     'archiveyoung': scenario_archiveyoung,
@@ -10093,6 +10204,10 @@ SCENARIO_OPTIONS = {
     'scriptargs': ['Extensions=argcount, selfkill'],
     'scriptsockets': ['Extensions=fdlist'],
     'parvolnames': ['ParCheck=auto'],
+    'pardamagefailover': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
+    'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
+    'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
+    'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'scangrowing': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'archiveyoung': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'scriptparcheck': ['ParCheck=auto', 'Extensions=askpar'],
