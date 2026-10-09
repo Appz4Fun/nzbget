@@ -29,7 +29,12 @@ void Subject::Attach(Observer* observer)
 
 void Subject::Detach(Observer* observer)
 {
-	m_observers.erase(std::find(m_observers.begin(), m_observers.end(), observer));
+	// one that isn't attached: erasing end() is undefined
+	auto it = std::find(m_observers.begin(), m_observers.end(), observer);
+	if (it != m_observers.end())
+	{
+		m_observers.erase(it);
+	}
 }
 
 void Subject::Notify(void* aspect)

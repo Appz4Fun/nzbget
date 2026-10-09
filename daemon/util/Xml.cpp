@@ -47,8 +47,10 @@ void AddNewNode(xmlNodePtr rootNode, const char* name, const char* type, const c
 {
 	xmlNodePtr memberNode = xmlNewNode(nullptr, BAD_CAST "member");
 	xmlNodePtr valueNode = xmlNewNode(nullptr, BAD_CAST "value");
-	xmlNewChild(memberNode, nullptr, BAD_CAST "name", BAD_CAST name);
-	xmlNewChild(valueNode, nullptr, BAD_CAST type, BAD_CAST value);
+	// the text forms: xmlNewChild reads "&..." in a value as an entity, and a
+	// path or CPU name with "&" in it came out garbled
+	xmlNewTextChild(memberNode, nullptr, BAD_CAST "name", BAD_CAST name);
+	xmlNewTextChild(valueNode, nullptr, BAD_CAST type, BAD_CAST value);
 	xmlAddChild(memberNode, valueNode);
 	xmlAddChild(rootNode, memberNode);
 }

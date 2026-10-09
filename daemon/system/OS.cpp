@@ -125,12 +125,14 @@ namespace System
 
 	void OS::TrimQuotes(std::string& str) const
 	{
-		if (str.front() == '"')
+		// an empty value (NAME=, or NAME=" with the quote taken off) had no
+		// front or back to look at
+		if (!str.empty() && str.front() == '"')
 		{
 			str = str.substr(1);
 		}
 
-		if (str.back() == '"')
+		if (!str.empty() && str.back() == '"')
 		{
 			str = str.substr(0, str.size() - 1);
 		}

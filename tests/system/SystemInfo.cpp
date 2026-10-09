@@ -23,6 +23,7 @@
 #include <boost/test/unit_test.hpp>
 #include "SystemInfo.h"
 #include "Options.h"
+#include "Xml.h"
 
 BOOST_AUTO_TEST_SUITE(SystemTest)
 
@@ -183,6 +184,16 @@ BOOST_AUTO_TEST_CASE(SystemInfoTest)
 	BOOST_CHECK(!sysInfo->GetCPUInfo().GetArch().empty());
 
 	xmlCleanupParser();
+}
+
+BOOST_AUTO_TEST_CASE(XmlValueWithAmpersandTest)
+{
+	// a value with "&" (a path like /opt/R&D/unrar) is text, not an entity
+	xmlNodePtr root = Xml::CreateStructNode();
+	Xml::AddNewNode(root, "Path", "string", "/opt/R&D/unrar");
+	std::string xml = Xml::Serialize(root);
+	BOOST_CHECK(xml.find("/opt/R&amp;D/unrar") != std::string::npos);
+	xmlFreeNode(root);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
