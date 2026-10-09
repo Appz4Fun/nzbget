@@ -514,7 +514,9 @@ var Util = (new function($)
 
 	this.makeId = function(text)
 	{
-		return text.replace(/ |\/|\\|\.|\$|\:|\*/g, '_');
+		// ids also go into attributes and quoted onclick handlers: quotes and
+		// markup characters (from extension option names) are replaced too
+		return text.replace(/ |\/|\\|\.|\$|\:|\*|"|'|<|>|&|`/g, '_');
 	}
 
 	this.joinInt64 = function(hi, lo)
@@ -868,10 +870,12 @@ var RPC = (new function($)
 								}
 								else
 								{
-									res = result.error.message;
+									// shown as HTML: the message and the request carry names
+									// and urls from nzb-files, feeds and news servers
+									res = Util.textToHtml(String(result.error.message));
 									if (result.error.message != 'Access denied')
 									{
-										res = res + '<br><br>Request: ' + xhr._reportRequest;
+										res = res + '<br><br>Request: ' + Util.textToHtml(String(xhr._reportRequest));
 									}
 								}
 							}

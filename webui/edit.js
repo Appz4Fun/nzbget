@@ -883,7 +883,7 @@ var EditUI = (new function($)
 				}
 			}
 
-			var fields = [server.ID + '. ' + name, articles, artquota, success, failures];
+			var fields = [server.ID + '. ' + Util.textToHtml(name), articles, artquota, success, failures];
 			var item =
 			{
 				id: server.ID,
@@ -1662,7 +1662,7 @@ var HistoryEditDialog = (new function($)
 			for (var i=0; i<hist.ScriptStatuses.length; i++)
 			{
 				var scriptStatus = hist.ScriptStatuses[i];
-				status += ' ' + buildStatus(scriptStatus.Status, Options.shortScriptName(scriptStatus.Name) + ': ') + ' ';
+				status += ' ' + buildStatus(scriptStatus.Status, Util.textToHtml(Options.shortScriptName(scriptStatus.Name)) + ': ') + ' ';
 			}
 		}
 		else if (hist.Kind === 'URL')

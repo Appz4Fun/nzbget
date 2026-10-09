@@ -918,8 +918,9 @@ var DownloadsUI = (new function($)
 			}
 		}
 
+		// the text holds file and archive names from the nzb
 		return text !== '' ? ' <span class="label label-success label-inline" style="max-width:' +
-			maxWidth +'px">' + text + '</span>' : '';
+			maxWidth +'px">' + Util.textToHtml(text) + '</span>' : '';
 	}
 
 	this.buildPriorityText = function(priority)
@@ -1067,11 +1068,12 @@ var DownloadsUI = (new function($)
 
 		if (dupeCheck && dupeKey != '' && UISettings.dupeBadges)
 		{
+			// the dupe key comes from indexers: escaped for the attribute and the text
 			return ' <span class="label' + (dupeMode === 'FORCE' ? ' label-important' : '') +
-				'" title="' + I18n.translate('desc_duplicate_key', dupeKey) +
+				'" title="' + Util.textToAttr(I18n.translate('desc_duplicate_key', dupeKey) +
 				(dupeScore !== 0 ? '; score: ' + dupeScore : '') +
-				(dupeMode !== 'SCORE' ? '; mode: ' + dupeMode.toLowerCase() : '') +
-				'">' + formatDupeText(dupeKey, dupeScore, dupeMode) + '</span> ';
+				(dupeMode !== 'SCORE' ? '; mode: ' + dupeMode.toLowerCase() : '')) +
+				'">' + Util.textToHtml(formatDupeText(dupeKey, dupeScore, dupeMode)) + '</span> ';
 		}
 		else
 		{
@@ -1132,9 +1134,15 @@ var DownloadsUI = (new function($)
 				var $paramLink = $('#' + prefix + '_' + linkName);
 				if($paramLink.length > 0)
 				{
-					$paramLink.attr('href', param.Value);
-					$paramLink.show();
-					hasItems = true;
+					// an indexer's link: only web addresses (a "javascript:" one ran
+					// in the page when clicked)
+					if (/^https?:\/\//i.test(param.Value))
+					{
+						$paramLink.attr('href', param.Value);
+						$paramLink.attr('rel', 'noopener noreferrer');
+						$paramLink.show();
+						hasItems = true;
+					}
 				}
 			}
 		}

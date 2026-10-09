@@ -1613,7 +1613,7 @@ var LimitDialog = (new function($)
 		{
 			var server = Status.status.NewsServers[i];
 			var name = Status.serverName(server);
-			var fields = ['<div class="check img-check"></div>', server.ID + '. ' + name];
+			var fields = ['<div class="check img-check"></div>', server.ID + '. ' + Util.textToHtml(name)];
 			var item =
 			{
 				id: server.ID,

@@ -1072,7 +1072,8 @@ var Config = (new function($)
 
 		option.formId = (option.name.indexOf(':') == -1 ? 'S_' : '') + Util.makeId(option.name);
 
-		var caption = option.caption;
+		// text (an extension's option names); the multi-set prefix markup is added below
+		var caption = Util.textToHtml(option.caption);
 
 		if (section.multi)
 		{
@@ -1217,7 +1218,7 @@ var Config = (new function($)
 			option.type = 'numeric';
 			html += '<div class="input-append">'+
 				'<input type="text" id="' + option.formId + '" value="' + Util.textToAttr(value) + '" class="editnumeric">'+
-				'<span class="add-on text-lowercase">'+ translatedUnit +'</span>'+
+				'<span class="add-on text-lowercase">'+ Util.textToHtml(translatedUnit) +'</span>'+
 				'</div>';
 		}
 		else if (option.caption.toLowerCase().indexOf('password') > -1 &&
@@ -1254,7 +1255,7 @@ var Config = (new function($)
 			var i18nBtnAttr = option.i18nCaption ? 'data-i18n="' + Util.textToAttr(option.i18nCaption) + '" ' : '';
 			html += '<button type="button" id="' + option.formId + '" class="btn ' + 
 				(option.commandopts.indexOf('danger') > -1 ? 'btn-danger' : 'btn-default') + 
-				'" ' + i18nBtnAttr + 'onclick="Config.commandClick(this)">' + (option.i18nCaption ? option.caption : value) +  '</button>';
+				'" ' + i18nBtnAttr + 'onclick="Config.commandClick(this)">' + Util.textToHtml(option.i18nCaption ? option.caption : value) +  '</button>';
 		}
 		else
 		{
@@ -1267,7 +1268,12 @@ var Config = (new function($)
 			var htmldescr = description;
 			htmldescr = htmldescr.replace(/NOTE: do not forget to uncomment the next line.\n/, '');
 
+			// an extension's description (from its manifest) is text: everything
+			// but the <OptionName> references formatDescription links is escaped
 			htmldescr = htmldescr.replace(/&/g, '&amp;');
+			htmldescr = htmldescr.split(/(<[A-Z0-9.]*>)/i).map(function(part, i) {
+				return i % 2 ? part : part.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			}).join('');
 
 			// add extra new line after Examples not ended with dot
 			htmldescr = htmldescr.replace(/Example:.*/g, function (match) {
@@ -1309,11 +1315,11 @@ var Config = (new function($)
 		let section = '<div class="option__check-section">';
 
 		if (check.Severity == "Error")
-			section += '<span class="option-alert alert alert-error"><i class="option-alert__icon material-icon">error</i><span>' + check.Message + '</span></span>';
+			section += '<span class="option-alert alert alert-error"><i class="option-alert__icon material-icon">error</i><span>' + Util.textToHtml(check.Message) + '</span></span>';
 		else if (check.Severity == "Warning")
-			section += '<span class="option-alert alert alert-warning"><i class="option-alert__icon material-icon">warning</i><span>' + check.Message + '</span></span>';
+			section += '<span class="option-alert alert alert-warning"><i class="option-alert__icon material-icon">warning</i><span>' + Util.textToHtml(check.Message) + '</span></span>';
 		else if (check.Severity == "Info")
-			section += '<span class="option-alert alert alert-success"><i class="option-alert__icon material-icon">info</i><span>' + check.Message + '</span></span>';
+			section += '<span class="option-alert alert alert-success"><i class="option-alert__icon material-icon">info</i><span>' + Util.textToHtml(check.Message) + '</span></span>';
 
 		section += '</div>';
 
@@ -1412,7 +1418,7 @@ var Config = (new function($)
 				{
 					var html = $('<li>');
 					var categoryName = I18n.defaultValue(('config_section_' + section.name.replace(/ /g, '_').replace(/-/g, '_')).toLowerCase(), section.name);
-					var link = $('<a href="#' + section.id + '">' + categoryName + '</a>');
+					var link = $('<a href="#' + section.id + '"></a>').text(categoryName);
 					if (SystemHealth.isHealthCheckEnabled())
 					{
 						var errorBadges = SystemHealth.makeBadges(SystemHealth.getSection(section.id));
@@ -1434,7 +1440,7 @@ var Config = (new function($)
 			if (!added)
 			{
 				var categoryName = I18n.defaultValue(('config_section_' + conf.name.replace(/ /g, '_').replace(/-/g, '_')).toLowerCase(), conf.name);
-				var html = $('<li><a href="#' + conf.id + '">' + categoryName + '</a></li>');
+				var html = $('<li></li>').append($('<a href="#' + conf.id + '"></a>').text(categoryName));
 				$ConfigNav.append(html);
 			}
 		}
@@ -2177,7 +2183,8 @@ var Config = (new function($)
 						}
 						else
 						{
-							AlertDialog.showModal(I18n.translate('msg_connection_test_failed'), errtext);
+							// the news server's reply: text, not markup
+							AlertDialog.showModal(I18n.translate('msg_connection_test_failed'), Util.textToHtml(errtext));
 						}
 					});
 					connecting = false;
@@ -2186,7 +2193,7 @@ var Config = (new function($)
 					$('#Notif_Config_TestConnectionProgress').fadeOut(function() {
 						if (resultObj && resultObj.error && resultObj.error.message)
 						{
-							message = resultObj.error.message;
+							message = Util.textToHtml(String(resultObj.error.message));
 						}
 						AlertDialog.showModal(I18n.translate('msg_connection_test_failed'), message);
 						connecting = false;
@@ -4040,7 +4047,7 @@ var ExtensionManager = (new function($)
 
 	function showDeleteExtensionDropdown(ext)
 	{
-		var delBtn = $('#DeleteBtn_' + ext.name);
+		var delBtn = $('#DeleteBtn_' + extId(ext.name));
 		var dropdown = $('#DeleteExtensionMenu');
 		var deleteExtItem = $('#DeleteExtensionItem');
 		var deleteExtWithSettingsItem = $('#DeleteExtensionWithSettingsItem');
@@ -4182,6 +4189,13 @@ var ExtensionManager = (new function($)
 		});
 	}
 
+	// an extension's name as part of an element id: names come from the remote
+	// extension list and went into the markup as they were
+	function extId(name)
+	{
+		return String(name).replace(/[^A-Za-z0-9_-]/g, '_');
+	}
+
 	function showErrorBanner(title, message)
 	{
 		var banner = $('#ExtensionsErrorAlert');
@@ -4211,27 +4225,27 @@ var ExtensionManager = (new function($)
 
 	function disableDeleteBtn(ext, disabled)
 	{
-		disableBtnToggle('#DeleteBtn_' + ext.name, disabled);
+		disableBtnToggle('#DeleteBtn_' + extId(ext.name), disabled);
 	}
 
 	function disableDownloadBtn(ext, disabled)
 	{
-		disableBtnToggle('#DownloadBtn_' + ext.name, disabled);
+		disableBtnToggle('#DownloadBtn_' + extId(ext.name), disabled);
 	}
 
 	function disableUpdateBtn(ext, disabled)
 	{
-		disableBtnToggle('#UpdateBtn_' + ext.name, disabled);
+		disableBtnToggle('#UpdateBtn_' + extId(ext.name), disabled);
 	}
 
 	function disableConfigureBtn(ext, disabled)
 	{
-		disableBtnToggle('#ConfigureBtn_' + ext.name, disabled);
+		disableBtnToggle('#ConfigureBtn_' + extId(ext.name), disabled);
 	}
 
 	function disableActivateBtn(ext, disabled)
 	{
-		disableBtnToggle('#ActivateBtn_' + ext.name, disabled);
+		disableBtnToggle('#ActivateBtn_' + extId(ext.name), disabled);
 	}
 
 	function disableBtnToggle(id, disabled)
@@ -4249,10 +4263,10 @@ var ExtensionManager = (new function($)
 	{
 		if (disabled)
 		{
-			$('#MvTopBtn_' + ext.name).off('click');
-			$('#MvUpBtn_' + ext.name).off('click');
-			$('#MvDownBtn_' + ext.name).off('click');
-			$('#MvBottomBtn_' + ext.name).off('click');
+			$('#MvTopBtn_' + extId(ext.name)).off('click');
+			$('#MvUpBtn_' + extId(ext.name)).off('click');
+			$('#MvDownBtn_' + extId(ext.name)).off('click');
+			$('#MvBottomBtn_' + extId(ext.name)).off('click');
 		}
 	}
 
@@ -4352,7 +4366,7 @@ var ExtensionManager = (new function($)
 	function getDeleteBtn(ext)
 	{
 		var btn = $('<button type="button" data-toggle="dropdown" class="btn btn-danger dropdown-toggle" id="DeleteBtn_' 
-			+ ext.name 
+			+ extId(ext.name) 
 			+ '" data-i18n-title="extman_btn_delete"><i class="material-icon">delete</i></button>')
 			.off('click')
 			.on('click', function() { showDeleteExtensionDropdown(ext); });
@@ -4363,7 +4377,7 @@ var ExtensionManager = (new function($)
 	function getDownloadBtn(ext)
 	{
 		var btn = $('<button type="button" class="btn btn-primary btn-group" id="DownloadBtn_' 
-			+ ext.name 
+			+ extId(ext.name) 
 			+ '" data-i18n-title="extman_btn_download"><i class="material-icon">download</i></button>')
 			.off('click')
 			.on('click', function() { downloadExtension(ext); });
@@ -4374,7 +4388,7 @@ var ExtensionManager = (new function($)
 	function getUpdateBtn(ext)
 	{
 		var btn = $('<button type="button" class="btn btn-info btn-group" id="UpdateBtn_' 
-			+ ext.name 
+			+ extId(ext.name) 
 			+ '" data-i18n-title="extman_btn_update"><i class="material-icon">update</i></button>');
 		if (ext.outdated)
 		{
@@ -4392,7 +4406,7 @@ var ExtensionManager = (new function($)
 	function getConfigureBtn(ext)
 	{
 		var btn = $('<button type="button" class="btn btn-default btn-group" id="ConfigureBtn_' 
-			+ ext.name 
+			+ extId(ext.name) 
 			+ '" data-i18n-title="extman_btn_configure"><i class="material-icon">settings</i></button>')
 			.off('click')
 			.on('click', function() { Config.showSection(ext.id, true); });
@@ -4403,7 +4417,7 @@ var ExtensionManager = (new function($)
 	function getActivateBtn(ext)
 	{
 		var btn = $('<button type="button" class="btn btn-group" id="ActivateBtn_' 
-			+ ext.name 
+			+ extId(ext.name) 
 			+ '"></button>')
 			.off('click')
 			.on('click', function() { activateExt(ext); });
@@ -4463,7 +4477,13 @@ var ExtensionManager = (new function($)
 		if (ext.homepage)
 		{
 			var cell = $('<td class="extension-manager__td text-center">');
-			cell.append($('<a href="' + ext.homepage + '" target="_blank"><i class="material-icon" data-i18n-title="extman_tooltip_homepage">home</i></a>'));
+			// from the remote extension list: a web address only, set as an
+			// attribute (it was pasted into the markup)
+			if (/^https?:\/\//i.test(ext.homepage))
+			{
+				cell.append($('<a target="_blank" rel="noopener noreferrer"><i class="material-icon" data-i18n-title="extman_tooltip_homepage">home</i></a>')
+					.attr('href', ext.homepage));
+			}
 			return cell;
 		}
 		
@@ -4512,16 +4532,16 @@ var ExtensionManager = (new function($)
 		var container = $('<div class="btn-row-order-block" data-i18n-title="extman_tooltip_order">');
 		var title = I18n.translate ? I18n.translate('extman_tooltip_order') : "Modify execution order (restart needed)";
 		
-		var mvTop = $('<span class="btn-row-order" id="MvTopBtn_' + ext.name +'"><i class="material-icon">vertical_align_top</i></span>')
+		var mvTop = $('<span class="btn-row-order" id="MvTopBtn_' + extId(ext.name) +'"><i class="material-icon">vertical_align_top</i></span>')
 			.off('click')
 			.on('click', function() { moveTop(ext); });
-		var mvUp = $('<span class="btn-row-order" id="MvUpBtn_' + ext.name +'"><i class="material-icon">north</i></span>')
+		var mvUp = $('<span class="btn-row-order" id="MvUpBtn_' + extId(ext.name) +'"><i class="material-icon">north</i></span>')
 			.off('click')
 			.on('click', function() { moveUp(ext); });
-		var mvDown = $('<span class="btn-row-order" id="MvDownBtn_' + ext.name +'"><i class="material-icon">south</i></span>')
+		var mvDown = $('<span class="btn-row-order" id="MvDownBtn_' + extId(ext.name) +'"><i class="material-icon">south</i></span>')
 			.off('click')
 			.on('click', function() { moveDown(ext); });
-		var mvBottom = $('<span class="btn-row-order" id="MvBottomBtn_' + ext.name +'"><i class="material-icon">vertical_align_bottom</i></span>')
+		var mvBottom = $('<span class="btn-row-order" id="MvBottomBtn_' + extId(ext.name) +'"><i class="material-icon">vertical_align_bottom</i></span>')
 			.off('click')
 			.on('click', function() { moveBottom(ext); });
 		

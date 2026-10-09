@@ -271,14 +271,14 @@ var FeedDialog = (new function($)
 
 			if (!UISettings.miniTheme)
 			{
-				fields = ['<div class="check img-check"></div>', status, name, item.Category, age, size];
+				fields = ['<div class="check img-check"></div>', status, name, Util.textToHtml(item.Category), age, size];
 			}
 			else
 			{
 				var info = '<div class="check img-check"></div><span class="row-title">' + name + '</span>' + ' ' + status;
 				if (item.Category !== '')
 				{
-					info += ' <span class="label label-info">' + item.Category + '</span>';
+					info += ' <span class="label label-info">' + Util.textToHtml(item.Category) + '</span>';
 				}
 				info += ' <span class="label label-info">' + age + '</span>' +
 					' <span class="label label-info">' + size + '</span>';
@@ -615,7 +615,7 @@ var FeedFilterDialog = (new function($)
 			$FeedFilterDialog.modal('hide');
 		}
 		$LoadingBlock.hide();
-		AlertDialog.showModal('Error', result ? result.error.message : msg);
+		AlertDialog.showModal('Error', result ? Util.textToHtml(String(result.error.message)) : msg);
 	}
 
 	function itemsLoaded(itemsArr)
@@ -702,7 +702,7 @@ var FeedFilterDialog = (new function($)
 
 			if (!UISettings.miniTheme)
 			{
-				fields = [status, rule, name, item.Category, age, size];
+				fields = [status, rule, name, Util.textToHtml(item.Category), age, size];
 			}
 			else
 			{
