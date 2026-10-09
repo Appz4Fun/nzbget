@@ -663,12 +663,15 @@ bool Scanner::AddFileToQueue(
 	{
 		for (FileInfo* fileInfo : nzbInfo->GetFileList())
 		{
-			// a warning when the nzb stops short of what the subject declares;
-			// a segment or two an indexer dropped is common and only a detail
+			// a warning when the nzb stops short of what the subject declares or
+			// leaves out much of a file (a fragment listing 1 of 9374 parts); a
+			// segment or two an indexer dropped is common and only a detail
 			if (fileInfo->GetMissedArticles() > 0)
 			{
+				int missed = fileInfo->GetMissedArticles();
+				bool large = missed >= 100 || missed * 10 >= fileInfo->GetTotalArticles();
 				bool cutShort = nzbFile.GetCutShortFiles().count(fileInfo) > 0;
-				nzbInfo->PrintMessage(cutShort ? Message::mkWarning : Message::mkDetail,
+				nzbInfo->PrintMessage(cutShort || large ? Message::mkWarning : Message::mkDetail,
 					"Collection %s lists only %i of the %i articles of %s: the missing ones count as failed",
 					nzbInfo->GetName(), fileInfo->GetTotalArticles() - fileInfo->GetMissedArticles(),
 					fileInfo->GetTotalArticles(), fileInfo->GetFilename());

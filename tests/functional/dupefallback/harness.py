@@ -8980,9 +8980,18 @@ def scenario_partialnzbdeclared(daemon, t):
     time.sleep(2)
     gap_detail = _grep_log(t, 'DETAIL\tCollection RelPG lists only 19 of the 20 articles of gap.mkv')
     gap_warned = _grep_log(t, 'WARNING\tCollection RelPG')
-    ok = warned == 1 and health <= 550 and gap_detail == 1 and gap_warned == 0
-    return ('partialnzbdeclared', ok, 'health=%d warned=%d gap_detail=%d gap_warned=%d'
-            % (health, warned, gap_detail, gap_warned))
+    # a fragment: one segment of a file numbered 150 (nothing past it is
+    # declared, all the gaps lie below): still a warning
+    f = _payload(3_000_000, 12446)
+    pf = _place_copy(t, 'pfA', f, 'frag.mkv')
+    frag = build_nzb(pf, 'frag.mkv', len(f), 20_000, set())
+    frag = _re.sub(r'<segment bytes="\d+" number="(?!150")\d+">[^<]*</segment>\n?', '', frag)
+    daemon.append(api, 'RelPF', frag, False, 'pf-key', 100)
+    time.sleep(2)
+    frag_warned = _grep_log(t, 'WARNING\tCollection RelPF lists only 1 of the 150 articles of frag.mkv')
+    ok = warned == 1 and health <= 550 and gap_detail == 1 and gap_warned == 0 and frag_warned == 1
+    return ('partialnzbdeclared', ok, 'health=%d warned=%d gap_detail=%d gap_warned=%d frag_warned=%d'
+            % (health, warned, gap_detail, gap_warned, frag_warned))
 
 
 def scenario_daemonlock(daemon, t):
@@ -9304,6 +9313,37 @@ def scenario_connectioncap(daemon, t):
         pass
     ok = alive and warned == 1 and ok_api
     return ('connectioncap', ok, 'warned=%d alive=%s api=%s' % (warned, alive, ok_api))
+
+
+def scenario_parvolnames(daemon, t):
+    """par2 volumes named by number only ("movie.vol-01.par2", as some posters
+    do): their block count was read from the name as 1, 2, 3..., so a set that
+    could repair the download added up to too few blocks and none was ever
+    requested ("Need more N par-block(s)", then "Repair failed"). The count is
+    estimated from the file size now, and the volumes are fetched."""
+    import subprocess as _sp
+    import glob as _glob
+    size, seg = 3_000_000, 100_000
+    data = _payload(size, 12447)
+    pp = _place_copy(t, 'pvA', data, 'movie.mkv')
+    work = t.path('data', 'pvA')
+    _sp.run(['par2', 'create', '-q', '-q', '-s102400', '-c24', '-n3', '-a', 'movie', 'movie.par2', 'movie.mkv'],
+            cwd=work, check=True, capture_output=True)
+    vols = sorted(_glob.glob(os.path.join(work, 'movie.vol*.par2')))
+    members = [(pp, 'movie.mkv', size, seg, {3, 7, 11, 15, 19, 23, 27})]
+    main_par = os.path.join(work, 'movie.par2')
+    members.append(('pvA/movie.par2', 'movie.par2', os.path.getsize(main_par), seg, set()))
+    for i, vol in enumerate(vols, 1):
+        name = 'movie.vol-%02d.par2' % i
+        os.rename(vol, os.path.join(work, name))
+        members.append(('pvA/' + name, name, os.path.getsize(os.path.join(work, name)), seg, set()))
+    api = daemon.wait_ready()
+    daemon.append(api, 'RelPV', build_multi_nzb(members), False, 'pv-key', 100)
+    h = daemon.wait_history(api, 'RelPV', timeout=240)
+    unpaused = _grep_log(t, 'for par-recovery')
+    ok = h['ParStatus'] == 'SUCCESS' and unpaused >= 1
+    return ('parvolnames', ok, 'status=%s par=%s unpaused_logs=%d vols=%d'
+            % (h['Status'], h['ParStatus'], unpaused, len(vols)))
 
 
 def scenario_clientcommands(daemon, t):
@@ -9740,6 +9780,7 @@ SCENARIOS = {
     'extdownloadname': scenario_extdownloadname,
     'scriptsockets': scenario_scriptsockets,
     'connectioncap': scenario_connectioncap,
+    'parvolnames': scenario_parvolnames,
     'movemissingtarget': scenario_movemissingtarget,
     'scangrowing': scenario_scangrowing,
     'archiveyoung': scenario_archiveyoung,
@@ -10051,6 +10092,7 @@ SCENARIO_OPTIONS = {
     'heldidle': ['ScriptPauseQueue=yes', 'Extensions=slowpost'],
     'scriptargs': ['Extensions=argcount, selfkill'],
     'scriptsockets': ['Extensions=fdlist'],
+    'parvolnames': ['ParCheck=auto'],
     'scangrowing': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'archiveyoung': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'scriptparcheck': ['ParCheck=auto', 'Extensions=askpar'],
