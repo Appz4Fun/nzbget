@@ -9209,6 +9209,103 @@ def scenario_archiveyoung(daemon, t):
     return ('archiveyoung', ok, 'added=%s nzbdir=%s' % (found, sorted(os.listdir(t.path('main', 'nzb')))))
 
 
+def scenario_extdownloadname(daemon, t):
+    """downloadextension with an extension name that is a path ("../../x"):
+    the download was saved under that name, outside TempDir. And an archive
+    that didn't install stayed in TempDir. Both are gone now."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'not an archive'
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    daemon.wait_ready()
+    url = 'http://127.0.0.1:%d/ext.zip' % server.server_address[1]
+    reply = _rpc(daemon, 'downloadextension', [url, '../../escape'])
+    time.sleep(1)
+    server.shutdown()
+    escaped = os.path.exists(t.path('escape.tmp.zip'))
+    left = [n for n in os.listdir(t.path('main', 'tmp')) if n.endswith('.tmp.zip')]
+    alive = t.procs[-1].poll() is None
+    ok = alive and not escaped and not left and 'error' in reply
+    return ('extdownloadname', ok, 'escaped=%s left=%s reply=%s' % (escaped, left, str(reply)[:80]))
+
+
+FDLIST_EXTENSION = '''#!/bin/sh
+##############################################################################
+### NZBGET POST-PROCESSING SCRIPT                                          ###
+# Reports the sockets it inherited.
+### NZBGET POST-PROCESSING SCRIPT                                          ###
+##############################################################################
+# fd 0 is nzbget's own stdin (the harness gives it a socket); the rest
+n=0
+for f in /proc/$$/fd/*; do
+  [ "${f##*/}" = 0 ] && continue
+  case "$(readlink "$f")" in socket:*) n=$((n+1));; esac
+done
+echo "[INFO] inherited sockets=$n"
+files=0
+for f in /proc/$$/fd/*; do
+  case "$(readlink "$f")" in */nzbget.log|*/queue/*) files=$((files+1));; esac
+done
+echo "[INFO] inherited state files=$files"
+exit 93
+'''
+
+
+def scenario_scriptsockets(daemon, t):
+    """A script doesn't inherit nzbget's sockets (the control port's listener,
+    client and news server connections) or its open files (log, queue state):
+    one that outlived the program kept the port listening, and copies kept
+    connections from closing."""
+    data = _payload(90_000, 12445)
+    pp = _place_copy(t, 'ssA', data)
+    api = daemon.wait_ready()
+    daemon.append(api, 'RelSS', build_nzb(pp, 'ss.bin', len(data), 100_000, set()), False, 'ss-key', 100)
+    daemon.wait_history(api, 'RelSS')
+    time.sleep(1)
+    log = t.read_file('nzbget.log').decode(errors='replace')
+    m = re.search(r'inherited sockets=(\d+)', log)
+    n = int(m.group(1)) if m else -1
+    m = re.search(r'inherited state files=(\d+)', log)
+    files = int(m.group(1)) if m else -1
+    return ('scriptsockets', n == 0 and files == 0, 'inherited_sockets=%s state_files=%s' % (n, files))
+
+
+def scenario_connectioncap(daemon, t):
+    """300 connections to the control port that send nothing: past 256 they're
+    closed at once with a warning (a thread each, no limit: clients that connect
+    and wait ran the program out of threads), and once they go the API answers."""
+    daemon.wait_ready()
+    socks = []
+    for _ in range(300):
+        s_ = socket.create_connection(('127.0.0.1', daemon.rpc_port), timeout=10)
+        socks.append(s_)
+    time.sleep(2)
+    warned = _grep_log(t, 'Too many connections to the web interface/API')
+    for s_ in socks:
+        s_.close()
+    time.sleep(2)
+    alive = t.procs[-1].poll() is None
+    ok_api = False
+    try:
+        ok_api = bool(_rpc(daemon, 'version', []).get('result'))
+    except Exception:
+        pass
+    ok = alive and warned == 1 and ok_api
+    return ('connectioncap', ok, 'warned=%d alive=%s api=%s' % (warned, alive, ok_api))
+
+
 def scenario_clientcommands(daemon, t):
     """The command-line client over the binary protocol after its requests got
     stricter checks: list, edit (pause a group) and write-log still work."""
@@ -9640,6 +9737,9 @@ SCENARIOS = {
     'daemonlock': scenario_daemonlock,
     'scriptargs': scenario_scriptargs,
     'urlarchive': scenario_urlarchive,
+    'extdownloadname': scenario_extdownloadname,
+    'scriptsockets': scenario_scriptsockets,
+    'connectioncap': scenario_connectioncap,
     'movemissingtarget': scenario_movemissingtarget,
     'scangrowing': scenario_scangrowing,
     'archiveyoung': scenario_archiveyoung,
@@ -9950,6 +10050,7 @@ SCENARIO_OPTIONS = {
     'directrenamesubdirjoin': ['DirectRename=yes', 'DirectWrite=no', 'ParCheck=auto'],
     'heldidle': ['ScriptPauseQueue=yes', 'Extensions=slowpost'],
     'scriptargs': ['Extensions=argcount, selfkill'],
+    'scriptsockets': ['Extensions=fdlist'],
     'scangrowing': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'archiveyoung': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'scriptparcheck': ['ParCheck=auto', 'Extensions=askpar'],
@@ -10069,6 +10170,7 @@ SCENARIO_EXTENSIONS = {'dupesearchpickgoneadd': {'deletepick.py': DELETE_PICK_EX
                        'fleetduringpost': {'slowpost.py': SLOW_POST_EXTENSION},
                        'heldidle': {'slowpost.py': SLOW_POST_EXTENSION},
                        'scriptargs': {'argcount.pl': ARGCOUNT_EXTENSION, 'selfkill.pl': SELFKILL_EXTENSION},
+                       'scriptsockets': {'fdlist.pl': FDLIST_EXTENSION},
                        'categoryscan': {'catscan.py': CATEGORY_SCAN_EXTENSION},
                        'extbaresignature': {'bare.py': BARE_SIGNATURE_EXTENSION},
                        'scriptdirlist': {'catscan.py': CATEGORY_SCAN_EXTENSION},

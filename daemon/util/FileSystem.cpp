@@ -1594,6 +1594,10 @@ bool DiskFile::Open(const char* filename, EOpenMode mode)
 		FOPEN_RBP : mode == omWrite ? FOPEN_WB : FOPEN_AB;
 #ifdef WIN32
 	m_file = _wfopen(FileSystem::UtfPathToWidePath(filename), WString(strmode));
+#elif defined(__linux__)
+	// "e": close-on-exec, the scripts nzbget starts don't inherit the log, the
+	// queue state files and the articles being written
+	m_file = fopen(filename, (std::string(strmode) + "e").c_str());
 #else
 	m_file = fopen(filename, strmode);
 #endif
