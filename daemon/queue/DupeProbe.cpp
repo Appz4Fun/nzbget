@@ -455,6 +455,16 @@ void DupeProbe::Recheck()
 		}
 		NzbInfo* nzbInfo = historyInfo->GetNzbInfo();
 		int sampled = (int)m_samples.size();
+		if (verdict.ReachedServers == 0)
+		{
+			// no server was asked (every connection busy the whole wait): that
+			// says nothing about the articles. It read "0 of N exist; not
+			// retrying" and used up the one recheck
+			nzbInfo->PrintMessage(Message::mkInfo,
+				"Failed articles not rechecked: no server connection was free");
+			nzbInfo->GetParameters()->SetParameter("*DupeRecheck", nullptr);
+			return;
+		}
 		bool retry = verdict.Existing * 2 >= sampled;
 		// a duplicate queued while the probe ran (up to a minute) downloads in its
 		// place: retrying as well downloaded the release twice at once (F22)
