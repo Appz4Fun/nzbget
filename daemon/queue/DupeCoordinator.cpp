@@ -20,6 +20,8 @@
 
 #include "nzbget.h"
 
+#include <cmath>
+
 #include <algorithm>
 #include "Options.h"
 #include "Log.h"
@@ -508,13 +510,13 @@ std::string DupeCoordinator::NoBackupReason(DownloadQueue* downloadQueue, NzbInf
 		}
 		NzbInfo* item = historyInfo->GetNzbInfo();
 		total++;
-		NzbParameter* alive = item->GetParameters()->Find("DupeAlive");
+		int alive = AlivePermille(item);
 		if (item->GetDeleteStatus() != NzbInfo::dsDupe && item->GetDeleteStatus() != NzbInfo::dsCopy) notBackup++;
 		else if (item->GetDupeMode() == dmForce) forced++;
 		else if (!FileSystem::FileExists(item->GetQueuedFilename())) noFile++;
 		else if (item->CalcHealth() < item->CalcCriticalHealth(true)) unhealthy++;
 		else if (item->GetMarkStatus() == NzbInfo::ksBad) bad++;
-		else if (alive && atoi(alive->GetValue()) == 0) dead++;
+		else if (alive == 0) dead++;
 	}
 	return BString<1024>("%i other item(s) of the key in history: %i failed/succeeded/deleted, %i forced, "
 		"%i without nzb-file, %i unhealthy, %i marked bad, %i found dead; the rest scored below a queued or "
@@ -610,11 +612,7 @@ HistoryInfo* DupeCoordinator::FindDupeBackup(DownloadQueue* downloadQueue, NzbIn
 	// the download that failed; one a dupe tool found dead (DupeAlive=0) is not;
 	// and of equal scores the one found more alive goes first
 	bool dupeHealth = g_Options->GetHealthCheck() == Options::hcDupe;
-	auto aliveOf = [](NzbInfo* item)
-		{
-			NzbParameter* alive = item->GetParameters()->Find("DupeAlive");
-			return alive ? atoi(alive->GetValue()) : -1;
-		};
+	auto aliveOf = [](NzbInfo* item) { return AlivePermille(item); };
 	// postings already tried and failed: a backup with exactly their content is the
 	// same dead posting again (B47: a copy of a failed pick was fetched next)
 	std::set<uint32> failedContent;
@@ -862,4 +860,20 @@ RawNzbList DupeCoordinator::ListHistoryDupes(DownloadQueue* downloadQueue, NzbIn
 	}
 
 	return dupeList;
+}
+
+int DupeCoordinator::AlivePermille(NzbInfo* nzbInfo, const char* name)
+{
+	NzbParameter* parameter = nzbInfo->GetParameters()->Find(name);
+	if (!parameter || !parameter->GetValue())
+	{
+		return -1;
+	}
+	char* end = nullptr;
+	double percent = strtod(parameter->GetValue(), &end);
+	if (end == parameter->GetValue() || std::isnan(percent))
+	{
+		return -1;
+	}
+	return (int)std::lround(std::min(100.0, std::max(0.0, percent)) * 10);
 }

@@ -1904,11 +1904,7 @@ void QueueCoordinator::CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* 
 		int backupAlive = -1;
 		for (const char* name : {"DupeAlive", "DupeHealth"})
 		{
-			NzbParameter* parameter = backup->GetNzbInfo()->GetParameters()->Find(name);
-			if (parameter)
-			{
-				backupAlive = std::max(backupAlive, atoi(parameter->GetValue()) * 10);
-			}
+			backupAlive = std::max(backupAlive, DupeCoordinator::AlivePermille(backup->GetNzbInfo(), name));
 		}
 		if (backupAlive < projected + BackupLead || backupAlive < critical ||
 			!DupeCoordinator::DupeFailoverWarranted(nzbInfo->GetDupeScore(), projected,
@@ -1992,11 +1988,7 @@ bool QueueCoordinator::CheckParDamage(DownloadQueue* downloadQueue, NzbInfo* nzb
 	int backupAlive = -1;
 	for (const char* name : {"DupeAlive", "DupeHealth"})
 	{
-		NzbParameter* parameter = backup->GetNzbInfo()->GetParameters()->Find(name);
-		if (parameter)
-		{
-			backupAlive = std::max(backupAlive, atoi(parameter->GetValue()) * 10);
-		}
+		backupAlive = std::max(backupAlive, DupeCoordinator::AlivePermille(backup->GetNzbInfo(), name));
 	}
 	if ((!certain && backupAlive < 999) ||
 		!DupeCoordinator::DupeFailoverWarranted(nzbInfo->GetDupeScore(), 0, backup->GetNzbInfo()->GetDupeScore()))

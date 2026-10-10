@@ -50,6 +50,9 @@ public:
 	 * <HealthCheck> value "dupe"): the backup's score must not fall below the
 	 * score the item still warrants at its remaining health. */
 	static bool DupeFailoverWarranted(int itemScore, int health, int backupScore);
+	/* a dupe tool's health check of a duplicate (parameter <name>, in percent,
+	 * fractions allowed) in per-mille, clamped to 0..1000; -1 if not set or not a number */
+	static int AlivePermille(NzbInfo* nzbInfo, const char* name = "DupeAlive");
 	/* the download gets a duplicate in its place when it fails or turns out dead:
 	 * DupeMode score; with HealthCheck=dupe a forced one too - it never fails
 	 * outright while a viable duplicate waits (B46) */

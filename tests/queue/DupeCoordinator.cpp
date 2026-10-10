@@ -112,6 +112,25 @@ BOOST_AUTO_TEST_CASE(DupeFailoverWarrantedTest)
 	BOOST_CHECK(DupeCoordinator::DupeFailoverWarranted(90, -7, 0));
 }
 
+BOOST_AUTO_TEST_CASE(DupeAlivePermilleTest)
+{
+	NzbInfo nzbInfo;
+	BOOST_CHECK_EQUAL(DupeCoordinator::AlivePermille(&nzbInfo), -1);
+	auto alive = [&](const char* value)
+		{
+			nzbInfo.GetParameters()->SetParameter("DupeAlive", value);
+			return DupeCoordinator::AlivePermille(&nzbInfo);
+		};
+	BOOST_CHECK_EQUAL(alive("100"), 1000);
+	BOOST_CHECK_EQUAL(alive("99.6"), 996);
+	BOOST_CHECK_EQUAL(alive("0"), 0);
+	BOOST_CHECK_EQUAL(alive(""), -1);
+	BOOST_CHECK_EQUAL(alive("abc"), -1);
+	BOOST_CHECK_EQUAL(alive("-5"), 0);
+	BOOST_CHECK_EQUAL(alive("1000"), 1000);
+	BOOST_CHECK_EQUAL(alive("nan"), -1);
+}
+
 BOOST_AUTO_TEST_CASE(DupeCoordinatorFindDupeBackupTest)
 {
 	Options::CmdOptList cmdOpts;
