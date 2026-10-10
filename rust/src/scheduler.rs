@@ -107,7 +107,8 @@ pub struct Check {
 /// Nine entries per task normally suffice, but libc's TZif leap corrections
 /// can repeat calendar dates and make this bound invalid.
 pub fn check_tasks(
-    tasks: &mut [Task], last_check: &mut i64, current: i64, local_offset: i64,
+    tasks: &mut [Task], last_check: &mut i64, current: i64,
+    current_offset: i64, last_check_offset: i64,
     gmtime: impl Fn(i64) -> Tm,
 ) -> Check {
     let mut r = Check { due: Vec::new(), reset: false };
@@ -121,8 +122,8 @@ pub fn check_tasks(
                 t.last_executed = 0;
             }
         }
-        let local_current = current + local_offset;
-        let local_last_check = *last_check + local_offset;
+        let local_current = current + current_offset;
+        let local_last_check = *last_check + last_check_offset;
         let tm_current = gmtime(local_current);
         let mut tm_loop = gmtime(local_last_check);
         tm_loop.hour = tm_current.hour;
@@ -178,7 +179,7 @@ mod tests {
             Task { hours: STARTUP_TASK, minutes: 0, week_days: 0, last_executed: 0 },
         ];
         let mut last = now - 600;
-        let c = check_tasks(&mut tasks, &mut last, now, 0, gmtime);
+        let c = check_tasks(&mut tasks, &mut last, now, 0, 0, gmtime);
         assert_eq!(c.due, vec![0, 2]);
         assert!(!c.reset);
         assert_eq!(last, now);

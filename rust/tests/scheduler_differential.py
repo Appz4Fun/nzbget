@@ -83,8 +83,8 @@ harness = r'''
 struct Mutex {};
 struct Guard { Guard(Mutex&) {} };
 static time_t g_now;
-static int g_offset;
-struct WorkState { int GetLocalTimeOffset() { return g_offset; } };
+static int g_offset, g_lastOffset, g_offsetReads;
+struct WorkState { int GetLocalTimeOffset() { return g_offsetReads++ == 0 ? g_offset : g_lastOffset; } };
 static WorkState workState;
 static WorkState* g_WorkState = &workState;
 ''' + timegm + r'''
@@ -111,7 +111,7 @@ static int below(int n) { return (int)(next() % (unsigned long long)n); }
 
 // Compare a single independently initialized check, including a directly
 // guarded FFI buffer. Random walks rarely hit these exact calendar boundaries.
-static void boundary(time_t now, time_t last, int offset, int hours, int minutes, int mask, time_t executed)
+static void boundary_offsets(time_t now, time_t last, int offset, int lastOffset, int hours, int minutes, int mask, time_t executed)
 {
 	oldimpl::Scheduler a;
 	newimpl::Scheduler b;
@@ -122,8 +122,12 @@ static void boundary(time_t now, time_t last, int offset, int hours, int minutes
 	c.m_taskList.push_back(std::make_unique<fallbackimpl::Scheduler::Task>(fallbackimpl::Scheduler::Task{hours, minutes, mask, executed}));
 	g_now = now;
 	g_offset = offset;
+	g_lastOffset = lastOffset;
+	g_offsetReads = 0;
 	a.CheckTasks();
+	g_offsetReads = 0;
 	b.CheckTasks();
+	g_offsetReads = 0;
 	c.CheckTasks();
 	NzbgetRsSchedTask task{hours, minutes, mask, (long long)executed};
 	long long check = last;
@@ -137,14 +141,14 @@ static void boundary(time_t now, time_t last, int offset, int hours, int minutes
 			*result = {(long long)fields.tm_year + 1900, fields.tm_mon, fields.tm_mday,
 				fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
 		};
-	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded.data() + 1, 9, &reset, calendar);
+	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, lastOffset, guarded.data() + 1, 9, &reset, calendar);
 	bool same = true;
 	if (n > 9)
 	{
 		same = check == last && task.lastExecuted == executed && reset == -1 &&
 			std::all_of(guarded.begin(), guarded.end(), [=](size_t value) { return value == sentinel; });
 		guarded.assign(n + 2, sentinel);
-		n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded.data() + 1, n, &reset, calendar);
+		n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, lastOffset, guarded.data() + 1, n, &reset, calendar);
 	}
 	same = same && a.m_run == b.m_run && a.m_run == c.m_run && n == a.m_run.size() && n <= guarded.size() - 2 &&
 		guarded.front() == sentinel && guarded.back() == sentinel &&
@@ -157,15 +161,27 @@ static void boundary(time_t now, time_t last, int offset, int hours, int minutes
 	for (size_t i = 0; i < n; i++) same = same && guarded[i + 1] == 0;
 	if (!same)
 	{
-		std::fprintf(stderr, "boundary mismatch: now %lld last %lld offset %d task %d:%d mask %d executed %lld\n",
-			(long long)now, (long long)last, offset, hours, minutes, mask, (long long)executed);
+		std::fprintf(stderr, "boundary mismatch: now %lld last %lld offsets %d/%d task %d:%d mask %d executed %lld\n",
+			(long long)now, (long long)last, offset, lastOffset, hours, minutes, mask, (long long)executed);
 		std::exit(1);
 	}
+}
+
+static void boundary(time_t now, time_t last, int offset, int hours, int minutes, int mask, time_t executed)
+{
+	boundary_offsets(now, last, offset, offset, hours, minutes, mask, executed);
 }
 
 int main()
 {
 	tzset();
+	// StatMeter can update the atomic offset between the two reads in
+	// CheckTasks. Preserve each reading, including across an FFI retry.
+	for (int offset : {-3600, 0, 3600})
+	for (int lastOffset : {-3600, 0, 3600})
+	for (int gap : {-1, 0, 60, 5400, 5401})
+	for (int hour : {-1, 0, 1, 12, 23})
+		boundary_offsets(1791676800, 1791676800 - gap, offset, lastOffset, hour, 0, 0, 0);
 	if (std::getenv("NZBGET_SCHEDULER_LEAP_STRESS"))
 	{
 		// libc accepts TZif corrections larger than a second. Repeated calendar
@@ -255,8 +271,12 @@ int main()
 			a.m_run.clear();
 			b.m_run.clear();
 			c.m_run.clear();
+			g_lastOffset = g_offset;
+			g_offsetReads = 0;
 			a.CheckTasks();
+			g_offsetReads = 0;
 			b.CheckTasks();
+			g_offsetReads = 0;
 			c.CheckTasks();
 			bool same = a.m_run == b.m_run && a.m_lastCheck == b.m_lastCheck && a.m_executeProcess == b.m_executeProcess &&
 				a.m_run == c.m_run && a.m_lastCheck == c.m_lastCheck && a.m_executeProcess == c.m_executeProcess;

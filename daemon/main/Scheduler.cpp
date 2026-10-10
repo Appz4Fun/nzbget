@@ -117,6 +117,10 @@ void Scheduler::CheckTasks()
 		std::vector<size_t> due(m_taskList.size() * 9);
 		long long lastCheck = m_lastCheck;
 		int reset = 0;
+		// StatMeter can change the atomic offset between these two readings.
+		// Preserve the original readings and reuse them if the buffer grows.
+		int currentOffset = tasks.empty() ? 0 : g_WorkState->GetLocalTimeOffset();
+		int lastCheckOffset = tasks.empty() ? 0 : g_WorkState->GetLocalTimeOffset();
 		auto calendar = [](long long value, NzbgetRsSchedTm* result)
 		{
 			time_t time = static_cast<time_t>(value);
@@ -129,7 +133,7 @@ void Scheduler::CheckTasks()
 		while (true)
 		{
 			dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
-				g_WorkState->GetLocalTimeOffset(), due.data(), due.size(), &reset, calendar);
+				currentOffset, lastCheckOffset, due.data(), due.size(), &reset, calendar);
 			if (dueCount <= due.size())
 			{
 				break;

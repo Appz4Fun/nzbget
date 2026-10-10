@@ -1250,7 +1250,8 @@ pub unsafe extern "C" fn nzbget_rs_scheduler_check(
     count: usize,
     last_check: *mut i64,
     current: i64,
-    local_offset: i64,
+    current_offset: i64,
+    last_check_offset: i64,
     due: *mut usize,
     due_capacity: usize,
     reset: *mut c_int,
@@ -1271,7 +1272,7 @@ pub unsafe extern "C" fn nzbget_rs_scheduler_check(
     // Keep the retry transactional, including each task's last execution time.
     let mut updated_tasks = tasks.to_vec();
     let mut updated_last_check = *last_check;
-    let r = crate::scheduler::check_tasks(&mut updated_tasks, &mut updated_last_check, current, local_offset, |time| {
+    let r = crate::scheduler::check_tasks(&mut updated_tasks, &mut updated_last_check, current, current_offset, last_check_offset, |time| {
         let mut fields = std::mem::MaybeUninit::uninit();
         gmtime(time, fields.as_mut_ptr());
         fields.assume_init()
@@ -1313,7 +1314,7 @@ mod tests {
         let mut due = [usize::MAX; 17];
         for capacity in [0, 1, 9, 14] {
             let n = unsafe {
-                nzbget_rs_scheduler_check(&mut task, 1, &mut last, 80_049_600, 0,
+                nzbget_rs_scheduler_check(&mut task, 1, &mut last, 80_049_600, 0, 0,
                     if capacity == 0 { std::ptr::null_mut() } else { due.as_mut_ptr().add(1) },
                     capacity, &mut reset, Some(calendar))
             };
@@ -1324,7 +1325,7 @@ mod tests {
             assert_eq!(due, [usize::MAX; 17]);
         }
         let n = unsafe {
-            nzbget_rs_scheduler_check(&mut task, 1, &mut last, 80_049_600, 0,
+            nzbget_rs_scheduler_check(&mut task, 1, &mut last, 80_049_600, 0, 0,
                 due.as_mut_ptr().add(1), 15, &mut reset, Some(calendar))
         };
         assert_eq!(n, 15);
@@ -1355,6 +1356,7 @@ mod tests {
                     if missing == 1 { std::ptr::null_mut() } else { &mut last },
                     456,
                     0,
+                    0,
                     if missing == 2 { std::ptr::null_mut() } else { due.as_mut_ptr() },
                     due.len(),
                     if missing == 3 { std::ptr::null_mut() } else { &mut reset },
@@ -1372,13 +1374,13 @@ mod tests {
         let mut reset = -1;
         let mut due = [usize::MAX; 9];
         unsafe {
-            assert_eq!(nzbget_rs_scheduler_check(&mut task, usize::MAX, &mut last, 456, 0, due.as_mut_ptr(), due.len(), &mut reset, Some(calendar)), 0);
-            assert_eq!(nzbget_rs_scheduler_check(&mut task, 1, &mut last, 456, 0, due.as_mut_ptr(), usize::MAX, &mut reset, Some(calendar)), 0);
+            assert_eq!(nzbget_rs_scheduler_check(&mut task, usize::MAX, &mut last, 456, 0, 0, due.as_mut_ptr(), due.len(), &mut reset, Some(calendar)), 0);
+            assert_eq!(nzbget_rs_scheduler_check(&mut task, 1, &mut last, 456, 0, 0, due.as_mut_ptr(), usize::MAX, &mut reset, Some(calendar)), 0);
             assert_eq!(task, original);
             assert_eq!(last, 123);
             assert_eq!(reset, -1);
             assert_eq!(due, [usize::MAX; 9]);
-            assert_eq!(nzbget_rs_scheduler_check(std::ptr::null_mut(), 0, &mut last, 456, 0, std::ptr::null_mut(), 0, &mut reset, Some(calendar)), 0);
+            assert_eq!(nzbget_rs_scheduler_check(std::ptr::null_mut(), 0, &mut last, 456, 0, 0, std::ptr::null_mut(), 0, &mut reset, Some(calendar)), 0);
         }
         assert_eq!(last, 456);
         assert_eq!(reset, 0);
