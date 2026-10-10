@@ -683,6 +683,62 @@ pub unsafe extern "C" fn nzbget_rs_sniff_extension(header: *const u8, len: usize
     static_str(crate::filetypes::sniff_extension(h), out_len)
 }
 
+/// FileSystem's path texts (rust/src/paths.rs): 0 MakeValidFilename (`flag`:
+/// allow slashes), 1 SanitizePathSegment, 2 SanitizeRelativePath,
+/// 3 EscapePathForShell; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_path_text(op: c_int, s: *const c_char, len: usize, flag: c_int) -> RsBuf {
+    let b = bytes(s, len);
+    into_buf(match op {
+        0 => crate::paths::make_valid_filename(b, flag != 0),
+        1 => crate::paths::sanitize_path_segment(b),
+        2 => crate::paths::sanitize_relative_path(b),
+        3 => crate::paths::escape_path_for_shell(b),
+        _ => Vec::new(),
+    })
+}
+
+/// FileSystem's path positions (rust/src/paths.rs): 0 BaseFileName (where
+/// the name starts), 1 SplitPathAndFilename (the last '/' or '\\', or
+/// SIZE_MAX), 2 ExtractFilePathFromCmd (the length of the path).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_path_position(op: c_int, s: *const c_char, len: usize) -> usize {
+    let b = bytes(s, len);
+    match op {
+        0 => crate::paths::base_file_name(b),
+        1 => {
+            let (path, name) = crate::paths::split_path_and_filename(b);
+            if name.is_empty() && path.len() == b.len() { usize::MAX } else { path.len() }
+        }
+        2 => crate::paths::extract_file_path_from_cmd(b).len(),
+        _ => 0,
+    }
+}
+
+/// FileSystem::ReservedChar.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_reserved_char(c: c_char) -> c_int {
+    crate::paths::reserved_char(c as u8) as c_int
+}
+
+/// FileSystem::NormalizePathSeparators, in place.
+///
+/// # Safety
+/// `path` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_normalize_path_separators(path: *mut c_char) {
+    in_place(path, |b| {
+        crate::paths::normalize_path_separators(b);
+        b.len()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

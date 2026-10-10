@@ -21,6 +21,9 @@
 
 #include "nzbget.h"
 #include "FileSystem.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "Util.h"
 #include "Log.h"
 
@@ -49,6 +52,13 @@ CString FileSystem::GetLastErrorMessage()
 	return *msg;
 }
 
+#ifdef NZBGET_USE_RUST
+void FileSystem::NormalizePathSeparators(char* path)
+{
+	// rust/src/paths.rs
+	nzbget_rs_normalize_path_separators(path);
+}
+#else
 void FileSystem::NormalizePathSeparators(char* path)
 {
 	for (char* p = path; *p; p++)
@@ -59,6 +69,7 @@ void FileSystem::NormalizePathSeparators(char* path)
 		}
 	}
 }
+#endif
 
 std::optional<std::string> FileSystem::GetRealPath(const std::string& path)
 {
@@ -440,6 +451,13 @@ bool FileSystem::TruncateFile(const char* filename, int size)
 #endif
 }
 
+#ifdef NZBGET_USE_RUST
+char* FileSystem::BaseFileName(const char* filename)
+{
+	// rust/src/paths.rs
+	return const_cast<char*>(filename) + nzbget_rs_path_position(0, filename, strlen(filename));
+}
+#else
 char* FileSystem::BaseFileName(const char* filename)
 {
 	char* p = (char*)strrchr(filename, PATH_SEPARATOR);
@@ -460,7 +478,20 @@ char* FileSystem::BaseFileName(const char* filename)
 		return (char*)filename;
 	}
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+std::pair<std::string, std::string> FileSystem::SplitPathAndFilename(const std::string& fullPath)
+{
+	// rust/src/paths.rs
+	size_t slash = nzbget_rs_path_position(1, fullPath.data(), fullPath.size());
+	if (slash == SIZE_MAX)
+	{
+		return std::make_pair(fullPath, "");
+	}
+	return std::make_pair(fullPath.substr(0, slash), fullPath.substr(slash + 1));
+}
+#else
 std::pair<std::string, std::string> FileSystem::SplitPathAndFilename(const std::string& fullPath)
 {
 	size_t lastSlashPos = fullPath.find_last_of("/\\");
@@ -475,7 +506,15 @@ std::pair<std::string, std::string> FileSystem::SplitPathAndFilename(const std::
 
 	return std::make_pair(std::move(path), std::move(filename));
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+bool FileSystem::ReservedChar(char ch)
+{
+	// rust/src/paths.rs
+	return nzbget_rs_reserved_char(ch) != 0;
+}
+#else
 bool FileSystem::ReservedChar(char ch)
 {
 	if (Util::IsControlChar(ch))
@@ -501,8 +540,19 @@ bool FileSystem::ReservedChar(char ch)
 
 	return false;
 }
+#endif
 
 //replace bad chars in filename
+#ifdef NZBGET_USE_RUST
+CString FileSystem::MakeValidFilename(const char* filename, bool allowSlashes)
+{
+	// rust/src/paths.rs
+	NzbgetRsBuf buf = nzbget_rs_path_text(0, filename, strlen(filename), allowSlashes);
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString FileSystem::MakeValidFilename(const char* filename, bool allowSlashes)
 {
 	CString result = filename;
@@ -542,7 +592,18 @@ CString FileSystem::MakeValidFilename(const char* filename, bool allowSlashes)
 
 	return result;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+std::string FileSystem::SanitizePathSegment(std::string_view name)
+{
+	// rust/src/paths.rs
+	NzbgetRsBuf buf = nzbget_rs_path_text(1, name.data(), name.size(), 0);
+	std::string result(buf.data, buf.len);
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 std::string FileSystem::SanitizePathSegment(std::string_view name)
 {
 	// Bound input length to prevent excessive allocations from untrusted metadata
@@ -626,7 +687,18 @@ std::string FileSystem::SanitizePathSegment(std::string_view name)
 
 	return result;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+std::string FileSystem::SanitizeRelativePath(std::string_view path)
+{
+	// rust/src/paths.rs
+	NzbgetRsBuf buf = nzbget_rs_path_text(2, path.data(), path.size(), 0);
+	std::string result(buf.data, buf.len);
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 std::string FileSystem::SanitizeRelativePath(std::string_view path)
 {
 	std::string clean;
@@ -655,6 +727,7 @@ std::string FileSystem::SanitizeRelativePath(std::string_view path)
 
 	return clean;
 }
+#endif
 
 CString FileSystem::MakeUniqueFilename(const char* destDir, const char* basename)
 {
@@ -843,6 +916,13 @@ bool FileSystem::RemoveDirectory(const char* dirFilename)
 }
 
 
+#ifdef NZBGET_USE_RUST
+std::string FileSystem::ExtractFilePathFromCmd(const std::string& path)
+{
+	// rust/src/paths.rs
+	return path.substr(0, nzbget_rs_path_position(2, path.data(), path.size()));
+}
+#else
 std::string FileSystem::ExtractFilePathFromCmd(const std::string& path)
 {
 	if (path.empty())
@@ -863,7 +943,18 @@ std::string FileSystem::ExtractFilePathFromCmd(const std::string& path)
 
 	return path;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+std::string FileSystem::EscapePathForShell(const std::string& path)
+{
+	// rust/src/paths.rs
+	NzbgetRsBuf buf = nzbget_rs_path_text(3, path.data(), path.size(), 0);
+	std::string result(buf.data, buf.len);
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 std::string FileSystem::EscapePathForShell(const std::string& path)
 {
 	if (path.empty())
@@ -873,6 +964,7 @@ std::string FileSystem::EscapePathForShell(const std::string& path)
 
 	return "\"" + path + "\"";
 }
+#endif
 
 std::optional<std::string> FileSystem::GetFileExtension(std::string_view filename)
 {
