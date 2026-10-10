@@ -19,6 +19,7 @@ pub struct Task {
 pub const STARTUP_TASK: i32 = -1;
 
 /// The fields of gmtime_r used here.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tm {
     pub year: i64,
@@ -33,6 +34,9 @@ pub struct Tm {
 }
 
 /// gmtime_r: a time as UTC calendar fields.
+/// Only for tests using POSIX time; production uses the caller's libc, which
+/// may apply leap seconds from the process timezone's TZif file.
+#[cfg(test)]
 pub fn gmtime(t: i64) -> Tm {
     let days = t.div_euclid(86400);
     let secs = t.rem_euclid(86400);
@@ -105,7 +109,10 @@ pub const MAX_LOOP_DAYS: usize = 9;
 /// Scheduler::CheckTasks' timing for `tasks` (in the scheduler's order):
 /// updates their last runs and `last_check` and returns what to run, at
 /// most `tasks.len() * MAX_LOOP_DAYS` entries.
-pub fn check_tasks(tasks: &mut [Task], last_check: &mut i64, current: i64, local_offset: i64) -> Check {
+pub fn check_tasks(
+    tasks: &mut [Task], last_check: &mut i64, current: i64, local_offset: i64,
+    gmtime: impl Fn(i64) -> Tm,
+) -> Check {
     let mut r = Check { due: Vec::new(), reset: false };
     if !tasks.is_empty() {
         let diff = current - *last_check;
@@ -174,7 +181,7 @@ mod tests {
             Task { hours: STARTUP_TASK, minutes: 0, week_days: 0, last_executed: 0 },
         ];
         let mut last = now - 600;
-        let c = check_tasks(&mut tasks, &mut last, now, 0);
+        let c = check_tasks(&mut tasks, &mut last, now, 0, gmtime);
         assert_eq!(c.due, vec![0, 2]);
         assert!(!c.reset);
         assert_eq!(last, now);

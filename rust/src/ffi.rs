@@ -1232,10 +1232,16 @@ pub unsafe extern "C" fn nzbget_rs_decoder_filename(d: *mut crate::decoder::Deco
 /// Scheduler::CheckTasks' timing: updates the tasks' last runs and
 /// `*last_check`, writes the indexes of the tasks to run (in order) to `due`
 /// and returns their count; `*reset` is set to whether the clock jumped.
+/// Missing required pointers or unrepresentable buffer sizes return zero
+/// without changing any output. With zero tasks, `tasks` and `due` may be null.
 ///
 /// # Safety
-/// `tasks` points to `count` tasks (or is null with `count` 0), `due` to
-/// `count * 9` writable entries, `last_check` and `reset` to writable values.
+/// Non-null `tasks` points to `count` tasks, `due` to `count * 9` writable
+/// entries, and `last_check` and `reset` to writable values. These buffers
+/// must be aligned and disjoint, and remain caller-owned. Panics abort
+/// rather than unwinding across the ABI.
+/// `gmtime`, when non-null, must initialize the supplied calendar fields as
+/// libc's gmtime_r does for the given time, and must not unwind. NULL is rejected.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_scheduler_check(
     tasks: *mut crate::scheduler::Task,
@@ -1245,10 +1251,24 @@ pub unsafe extern "C" fn nzbget_rs_scheduler_check(
     local_offset: i64,
     due: *mut usize,
     reset: *mut c_int,
+    gmtime: Option<unsafe extern "C" fn(i64, *mut crate::scheduler::Tm)>,
 ) -> usize {
+    let Some(gmtime) = gmtime else { return 0 };
+    if last_check.is_null()
+        || reset.is_null()
+        || (count != 0 && (tasks.is_null() || due.is_null()))
+        || count > isize::MAX as usize / std::mem::size_of::<crate::scheduler::Task>()
+        || count > isize::MAX as usize / std::mem::size_of::<usize>() / crate::scheduler::MAX_LOOP_DAYS
+    {
+        return 0;
+    }
     let tasks: &mut [crate::scheduler::Task] =
-        if count == 0 || tasks.is_null() { &mut [] } else { std::slice::from_raw_parts_mut(tasks, count) };
-    let r = crate::scheduler::check_tasks(tasks, &mut *last_check, current, local_offset);
+        if count == 0 { &mut [] } else { std::slice::from_raw_parts_mut(tasks, count) };
+    let r = crate::scheduler::check_tasks(tasks, &mut *last_check, current, local_offset, |time| {
+        let mut fields = std::mem::MaybeUninit::uninit();
+        gmtime(time, fields.as_mut_ptr());
+        fields.assume_init()
+    });
     *reset = r.reset as c_int;
     let n = r.due.len().min(count * crate::scheduler::MAX_LOOP_DAYS);
     if n > 0 {
@@ -1260,6 +1280,53 @@ pub unsafe extern "C" fn nzbget_rs_scheduler_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduler_null_and_oversized_buffers() {
+        use crate::scheduler::{Task, MAX_LOOP_DAYS};
+        unsafe extern "C" fn calendar(time: i64, fields: *mut crate::scheduler::Tm) {
+            fields.write(crate::scheduler::gmtime(time));
+        }
+        let original = Task { hours: -1, minutes: 0, week_days: 0, last_executed: 0 };
+        // Each required pointer may be absent. Rejection must be atomic.
+        for missing in 0..5 {
+            let mut task = original;
+            let mut last = 123;
+            let mut reset = -1;
+            let mut due = [usize::MAX; MAX_LOOP_DAYS];
+            let n = unsafe {
+                nzbget_rs_scheduler_check(
+                    if missing == 0 { std::ptr::null_mut() } else { &mut task },
+                    1,
+                    if missing == 1 { std::ptr::null_mut() } else { &mut last },
+                    456,
+                    0,
+                    if missing == 2 { std::ptr::null_mut() } else { due.as_mut_ptr() },
+                    if missing == 3 { std::ptr::null_mut() } else { &mut reset },
+                    if missing == 4 { None } else { Some(calendar) },
+                )
+            };
+            assert_eq!(n, 0);
+            assert_eq!(task, original);
+            assert_eq!(last, 123);
+            assert_eq!(reset, -1);
+            assert_eq!(due, [usize::MAX; MAX_LOOP_DAYS]);
+        }
+        let mut task = original;
+        let mut last = 123;
+        let mut reset = -1;
+        let mut due = [usize::MAX; MAX_LOOP_DAYS];
+        unsafe {
+            assert_eq!(nzbget_rs_scheduler_check(&mut task, usize::MAX, &mut last, 456, 0, due.as_mut_ptr(), &mut reset, Some(calendar)), 0);
+            assert_eq!(task, original);
+            assert_eq!(last, 123);
+            assert_eq!(reset, -1);
+            assert_eq!(due, [usize::MAX; MAX_LOOP_DAYS]);
+            assert_eq!(nzbget_rs_scheduler_check(std::ptr::null_mut(), 0, &mut last, 456, 0, std::ptr::null_mut(), &mut reset, Some(calendar)), 0);
+        }
+        assert_eq!(last, 456);
+        assert_eq!(reset, 0);
+    }
 
     #[test]
     fn web_null_inputs_and_optional_outputs() {

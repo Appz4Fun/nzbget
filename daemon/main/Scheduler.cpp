@@ -118,7 +118,15 @@ void Scheduler::CheckTasks()
 		long long lastCheck = m_lastCheck;
 		int reset = 0;
 		size_t dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
-			g_WorkState->GetLocalTimeOffset(), due.data(), &reset);
+			g_WorkState->GetLocalTimeOffset(), due.data(), &reset,
+			[](long long value, NzbgetRsSchedTm* result)
+			{
+				time_t time = static_cast<time_t>(value);
+				tm fields{};
+				gmtime_r(&time, &fields);
+				*result = {static_cast<long long>(fields.tm_year) + 1900, fields.tm_mon,
+					fields.tm_mday, fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
+			});
 
 		if (reset)
 		{

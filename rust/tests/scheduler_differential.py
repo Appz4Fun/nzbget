@@ -7,16 +7,22 @@ whether processes may start), the tasks' last runs and the last check time.
 Runs under ASan and UBSan and without sanitizers.
 
 Run at idle priority: chrt -i 0 nice -n 19 python3 rust/tests/scheduler_differential.py
+Add --debug to exercise Rust's dev profile with overflow checks enabled.
 """
+import argparse
 import os
 from pathlib import Path
 import re
 import shlex
+import struct
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE = "02c80b7b"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--debug", action="store_true")
+args = parser.parse_args()
 
 
 def check_tasks(source):
@@ -68,6 +74,7 @@ harness = r'''
 #include <deque>
 #include <list>
 #include <memory>
+#include <limits>
 #include <utility>
 #include <vector>
 #include "Container.h"
@@ -102,8 +109,94 @@ static unsigned long long state = 0x9e3779b97f4a7c15ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
 static int below(int n) { return (int)(next() % (unsigned long long)n); }
 
+// Compare a single independently initialized check, including a directly
+// guarded FFI buffer. Random walks rarely hit these exact calendar boundaries.
+static void boundary(time_t now, time_t last, int offset, int hours, int minutes, int mask, time_t executed)
+{
+	oldimpl::Scheduler a;
+	newimpl::Scheduler b;
+	fallbackimpl::Scheduler c;
+	a.m_lastCheck = b.m_lastCheck = c.m_lastCheck = last;
+	a.m_taskList.push_back(std::make_unique<oldimpl::Scheduler::Task>(oldimpl::Scheduler::Task{hours, minutes, mask, executed}));
+	b.m_taskList.push_back(std::make_unique<newimpl::Scheduler::Task>(newimpl::Scheduler::Task{hours, minutes, mask, executed}));
+	c.m_taskList.push_back(std::make_unique<fallbackimpl::Scheduler::Task>(fallbackimpl::Scheduler::Task{hours, minutes, mask, executed}));
+	g_now = now;
+	g_offset = offset;
+	a.CheckTasks();
+	b.CheckTasks();
+	c.CheckTasks();
+	NzbgetRsSchedTask task{hours, minutes, mask, (long long)executed};
+	long long check = last;
+	int reset = -1;
+	const size_t sentinel = std::numeric_limits<size_t>::max();
+	size_t guarded[11];
+	std::fill(std::begin(guarded), std::end(guarded), sentinel);
+	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded + 1, &reset,
+		[](long long value, NzbgetRsSchedTm* result) {
+			time_t time = value;
+			tm fields{};
+			gmtime_r(&time, &fields);
+			*result = {(long long)fields.tm_year + 1900, fields.tm_mon, fields.tm_mday,
+				fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
+		});
+	bool same = a.m_run == b.m_run && a.m_run == c.m_run && n == a.m_run.size() && n <= 9 &&
+		guarded[0] == sentinel && guarded[10] == sentinel &&
+		a.m_lastCheck == b.m_lastCheck && a.m_lastCheck == c.m_lastCheck && check == a.m_lastCheck &&
+		a.m_executeProcess == b.m_executeProcess && a.m_executeProcess == c.m_executeProcess &&
+		(reset == 0) == a.m_executeProcess &&
+		a.m_taskList[0]->m_lastExecuted == b.m_taskList[0]->m_lastExecuted &&
+		a.m_taskList[0]->m_lastExecuted == c.m_taskList[0]->m_lastExecuted &&
+		task.lastExecuted == a.m_taskList[0]->m_lastExecuted;
+	for (size_t i = 0; i < n; i++) same = same && guarded[i + 1] == 0;
+	if (!same)
+	{
+		std::fprintf(stderr, "boundary mismatch: now %lld last %lld offset %d task %d:%d mask %d executed %lld\n",
+			(long long)now, (long long)last, offset, hours, minutes, mask, (long long)executed);
+		std::exit(1);
+	}
+}
+
 int main()
 {
+	tzset();
+	for (time_t now : {78796799, 78796800, 78796801, 78796860})
+	for (int gap : {0, 1, 60, 5400, 5401})
+	for (int hour : {-1, 0, 23})
+		boundary(now, now - gap, 0, hour, 0, 0, 0);
+	// Leap and non-leap centuries, year zero and negative years exercise the
+	// truncating division in nzbget's Timegm (not libc timegm). All arithmetic
+	// stays within the defined range of the original C++ int expressions.
+	const int years[] = {-5000000, -400, -100, -4, -1, 0, 1, 4, 100, 400, 1600, 1900, 1969, 1970, 2000, 2038, 2100, 2400, 5000000};
+	const int masks[] = {0, 1, 2, 4, 8, 16, 32, 64, 127, 128, -1};
+	const int offsets[] = {0, -43200, 50400, 20700, -1, 1};
+	const int gaps[] = {-1, 0, 1, 60, 5399, 5400, 5401, 604800};
+	long boundaries = 0;
+	for (int year : years)
+	for (int month : {0, 1, 2, 11})
+	for (int day : {1, 28, 29})
+	{
+		tm t{};
+		t.tm_year = year - 1900;
+		t.tm_mon = month;
+		t.tm_mday = day;
+		time_t midnight = internal_timegm(&t);
+		for (int second : {-1, 0, 1, 86399})
+		for (int gap : gaps)
+		for (int offset : offsets)
+		for (int mask : masks)
+		{
+			// Include unnormalized task times: Timegm doesn't recompute the
+			// weekday after moving an appointment into the preceding/next day.
+			for (auto hm : {std::pair<int, int>{-1, 0}, {-2, 0}, {0, 0}, {23, 59}, {24, 0}, {0, -1}, {12, 60}})
+			{
+				time_t now = midnight + second;
+				time_t executed = boundaries % 3 == 0 ? now + offset : boundaries % 3 == 1 ? 0 : now - 86400;
+				boundary(now, now - gap, offset, hm.first, hm.second, mask, executed);
+				boundaries++;
+			}
+		}
+	}
+	std::printf("%ld boundary checks agree (guarded count * 9 output)\n", boundaries);
 	long checks = 0, runs = 0, resets = 0;
 	for (int scenario = 0; scenario < 4000; scenario++)
 	{
@@ -167,7 +260,15 @@ int main()
 with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
     temp = Path(temp)
     env = dict(os.environ, CARGO_BUILD_JOBS="3")
-    cargo = subprocess.run(["cargo", "rustc", "--lib", "--release", "--locked", "--target-dir", str(temp / "target"),
+    # A minimal TZif v1 fixture, independent of the host's optional right/*
+    # zoneinfo package: one leap second at the end of June 1972. gmtime_r
+    # honors this on libc implementations supporting leap-aware timezones.
+    leap_zone = temp / "leap-utc"
+    leap_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 1, 0, 1, 4)
+                          + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
+                          + struct.pack(">li", 78796800, 1))
+    cargo = subprocess.run(["cargo", "rustc", "--lib", "--profile", "dev" if args.debug else "release",
+                            "--locked", "--target-dir", str(temp / "target"),
                             "--", "--print", "native-static-libs"], cwd=ROOT / "rust", env=env,
                            capture_output=True, text=True, check=True)
     native = shlex.split(re.search(r"native-static-libs: ([^\r\n]+)", cargo.stdout + cargo.stderr).group(1))
@@ -177,5 +278,8 @@ with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
         binary = temp / "scheduler"
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), "-std=c++20", "-g", "-w", *flags,
                         "-I", str(ROOT / "rust/include"), "-I", str(ROOT / "daemon/util"), str(source),
-                        str(temp / "target/release/libnzbget_rs.a"), *native, "-o", str(binary)], check=True, env=env)
-        subprocess.run([str(binary)], check=True, env=env)
+                        str(temp / "target" / ("debug" if args.debug else "release") / "libnzbget_rs.a"),
+                        *native, "-o", str(binary)], check=True, env=env)
+        for timezone in ("UTC0", f":{leap_zone}"):
+            print(f"Checking {'Debug' if args.debug else 'Release'}, {flags}, TZ={timezone}", flush=True)
+            subprocess.run([str(binary)], check=True, env=dict(env, TZ=timezone))

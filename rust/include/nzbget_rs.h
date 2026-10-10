@@ -302,6 +302,9 @@ const char* nzbget_rs_decoder_filename(NzbgetRsDecoder* decoder);
 // tasks' lastExecuted and *lastCheck, writes the due task indexes in execution
 // order to due (room for count * 9) and returns how many; *reset tells whether
 // the clock jumped (> 90 minutes or back) and a week was rechecked.
+// All buffers are disjoint and caller-owned. NULL lastCheck/reset, or NULL
+// tasks/due with nonzero count, returns 0 without changing outputs. With count
+// zero, tasks/due may be NULL. Unrepresentable buffer sizes are also rejected.
 typedef struct NzbgetRsSchedTask
 {
 	int hours; // -1: startup task
@@ -309,7 +312,14 @@ typedef struct NzbgetRsSchedTask
 	int weekDays; // bit n: weekday n + 1 (1 Monday .. 7 Sunday); 0: all
 	long long lastExecuted;
 } NzbgetRsSchedTask;
-size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long localOffset, size_t* due, int* reset);
+// Calendar conversion stays in libc: leap-aware TZif files affect gmtime_r.
+// year is the full year; mon is 0..11 and wday is 0 (Sunday)..6.
+typedef struct NzbgetRsSchedTm
+{
+	long long year, mon, mday, hour, min, sec, wday;
+} NzbgetRsSchedTm;
+// gmtime must fill all fields and must not throw. NULL is rejected atomically.
+size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long localOffset, size_t* due, int* reset, void (*gmtime)(long long, NzbgetRsSchedTm*));
 
 #ifdef __cplusplus
 }
