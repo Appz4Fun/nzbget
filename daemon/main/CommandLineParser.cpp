@@ -26,6 +26,10 @@
 #include "DownloadInfo.h"
 #include "FileSystem.h"
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include "nzbget_rs.h"
+#endif
 
 #ifdef HAVE_GETOPT_LONG
 static struct option long_options[] =
@@ -61,6 +65,157 @@ static struct option long_options[] =
 static char short_options[] = "c:hno:psvAB:DCE:G:K:LPR:STUQOVW:";
 
 
+#ifdef NZBGET_USE_RUST
+// a callback that threw stops the parser; the exception is rethrown after
+// Rust returned
+struct CommandLineParser::RsSink
+{
+	CommandLineParser* parser;
+	std::exception_ptr error;
+
+	template <typename F>
+	static int Call(void* ctx, F f) noexcept
+	{
+		RsSink* sink = static_cast<RsSink*>(ctx);
+		try
+		{
+			f(sink->parser);
+			return 0;
+		}
+		catch (...)
+		{
+			sink->error = std::current_exception();
+			return -1;
+		}
+	}
+};
+
+int CommandLineParser::RsSetInt(void* ctx, int field, int value)
+{
+	// in the order of rust/src/cmdline.rs: edit, and the dupe modes and log kinds
+	static const int EDIT_ACTIONS[] = {
+		DownloadQueue::eaPostDelete, DownloadQueue::eaHistoryDelete, DownloadQueue::eaHistoryReturn,
+		DownloadQueue::eaHistoryProcess, DownloadQueue::eaHistoryRedownload, DownloadQueue::eaHistoryRetryFailed,
+		DownloadQueue::eaHistorySetParameter, DownloadQueue::eaHistoryMarkBad, DownloadQueue::eaHistoryMarkGood,
+		DownloadQueue::eaHistoryMarkSuccess, DownloadQueue::eaGroupMoveTop, DownloadQueue::eaFileMoveTop,
+		DownloadQueue::eaGroupMoveBottom, DownloadQueue::eaFileMoveBottom, DownloadQueue::eaGroupPause,
+		DownloadQueue::eaFilePause, DownloadQueue::eaGroupPauseAllPars, DownloadQueue::eaFilePauseAllPars,
+		DownloadQueue::eaGroupPauseExtraPars, DownloadQueue::eaFilePauseExtraPars, DownloadQueue::eaGroupResume,
+		DownloadQueue::eaFileResume, DownloadQueue::eaGroupDelete, DownloadQueue::eaFileDelete,
+		DownloadQueue::eaGroupParkDelete, DownloadQueue::eaGroupSortFiles, DownloadQueue::eaGroupApplyCategory,
+		DownloadQueue::eaGroupSetCategory, DownloadQueue::eaGroupSetName, DownloadQueue::eaGroupMerge,
+		DownloadQueue::eaFileSplit, DownloadQueue::eaGroupSetParameter, DownloadQueue::eaGroupSetPriority,
+		DownloadQueue::eaGroupMoveOffset, DownloadQueue::eaFileMoveOffset};
+	static const int DUPE_MODES[] = {dmScore, dmAll, dmForce};
+	static const int LOG_KINDS[] = {(int)Message::mkInfo, (int)Message::mkWarning, (int)Message::mkError,
+		(int)Message::mkDetail, (int)Message::mkDebug};
+	return RsSink::Call(ctx, [field, value](CommandLineParser* p)
+	{
+		switch (field)
+		{
+			case 0: p->m_noConfig = value; break;
+			case 1: p->m_printUsage = value; break;
+			case 2: p->m_printVersion = value; break;
+			case 3: p->m_printOptions = value; break;
+			case 4: p->m_serverMode = value; break;
+			case 5: p->m_daemonMode = value; break;
+			case 6: p->m_remoteClientMode = value; break;
+			case 7: p->m_clientOperation = (EClientOperation)value; break;
+			case 8: p->m_addTop = value; break;
+			case 9: p->m_addPaused = value; break;
+			case 10: p->m_addPriority = value; break;
+			case 11: p->m_addDupeScore = value; break;
+			case 12: p->m_addDupeMode = DUPE_MODES[value]; break;
+			case 13: p->m_matchMode = (EMatchMode)value; break;
+			case 14: p->m_setRate = value; break;
+			case 15: p->m_testBacktrace = value; break;
+			case 16: p->m_webGet = value; break;
+			case 17: p->m_sigVerify = value; break;
+			case 18: p->m_logLines = value; break;
+			case 19: p->m_editQueueAction = EDIT_ACTIONS[value]; break;
+			case 20: p->m_editQueueOffset = value; break;
+			case 21: p->m_writeLogKind = LOG_KINDS[value]; break;
+			case 22: p->m_pauseDownload = value; break;
+			case 23: p->m_errors = value; break;
+		}
+	});
+}
+
+int CommandLineParser::RsSetStr(void* ctx, int field, const char* value)
+{
+	return RsSink::Call(ctx, [field, value](CommandLineParser* p)
+	{
+		switch (field)
+		{
+			case 30: p->m_configFilename = value; break;
+			case 31: p->m_webGetFilename = value; break;
+			case 32: p->m_pubKeyFilename = value; break;
+			case 33: p->m_sigFilename = value; break;
+			case 34: p->SetAddCategory(value); break;
+			case 35: p->m_lastArg = value; break;
+			case 36: p->m_argFilename = value; break;
+		}
+	});
+}
+
+int CommandLineParser::RsSteal(void* ctx, int field, int index)
+{
+	return RsSink::Call(ctx, [field, index](CommandLineParser* p)
+	{
+		CString& arg = p->m_args[index];
+		switch (field)
+		{
+			case 37: p->m_addNzbFilename = std::move(arg); break;
+			case 38: p->m_addDupeKey = std::move(arg); break;
+			case 39: p->m_editQueueText = std::move(arg); break;
+		}
+	});
+}
+
+int CommandLineParser::RsPushOption(void* ctx, const char* value)
+{
+	return RsSink::Call(ctx, [value](CommandLineParser* p) { p->m_optionList.push_back(value); });
+}
+
+int CommandLineParser::RsPushId(void* ctx, int id)
+{
+	return RsSink::Call(ctx, [id](CommandLineParser* p) { p->m_editQueueIdList.push_back(id); });
+}
+
+int CommandLineParser::RsPushName(void* ctx, const char* value)
+{
+	return RsSink::Call(ctx, [value](CommandLineParser* p) { p->m_editQueueNameList.push_back(value); });
+}
+
+int CommandLineParser::RsError(void* ctx, const char* msg)
+{
+	return RsSink::Call(ctx, [msg](CommandLineParser* p) { p->ReportError(msg); });
+}
+
+CommandLineParser::CommandLineParser(int argc, const char* argv[])
+{
+	// getopt_long reorders it (non-options to the end): rust/src/cmdline.rs
+	// parses it in place, as InitCommandLine did
+	m_args.reserve(argc);
+	for (int i = 0; i < argc; i++)
+	{
+		m_args.emplace_back(argv[i]);
+	}
+
+	RsSink sink{this, nullptr};
+	NzbgetRsCmdlineSink rsSink{&sink, RsSetInt, RsSetStr, RsSteal, RsPushOption, RsPushId, RsPushName, RsError};
+#ifdef HAVE_GETOPT_LONG
+	const int useLong = 1;
+#else
+	const int useLong = 0;
+#endif
+	nzbget_rs_cmdline_parse(argc, (char**)m_args.data(), useLong, &rsSink);
+	if (sink.error)
+	{
+		std::rethrow_exception(sink.error);
+	}
+}
+#else
 CommandLineParser::CommandLineParser(int argc, const char* argv[])
 {
 	InitCommandLine(argc, argv);
@@ -83,6 +238,7 @@ CommandLineParser::CommandLineParser(int argc, const char* argv[])
 		InitFileArg(argc, args.data());
 	}
 }
+#endif
 
 void CommandLineParser::InitCommandLine(int argc, const char* const_argv[])
 {

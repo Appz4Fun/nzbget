@@ -2081,6 +2081,76 @@ pub unsafe extern "C" fn nzbget_rs_nntp_join_group(
     })
 }
 
+/// NzbgetRsCmdlineSink: the C++ CommandLineParser's fields. Each callback
+/// returns 0, or -1 when it threw (parsing stops; C++ rethrows).
+#[repr(C)]
+pub struct CmdlineSink {
+    pub ctx: *mut std::ffi::c_void,
+    pub set_int: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int) -> c_int>,
+    pub set_str: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const c_char) -> c_int>,
+    pub steal: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int) -> c_int>,
+    pub push_option: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub push_id: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int) -> c_int>,
+    pub push_name: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub error: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+}
+
+struct FfiCmdline<'a>(&'a CmdlineSink);
+
+fn cmd_status(r: c_int) -> Result<(), crate::cmdline::Abort> {
+    if r == 0 { Ok(()) } else { Err(crate::cmdline::Abort) }
+}
+
+impl crate::cmdline::Sink for FfiCmdline<'_> {
+    fn set_int(&mut self, field: i32, value: i32) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.set_int.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, value) })
+    }
+    fn set_str(&mut self, field: i32, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.set_str.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, value) })
+    }
+    fn steal(&mut self, field: i32, index: c_int) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.steal.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, index) })
+    }
+    fn push_option(&mut self, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_option.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, value) })
+    }
+    fn push_id(&mut self, id: i32) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_id.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, id) })
+    }
+    fn push_name(&mut self, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_name.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, value) })
+    }
+    fn error(&mut self, msg: &CStr) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.error.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, msg.as_ptr()) })
+    }
+}
+
+/// CommandLineParser's constructor: parses `argv` (permuted in place by
+/// getopt, entries nulled when the sink steals them) into the sink. 0, or -1
+/// when a callback threw.
+///
+/// # Safety
+/// `argv` points to `argc` C strings or nulls, writable as getopt permutes
+/// them; `sink` is valid; getopt's globals aren't used concurrently.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_cmdline_parse(argc: c_int, argv: *mut *mut c_char, use_long: c_int, sink: *const CmdlineSink) -> c_int {
+    let Some(sink) = sink.as_ref() else { return -1 };
+    if argv.is_null() || argc < 1 {
+        return -1;
+    }
+    match crate::cmdline::parse(argc, argv, use_long != 0, &mut FfiCmdline(sink)) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

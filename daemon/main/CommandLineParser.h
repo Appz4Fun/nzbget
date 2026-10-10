@@ -159,6 +159,17 @@ private:
 	void ParseFileIdList(int argc, const char* argv[], int optind);
 	void ParseFileNameList(int argc, const char* argv[], int optind);
 	void ReportError(const char* errMessage);
+#ifdef NZBGET_USE_RUST
+	// the fields as rust/src/cmdline.rs sets them (NzbgetRsCmdlineSink)
+	struct RsSink;
+	static int RsSetInt(void* ctx, int field, int value);
+	static int RsSetStr(void* ctx, int field, const char* value);
+	static int RsSteal(void* ctx, int field, int index);
+	static int RsPushOption(void* ctx, const char* value);
+	static int RsPushId(void* ctx, int id);
+	static int RsPushName(void* ctx, const char* value);
+	static int RsError(void* ctx, const char* msg);
+#endif
 };
 
 #endif
