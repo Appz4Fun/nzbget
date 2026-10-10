@@ -1914,9 +1914,217 @@ pub unsafe extern "C" fn nzbget_rs_http_redirect(old_url: *const c_char, locatio
     into_buf(crate::webdownload::redirect(as_c(old_url), as_c(location)))
 }
 
+/// NzbgetRsNntpIo: the C++ connection for the NNTP exchange. Each callback
+/// returns 0, or -1 when it threw (the exchange stops; C++ rethrows).
+#[repr(C)]
+pub struct NntpIo {
+    pub ctx: *mut std::ffi::c_void,
+    pub write_line: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub read_line: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut *mut c_char) -> c_int>,
+    pub report_error: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *const c_char) -> c_int>,
+    pub debug: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub cancelled: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut c_int) -> c_int>,
+    pub user: *const c_char,
+    pub password: *const c_char,
+    pub name: *const c_char,
+    pub host: *const c_char,
+    pub conn_host: *const c_char,
+}
+
+/// NntpIo as the exchange's Io (checked: callbacks set, strings read as empty when null).
+struct FfiNntp<'a> {
+    io: &'a NntpIo,
+}
+
+impl FfiNntp<'_> {
+    unsafe fn text<'a>(p: *const c_char) -> &'a CStr {
+        // the C++ strings outlive the exchange
+        if p.is_null() { c"" } else { unsafe { CStr::from_ptr(p) } }
+    }
+}
+
+fn nntp_status(r: c_int) -> Result<(), crate::nntp::Abort> {
+    if r == 0 { Ok(()) } else { Err(crate::nntp::Abort) }
+}
+
+// The caller of the NNTP exports guarantees the Io buffer/callback contract.
+unsafe impl crate::nntp::Io for FfiNntp<'_> {
+    fn write_line(&mut self, line: &CStr) -> Result<(), crate::nntp::Abort> {
+        let f = self.io.write_line.ok_or(crate::nntp::Abort)?;
+        nntp_status(unsafe { f(self.io.ctx, line.as_ptr()) })
+    }
+    fn read_line(&mut self) -> Result<*mut c_char, crate::nntp::Abort> {
+        let f = self.io.read_line.ok_or(crate::nntp::Abort)?;
+        let mut line = std::ptr::null_mut();
+        nntp_status(unsafe { f(self.io.ctx, &mut line) })?;
+        Ok(line)
+    }
+    fn report_error(&mut self, prefix: &CStr, arg: &CStr) -> Result<(), crate::nntp::Abort> {
+        let f = self.io.report_error.ok_or(crate::nntp::Abort)?;
+        nntp_status(unsafe { f(self.io.ctx, prefix.as_ptr(), arg.as_ptr()) })
+    }
+    fn debug(&mut self, msg: &CStr) -> Result<(), crate::nntp::Abort> {
+        match self.io.debug {
+            Some(f) => nntp_status(unsafe { f(self.io.ctx, msg.as_ptr()) }),
+            None => Ok(()),
+        }
+    }
+    fn cancelled(&mut self) -> Result<bool, crate::nntp::Abort> {
+        let f = self.io.cancelled.ok_or(crate::nntp::Abort)?;
+        let mut c = 0;
+        nntp_status(unsafe { f(self.io.ctx, &mut c) })?;
+        Ok(c != 0)
+    }
+    fn user(&self) -> &CStr {
+        unsafe { Self::text(self.io.user) }
+    }
+    fn password(&self) -> &CStr {
+        unsafe { Self::text(self.io.password) }
+    }
+    fn name(&self) -> &CStr {
+        unsafe { Self::text(self.io.name) }
+    }
+    fn host(&self) -> &CStr {
+        unsafe { Self::text(self.io.host) }
+    }
+    fn conn_host(&self) -> &CStr {
+        unsafe { Self::text(self.io.conn_host) }
+    }
+}
+
+/// Runs an exchange with the login state in `auth_error`/`auth_rejected`
+/// (read and written back, also when a callback threw): 0, or -1 aborted.
+unsafe fn nntp_run<T>(
+    io: *const NntpIo,
+    auth_error: *mut c_int,
+    auth_rejected: *mut c_int,
+    f: impl FnOnce(&mut dyn crate::nntp::Io, &mut crate::nntp::Auth) -> Result<T, crate::nntp::Abort>,
+    out: impl FnOnce(T),
+) -> c_int {
+    let Some(io) = io.as_ref() else { return -1 };
+    if auth_error.is_null() || auth_rejected.is_null() {
+        return -1;
+    }
+    let mut auth = crate::nntp::Auth { error: *auth_error != 0, rejected: *auth_rejected != 0 };
+    let r = f(&mut FfiNntp { io }, &mut auth);
+    *auth_error = auth.error as c_int;
+    *auth_rejected = auth.rejected as c_int;
+    match r {
+        Ok(v) => {
+            out(v);
+            0
+        }
+        Err(_) => -1,
+    }
+}
+
+/// NntpConnection::Request: `*answer` is the C++ line buffer or null.
+///
+/// # Safety
+/// `io` is null or valid for the exchange, with callbacks that don't unwind
+/// and satisfy `nntp::Io`'s safety contract. Its configuration strings are null
+/// or NUL-terminated and immutable for the exchange. `req` is null or remains
+/// NUL-terminated (it may alias the line buffer). Non-null outputs are writable,
+/// mutually disjoint and do not overlap `io` or strings. No pointers are retained.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nntp_request(
+    io: *const NntpIo,
+    req: *const c_char,
+    auth_error: *mut c_int,
+    auth_rejected: *mut c_int,
+    answer: *mut *mut c_char,
+) -> c_int {
+    if req.is_null() || answer.is_null() {
+        return -1;
+    }
+    nntp_run(io, auth_error, auth_rejected, |io, auth| crate::nntp::request(io, auth, req), |a| *answer = a)
+}
+
+/// NntpConnection::Connect after the socket connected: `*result` 0 connected,
+/// 1 the greeting failed (disconnect), 2 the login failed.
+///
+/// # Safety
+/// As nzbget_rs_nntp_request.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nntp_handshake(
+    io: *const NntpIo,
+    auth_error: *mut c_int,
+    auth_rejected: *mut c_int,
+    result: *mut c_int,
+) -> c_int {
+    if result.is_null() {
+        return -1;
+    }
+    nntp_run(io, auth_error, auth_rejected, crate::nntp::handshake, |r| *result = r)
+}
+
+/// NntpConnection::JoinGroup when not in `group`: the answer (or null) and
+/// whether the group changed.
+///
+/// # Safety
+/// As nzbget_rs_nntp_request.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nntp_join_group(
+    io: *const NntpIo,
+    group: *const c_char,
+    auth_error: *mut c_int,
+    auth_rejected: *mut c_int,
+    answer: *mut *mut c_char,
+    joined: *mut c_int,
+) -> c_int {
+    if group.is_null() || answer.is_null() || joined.is_null() {
+        return -1;
+    }
+    nntp_run(io, auth_error, auth_rejected, |io, auth| crate::nntp::join_group(io, auth, group), |(a, j)| {
+        *answer = a;
+        *joined = j as c_int;
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nntp_nulls_and_missing_callbacks() {
+        use std::ptr::{null, null_mut};
+
+        unsafe extern "C" fn greeting(ctx: *mut std::ffi::c_void, line: *mut *mut c_char) -> c_int {
+            *line = ctx.cast();
+            0
+        }
+        let mut buffer = *b"200 ready\r\n\0";
+        let mut io = NntpIo {
+            ctx: buffer.as_mut_ptr().cast(), write_line: None, read_line: Some(greeting),
+            report_error: None, debug: None, cancelled: None,
+            user: null(), password: null(), name: null(), host: null(), conn_host: null(),
+        };
+        unsafe {
+            let (mut error, mut rejected, mut result, mut joined) = (1, 1, -9, -9);
+            let mut answer = null_mut();
+            assert_eq!(nzbget_rs_nntp_request(null(), null(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_handshake(null(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_join_group(null(), null(), null_mut(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_request(&io, null(), &mut error, &mut rejected, &mut answer), -1);
+            assert_eq!(nzbget_rs_nntp_join_group(&io, null(), &mut error, &mut rejected, &mut answer, &mut joined), -1);
+            assert_eq!(nzbget_rs_nntp_handshake(null(), &mut error, &mut rejected, &mut result), -1);
+            assert_eq!((error, rejected, result, joined), (1, 1, -9, -9));
+
+            // NULL configuration strings are empty; optional debug is absent.
+            assert_eq!(nzbget_rs_nntp_handshake(&io, &mut error, &mut rejected, &mut result), 0);
+            assert_eq!((error, rejected, result), (1, 1, 0));
+
+            // Missing required write/read callbacks stop the exchange and leave
+            // result outputs untouched, while writing back reached auth state.
+            assert_eq!(nzbget_rs_nntp_request(&io, c"BODY x\r\n".as_ptr(), &mut error, &mut rejected, &mut answer), -1);
+            assert_eq!((error, rejected), (0, 0));
+            assert!(answer.is_null());
+            io.read_line = None;
+            result = -9;
+            assert_eq!(nzbget_rs_nntp_handshake(&io, &mut error, &mut rejected, &mut result), -1);
+            assert_eq!(result, -9);
+        }
+    }
 
     #[test]
     fn webdownload_nulls_offsets_and_owned_redirects() {

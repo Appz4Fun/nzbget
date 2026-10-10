@@ -473,6 +473,43 @@ void nzbget_rs_http_check_response(const char* response, NzbgetRsHttpResponse* o
 int nzbget_rs_http_header(const char* line, int redirecting, int* value);
 NzbgetRsBuf nzbget_rs_http_redirect(const char* oldUrl, const char* location);
 
+// NntpConnection's protocol (rust/src/nntp.rs), driving the C++ connection
+// through NzbgetRsNntpIo. Each callback returns 0, or -1 when it threw: the
+// exchange stops and the call returns -1 (rethrow then). readLine sets *line
+// to the connection's line buffer or NULL; the exchange may cut it at its last
+// CR. The login state (authError, authRejected) is read and written back.
+// Only one exchange may use a connection at a time; callbacks must not reenter
+// it or unwind. A non-NULL line is writable and NUL-terminated, and remains
+// valid until the next readLine (including after return to the caller). Only
+// readLine may overwrite it. Callback string arguments are borrowed for that
+// callback only. Configuration strings remain immutable during the exchange;
+// NULL configuration strings mean empty. req/group may alias the line buffer
+// and must remain NUL-terminated across reads. Nothing is retained or freed.
+// Non-NULL outputs must be writable, mutually disjoint, and not overlap io or
+// strings. NULL required arguments or a missing required callback return -1;
+// result outputs are written only on success. debug may be NULL.
+// request: *answer is the buffer or NULL. handshake (after the socket
+// connected): *result 0 connected, 1 the greeting failed (disconnect), 2 the
+// login failed. join_group (not in the group yet): *answer, *joined.
+typedef struct NzbgetRsNntpIo
+{
+	void* ctx;
+	int (*writeLine)(void* ctx, const char* line);
+	int (*readLine)(void* ctx, char** line);
+	int (*reportError)(void* ctx, const char* prefix, const char* arg);
+	int (*debug)(void* ctx, const char* msg);
+	int (*cancelled)(void* ctx, int* cancelled);
+	const char* user;
+	const char* password;
+	const char* name;
+	const char* host;
+	const char* connHost;
+} NzbgetRsNntpIo;
+int nzbget_rs_nntp_request(const NzbgetRsNntpIo* io, const char* req, int* authError, int* authRejected, char** answer);
+int nzbget_rs_nntp_handshake(const NzbgetRsNntpIo* io, int* authError, int* authRejected, int* result);
+int nzbget_rs_nntp_join_group(const NzbgetRsNntpIo* io, const char* group, int* authError, int* authRejected,
+	char** answer, int* joined);
+
 #ifdef __cplusplus
 }
 #endif

@@ -34,6 +34,7 @@ in `rust/include/nzbget_rs.h`.
 | `Options::ParseTime`, `ParseWeekDays`, `ValidateOptionName`, `ConvertOldOption`, `HasScript`, `ParseCategorySource` | `options` | port only |
 | `ExtensionLoader::V1` (pre-manifest script headers: kind, about, options, commands, select values) | `extload` | port only |
 | `WebDownloader::CheckResponse`, `ProcessHeader`, `ParseRedirect` | `webdownload` | port only |
+| `NntpConnection` protocol: `Request` (480 re-login), `AUTHINFO USER/PASS`, the greeting, `GROUP` (C++ does the I/O) | `nntp` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
