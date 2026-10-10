@@ -3,6 +3,7 @@
 #define NZBGET_RS_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -371,6 +372,25 @@ size_t nzbget_rs_trim_string(char* data, size_t len, int left, int right, int sa
 int nzbget_rs_ends_with(const char* s, size_t len, const char* suffix, size_t suffixLen, int caseSensitive);
 NzbgetRsBuf nzbget_rs_format_buffer(const char* buf, int len);
 long long nzbget_rs_parse_rfc822_date_time(const char* s);
+
+// ServerVolume's slots (rust/src/statmeter.rs). calc_slots: CalcSlots for a
+// local time (cut to an int as before), updating *firstDay; day is -1 outside
+// the 20 years from 2013, inRange tells whether the day arrays may grow.
+// volume_add: AddStats' clearing of the second/minute/hour slots passed since
+// locDataTime, then adding bytes at the slots; slots outside an array (a time
+// before 1970 or after 2038-01-19 as an int) are skipped.
+// Arrays stay caller-owned, must be disjoint and writable for their lengths
+// (in int64_t elements). NULL arrays are ignored; NULL slots makes add a no-op.
+// The slots descriptor is copied before accessing arrays and may overlap one.
+// calc_slots is a no-op if either output pointer is NULL.
+typedef struct NzbgetRsVolumeSlots
+{
+	int sec, min, hour, day, inRange;
+} NzbgetRsVolumeSlots;
+void nzbget_rs_volume_calc_slots(long long locCurTime, int* firstDay, NzbgetRsVolumeSlots* slots);
+void nzbget_rs_volume_add(int64_t* seconds, size_t secondsLen, int64_t* minutes, size_t minutesLen,
+	int64_t* hours, size_t hoursLen, const NzbgetRsVolumeSlots* slots, int lastMinSlot, int lastHourSlot,
+	long long locCurTime, long long locDataTime, int64_t bytes);
 
 #ifdef __cplusplus
 }
