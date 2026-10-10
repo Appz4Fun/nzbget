@@ -1621,8 +1621,6 @@ std::string ParChecker::GetPacketCreator()
 	return "";
 }
 
-#endif
-
 int64 ParChecker::GetBlockSize()
 {
 	if (!m_repairer || !GetRepairer() || !GetRepairer()->mainpacket)
@@ -1631,3 +1629,5 @@ int64 ParChecker::GetBlockSize()
 	}
 	return (int64)GetRepairer()->mainpacket->BlockSize();
 }
+
+#endif
