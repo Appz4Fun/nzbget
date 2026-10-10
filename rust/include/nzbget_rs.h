@@ -87,6 +87,17 @@ const char* nzbget_rs_json_find_field(const char* text, const char* field, int* 
 NzbgetRsBuf nzbget_rs_content_disposition_filename(const char* contentDisposition,
 	const int* table, int (*fold)(int));
 
+// Util's string helpers (rust/src/util.rs)
+NzbgetRsBuf nzbget_rs_format_size(long long size);
+NzbgetRsBuf nzbget_rs_format_speed(long long bytesPerSecond);
+int nzbget_rs_alpha_num(const char* str);
+unsigned int nzbget_rs_hash_bj96(const char* buffer, int bufSize, unsigned int initValue);
+void nzbget_rs_reduce_str(char* str, const char* from, const char* to);
+// case folding: glibc's tolower table (*__ctype_tolower_loc()) or NULL for
+// the callbacks: caseFold(byte 0..255) as strcasecmp, maskFold as WildMask's
+int nzbget_rs_match_file_ext(const char* filename, const char* extensionList, const char* listSeparator,
+	const int* table, int charSigned, int (*caseFold)(int), int (*maskFold)(int));
+
 #ifdef __cplusplus
 }
 #endif

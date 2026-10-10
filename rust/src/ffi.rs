@@ -325,6 +325,87 @@ pub unsafe extern "C" fn nzbget_rs_content_disposition_filename(
     }
 }
 
+fn string_buf(s: String) -> RsBuf {
+    into_buf(s.into_bytes())
+}
+
+/// Util::FormatSize; free the result with nzbget_rs_free.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_format_size(size: i64) -> RsBuf {
+    string_buf(crate::util::format_size(size))
+}
+
+/// Util::FormatSpeed; free the result with nzbget_rs_free.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_format_speed(bytes_per_second: i64) -> RsBuf {
+    string_buf(crate::util::format_speed(bytes_per_second))
+}
+
+/// Util::AlphaNum.
+///
+/// # Safety
+/// `s` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_alpha_num(s: *const c_char) -> c_int {
+    crate::util::alpha_num(input(s)) as c_int
+}
+
+/// Util::HashBJ96 over `len` bytes (the C++ uint32 of an int length).
+///
+/// # Safety
+/// `buf` is readable for `len` bytes (as uint32).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_hash_bj96(buf: *const c_char, len: c_int, init: u32) -> u32 {
+    let len = len as u32 as usize;
+    if buf.is_null() || len == 0 {
+        return crate::util::hash_bj96(&[], init);
+    }
+    crate::util::hash_bj96(std::slice::from_raw_parts(buf.cast(), len), init)
+}
+
+/// Util::ReduceStr, in place.
+///
+/// # Safety
+/// `s` is null or a writable NUL-terminated string; `from` and `to` are null
+/// or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_reduce_str(s: *mut c_char, from: *const c_char, to: *const c_char) {
+    let (from, to) = (input(from).to_vec(), input(to).to_vec());
+    in_place(s, |b| crate::util::reduce_str(b, &from, &to))
+}
+
+/// Util::MatchFileExt. Case folding: glibc's tolower `table` (entries
+/// -128..=255, pointing at entry zero) when not null, indexed by unsigned
+/// byte for the extension compare (strcasecmp) and as the C++ char
+/// (`char_signed`) for wildcard extensions (WildMask); else the callbacks
+/// `case_fold` (a byte 0..=255) and `mask_fold` (as WildMask's).
+///
+/// # Safety
+/// The strings are null or NUL-terminated; `table` is null or as described;
+/// the callbacks don't unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_match_file_ext(
+    filename: *const c_char,
+    list: *const c_char,
+    separators: *const c_char,
+    table: *const c_int,
+    char_signed: c_int,
+    case_fold: Option<extern "C" fn(c_int) -> c_int>,
+    mask_fold: Option<extern "C" fn(c_int) -> c_int>,
+) -> c_int {
+    use crate::wildmask::Lower;
+    let (Some(cf), Some(mf)) = (case_fold, mask_fold) else { return 0 };
+    let case_call = |b: u8| cf(b as c_int);
+    let mask_call = |b: u8| mf(b as c_int);
+    let (case_lower, mask_lower) = if table.is_null() {
+        (Lower::Fold(&case_call), Lower::Fold(&mask_call))
+    } else {
+        let t = &*table.sub(128).cast::<[c_int; 384]>();
+        (Lower::Table(t, false), Lower::Table(t, char_signed != 0))
+    };
+    crate::util::match_file_ext(input(filename), input(list), input(separators), &case_lower, &mask_lower) as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
