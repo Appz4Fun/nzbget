@@ -26,6 +26,10 @@
 #include <array>
 #include <algorithm>
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#include <limits>
+#endif
 
 #ifdef WIN32
 #include "utf8.h"
@@ -931,6 +935,19 @@ uint32 WebUtil::DecodeBase64(char* inputBuffer, int inputBufferLength, char* out
 
 CString WebUtil::XmlEncode(const char* raw)
 {
+#ifdef NZBGET_USE_RUST
+	// rust/src/escape.rs
+	NzbgetRsBuf buf = nzbget_rs_xml_encode(raw);
+	// CString adds one to an int length before allocating.
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+#else
 	// calculate the required outputstring-size based on number of xml-entities and their sizes
 	int reqSize = strlen(raw);
 	for (const char* p = raw; *p; p++)
@@ -1048,6 +1065,7 @@ BreakLoop:
 	*output = '\0';
 
 	return result;
+#endif
 }
 
 namespace
@@ -1299,6 +1317,19 @@ BreakLoop:
 
 CString WebUtil::JsonEncode(const char* raw)
 {
+#ifdef NZBGET_USE_RUST
+	// rust/src/escape.rs
+	NzbgetRsBuf buf = nzbget_rs_json_encode(raw);
+	// CString adds one to an int length before allocating.
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+#else
 	// calculate the required outputstring-size based on number of escape-entities and their sizes
 	int reqSize = strlen(raw);
 	for (const char* p = raw; *p; p++)
@@ -1426,6 +1457,7 @@ BreakLoop:
 	*output = '\0';
 
 	return result;
+#endif
 }
 
 void WebUtil::JsonDecode(char* raw)
