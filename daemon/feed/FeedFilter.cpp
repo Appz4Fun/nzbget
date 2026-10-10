@@ -27,6 +27,7 @@
 
 #ifdef NZBGET_USE_RUST
 #include <climits>
+#include <type_traits>
 #include "nzbget_rs.h"
 
 // the feed item and this filter's regular expressions, for the callbacks
@@ -59,7 +60,15 @@ void FeedFilter::Field(void* user, int field, const char* attr, const char** str
 		case 2: *str = item->GetCategory(); break;
 		case 3: *str = item->GetUrl(); break;
 		case 4: *num = item->GetSize(); break;
-		case 5: *num = Util::CurrentTime() - item->GetTime(); break;
+		case 5:
+		{
+			// Subtract at time_t's width, preserving legacy wraparound for
+			// extreme timestamps without overflowing a signed time_t.
+			using UnsignedTime = std::make_unsigned_t<time_t>;
+			*num = static_cast<time_t>(static_cast<UnsignedTime>(Util::CurrentTime()) -
+				static_cast<UnsignedTime>(item->GetTime()));
+			break;
+		}
 		case 6: *num = item->GetImdbId(); break;
 		case 7: *num = item->GetRageId(); break;
 		case 8: *num = item->GetTvdbId(); break;

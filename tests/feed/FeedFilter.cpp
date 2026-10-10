@@ -21,11 +21,25 @@
 #include "nzbget.h"
 
 #include <boost/test/unit_test.hpp>
+#include <limits>
 #include "FeedFilter.h"
 
 BOOST_AUTO_TEST_SUITE(FeedTest)
 
 #ifdef NZBGET_USE_RUST
+BOOST_AUTO_TEST_CASE(FeedFilterAgeOverflow)
+{
+	if (std::numeric_limits<time_t>::is_signed)
+	{
+		FeedItemInfo item;
+		item.SetTime(std::numeric_limits<time_t>::min());
+		FeedFilter filter("age:<0");
+		filter.Match(item);
+		BOOST_CHECK_EQUAL(item.GetMatchStatus(), FeedItemInfo::msAccepted);
+		BOOST_CHECK_EQUAL(item.GetMatchRule(), 1);
+	}
+}
+
 BOOST_AUTO_TEST_CASE(FeedFilterOptionOverflow)
 {
 	FeedItemInfo item;
