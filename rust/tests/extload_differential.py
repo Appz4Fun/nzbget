@@ -9,7 +9,8 @@ C, C.UTF-8, tr_TR.ISO8859-9 and de_DE.UTF-8 locales (strtod's decimal comma).
 The three loaders are compiled as separate translation units with renamed
 namespaces and link the build's Rust archive. Trims are compiled locally so
 both C++ char modes are exercised. Includes structured byte/delimiter cases,
-a locale with high-byte whitespace, and callback exception injection.
+a locale with high-byte whitespace, line consumption comparisons, and exception
+injection into all three readers.
 
 Usage: extload_differential.py BUILD_DIR [ROUNDS]
 """
@@ -35,7 +36,9 @@ decls = header[header.index("namespace ExtensionLoader"):header.rindex("#endif")
 # exercises the caller rather than the build archive's default char mode.
 trim_helpers = r'''
 extern int extloadFailAt;
+extern size_t extloadReads;
 static std::istream& testGetline(std::istream& file, std::string& line) {
+    ++extloadReads;
     if (extloadFailAt == 0) throw std::bad_alloc();
     if (extloadFailAt > 0) --extloadFailAt;
     return std::getline(file, line);
@@ -65,6 +68,8 @@ def renamed(src, name, fallback=False):
     i = body.index(f"namespace {name}")
     out = body[:i] + trim_helpers + decls.replace("namespace ExtensionLoader", f"namespace {name}") + body[i:]
     out = out.replace("Util::Trim", "ExtloadTestUtil::Trim")
+    # Replace only parser calls, leaving testGetline's own std::getline intact.
+    out = out.replace("std::getline(file, line))", "testGetline(file, line))")
     out = out.replace("std::getline(r.file, r.line)", "testGetline(r.file, r.line)")
     return ("#undef NZBGET_USE_RUST\n" if fallback else "") + out
 
@@ -99,6 +104,7 @@ namespace OldExtensionLoader::V1 { bool Load(Extension::Script& script, const ch
 namespace FallbackExtensionLoader::V1 { bool Load(Extension::Script& script, const char* location, const char* rootDir); }
 
 int extloadFailAt = -1;
+size_t extloadReads = 0;
 
 static unsigned long long state = 0x9e3779b97f4a7c15ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
@@ -175,6 +181,12 @@ static std::vector<std::string> cases()
     // CString operations stop at NUL; string positions do not.
     v.push_back(head + std::string("# D\0(a,b).\n#N\0=V\0tail\n", sizeof("# D\0(a,b).\n#N\0=V\0tail\n") - 1));
     v.push_back(head + "# )(" + "\n#X=1\n"); // size_t count underflow
+    // Termination must leave the body unread, even when it looks like options.
+    for (const char* prefix : {"### NZBGET SCAN SCRIPT\n", "### NZBGET SCAN SCRIPT\n### OPTIONS\n"})
+        v.push_back(std::string(prefix) + "### NZBGET SCAN SCRIPT\n#Body=value\n# (a,b).\n");
+    // The opening parenthesis can follow the closing one; counts wrap, positions do not.
+    for (const char* inner : {"", "(", ")", "a,b", "1-2", "\r", "\t"})
+        v.push_back(head + "# " + inner + ")(\n#X=1\n");
     return v;
 }
 
@@ -232,13 +244,15 @@ int main(int argc, char** argv)
 	long rounds = atol(argv[1]);
 	std::string path = argv[2];
 	const auto fixed = cases();
-	// Simulate getline's allocation failure with a partial Rust parse alive.
+	using Loader = bool (*)(Extension::Script&, const char*, const char*);
+	const Loader loaders[] = {OldExtensionLoader::V1::Load, RustExtensionLoader::V1::Load, FallbackExtensionLoader::V1::Load};
+	// Simulate getline's allocation failure, including with a partial parse alive.
 	{ std::ofstream f(path); f << "### NZBGET SCAN SCRIPT\n### OPTIONS\n#X=value\n"; }
-	for (int fail : {0, 1, 2, 3}) {
+	for (auto load : loaders) for (int fail : {0, 1, 2, 3}) {
 		Extension::Script s;
 		s.SetEntry(path);
 		extloadFailAt = fail;
-		try { RustExtensionLoader::V1::Load(s, "/loc", "/root"); return 2; }
+		try { load(s, "/loc", "/root"); return 2; }
 		catch (const std::bad_alloc&) {}
 	}
 	extloadFailAt = -1;
@@ -256,12 +270,12 @@ int main(int argc, char** argv)
 				Extension::Script s;
 				s.SetEntry(path);
 				s.SetName("dir/My.Script.py");
+				extloadReads = 0;
 				try {
-				bool ok = k == 0 ? OldExtensionLoader::V1::Load(s, "/loc", "/root")
-					: k == 1 ? RustExtensionLoader::V1::Load(s, "/loc", "/root")
-					: FallbackExtensionLoader::V1::Load(s, "/loc", "/root");
+				bool ok = loaders[k](s, "/loc", "/root");
 				results[k] = dump(ok, s);
 				} catch (const std::out_of_range&) { results[k] = "out_of_range"; }
+				results[k] += "|reads=" + std::to_string(extloadReads);
 			}
 			if (results[0] != results[1] || results[0] != results[2])
 			{
