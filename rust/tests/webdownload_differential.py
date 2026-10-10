@@ -170,19 +170,24 @@ static const char* const HEADERS[] = {"Content-Length: 1234", "content-length: 0
 static const char* const URLS[] = {"https://indexer.org/api?t=get&id=1&apikey=secret", "http://h.org", "http://h.org/",
 	"https://h.org:8443/a/b/c?x=1", "http://user:pw@h.org:81/dir/file.nzb", "bad", "", "ftp://x/y", "http://h.org/a?b/c",
 	"http://", "http:///", "http://:80/x", "http://@/x", "http://h:/x", "http://h:0/x", "http://h:-1/x",
-	"http://h:+42/x", "http://h:2147483648/x", "http://h:4294967297/x", "http://[::1]:80/x"};
+	"http://h:+42/x", "http://h:2147483648/x", "http://h:4294967297/x", "http://[::1]:80/x",
+	"http://h:", "http://h:/", "http://h:9/", "http://h: 81/a/b", "http://h:999999999999999999999/x",
+	"http://@", "http://:pw@/", "http://user:@:80/a", "http://h?query", "http://h#fragment"};
+static const char* const LOCATIONS[] = {"", "next", "?q/a", "../x", "/", "//", "///x", "//h/x?q",
+	"https://", "http:///", "x+1.2://h", "1x://h", "/x?url=https://h", "\xdd://h/x", "\nhttp://h",
+	"http://@", "http://:80", "http://h:", "http://h:0/", "http://h:2147483648/", "http://h/a\r\nb"};
 
 template <class W> static std::string run(const std::string& status, bool stopped, const std::string& url,
-	const std::string& h1, const std::string& h2, bool redirecting)
+	const std::string& h1, const std::string& h2, bool redirecting, bool closed)
 {
 	W w;
 	w.m_stopped = stopped;
 	w.m_httpStatus = 418;
+	w.m_redirecting = redirecting;
 	w.SetUrl(url.c_str());
 	std::string out;
-	int st = (int)w.CheckResponse(below(15) ? status.c_str() : nullptr);
+	int st = (int)w.CheckResponse(closed ? nullptr : status.c_str());
 	out += std::to_string(st) + "," + std::to_string(w.m_httpStatus) + "," + std::to_string(w.m_redirecting) + "|";
-	if (redirecting) w.m_redirecting = true;
 	for (const std::string* h : {&h1, &h2})
 	{
 		// Only this branch dereferences a null resource in the original.
@@ -224,6 +229,20 @@ static void check_redirect(const std::string& url, const std::string& location)
 	}
 }
 
+static void check_headers(const std::string& status, bool stopped, const std::string& url,
+	const std::string& h1, const std::string& h2, bool redirecting, bool closed)
+{
+	std::string x = run<oldimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting, closed);
+	std::string y = run<newimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting, closed);
+	std::string z = run<fallbackimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting, closed);
+	if (x != y || x != z)
+	{
+		fprintf(stderr, "mismatch in %s: status [%s] url [%s] headers [%s] [%s]\nold:      %s\nrust:     %s\nfallback: %s\n",
+			setlocale(LC_ALL, nullptr), status.c_str(), url.c_str(), h1.c_str(), h2.c_str(), x.c_str(), y.c_str(), z.c_str());
+		exit(1);
+	}
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
@@ -231,9 +250,21 @@ int main(int argc, char** argv)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
 		for (const char* url : URLS)
-			for (const char* location : {"", "next", "?q/a", "../x", "/", "//", "///x", "//h/x?q",
-				"https://", "http:///", "x+1.2://h", "1x://h", "/x?url=https://h", "\xdd://h/x", "\nhttp://h"})
+			for (const char* location : LOCATIONS)
 				check_redirect(url, location);
+		// Every truncation of the known prefixes, both stopped states and
+		// redirect states, without randomly substituting a closed connection.
+		for (const char* status : STATUS)
+			for (size_t n = 0; n <= strlen(status); ++n)
+				for (bool stopped : {false, true})
+					for (bool redirecting : {false, true})
+						check_headers(std::string(status, n), stopped, "http://h/a", "", "", redirecting, false);
+		for (bool stopped : {false, true})
+			check_headers("", stopped, "http://h/a", "", "", false, true);
+		for (const char* header : HEADERS)
+			for (size_t n = 0; n <= strlen(header); ++n)
+				for (bool redirecting : {false, true})
+					check_headers("HTTP 200", false, "http://h/a", std::string(header, n), "", redirecting, false);
 		for (int byte = 1; byte <= 255; ++byte)
 		{
 			std::string scheme(1, (char)byte);
@@ -247,18 +278,8 @@ int main(int argc, char** argv)
 			std::string url = mutate(pick(URLS));
 			std::string h1 = mutate(pick(HEADERS)), h2 = mutate(pick(HEADERS));
 			bool stopped = below(4) == 0, redirecting = below(2);
-			unsigned long long seed = state;
-			std::string x = run<oldimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting);
-			state = seed;
-			std::string y = run<newimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting);
-			state = seed;
-			std::string z = run<fallbackimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting);
-			if (x != y || x != z)
-			{
-				fprintf(stderr, "mismatch in %s: status [%s] url [%s] headers [%s] [%s]\nold:      %s\nrust:     %s\nfallback: %s\n",
-					argv[l], status.c_str(), url.c_str(), h1.c_str(), h2.c_str(), x.c_str(), y.c_str(), z.c_str());
-				return 1;
-			}
+			check_headers(status, stopped, url, h1, h2, redirecting, below(15) == 0);
+			check_redirect(mutate(pick(URLS)), mutate(pick(LOCATIONS)));
 		}
 		printf("%s: %ld rounds agree (reference %s)\n", argv[l], rounds, "''' + REFERENCE + r'''");
 	}

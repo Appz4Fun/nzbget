@@ -1871,15 +1871,19 @@ pub struct HttpResponse {
 /// `response` is null or NUL-terminated; `out` is null (a no-op) or writable.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_http_check_response(response: *const c_char, out: *mut HttpResponse) {
-    let Some(out) = out.as_mut() else { return };
+    if out.is_null() {
+        return;
+    }
     let r = crate::webdownload::check_response((!response.is_null()).then(|| CStr::from_ptr(response)));
-    *out = HttpResponse {
+    // C++ supplies uninitialized output storage. Read the input before
+    // writing, so callers may also reuse its storage for the result.
+    out.write(HttpResponse {
         result: r.result,
         set_status: r.set_status as c_int,
         http_status: r.http_status,
         warn: r.warn,
         status_offset: r.status_offset,
-    };
+    });
 }
 
 /// WebDownloader::ProcessHeader: 0 nothing, 1 Content-Length (`*value`),
@@ -1893,8 +1897,8 @@ pub unsafe extern "C" fn nzbget_rs_http_header(line: *const c_char, redirecting:
         return 0;
     }
     let (action, v) = crate::webdownload::process_header(CStr::from_ptr(line), redirecting != 0);
-    if let Some(value) = value.as_mut() {
-        *value = v;
+    if !value.is_null() {
+        value.write(v);
     }
     action
 }
@@ -1929,6 +1933,18 @@ mod tests {
             let response = response.assume_init();
             assert_eq!((response.result, response.http_status, response.warn), (3, 4040, 3));
             assert_eq!(CStr::from_ptr(line.as_ptr().add(response.status_offset)), c"4040 Missing");
+
+            // Output pointers require writable storage, not initialized Rust
+            // values; they may overlap an input whose bytes are read first.
+            let mut slot = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            let input = slot.as_mut_ptr().cast::<c_char>();
+            std::ptr::copy_nonoverlapping(c"HTTP 404".as_ptr(), input, 9);
+            nzbget_rs_http_check_response(input, slot.as_mut_ptr());
+            assert_eq!(slot.assume_init().http_status, 404);
+
+            let mut uninit_value = std::mem::MaybeUninit::<c_int>::uninit();
+            assert_eq!(nzbget_rs_http_header(c"Content-Length: 17".as_ptr(), 0, uninit_value.as_mut_ptr()), 1);
+            assert_eq!(uninit_value.assume_init(), 17);
 
             let mut value = 123;
             assert_eq!(nzbget_rs_http_header(std::ptr::null(), 1, &mut value), 0);

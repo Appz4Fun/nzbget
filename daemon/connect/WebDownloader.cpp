@@ -613,7 +613,8 @@ void WebDownloader::ParseRedirect(const char* location)
 	{
 		// protocol-relative: another host, same protocol
 		URL oldUrl(m_url);
-		urlBuf.Format("%s:%s", oldUrl.GetProtocol(), location);
+		// Preserve the legacy CRT's "(null)" text without passing null to %s.
+		urlBuf.Format("%s:%s", oldUrl.GetProtocol() ? oldUrl.GetProtocol() : "(null)", location);
 		newLocation = urlBuf;
 	}
 	else if (!newUrl.IsValid())
@@ -650,13 +651,15 @@ void WebDownloader::ParseRedirect(const char* location)
 			resource.Append(location);
 		}
 
+		const char* protocol = oldUrl.GetProtocol() ? oldUrl.GetProtocol() : "(null)";
+		const char* host = oldUrl.GetHost() ? oldUrl.GetHost() : "(null)";
 		if (oldUrl.GetPort() > 0)
 		{
-			urlBuf.Format("%s://%s:%i%s", oldUrl.GetProtocol(), oldUrl.GetHost(), oldUrl.GetPort(), *resource);
+			urlBuf.Format("%s://%s:%i%s", protocol, host, oldUrl.GetPort(), *resource);
 		}
 		else
 		{
-			urlBuf.Format("%s://%s%s", oldUrl.GetProtocol(), oldUrl.GetHost(), *resource);
+			urlBuf.Format("%s://%s%s", protocol, host, *resource);
 		}
 		newLocation = urlBuf;
 	}
