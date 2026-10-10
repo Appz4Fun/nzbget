@@ -125,10 +125,13 @@ static void boundary_offsets(time_t now, time_t last, int offset, int lastOffset
 	g_lastOffset = lastOffset;
 	g_offsetReads = 0;
 	a.CheckTasks();
+	int oldOffsetReads = g_offsetReads;
 	g_offsetReads = 0;
 	b.CheckTasks();
+	int newOffsetReads = g_offsetReads;
 	g_offsetReads = 0;
 	c.CheckTasks();
+	int fallbackOffsetReads = g_offsetReads;
 	NzbgetRsSchedTask task{hours, minutes, mask, (long long)executed};
 	long long check = last;
 	int reset = -1;
@@ -142,10 +145,10 @@ static void boundary_offsets(time_t now, time_t last, int offset, int lastOffset
 				fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
 		};
 	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, lastOffset, guarded.data() + 1, 9, &reset, calendar);
-	bool same = true;
+	bool same = oldOffsetReads == 2 && newOffsetReads == 2 && fallbackOffsetReads == 2;
 	if (n > 9)
 	{
-		same = check == last && task.lastExecuted == executed && reset == -1 &&
+		same = same && check == last && task.lastExecuted == executed && reset == -1 &&
 			std::all_of(guarded.begin(), guarded.end(), [=](size_t value) { return value == sentinel; });
 		guarded.assign(n + 2, sentinel);
 		n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, lastOffset, guarded.data() + 1, n, &reset, calendar);
@@ -182,6 +185,15 @@ int main()
 	for (int gap : {-1, 0, 60, 5400, 5401})
 	for (int hour : {-1, 0, 1, 12, 23})
 		boundary_offsets(1791676800, 1791676800 - gap, offset, lastOffset, hour, 0, 0, 0);
+	// Different readings can expand the local interval beyond a week even
+	// without a UTC clock reset or leap seconds. Exercise capacity retries
+	// with processes still enabled, plus the reversed (empty) interval.
+	for (int offset : {std::numeric_limits<int>::min(), std::numeric_limits<int>::max()})
+	for (int lastOffset : {std::numeric_limits<int>::min(), std::numeric_limits<int>::max()})
+	for (int gap : {0, 5400, 5401})
+	for (int hour : {-1, 0, 23})
+	for (time_t executed : {0, 1})
+		boundary_offsets(1791676800, 1791676800 - gap, offset, lastOffset, hour, 0, 0, executed);
 	if (std::getenv("NZBGET_SCHEDULER_LEAP_STRESS"))
 	{
 		// libc accepts TZif corrections larger than a second. Repeated calendar
