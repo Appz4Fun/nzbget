@@ -80,6 +80,8 @@ public:
 	static bool IsParFile(FileInfo* fileInfo);
 	/* what the file's first article holds, read from disk if not known yet */
 	static FileInfo::EFirstContent FirstContent(FileInfo* fileInfo);
+	/* a name ending in an extension of 1-4 letters or digits */
+	static bool HasExtension(const char* filename);
 	/* does the collection have par2 files (the only check a borrowed article's bytes get) */
 	static bool HasPar2(NzbInfo* nzbInfo);
 	/* the files the par2-files in <dir> describe: name, length and their set's block size */

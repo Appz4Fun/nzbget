@@ -145,8 +145,13 @@ bool DupeArticleFallback::TryFallback(DownloadQueue* downloadQueue, FileInfo* fi
 	}
 
 	// a par2-file with a random name looks like any data file: what its first
-	// article holds tells (that article itself may be borrowed: it's analyzed)
-	if (articleInfo->GetPartNumber() != 1 && FirstContent(fileInfo) != FileInfo::fcOther)
+	// article holds tells (that article itself may be borrowed: it's analyzed).
+	// Until that's known only a name without an extension waits: one with an
+	// extension of its own isn't a par2-file posing as data, and making every
+	// file wait for its first article lost the articles failing before it
+	FileInfo::EFirstContent content = FirstContent(fileInfo);
+	if (content == FileInfo::fcPar2 ||
+		(content == FileInfo::fcUnknown && articleInfo->GetPartNumber() != 1 && !HasExtension(fileInfo->GetFilename())))
 	{
 		return false;
 	}
@@ -1464,4 +1469,27 @@ FileInfo::EFirstContent DupeArticleFallback::FirstContent(FileInfo* fileInfo)
 	}
 	fileInfo->SetFirstContent(memcmp(head, "PAR2\0PKT", 8) ? FileInfo::fcOther : FileInfo::fcPar2);
 	return fileInfo->GetFirstContent();
+}
+
+bool DupeArticleFallback::HasExtension(const char* filename)
+{
+	// "x.mkv", "x.part01.rar", "x.7z.001", "x.r00": 1 to 4 letters or digits after the last dot
+	const char* dot = strrchr(filename, '.');
+	if (!dot || dot == filename)
+	{
+		return false;
+	}
+	size_t len = strlen(dot + 1);
+	if (len < 1 || len > 4)
+	{
+		return false;
+	}
+	for (const char* p = dot + 1; *p; p++)
+	{
+		if (!isalnum((unsigned char)*p))
+		{
+			return false;
+		}
+	}
+	return true;
 }
