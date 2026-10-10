@@ -206,6 +206,23 @@ void PrePostProcessor::SanitisePostQueue()
 	for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
 	{
 		PostInfo* postInfo = nzbInfo->GetPostInfo();
+		if (!postInfo && nzbInfo->GetKind() == NzbInfo::nkNzb && !nzbInfo->GetCompletedFiles()->empty() &&
+			nzbInfo->GetDeleteStatus() == NzbInfo::dsNone && nzbInfo->IsDownloadCompleted(true))
+		{
+			// its last file finished while the program stopped (a reload, a
+			// shutdown): the event that queues it for post-processing was
+			// dropped then, and only paused par2-files are left, so nothing
+			// else would ever start it
+			nzbInfo->PrintMessage(Message::mkInfo,
+				"Collection %s completely downloaded", nzbInfo->GetName());
+			g_QueueScriptCoordinator->EnqueueScript(nzbInfo, QueueScriptCoordinator::qeNzbDownloaded);
+			NzbDownloaded(downloadQueue, nzbInfo);
+			postInfo = nzbInfo->GetPostInfo();
+			if (postInfo)
+			{
+				m_queuedJobs--;	// counted again below
+			}
+		}
 		if (postInfo)
 		{
 			m_queuedJobs++;
