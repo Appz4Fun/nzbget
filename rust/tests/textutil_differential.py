@@ -10,10 +10,12 @@ their own namespaces); the Rust-backed ones are the build's. With ASan/UBSan
 the dates stay in the range where the C++ int arithmetic doesn't overflow
 (undefined there); the build without sanitizers also tries extreme numbers,
 which the Rust code computes as the wrapping int arithmetic they compile to.
-The C++ char's signedness must be the platform's (Rust's c_char).
+The wrapper-only pass also overrides C++ char signedness independently of
+Rust, with a custom locale that maps a whitespace character to byte 255.
 
 Usage: textutil_differential.py BUILD_DIR [ROUNDS]
 """
+import gzip
 import os
 from pathlib import Path
 import re
@@ -44,11 +46,14 @@ SIGS = [
 ]
 
 
-def bodies(src):
+def bodies(src, rust=False):
     out = []
     for sig in SIGS:
-        i = src.rindex(sig + "\n{")  # the C++ version: the last one (after #else)
+        i = (src.index if rust else src.rindex)(sig + "\n{")
         out.append(src[i:src.index("\n}\n", i) + 3])
+    if "\tint TextRightSpace(int byte)" in src:
+        i = src.index("\tint TextRightSpace(int byte)")
+        out.insert(0, src[i:src.index("\n\t}\n", i) + 4])
     boost = src[src.index("/* From boost */"):src.index("time_t Util::Timegm")]
     return boost + "time_t Util::Timegm(tm const* t) { return internal_timegm(t); }\n" + "".join(out)
 
@@ -92,6 +97,7 @@ libs = link[link.index("liblibnzbget.a"):]
 main = r'''
 #include "nzbget.h"
 #include "Util.h"
+#include "nzbget_rs.h"
 #include <clocale>
 #include <string>
 #include <vector>
@@ -102,6 +108,17 @@ namespace oldimpl {
 namespace fallbackimpl {
 ''' + STANDIN + bodies(new_src) + r'''
 }
+namespace portimpl {
+''' + STANDIN + bodies(new_src, rust=True) + r'''
+}
+
+#ifdef TEXTUTIL_WRAPPERS_ONLY
+using PortUtil = portimpl::Util;
+using PortWebUtil = portimpl::WebUtil;
+#else
+using PortUtil = ::Util;
+using PortWebUtil = ::WebUtil;
+#endif
 
 static unsigned long long state = 0x9e3779b97f4a7c15ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
@@ -114,7 +131,7 @@ static std::string text(int maxLen)
 	std::string s;
 	int n = below(maxLen + 1);
 	for (int i = 0; i < n; i++)
-		s += below(4) ? ALPHABET[below(sizeof ALPHABET - 1)] : (char)(1 + below(255));
+		s += below(4) ? ALPHABET[below(sizeof ALPHABET - 1)] : (char)below(256);
 	return s;
 }
 
@@ -179,9 +196,9 @@ template <class U, class W> static std::string run(const std::string& a, const s
 	for (CString& w : U::SplitCommandLine(a.c_str())) out += std::string(w) + "\x01";
 	out += "|";
 	{ std::string s = a; s.resize(strlen(s.c_str())); std::vector<char> c(s.begin(), s.end()); c.push_back(0);
-	  U::TrimRight(c.data()); out += std::string(c.data()) + "|";
+	  U::TrimRight(c.data()); out.append(c.data(), c.size()); out += "|";
 	  std::vector<char> c2(s.begin(), s.end()); c2.push_back(0); char* t = U::Trim(c2.data());
-	  out += std::to_string(t - c2.data()) + ":" + t + "|"; }
+	  out += std::to_string(t - c2.data()) + ":"; out.append(c2.data(), c2.size()); out += "|"; }
 	{ std::string s = a; U::TrimRight(s); out += s + "|"; }
 	{ std::string s = a; U::TrimLeft(s); out += s + "|"; }
 	{ std::string s = a; U::Trim(s); out += s + "|"; }
@@ -202,6 +219,73 @@ int main(int argc, char** argv)
 	for (int l = 3; l < argc; l++)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
+		for (int a = 0; a < 256; a++) for (int b = 0; b < 256; b++)
+		{
+			std::string s(1, (char)a), suffix(1, (char)b);
+			bool x = oldimpl::Util::EndsWith(s, suffix, false);
+			if (x != PortUtil::EndsWith(s, suffix, false) || x != fallbackimpl::Util::EndsWith(s, suffix, false))
+			{
+				fprintf(stderr, "case-fold mismatch in %s: %d / %d\n", argv[l], a, b);
+				return 1;
+			}
+		}
+		std::vector<std::string> dates = {"", " ", "Wed,", "26 Jun 2013 01:02:", "26 Jun 2013 01:02 +",
+			"26 Jun 2013 01:02 -", "29 Feb 2000 00:00", "29 Feb 1900 00:00", "1 Jan -1 00:00",
+			"1 Jan 0 00:00", "31 Dec 1969 23:59:59", "1 Jan 1970 00:00:01"};
+		for (int byte = 1; byte < 256; byte++)
+		{
+			dates.push_back(std::string(1, (char)byte) + ", 26 Jun 2013 01:02 GMT");
+			dates.push_back("26 Jun 2013 01:" + std::string(1, (char)byte) + "02 GMT");
+		}
+		if (extreme)
+		{
+			for (const std::string n : {"2147483647", "-2147483648", "2147483648", "-2147483649",
+				"4294967296", "5880000", "596524", "35791395", "9223372036854775808",
+				"999999999999999999999999999999999999999999999999999999999999999999"})
+			{
+				dates.push_back(n + " Dec 2013 01:02 GMT");
+				dates.push_back("29 Feb " + n + " 01:02 GMT");
+				dates.push_back("26 Jun 2013 " + n + ":02 GMT");
+				dates.push_back("26 Jun 2013 01:" + n + " GMT");
+				dates.push_back("26 Jun 2013 01:02:" + n + " GMT");
+				dates.push_back("26 Jun 2013 01:02 +" + n);
+				dates.push_back("26 Jun 2013 01:02 -" + n);
+			}
+		}
+		for (const auto& d : dates)
+		{
+			time_t x = oldimpl::WebUtil::ParseRfc822DateTime(d.c_str());
+			time_t y = PortWebUtil::ParseRfc822DateTime(d.c_str());
+			time_t z = fallbackimpl::WebUtil::ParseRfc822DateTime(d.c_str());
+			if (x != y || x != z)
+			{
+				fprintf(stderr, "date mismatch in %s: [%s], old %lld, Rust %lld, fallback %lld\n",
+					argv[l], d.c_str(), (long long)x, (long long)y, (long long)z);
+				return 1;
+			}
+		}
+		std::vector<std::string> edges = {"", " ", " \t\r\n", " x \t\r\n", "''", std::string(4, 39), "'a''b'c", std::string("a\0b \t", 6)};
+		for (int n : {1022, 1023, 1024, 2048})
+		{
+			edges.push_back(std::string(n, 'a') + " b");
+			edges.push_back("'" + std::string(n, 'a') + "''b' c");
+		}
+		for (int byte = 0; byte < 256; byte++)
+		{
+			edges.push_back(std::string(1, (char)byte));
+			edges.push_back(std::string(1, (char)byte) + "x" + (char)byte);
+		}
+		for (const auto& a : edges)
+		{
+			std::string x = run<oldimpl::Util, oldimpl::WebUtil>(a, a, "26 Jun 2013 01:02 GMT", (int)a.size());
+			std::string y = run<PortUtil, PortWebUtil>(a, a, "26 Jun 2013 01:02 GMT", (int)a.size());
+			std::string z = run<fallbackimpl::Util, fallbackimpl::WebUtil>(a, a, "26 Jun 2013 01:02 GMT", (int)a.size());
+			if (x != y || x != z)
+			{
+				fprintf(stderr, "edge mismatch in %s: %zu input bytes, first byte %u\n", argv[l], a.size(), a.empty() ? 0 : (unsigned char)a[0]);
+				return 1;
+			}
+		}
 		for (long round = 0; round < rounds; round++)
 		{
 			std::string a = text(below(10) ? 24 : 1500);
@@ -212,7 +296,7 @@ int main(int argc, char** argv)
 			while (!extreme && longDigits(d)) d = date(extreme);
 			int len = below(40);
 			std::string x = run<oldimpl::Util, oldimpl::WebUtil>(a, b, d, len);
-			std::string y = run<::Util, ::WebUtil>(a, b, d, len);
+			std::string y = run<PortUtil, PortWebUtil>(a, b, d, len);
 			std::string z = run<fallbackimpl::Util, fallbackimpl::WebUtil>(a, b, d, len);
 			if (x != y || x != z)
 			{
@@ -242,9 +326,22 @@ with tempfile.TemporaryDirectory(prefix="nzbget-textutil-") as temp:
             if Path(f"/usr/share/i18n/locales/{src}").exists():
                 subprocess.run(["localedef", "--no-archive", "-i", src, "-f", charset, str(locdir / name)], check=True)
                 locales.append(name)
+        # U+1680 is whitespace. Map it to 0xff to expose the distinction
+        # between unsigned char 255 and signed char -1 (EOF) in glibc ctype.
+        charmap = Path("/usr/share/i18n/charmaps/ISO-8859-1.gz")
+        if charmap.exists() and Path("/usr/share/i18n/locales/en_US").exists():
+            custom = temp / "space255.charmap"
+            with gzip.open(charmap, "rb") as source:
+                custom.write_bytes(source.read().replace(b"<U00FF>", b"<U1680>"))
+            subprocess.run(["localedef", "--no-archive", "-i", "en_US", "-f", str(custom),
+                            str(locdir / "space255")], check=True)
+            locales.append("space255")
     (temp / "main.cpp").write_text(main)
     binary = temp / "textutil"
-    for extra, mode in ((["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], "bounded"), ([], "extreme")):
+    sanitizer_flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+    for extra, mode in ((sanitizer_flags, "bounded"), ([], "extreme"),
+                        (sanitizer_flags + ["-funsigned-char", "-DTEXTUTIL_WRAPPERS_ONLY"], "bounded"),
+                        (sanitizer_flags + ["-fsigned-char", "-DTEXTUTIL_WRAPPERS_ONLY"], "bounded")):
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
                         *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)

@@ -258,12 +258,13 @@ pub fn trim_line(s: &[u8]) -> (usize, usize) {
 }
 
 /// Util::Trim(std::string&): (start, end) without the locale's isspace around:
-/// TrimLeft tests unsigned bytes, TrimRight the C++ char (signed or not).
-pub fn trim_string(s: &[u8], left: bool, right: bool) -> (usize, usize) {
+/// TrimLeft tests unsigned bytes; the caller classifies TrimRight's C++ char
+/// (whose signedness can differ from Rust's c_char with compiler flags).
+pub fn trim_string(s: &[u8], left: bool, right: bool, right_space: impl Fn(u8) -> bool) -> (usize, usize) {
     let start = if left { s.iter().take_while(|&&c| unsafe { isspace(c as c_int) } != 0).count() } else { 0 };
     let mut end = s.len();
     if right {
-        while end > start && unsafe { isspace(s[end - 1] as c_char as c_int) } != 0 {
+        while end > start && right_space(s[end - 1]) {
             end -= 1;
         }
         // TrimRight runs after TrimLeft erased the start: nothing more to strip
@@ -273,13 +274,13 @@ pub fn trim_string(s: &[u8], left: bool, right: bool) -> (usize, usize) {
 
 /// Util::SanitizeLine: control characters (below space, and DEL) become
 /// spaces, then Trim.
-pub fn sanitize_line(s: &mut [u8]) -> (usize, usize) {
+pub fn sanitize_line(s: &mut [u8], right_space: impl Fn(u8) -> bool) -> (usize, usize) {
     for c in s.iter_mut() {
         if *c < 32 || *c == 127 {
             *c = b' ';
         }
     }
-    trim_string(s, true, true)
+    trim_string(s, true, true, right_space)
 }
 
 /// Util::EndsWith (std::string_view): `suffix` ends `s`, case-insensitively

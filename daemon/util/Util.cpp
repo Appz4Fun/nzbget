@@ -540,9 +540,17 @@ std::vector<CString> Util::SplitCommandLine(const char* commandLine)
 	// rust/src/util.rs: the words back to back, each NUL-terminated
 	NzbgetRsBuf words = nzbget_rs_split_command_line(commandLine);
 	std::vector<CString> result;
-	for (size_t i = 0; i < words.len; i += strlen(words.data + i) + 1)
+	try
 	{
-		result.emplace_back(words.data + i);
+		for (size_t i = 0; i < words.len; i += strlen(words.data + i) + 1)
+		{
+			result.emplace_back(words.data + i);
+		}
+	}
+	catch (...)
+	{
+		nzbget_rs_free(words);
+		throw;
 	}
 	nzbget_rs_free(words);
 	return result;
@@ -626,26 +634,42 @@ void Util::TrimRight(char* str)
 #else
 void Util::TrimRight(char* str)
 {
-	char* end = str + strlen(str) - 1;
-	while (end >= str && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
+	if (!str) return;
+	char* end = str + strlen(str);
+	while (end > str && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
 	{
-		*end = '\0';
-		end--;
+		*--end = '\0';
 	}
 }
 #endif
+
+namespace
+{
+	int TextRightSpace(int byte)
+	{
+		// The caller can override char's signedness independently of Rust.
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		// glibc supports negative signed chars, keeping EOF distinct from 255.
+		return std::isspace(ch);
+#else
+		// Negative chars other than EOF are outside the portable ctype domain.
+		return ch < 0 ? 0 : std::isspace(ch);
+#endif
+	}
+}
 
 #ifdef NZBGET_USE_RUST
 void Util::TrimRight(std::string& str)
 {
 	// rust/src/util.rs
 	size_t start;
-	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 0, 1, 0, &start));
+	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 0, 1, 0, &start, TextRightSpace));
 }
 #else
 void Util::TrimRight(std::string& str)
 {
-	while (!str.empty() && std::isspace(str.back()))
+	while (!str.empty() && TextRightSpace(static_cast<unsigned char>(str.back())))
 	{
 		str.pop_back();
 	}
@@ -657,7 +681,7 @@ void Util::TrimLeft(std::string& str)
 {
 	// rust/src/util.rs
 	size_t start;
-	nzbget_rs_trim_string(str.data(), str.size(), 1, 0, 0, &start);
+	nzbget_rs_trim_string(str.data(), str.size(), 1, 0, 0, &start, TextRightSpace);
 	str.erase(0, start);
 }
 #else
@@ -682,6 +706,7 @@ char* Util::Trim(char* str)
 #else
 char* Util::Trim(char* str)
 {
+	if (!str) return str;
 	TrimRight(str);
 	while (*str == '\n' || *str == '\r' || *str == ' ' || *str == '\t')
 	{
@@ -702,7 +727,7 @@ void Util::SanitizeLine(std::string& str)
 {
 	// rust/src/util.rs
 	size_t start;
-	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 1, 1, 1, &start));
+	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 1, 1, 1, &start, TextRightSpace));
 	str.erase(0, start);
 }
 #else

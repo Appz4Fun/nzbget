@@ -1477,8 +1477,11 @@ pub unsafe extern "C" fn nzbget_rs_trim_line(s: *mut c_char, right_only: c_int) 
         return s;
     }
     let text = CStr::from_ptr(s).to_bytes();
+    let len = text.len();
     let (start, end) = if right_only != 0 { (0, crate::util::trim_right_line(text)) } else { crate::util::trim_line(text) };
-    *s.add(end) = 0;
+    // The legacy helper zeroes every removed byte, not just the new terminator.
+    // The shared CStr borrow ends before these writes.
+    std::ptr::write_bytes(s.add(end), 0, len - end);
     s.add(start)
 }
 
@@ -1487,16 +1490,20 @@ pub unsafe extern "C" fn nzbget_rs_trim_line(s: *mut c_char, right_only: c_int) 
 /// place): the kept range [*start, return value) of the `len` bytes.
 ///
 /// # Safety
-/// `data` is null or writable for `len` bytes; `start` is writable.
+/// `data` is null or writable for `len` bytes; `start` is null or writable
+/// after the buffer access. `right_space`, when supplied, classifies a byte
+/// as the caller's C++ char and must not unwind or access `data`. If absent,
+/// no trailing bytes are classified as whitespace. NULL `start` skips output.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_trim_string(data: *mut c_char, len: usize, left: c_int, right: c_int, sanitize: c_int, start: *mut usize) -> usize {
+pub unsafe extern "C" fn nzbget_rs_trim_string(data: *mut c_char, len: usize, left: c_int, right: c_int, sanitize: c_int, start: *mut usize, right_space: Option<extern "C" fn(c_int) -> c_int>) -> usize {
+    let space = |b: u8| right_space.is_some_and(|f| f(b as c_int) != 0);
     let (s, e) = if data.is_null() || len == 0 {
         (0, 0)
     } else {
         let buf = std::slice::from_raw_parts_mut(data.cast::<u8>(), len);
-        if sanitize != 0 { crate::util::sanitize_line(buf) } else { crate::util::trim_string(buf, left != 0, right != 0) }
+        if sanitize != 0 { crate::util::sanitize_line(buf, space) } else { crate::util::trim_string(buf, left != 0, right != 0, space) }
     };
-    *start = s;
+    if !start.is_null() { *start = s; }
     e
 }
 
@@ -1533,6 +1540,61 @@ pub unsafe extern "C" fn nzbget_rs_parse_rfc822_date_time(s: *const c_char) -> i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn textutil_in_place_ranges_nulls_and_ownership() {
+        extern "C" fn space(byte: c_int) -> c_int {
+            // An unsigned-char caller in a locale with a high-byte space.
+            (byte == 255 || byte == 32) as c_int
+        }
+        unsafe {
+            let null = std::ptr::null_mut();
+            assert!(nzbget_rs_trim_line(null, 0).is_null());
+            assert_eq!(nzbget_rs_trim_string(null, 10, 1, 1, 1, null.cast(), None), 0);
+            assert_eq!(nzbget_rs_parse_rfc822_date_time(null), 0);
+            assert_eq!(nzbget_rs_ends_with(null, 0, null, 0, 0), 1);
+            assert_eq!(nzbget_rs_ends_with(null, 0, c"x".as_ptr(), 1, 0), 0);
+            for buf in [nzbget_rs_split_command_line(null), nzbget_rs_format_buffer(null, 10),
+                nzbget_rs_format_buffer(c"x".as_ptr(), -1)]
+            {
+                assert_eq!(buf.len, 0);
+                assert_eq!(*buf.data, 0);
+                nzbget_rs_free(buf);
+            }
+            for (source, expected, offset) in [
+                (b"! x \t\r\n\0!".as_slice(), b"! x\0\0\0\0\0!".as_slice(), 1),
+                (b"! \t\r\n\0!", b"!\0\0\0\0\0!", 0),
+                (b"!\0!", b"!\0!", 0),
+            ] {
+                for right_only in [0, 1] {
+                    let mut buf = source.to_vec();
+                    let base = buf.as_mut_ptr().add(1).cast();
+                    let result = nzbget_rs_trim_line(base, right_only);
+                    assert_eq!(result, base.add(if right_only == 0 { offset } else { 0 }));
+                    assert_eq!(buf, expected);
+                }
+            }
+            let mut buf = *b"!\t\0x\xff!";
+            let mut start = usize::MAX;
+            let end = nzbget_rs_trim_string(buf.as_mut_ptr().add(1).cast(), 4, 1, 1, 1,
+                &mut start, Some(space));
+            assert_eq!((start, end), (2, 3));
+            assert_eq!(&buf, b"!  x\xff!");
+            let mut all = *b" \t\r\n";
+            assert_eq!(nzbget_rs_trim_string(all.as_mut_ptr().cast(), all.len(), 1, 1, 1,
+                &mut start, Some(space)), 4);
+            assert_eq!(start, 4); // empty kept range, valid for resize then erase
+            let mut source = b"a 'b c'\0".to_vec();
+            let words = nzbget_rs_split_command_line(source.as_ptr().cast());
+            let hex = nzbget_rs_format_buffer(source.as_ptr().cast(), 2);
+            source.fill(b'x');
+            assert_eq!(span(words.data, words.len), b"a\0b c\0");
+            assert_eq!(span(hex.data, hex.len), b"61 20 ");
+            nzbget_rs_free(words);
+            assert_eq!(input(hex.data), b"61 20 ");
+            nzbget_rs_free(hex);
+        }
+    }
 
     #[test]
     fn rpc_route_null_inputs_borrowing_and_method_capacity() {
