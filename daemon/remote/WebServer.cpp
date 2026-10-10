@@ -21,6 +21,10 @@
 
 #include "nzbget.h"
 #include "WebServer.h"
+#ifdef NZBGET_USE_RUST
+#include <climits>
+#include "nzbget_rs.h"
+#endif
 #include "XmlRpc.h"
 #include "Log.h"
 #include "Options.h"
@@ -168,6 +172,60 @@ void WebProcessor::Execute()
 	Dispatch();
 }
 
+#ifdef NZBGET_USE_RUST
+void WebProcessor::ParseHeaders()
+{
+	// rust/src/webserver.rs decides what each line means
+	char buffer[1024];
+	m_contentLen = 0;
+	while (char* p = m_connection->ReadLine(buffer, sizeof(buffer), nullptr))
+	{
+		if (char* pe = strrchr(p, '\r')) *pe = '\0';
+		debug("header=%s", p);
+
+		size_t start = 0, len = 0;
+		int number = 0;
+		int kind = nzbget_rs_web_header(p, strlen(p), Util::EmptyStr(m_authInfo), &start, &len, &number);
+		std::string value(p + start, len);
+		switch (kind)
+		{
+			case 1:
+				m_contentLen = number;
+				break;
+			case 2:
+				m_authInfo[WebUtil::DecodeBase64(p + start, 0, m_authInfo)] = '\0';
+				break;
+			case 3:
+				error("Invalid-request: auth-info too big");
+				return;
+			case 4:
+				m_gzip = number != 0;
+				break;
+			case 5:
+				m_origin = value.c_str();
+				break;
+			case 6:
+				strncpy(m_authToken, value.c_str(), sizeof(m_authToken) - 1);
+				m_authToken[sizeof(m_authToken) - 1] = '\0';
+				break;
+			case 7:
+				m_forwardedFor = value.c_str();
+				break;
+			case 8:
+				m_oldETag = value.c_str();
+				break;
+			case 9:
+				m_keepAlive = true;
+				break;
+			case 10:
+				debug("URL=%s", *m_url);
+				return;
+		}
+	}
+
+	debug("URL=%s", *m_url);
+}
+#else
 void WebProcessor::ParseHeaders()
 {
 	// reading http header
@@ -240,8 +298,37 @@ void WebProcessor::ParseHeaders()
 
 	debug("URL=%s", *m_url);
 }
+#endif
 
 // false when it answered the request itself (a redirect)
+#ifdef NZBGET_USE_RUST
+bool WebProcessor::ParseUrl()
+{
+	// rust/src/webserver.rs
+	int redirect = 0;
+	NzbgetRsBuf auth{};
+	NzbgetRsBuf url = nzbget_rs_web_parse_url(m_url, strlen(m_url), &redirect, &auth);
+	std::string target(url.data, url.len);
+	nzbget_rs_free(url);
+	if (redirect)
+	{
+		nzbget_rs_free(auth);
+		SendRedirectResponse(target.c_str());
+		return false;
+	}
+	if (auth.data)
+	{
+		size_t len = std::min(auth.len, sizeof(m_authInfo) - 1);
+		memcpy(m_authInfo, auth.data, len);
+		m_authInfo[len] = '\0';
+		nzbget_rs_free(auth);
+	}
+	m_url = target.c_str();
+
+	debug("Final URL=%s", *m_url);
+	return true;
+}
+#else
 bool WebProcessor::ParseUrl()
 {
 	// remove subfolder "nzbget" from the path (if exists)
@@ -275,7 +362,67 @@ bool WebProcessor::ParseUrl()
 	debug("Final URL=%s", *m_url);
 	return true;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// tolower as WildMask's C++ code did: on a char, signed or not
+	int WebFold(int byte)
+	{
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		return tolower(ch);
+#else
+		return ch < 0 ? ch : tolower(ch);
+#endif
+	}
+}
+
+bool WebProcessor::CheckCredentials()
+{
+	// rust/src/webserver.rs
+	NzbgetRsWebCredentials input{};
+	input.users[0] = g_Options->GetControlUsername();
+	input.users[1] = g_Options->GetControlPassword();
+	input.users[2] = g_Options->GetRestrictedUsername();
+	input.users[3] = g_Options->GetRestrictedPassword();
+	input.users[4] = g_Options->GetAddUsername();
+	input.users[5] = g_Options->GetAddPassword();
+	input.authorizedIp = g_Options->GetAuthorizedIp();
+	input.remoteAddr = m_connection->GetRemoteAddr();
+	input.authInfo = m_authInfo;
+	input.authToken = m_authToken;
+	for (int j = uaControl; j <= uaAdd; j++)
+	{
+		input.serverTokens[j] = m_serverAuthToken[j];
+	}
+#ifdef __GLIBC__
+	input.lowerTable = reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#endif
+	input.charSigned = CHAR_MIN < 0;
+	input.fold = WebFold;
+
+	NzbgetRsWebCheck check{};
+	nzbget_rs_web_check_credentials(&input, &check);
+	if (check.authCut >= 0)
+	{
+		m_authInfo[check.authCut] = '\0';
+	}
+	if (check.access >= 0)
+	{
+		m_userAccess = (EUserAccess)check.access;
+	}
+	if (check.warn)
+	{
+		warn("Request received on port %i from %s%s, but username (%s) or password invalid",
+			g_Options->GetControlPort(), m_connection->GetRemoteAddr(),
+			!m_forwardedFor.Empty() ? (char*)BString<1024>(" (forwarded for: %s)", *m_forwardedFor) : "",
+			m_authInfo);
+	}
+	return check.authorized != 0;
+}
+#else
 bool WebProcessor::CheckCredentials()
 {
 	if (!Util::EmptyStr(g_Options->GetControlPassword()) &&
@@ -329,7 +476,21 @@ bool WebProcessor::CheckCredentials()
 
 	return true;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+bool WebProcessor::IsAuthorizedIp(const char* remoteAddr)
+{
+	// rust/src/webserver.rs
+#ifdef __GLIBC__
+	const int* table = reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#else
+	const int* table = nullptr;
+#endif
+	return nzbget_rs_web_authorized_ip(g_Options->GetAuthorizedIp(), m_connection->GetRemoteAddr(), table,
+		CHAR_MIN < 0, WebFold) != 0;
+}
+#else
 bool WebProcessor::IsAuthorizedIp(const char* remoteAddr)
 {
 	const char* remoteIp = m_connection->GetRemoteAddr();
@@ -349,6 +510,7 @@ bool WebProcessor::IsAuthorizedIp(const char* remoteAddr)
 
 	return authorized;
 }
+#endif
 
 void WebProcessor::Dispatch()
 {
