@@ -1914,6 +1914,44 @@ pub unsafe extern "C" fn nzbget_rs_http_redirect(old_url: *const c_char, locatio
 mod tests {
     use super::*;
 
+    #[test]
+    fn webdownload_nulls_offsets_and_owned_redirects() {
+        unsafe {
+            nzbget_rs_http_check_response(std::ptr::null(), std::ptr::null_mut());
+            let mut response = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            nzbget_rs_http_check_response(std::ptr::null(), response.as_mut_ptr());
+            let response = response.assume_init();
+            assert_eq!((response.result, response.set_status, response.warn), (2, 0, 1));
+
+            let line = c"HTTP/1.1 4040 Missing";
+            let mut response = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            nzbget_rs_http_check_response(line.as_ptr(), response.as_mut_ptr());
+            let response = response.assume_init();
+            assert_eq!((response.result, response.http_status, response.warn), (3, 4040, 3));
+            assert_eq!(CStr::from_ptr(line.as_ptr().add(response.status_offset)), c"4040 Missing");
+
+            let mut value = 123;
+            assert_eq!(nzbget_rs_http_header(std::ptr::null(), 1, &mut value), 0);
+            assert_eq!(value, 123);
+            assert_eq!(nzbget_rs_http_header(c"Content-Length: -7".as_ptr(), 0, std::ptr::null_mut()), 1);
+            let line = c"Location: /next";
+            assert_eq!(nzbget_rs_http_header(line.as_ptr(), -1, &mut value), 4);
+            assert_eq!(CStr::from_ptr(line.as_ptr().add(value as usize)), c"/next");
+
+            let empty = nzbget_rs_http_redirect(std::ptr::null(), std::ptr::null());
+            assert_eq!(CStr::from_ptr(empty.data), c"(null)://(null)");
+            nzbget_rs_free(empty);
+            let base = std::ffi::CString::new("http://h:81/a/file?q").unwrap();
+            let location = std::ffi::CString::new("next").unwrap();
+            let buf = nzbget_rs_http_redirect(base.as_ptr(), location.as_ptr());
+            drop(base);
+            drop(location);
+            assert_eq!(std::slice::from_raw_parts(buf.data.cast::<u8>(), buf.len), b"http://h:81/a/next");
+            assert_eq!(*buf.data.add(buf.len), 0);
+            nzbget_rs_free(buf);
+        }
+    }
+
     extern "C" fn ext_space(b: c_int) -> c_int {
         i32::from((b as u8).is_ascii_whitespace())
     }

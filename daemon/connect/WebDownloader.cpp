@@ -631,7 +631,9 @@ void WebDownloader::ParseRedirect(const char* location)
 		else
 		{
 			// relative path within host
-			resource = oldUrl.GetResource();
+			// An invalid base has a null resource. Treat it as empty, as the
+			// Rust path does, instead of passing nullptr to strchr/strrchr.
+			resource = oldUrl.GetResource() ? oldUrl.GetResource() : "";
 
 			char* p = strchr(resource, '?');
 			if (p)

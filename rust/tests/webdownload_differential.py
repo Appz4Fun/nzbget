@@ -4,12 +4,13 @@ C++ wrappers of WebDownloader.cpp), and their C++ fallback, with the pre-port
 C++: CheckResponse (result, status, warnings), ProcessHeader (lengths, gzip,
 file names, redirects) and ParseRedirect (the new address and its log line)
 on generated and mutated status lines, headers and URLs, in the C, C.UTF-8
-and tr_TR.ISO8859-9 locales. A redirect from an invalid address is left out:
-the C++ dereferenced a null resource there (Rust reads it as empty).
+and tr_TR.ISO8859-9 locales. Relative-path redirects from an invalid address
+compare Rust with the repaired fallback only: the original C++ dereferenced
+a null resource there.
 
 Each version's methods are compiled into a stand-in WebDownloader (in its
-own namespace) that records what it logs, against the build's WebUtil, URL
-and FileSystem.
+own namespace) that records complete log messages. The oracle and fallback
+use the original C++ URL parser; WebUtil and FileSystem come from the build.
 
 Usage: webdownload_differential.py BUILD_DIR [ROUNDS]
 """
@@ -63,12 +64,17 @@ public:
 	void SetUrl(const char* url) { m_url = WebUtil::UrlEncode(url); }
 	void Record(const char* kind, const char* format, ...)
 	{
-		char buf[4096];
 		va_list ap;
 		va_start(ap, format);
-		vsnprintf(buf, sizeof buf, format, ap);
+		va_list copy;
+		va_copy(copy, ap);
+		int len = vsnprintf(nullptr, 0, format, copy);
+		va_end(copy);
+		if (len < 0) abort();
+		std::vector<char> buf(len + 1);
+		vsnprintf(buf.data(), buf.size(), format, ap);
 		va_end(ap);
-		m_log += std::string(kind) + buf + "\n";
+		m_log += std::string(kind) + buf.data() + "\n";
 	}
 	EStatus CheckResponse(const char* response);
 	void ProcessHeader(const char* line);
@@ -79,6 +85,15 @@ public:
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/connect/WebDownloader.cpp"], cwd=ROOT, text=True)
 new_src = (ROOT / "daemon/connect/WebDownloader.cpp").read_text()
+
+# Use the actual C++ URL parser for the oracle. Linking every stand-in to
+# the build's Rust-backed URL class would mask shared parsing mistakes.
+util_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/Util.cpp"], cwd=ROOT, text=True)
+util_h = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/Util.h"], cwd=ROOT, text=True)
+url_class = util_h[util_h.index("class URL\n{"):util_h.index("\nclass RegEx")]
+ctor = util_src.index("URL::URL(const char* address)")
+parser = util_src.rindex("void URL::ParseUrl()")
+legacy_url = url_class + util_src[ctor:util_src.index("\n}\n", ctor) + 3] + util_src[parser:util_src.index("\n}\n", parser) + 3]
 
 flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
 get = lambda k: re.search(rf"^{k} = (.*)$", flags, re.M).group(1)
@@ -106,12 +121,13 @@ main = r'''
 #define debug(...) Record("G:", __VA_ARGS__)
 
 namespace oldimpl {
-''' + STANDIN + bodies(old_src, "last") + r'''
+''' + legacy_url + STANDIN + bodies(old_src, "last") + r'''
 }
 namespace newimpl {
 ''' + STANDIN + bodies(new_src, "first") + r'''
 }
 namespace fallbackimpl {
+using oldimpl::URL;
 ''' + STANDIN + bodies(new_src, "last") + r'''
 }
 
@@ -140,22 +156,28 @@ static std::string mutate(std::string s)
 static const char* const STATUS[] = {"HTTP/1.1 200 OK", "HTTP/1.0 200", "HTTP/1.1 301 Moved", "HTTP/1.1 302 Found",
 	"HTTP/1.1 303 See", "HTTP/1.1 307 Temp", "HTTP/1.1 308 Perm", "HTTP/1.1 304 Not Modified", "HTTP/1.1 400 Bad",
 	"HTTP/1.1 404 Not Found", "HTTP/1.1 499 x", "HTTP/1.1 500 Error", "HTTP/1.1  200", "HTTP/1.1 2000", "HTTP", "HTTP ",
-	"HTTP/1.1 -5", "HTTP/1.1 99999999999", "http/1.1 200 OK", "garbage", "", "ICY 200 OK", "HTTP/2 200"};
+	"HTTP/1.1 -5", "HTTP/1.1 99999999999", "http/1.1 200 OK", "garbage", "", "ICY 200 OK", "HTTP/2 200",
+	"HTTP 4000", "HTTP 499x", "HTTP 4040", "HTTP 200x", "HTTP +200", "HTTP \t200", "HTTP 2147483648",
+	"HTTP -2147483649", "HTTP 18446744073709551616", "HTTP \v302", "HTTP \xff"};
 static const char* const HEADERS[] = {"Content-Length: 1234", "content-length: 0", "CONTENT-LENGTH: -1",
 	"Content-Length: 99999999999", "Content-Length:5", "Content-Length: ", "Content-Encoding: gzip",
 	"content-encoding: GZIP", "Content-Encoding: deflate", "Content-Disposition: attachment; filename=\"a b.nzb\"",
 	"content-disposition: inline; filename*=UTF-8''%E2%82%AC.nzb", "Content-Disposition: ", "Location: http://x.org/a?k=1",
 	"location: /abs/path?q", "Location: rel/file.nzb", "Location: //cdn.example.net/f?x", "Location: ", "Location:x",
 	"Server: nginx", "", "Content-Lengths: 7", "Location: https://user:pw@h.org:8443/p", "Location: ?only=query",
-	"Location: ../up", "LOCATION: HTTP://UPPER.ORG/X"};
+	"Location: ../up", "LOCATION: HTTP://UPPER.ORG/X", "Content-Encoding: gzipjunk", "Content-Length: +12junk",
+	"CONTENT-DISPOSITION: filename=x", "Content-D\xddSposition: filename=y", "LOCAT\xddON: /x"};
 static const char* const URLS[] = {"https://indexer.org/api?t=get&id=1&apikey=secret", "http://h.org", "http://h.org/",
-	"https://h.org:8443/a/b/c?x=1", "http://user:pw@h.org:81/dir/file.nzb", "bad", "", "ftp://x/y", "http://h.org/a?b/c"};
+	"https://h.org:8443/a/b/c?x=1", "http://user:pw@h.org:81/dir/file.nzb", "bad", "", "ftp://x/y", "http://h.org/a?b/c",
+	"http://", "http:///", "http://:80/x", "http://@/x", "http://h:/x", "http://h:0/x", "http://h:-1/x",
+	"http://h:+42/x", "http://h:2147483648/x", "http://h:4294967297/x", "http://[::1]:80/x"};
 
 template <class W> static std::string run(const std::string& status, bool stopped, const std::string& url,
 	const std::string& h1, const std::string& h2, bool redirecting)
 {
 	W w;
 	w.m_stopped = stopped;
+	w.m_httpStatus = 418;
 	w.SetUrl(url.c_str());
 	std::string out;
 	int st = (int)w.CheckResponse(below(15) ? status.c_str() : nullptr);
@@ -163,6 +185,10 @@ template <class W> static std::string run(const std::string& status, bool stoppe
 	if (redirecting) w.m_redirecting = true;
 	for (const std::string* h : {&h1, &h2})
 	{
+		// Only this branch dereferences a null resource in the original.
+		if (w.m_redirecting && !strncasecmp(h->c_str(), "Location: ", 10) &&
+			!oldimpl::URL(w.m_url).IsValid() && h->c_str()[10] != '/' &&
+			!oldimpl::URL(h->c_str() + 10).IsValid()) continue;
 		std::vector<char> line(h->begin(), h->end());
 		line.push_back('\0');
 		w.ProcessHeader(line.data());
@@ -173,23 +199,54 @@ template <class W> static std::string run(const std::string& status, bool stoppe
 	return out;
 }
 
+template <class W> static std::string redirect(const std::string& url, const std::string& location)
+{
+	W w;
+	// Deliberately bypass SetUrl: test raw bytes and the URL class's parts,
+	// including locale-dependent schemes, before URL encoding changes them.
+	w.m_url = url.c_str();
+	w.ParseRedirect(location.c_str());
+	return std::string(w.m_url) + "|" + w.m_log;
+}
+
+static void check_redirect(const std::string& url, const std::string& location)
+{
+	bool legacyUndefined = !oldimpl::URL(url.c_str()).IsValid() && !oldimpl::URL(location.c_str()).IsValid() &&
+		(location.empty() || location[0] != '/');
+	auto y = redirect<newimpl::WebDownloader>(url, location);
+	auto z = redirect<fallbackimpl::WebDownloader>(url, location);
+	auto x = legacyUndefined ? y : redirect<oldimpl::WebDownloader>(url, location);
+	if (x != y || x != z)
+	{
+		fprintf(stderr, "redirect mismatch: url [%s] location [%s]\nold: %s\nrust: %s\nfallback: %s\n",
+			url.c_str(), location.c_str(), x.c_str(), y.c_str(), z.c_str());
+		exit(1);
+	}
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
 	for (int l = 2; l < argc; l++)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
+		for (const char* url : URLS)
+			for (const char* location : {"", "next", "?q/a", "../x", "/", "//", "///x", "//h/x?q",
+				"https://", "http:///", "x+1.2://h", "1x://h", "/x?url=https://h", "\xdd://h/x", "\nhttp://h"})
+				check_redirect(url, location);
+		for (int byte = 1; byte <= 255; ++byte)
+		{
+			std::string scheme(1, (char)byte);
+			check_redirect(scheme + "://h:81/a/b?q", "/x");
+			check_redirect("http://h/a/b?q", scheme + "://other/x");
+		}
+		check_redirect("http://h/" + std::string(10000, 'x') + "/file?q", std::string(10000, 'y'));
 		for (long round = 0; round < rounds; round++)
 		{
 			std::string status = mutate(pick(STATUS));
 			std::string url = mutate(pick(URLS));
 			std::string h1 = mutate(pick(HEADERS)), h2 = mutate(pick(HEADERS));
 			bool stopped = below(4) == 0, redirecting = below(2);
-			// a relative redirect from an invalid address dereferenced its null
-			// resource in the C++ (undefined): no Location then
-			if (!URL(WebUtil::UrlEncode(url.c_str())).IsValid())
-				for (std::string* h : {&h1, &h2})
-					if (!strncasecmp(h->c_str(), "Location: ", 10)) *h = "Server: x";
 			unsigned long long seed = state;
 			std::string x = run<oldimpl::WebDownloader>(status, stopped, url, h1, h2, redirecting);
 			state = seed;
