@@ -1855,9 +1855,118 @@ pub unsafe extern "C" fn nzbget_rs_ext_v1_select(h: *const crate::extload::Scrip
     }
 }
 
+/// NzbgetRsHttpResponse: WebDownloader::CheckResponse's decision.
+#[repr(C)]
+pub struct HttpResponse {
+    pub result: c_int,
+    pub set_status: c_int,
+    pub http_status: c_int,
+    pub warn: c_int,
+    pub status_offset: usize,
+}
+
+/// WebDownloader::CheckResponse for the first response line (null: closed).
+///
+/// # Safety
+/// `response` is null or NUL-terminated; `out` is null (a no-op) or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_check_response(response: *const c_char, out: *mut HttpResponse) {
+    if out.is_null() {
+        return;
+    }
+    let r = crate::webdownload::check_response((!response.is_null()).then(|| CStr::from_ptr(response)));
+    // C++ supplies uninitialized output storage. Read the input before
+    // writing, so callers may also reuse its storage for the result.
+    out.write(HttpResponse {
+        result: r.result,
+        set_status: r.set_status as c_int,
+        http_status: r.http_status,
+        warn: r.warn,
+        status_offset: r.status_offset,
+    });
+}
+
+/// WebDownloader::ProcessHeader: 0 nothing, 1 Content-Length (`*value`),
+/// 2 gzip, 3 Content-Disposition, 4 Location (the address at `line + *value`).
+///
+/// # Safety
+/// `line` is null (nothing) or NUL-terminated; `value` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_header(line: *const c_char, redirecting: c_int, value: *mut c_int) -> c_int {
+    if line.is_null() {
+        return 0;
+    }
+    let (action, v) = crate::webdownload::process_header(CStr::from_ptr(line), redirecting != 0);
+    if !value.is_null() {
+        value.write(v);
+    }
+    action
+}
+
+/// WebDownloader::ParseRedirect: where `location` leads from `old_url`; free
+/// with nzbget_rs_free. Null inputs read as empty.
+///
+/// # Safety
+/// `old_url` and `location` are null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_redirect(old_url: *const c_char, location: *const c_char) -> RsBuf {
+    let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
+    into_buf(crate::webdownload::redirect(as_c(old_url), as_c(location)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webdownload_nulls_offsets_and_owned_redirects() {
+        unsafe {
+            nzbget_rs_http_check_response(std::ptr::null(), std::ptr::null_mut());
+            let mut response = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            nzbget_rs_http_check_response(std::ptr::null(), response.as_mut_ptr());
+            let response = response.assume_init();
+            assert_eq!((response.result, response.set_status, response.warn), (2, 0, 1));
+
+            let line = c"HTTP/1.1 4040 Missing";
+            let mut response = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            nzbget_rs_http_check_response(line.as_ptr(), response.as_mut_ptr());
+            let response = response.assume_init();
+            assert_eq!((response.result, response.http_status, response.warn), (3, 4040, 3));
+            assert_eq!(CStr::from_ptr(line.as_ptr().add(response.status_offset)), c"4040 Missing");
+
+            // Output pointers require writable storage, not initialized Rust
+            // values; they may overlap an input whose bytes are read first.
+            let mut slot = std::mem::MaybeUninit::<HttpResponse>::uninit();
+            let input = slot.as_mut_ptr().cast::<c_char>();
+            std::ptr::copy_nonoverlapping(c"HTTP 404".as_ptr(), input, 9);
+            nzbget_rs_http_check_response(input, slot.as_mut_ptr());
+            assert_eq!(slot.assume_init().http_status, 404);
+
+            let mut uninit_value = std::mem::MaybeUninit::<c_int>::uninit();
+            assert_eq!(nzbget_rs_http_header(c"Content-Length: 17".as_ptr(), 0, uninit_value.as_mut_ptr()), 1);
+            assert_eq!(uninit_value.assume_init(), 17);
+
+            let mut value = 123;
+            assert_eq!(nzbget_rs_http_header(std::ptr::null(), 1, &mut value), 0);
+            assert_eq!(value, 123);
+            assert_eq!(nzbget_rs_http_header(c"Content-Length: -7".as_ptr(), 0, std::ptr::null_mut()), 1);
+            let line = c"Location: /next";
+            assert_eq!(nzbget_rs_http_header(line.as_ptr(), -1, &mut value), 4);
+            assert_eq!(CStr::from_ptr(line.as_ptr().add(value as usize)), c"/next");
+
+            let empty = nzbget_rs_http_redirect(std::ptr::null(), std::ptr::null());
+            assert_eq!(CStr::from_ptr(empty.data), c"(null)://(null)");
+            nzbget_rs_free(empty);
+            let base = std::ffi::CString::new("http://h:81/a/file?q").unwrap();
+            let location = std::ffi::CString::new("next").unwrap();
+            let buf = nzbget_rs_http_redirect(base.as_ptr(), location.as_ptr());
+            drop(base);
+            drop(location);
+            assert_eq!(std::slice::from_raw_parts(buf.data.cast::<u8>(), buf.len), b"http://h:81/a/next");
+            assert_eq!(*buf.data.add(buf.len), 0);
+            nzbget_rs_free(buf);
+        }
+    }
 
     extern "C" fn ext_space(b: c_int) -> c_int {
         i32::from((b as u8).is_ascii_whitespace())
