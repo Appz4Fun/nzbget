@@ -6,6 +6,7 @@ pub mod decode;
 pub mod deobfuscation;
 pub mod escape;
 pub mod feedfilter;
+pub mod filetypes;
 pub mod text;
 pub mod url;
 pub mod util;

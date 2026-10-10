@@ -645,9 +645,75 @@ pub unsafe extern "C" fn nzbget_rs_deobfuscate(s: *const c_char, len: usize) -> 
     into_buf(crate::deobfuscation::deobfuscate(bytes(s, len)))
 }
 
+/// FileTypes' name checks (rust/src/filetypes.rs), by number (see nzbget_rs.h).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_file_type(which: c_int, s: *const c_char, len: usize) -> c_int {
+    use crate::filetypes::*;
+    const CHECKS: [fn(&[u8]) -> bool; 25] = [
+        is_seven_zip_ext, is_rar_ext, is_rar_volume_ext, is_numeric_volume_ext, is_all_digits_ext, is_archive_ext,
+        is_disc_structure_ext, is_disc_structure_dir, is_disc_descriptor_ext, is_disc_image_ext,
+        is_generic_disc_image_ext, is_clutter_dir, is_clutter_file, is_parity_ext, is_video_ext, is_audio_ext,
+        is_subtitle_ext, is_nfo_ext, is_book_ext, is_image_ext, is_sample_stem, is_seven_zip_file, is_rar_file,
+        is_archive_file, is_sample_file,
+    ];
+    match usize::try_from(which).ok().and_then(|w| CHECKS.get(w)) {
+        Some(check) => check(bytes(s, len)) as c_int,
+        None => 0,
+    }
+}
+
+fn static_str(e: &'static CStr, out_len: *mut usize) -> *const c_char {
+    if !out_len.is_null() {
+        unsafe { *out_len = e.to_bytes().len() };
+    }
+    e.as_ptr()
+}
+
+/// FileTypes::SniffExtension of a header: a static extension ("" for none),
+/// its length in `out_len`.
+///
+/// # Safety
+/// `header` is null or readable for `len` bytes; `out_len` null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_sniff_extension(header: *const u8, len: usize, out_len: *mut usize) -> *const c_char {
+    let h = if header.is_null() || len == 0 { &[][..] } else { std::slice::from_raw_parts(header, len) };
+    static_str(crate::filetypes::sniff_extension(h), out_len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filetypes_nulls_lengths_and_static_results() {
+        unsafe {
+            for len in [0, 42, usize::MAX] {
+                for which in -1..=25 {
+                    assert_eq!(nzbget_rs_file_type(which, std::ptr::null(), len), 0);
+                }
+                let mut out_len = usize::MAX;
+                let ext = nzbget_rs_sniff_extension(std::ptr::null(), len, &mut out_len);
+                assert!(!ext.is_null());
+                assert_eq!(out_len, 0);
+                assert_eq!(CStr::from_ptr(ext), c"");
+            }
+            let name = b".rar\0.mkv";
+            assert_eq!(nzbget_rs_file_type(1, name.as_ptr().cast(), 4), 1);
+            assert_eq!(nzbget_rs_file_type(1, name.as_ptr().cast(), name.len()), 0);
+            let header = b"%PDF-".to_vec();
+            let mut out_len = 0;
+            let ext = nzbget_rs_sniff_extension(header.as_ptr(), header.len(), &mut out_len);
+            assert_eq!(out_len, 4);
+            drop(header);
+            assert_eq!(CStr::from_ptr(ext), c".pdf");
+            assert_eq!(CStr::from_ptr(nzbget_rs_sniff_extension(b"ID3".as_ptr(), 3, std::ptr::null_mut())), c".mp3");
+            // Later calls and destruction of the input do not invalidate results.
+            assert_eq!(CStr::from_ptr(ext), c".pdf");
+        }
+    }
 
     #[test]
     fn deobfuscation_nulls_lengths_and_owned_buffers() {
