@@ -26,7 +26,10 @@
 #include <array>
 #include <algorithm>
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
+#include <limits>
+#endif
 
 #ifdef WIN32
 #include "utf8.h"
@@ -932,11 +935,137 @@ uint32 WebUtil::DecodeBase64(char* inputBuffer, int inputBufferLength, char* out
 
 CString WebUtil::XmlEncode(const char* raw)
 {
+#ifdef NZBGET_USE_RUST
 	// rust/src/escape.rs
 	NzbgetRsBuf buf = nzbget_rs_xml_encode(raw);
-	CString result(buf.data, (int)buf.len);
+	// CString adds one to an int length before allocating.
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
 	nzbget_rs_free(buf);
 	return result;
+#else
+	// calculate the required outputstring-size based on number of xml-entities and their sizes
+	int reqSize = strlen(raw);
+	for (const char* p = raw; *p; p++)
+	{
+		uchar ch = *p;
+		switch (ch)
+		{
+			case '>':
+			case '<':
+				reqSize += 4;
+				break;
+			case '&':
+				reqSize += 5;
+				break;
+			case '\'':
+			case '\"':
+				reqSize += 6;
+				break;
+			default:
+				if (ch < 0x20 || ch >= 0x80)
+				{
+					reqSize += 10;
+					break;
+				}
+		}
+	}
+
+	CString result;
+	result.Reserve(reqSize);
+
+	// copy string
+	char* output = result;
+	for (const char* p = raw; ; p++)
+	{
+		uchar ch = *p;
+		switch (ch)
+		{
+			case '\0':
+				goto BreakLoop;
+			case '<':
+				strcpy(output, "&lt;");
+				output += 4;
+				break;
+			case '>':
+				strcpy(output, "&gt;");
+				output += 4;
+				break;
+			case '&':
+				strcpy(output, "&amp;");
+				output += 5;
+				break;
+			case '\'':
+				strcpy(output, "&apos;");
+				output += 6;
+				break;
+			case '\"':
+				strcpy(output, "&quot;");
+				output += 6;
+				break;
+			default:
+				if (ch < 0x20 || ch >= 0x80)
+				{
+					uint32 cp = ch;
+
+					// decode utf8
+					if ((cp >> 5) == 0x6 && (p[1] & 0xc0) == 0x80)
+					{
+						// 2 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 6) & 0x7ff) + (ch & 0x3f);
+					}
+					else if ((cp >> 4) == 0xe && (p[1] & 0xc0) == 0x80)
+					{
+						// 3 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 12) & 0xffff) + ((ch << 6) & 0xfff);
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += ch & 0x3f;
+					}
+					else if ((cp >> 3) == 0x1e && (p[1] & 0xc0) == 0x80)
+					{
+						// 4 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 18) & 0x1fffff) + ((ch << 12) & 0x3ffff);
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += (ch << 6) & 0xfff;
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += ch & 0x3f;
+					}
+
+					// accept only valid XML 1.0 characters
+					if (cp == 0x9 || cp == 0xA || cp == 0xD ||
+						(0x20 <= cp && cp <= 0xD7FF) ||
+						(0xE000 <= cp && cp <= 0xFFFD) ||
+						(0x10000 <= cp && cp <= 0x10FFFF))
+					{
+						sprintf(output, "&#x%06x;", cp);
+						output += 10;
+					}
+					else
+					{
+						// replace invalid characters with dots
+						*output++ = '.';
+					}
+				}
+				else
+				{
+					*output++ = ch;
+				}
+				break;
+		}
+	}
+BreakLoop:
+
+	*output = '\0';
+
+	return result;
+#endif
 }
 
 namespace
@@ -1188,11 +1317,147 @@ BreakLoop:
 
 CString WebUtil::JsonEncode(const char* raw)
 {
+#ifdef NZBGET_USE_RUST
 	// rust/src/escape.rs
 	NzbgetRsBuf buf = nzbget_rs_json_encode(raw);
-	CString result(buf.data, (int)buf.len);
+	// CString adds one to an int length before allocating.
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
 	nzbget_rs_free(buf);
 	return result;
+#else
+	// calculate the required outputstring-size based on number of escape-entities and their sizes
+	int reqSize = strlen(raw);
+	for (const char* p = raw; *p; p++)
+	{
+		uchar ch = *p;
+		switch (ch)
+		{
+			case '\"':
+			case '\\':
+			case '/':
+			case '\b':
+			case '\f':
+			case '\n':
+			case '\r':
+			case '\t':
+				reqSize++;
+				break;
+			default:
+				if (ch < 0x20 || ch >= 0x80)
+				{
+					reqSize += 6;
+					break;
+				}
+		}
+	}
+
+	CString result;
+	result.Reserve(reqSize);
+
+	// copy string
+	char* output = result;
+	for (const char* p = raw; ; p++)
+	{
+		uchar ch = *p;
+		switch (ch)
+		{
+			case '\0':
+				goto BreakLoop;
+			case '"':
+				strcpy(output, "\\\"");
+				output += 2;
+				break;
+			case '\\':
+				strcpy(output, "\\\\");
+				output += 2;
+				break;
+			case '/':
+				strcpy(output, "\\/");
+				output += 2;
+				break;
+			case '\b':
+				strcpy(output, "\\b");
+				output += 2;
+				break;
+			case '\f':
+				strcpy(output, "\\f");
+				output += 2;
+				break;
+			case '\n':
+				strcpy(output, "\\n");
+				output += 2;
+				break;
+			case '\r':
+				strcpy(output, "\\r");
+				output += 2;
+				break;
+			case '\t':
+				strcpy(output, "\\t");
+				output += 2;
+				break;
+			default:
+				if (ch < 0x20 || ch >= 0x80)
+				{
+					uint32 cp = ch;
+
+					// decode utf8
+					if ((cp >> 5) == 0x6 && (p[1] & 0xc0) == 0x80)
+					{
+						// 2 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 6) & 0x7ff) + (ch & 0x3f);
+					}
+					else if ((cp >> 4) == 0xe && (p[1] & 0xc0) == 0x80)
+					{
+						// 3 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 12) & 0xffff) + ((ch << 6) & 0xfff);
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += ch & 0x3f;
+					}
+					else if ((cp >> 3) == 0x1e && (p[1] & 0xc0) == 0x80)
+					{
+						// 4 bytes
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp = ((cp << 18) & 0x1fffff) + ((ch << 12) & 0x3ffff);
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += (ch << 6) & 0xfff;
+						if (!(ch = *++p)) goto BreakLoop; // read next char
+						cp += ch & 0x3f;
+					}
+
+					if (cp <= 0xFFFF)
+					{
+						sprintf(output, "\\u%04x", cp);
+						output += 6;
+					}
+					else
+					{
+						// past U+FFFF (an emoji, CJK extension B): a UTF-16 surrogate pair,
+						// the JSON form - written as "." it lost the character
+						cp -= 0x10000;
+						sprintf(output, "\\u%04x\\u%04x", 0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+						output += 12;
+					}
+				}
+				else
+				{
+					*output++ = ch;
+				}
+				break;
+		}
+	}
+BreakLoop:
+
+	*output = '\0';
+
+	return result;
+#endif
 }
 
 void WebUtil::JsonDecode(char* raw)

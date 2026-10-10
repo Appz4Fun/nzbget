@@ -111,7 +111,6 @@ include(${CMAKE_SOURCE_DIR}/cmake/rapidyenc.cmake)
 list(APPEND EXTERNAL_DEPS rapidyenc)
 
 include(${CMAKE_SOURCE_DIR}/cmake/rust.cmake)
-list(APPEND EXTERNAL_DEPS nzbget-rs)
 
 if(NOT DISABLE_PARCHECK)
 	include(${CMAKE_SOURCE_DIR}/cmake/par2-turbo.cmake)

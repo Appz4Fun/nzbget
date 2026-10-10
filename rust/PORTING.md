@@ -9,7 +9,7 @@ in `rust/include/nzbget_rs.h`.
 - Each port matches the C++ output byte for byte, quirks included. A behavior
   change is a separate commit.
 - Before each swap, a differential fuzz runs the old C++ against the Rust code.
-  The C++ version is deleted once the fuzz shows no mismatches.
+  The C++ version remains as a fallback for platforms without Rust integration.
 - Measure before and after; port the hot paths first.
 
 ## Done
@@ -27,3 +27,22 @@ in `rust/include/nzbget_rs.h`.
 4. JSON/XML-RPC response building (`XmlRpc.cpp`), then the RPC server.
 5. The download path (NNTP connection, article writer), then queue and
    post-processing. Each step leaves nzbget a working program.
+
+## Build and verification
+
+Native POSIX builds use Rust. Debug selects Cargo's dev profile; other CMake
+configurations select release. Cargo is invoked on each build to track its own
+sources, lockfile, build scripts, and configuration. Both the daemon and test
+executable inherit the archive and Rust's native link dependencies.
+
+Windows keeps the original C++ encoders, so its existing build does not acquire a
+Rust dependency. Non-macOS cross builds also keep C++ unless a matching target is
+provided with `-DNZBGET_RUST_TARGET=<triple>`. macOS selects the target from the
+CMake architecture and forwards `CMAKE_OSX_DEPLOYMENT_TARGET`. Install the Rust
+standard library for the chosen target before building.
+
+Run `cargo test --release` in `rust/` for encoder and FFI tests. On POSIX with a
+C++ compiler supporting ASan/UBSan, run `python3 rust/tests/differential.py` from
+the repository root for a deterministic comparison against the exact encoder
+bodies in commit `78dcb938`. This covers arbitrary bytes, embedded NULs, invalid
+continuations, truncations, and out-of-range code points.
