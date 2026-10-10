@@ -179,6 +179,20 @@ NzbgetRsBuf nzbget_rs_deobfuscate(const char* str, size_t len);
 int nzbget_rs_file_type(int which, const char* str, size_t len);
 const char* nzbget_rs_sniff_extension(const unsigned char* header, size_t len, size_t* outLen);
 
+// FileSystem's path texts (rust/src/paths.rs): op 0 MakeValidFilename (flag:
+// allow slashes), 1 SanitizePathSegment, 2 SanitizeRelativePath,
+// 3 EscapePathForShell. Positions: op 0 BaseFileName's start, 1 the last
+// '/' or '\\' (SIZE_MAX for none), 2 ExtractFilePathFromCmd's length.
+// str is NULL (empty regardless of len) or readable for len bytes in one
+// allocation, with len <= PTRDIFF_MAX. No input terminator is required.
+// Text results own their storage; release exactly once with nzbget_rs_free.
+// Panics/allocation failures abort; Rust never unwinds across this ABI.
+NzbgetRsBuf nzbget_rs_path_text(int op, const char* str, size_t len, int flag);
+size_t nzbget_rs_path_position(int op, const char* str, size_t len);
+int nzbget_rs_reserved_char(char c);
+// path is NULL (no-op) or a writable NUL-terminated string, owned by the caller.
+void nzbget_rs_normalize_path_separators(char* path);
+
 #ifdef __cplusplus
 }
 #endif

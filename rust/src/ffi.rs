@@ -683,9 +683,105 @@ pub unsafe extern "C" fn nzbget_rs_sniff_extension(header: *const u8, len: usize
     static_str(crate::filetypes::sniff_extension(h), out_len)
 }
 
+/// FileSystem's path texts (rust/src/paths.rs): 0 MakeValidFilename (`flag`:
+/// allow slashes), 1 SanitizePathSegment, 2 SanitizeRelativePath,
+/// 3 EscapePathForShell; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes within one allocation, with
+/// `len <= isize::MAX`. Null means empty regardless of `len`. Panics abort
+/// rather than unwinding across the ABI.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_path_text(op: c_int, s: *const c_char, len: usize, flag: c_int) -> RsBuf {
+    let b = bytes(s, len);
+    into_buf(match op {
+        0 => crate::paths::make_valid_filename(b, flag != 0),
+        1 => crate::paths::sanitize_path_segment(b),
+        2 => crate::paths::sanitize_relative_path(b),
+        3 => crate::paths::escape_path_for_shell(b),
+        _ => Vec::new(),
+    })
+}
+
+/// FileSystem's path positions (rust/src/paths.rs): 0 BaseFileName (where
+/// the name starts), 1 SplitPathAndFilename (the last '/' or '\\', or
+/// SIZE_MAX), 2 ExtractFilePathFromCmd (the length of the path).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes within one allocation, with
+/// `len <= isize::MAX`. Null means empty regardless of `len`.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_path_position(op: c_int, s: *const c_char, len: usize) -> usize {
+    let b = bytes(s, len);
+    match op {
+        0 => crate::paths::base_file_name(b),
+        1 => {
+            let (path, name) = crate::paths::split_path_and_filename(b);
+            if name.is_empty() && path.len() == b.len() { usize::MAX } else { path.len() }
+        }
+        2 => crate::paths::extract_file_path_from_cmd(b).len(),
+        _ => 0,
+    }
+}
+
+/// FileSystem::ReservedChar.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_reserved_char(c: c_char) -> c_int {
+    crate::paths::reserved_char(c as u8) as c_int
+}
+
+/// FileSystem::NormalizePathSeparators, in place.
+///
+/// # Safety
+/// `path` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_normalize_path_separators(path: *mut c_char) {
+    in_place(path, |b| {
+        crate::paths::normalize_path_separators(b);
+        b.len()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_nulls_lengths_and_owned_results() {
+        unsafe {
+            for len in [0, 42, usize::MAX] {
+                for op in -1..=4 {
+                    let result = nzbget_rs_path_text(op, std::ptr::null(), len, 0);
+                    assert_eq!(result.len, 0);
+                    assert_eq!(*result.data, 0);
+                    nzbget_rs_free(result);
+                }
+                for (op, expected) in [(0, 0), (1, usize::MAX), (2, 0)] {
+                    assert_eq!(nzbget_rs_path_position(op, std::ptr::null(), len), expected);
+                }
+            }
+            nzbget_rs_normalize_path_separators(std::ptr::null_mut());
+            let mut raw = [b'a', crate::paths::ALT_PATH_SEPARATOR, 0, crate::paths::ALT_PATH_SEPARATOR];
+            nzbget_rs_normalize_path_separators(raw.as_mut_ptr().cast());
+            assert_eq!(raw, [b'a', crate::paths::PATH_SEPARATOR, 0, crate::paths::ALT_PATH_SEPARATOR]);
+
+            // Length-bounded input need not have a terminator. The result
+            // owns its bytes, including embedded NULs, and an extra terminator.
+            let mut input = b"a\0b".to_vec();
+            let first = nzbget_rs_path_text(3, input.as_ptr().cast(), input.len(), 0);
+            let second = nzbget_rs_path_text(1, input.as_ptr().cast(), input.len(), 0);
+            input.fill(b'x');
+            drop(input);
+            assert_eq!(std::slice::from_raw_parts(first.data.cast::<u8>(), first.len + 1), b"\"a\0b\"\0");
+            assert_eq!(CStr::from_ptr(second.data), c"a");
+            nzbget_rs_free(second);
+            nzbget_rs_free(first);
+            let path = b"a/b";
+            assert_eq!(nzbget_rs_path_position(0, path.as_ptr().cast(), path.len()), 2);
+            assert_eq!(nzbget_rs_path_position(1, path.as_ptr().cast(), path.len()), 1);
+            assert_eq!(nzbget_rs_path_position(1, path.as_ptr().cast(), 1), usize::MAX);
+        }
+    }
 
     #[test]
     fn filetypes_nulls_lengths_and_static_results() {
