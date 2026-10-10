@@ -265,11 +265,33 @@ int main(int argc, char** argv)
 			for (size_t n = 0; n <= strlen(header); ++n)
 				for (bool redirecting : {false, true})
 					check_headers("HTTP 200", false, "http://h/a", std::string(header, n), "", redirecting, false);
-		for (int byte = 1; byte <= 255; ++byte)
+		// Exercise every byte (including embedded NULs) at every header
+		// prefix position. In Turkish, ASCII I and dotted I fold differently;
+		// a few random mutations don't reliably cover all four decisions.
+		for (const char* header : {"Content-Length: -17", "Content-Encoding: gzipjunk",
+			"Content-Disposition: filename=x", "Location: /next"})
+		{
+			size_t prefixLen = strchr(header, ':') - header + 2;
+			if (!strncmp(header, "Content-Encoding", 16)) prefixLen = 22;
+			for (size_t at = 0; at < prefixLen; ++at)
+				for (int byte = 0; byte <= 255; ++byte)
+				{
+					std::string changed(header);
+					changed[at] = (char)byte;
+					for (bool redirecting : {false, true})
+						check_headers("HTTP 200", false, "http://h/a", changed, "", redirecting, false);
+				}
+		}
+		for (int byte = 0; byte <= 255; ++byte)
 		{
 			std::string scheme(1, (char)byte);
 			check_redirect(scheme + "://h:81/a/b?q", "/x");
 			check_redirect("http://h/a/b?q", scheme + "://other/x");
+			check_redirect("h" + scheme + "://h:81/a/b?q", "next");
+			check_redirect("http://h/a/b?q", "h" + scheme + "://other/x");
+			check_headers("HTTP " + scheme + "200", false, "http://h/a", "", "", false, false);
+			check_headers("HTTP 200" + scheme + "404", false, "http://h/a", "", "", false, false);
+			check_headers("HTTP 200", false, "http://h/a", "Content-Length: " + scheme + "17", "", false, false);
 		}
 		check_redirect("http://h/" + std::string(10000, 'x') + "/file?q", std::string(10000, 'y'));
 		for (long round = 0; round < rounds; round++)
