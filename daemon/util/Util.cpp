@@ -1250,6 +1250,13 @@ BreakLoop:
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+const char* WebUtil::XmlFindTag(const char* xml, const char* tag, int* valueLength)
+{
+	// rust/src/webutil.rs
+	return nzbget_rs_xml_find_tag(xml, tag, valueLength);
+}
+#else
 const char* WebUtil::XmlFindTag(const char* xml, const char* tag, int* valueLength)
 {
 	BString<100> openTag("<%s>", tag);
@@ -1274,6 +1281,7 @@ const char* WebUtil::XmlFindTag(const char* xml, const char* tag, int* valueLeng
 
 	return pstart + tagLen;
 }
+#endif
 
 bool WebUtil::XmlParseTagValue(const char* xml, const char* tag, char* valueBuf, int valueBufSize, const char** tagEnd)
 {
@@ -1618,6 +1626,13 @@ BreakLoop:
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+const char* WebUtil::JsonFindField(const char* jsonText, const char* fieldName, int* valueLength)
+{
+	// rust/src/webutil.rs
+	return nzbget_rs_json_find_field(jsonText, fieldName, valueLength);
+}
+#else
 const char* WebUtil::JsonFindField(const char* jsonText, const char* fieldName, int* valueLength)
 {
 	BString<100> openTag("\"%s\"", fieldName);
@@ -1629,6 +1644,7 @@ const char* WebUtil::JsonFindField(const char* jsonText, const char* fieldName, 
 
 	return JsonNextValue(pstart, valueLength);
 }
+#endif
 
 #ifdef NZBGET_USE_RUST
 const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)
@@ -1728,6 +1744,40 @@ BreakLoop:
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// tolower as strncasecmp applies it: to an unsigned byte
+	int CaseFold(int byte)
+	{
+		return tolower(byte);
+	}
+}
+
+CString WebUtil::ParseContentDispositionFilename(const char* contentDisposition)
+{
+	// rust/src/webutil.rs
+#ifdef __GLIBC__
+	// what strncasecmp reads: the tolower table of this thread's locale
+	const int* table = reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#else
+	const int* table = nullptr;
+#endif
+	NzbgetRsBuf buf = nzbget_rs_content_disposition_filename(contentDisposition, table, CaseFold);
+	if (!buf.data)
+	{
+		return CString();
+	}
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString WebUtil::ParseContentDispositionFilename(const char* contentDisposition)
 {
 	// Examples:
@@ -1816,6 +1866,7 @@ CString WebUtil::ParseContentDispositionFilename(const char* contentDisposition)
 	}
 	return filename;
 }
+#endif
 
 #ifdef NZBGET_USE_RUST
 void WebUtil::UrlDecode(char* raw)

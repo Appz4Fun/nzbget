@@ -77,6 +77,16 @@ void nzbget_rs_url_decode(char* raw);
 NzbgetRsBuf nzbget_rs_url_encode(const char* raw);
 NzbgetRsBuf nzbget_rs_latin1_to_utf8(const char* raw);
 
+// WebUtil's finders (rust/src/webutil.rs): a pointer into the text and the
+// value length, or NULL with valueLength untouched
+const char* nzbget_rs_xml_find_tag(const char* xml, const char* tag, int* valueLength);
+const char* nzbget_rs_json_find_field(const char* text, const char* field, int* valueLength);
+// WebUtil::ParseContentDispositionFilename: data is NULL for no file name.
+// Case folding as strncasecmp: glibc's tolower table (*__ctype_tolower_loc(),
+// entries -128..255) indexed by unsigned byte, or fold(byte 0..255) when NULL.
+NzbgetRsBuf nzbget_rs_content_disposition_filename(const char* contentDisposition,
+	const int* table, int (*fold)(int));
+
 #ifdef __cplusplus
 }
 #endif

@@ -256,6 +256,75 @@ pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8(raw: *const c_char) -> RsBuf {
     into_buf(v)
 }
 
+/// WebUtil::XmlFindTag: a pointer into `xml` and the value length, or null
+/// (`value_length` untouched).
+///
+/// # Safety
+/// `xml` and `tag` are null or NUL-terminated; `value_length` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_find_tag(xml: *const c_char, tag: *const c_char, value_length: *mut c_int) -> *const c_char {
+    if xml.is_null() || tag.is_null() || value_length.is_null() {
+        return std::ptr::null();
+    }
+    match crate::webutil::xml_find_tag(input(xml), input(tag)) {
+        Some((start, len)) => {
+            // the C++ (int) of a pointer difference
+            *value_length = len as c_int;
+            xml.add(start)
+        }
+        None => std::ptr::null(),
+    }
+}
+
+/// WebUtil::JsonFindField: a pointer into `text` and the value length, or
+/// null (`value_length` untouched).
+///
+/// # Safety
+/// `text` and `field` are null or NUL-terminated; `value_length` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_json_find_field(text: *const c_char, field: *const c_char, value_length: *mut c_int) -> *const c_char {
+    if text.is_null() || field.is_null() || value_length.is_null() {
+        return std::ptr::null();
+    }
+    match crate::webutil::json_find_field(input(text), input(field)) {
+        Some((start, len)) => {
+            *value_length = len as c_int;
+            text.add(start)
+        }
+        None => std::ptr::null(),
+    }
+}
+
+/// WebUtil::ParseContentDispositionFilename; `data` is null for no file name
+/// (the C++ null CString). Case folds as strncasecmp: glibc's tolower `table`
+/// (entries -128..=255, pointing at entry zero) indexed by unsigned byte, or
+/// `fold` (tolower of a byte 0..=255) when `table` is null.
+///
+/// # Safety
+/// `cd` is null or NUL-terminated; `table` is null or as described; `fold`
+/// doesn't unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_content_disposition_filename(
+    cd: *const c_char,
+    table: *const c_int,
+    fold: Option<extern "C" fn(c_int) -> c_int>,
+) -> RsBuf {
+    let none = RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+    if table.is_null() && fold.is_none() {
+        return none;
+    }
+    let call = |b: u8| fold.expect("callback checked above")(b as c_int);
+    let lower = if table.is_null() {
+        crate::wildmask::Lower::Fold(&call)
+    } else {
+        crate::wildmask::Lower::Table(&*table.sub(128).cast::<[c_int; 384]>(), false)
+    };
+    match crate::webutil::content_disposition_filename(input(cd), &lower) {
+        Some(v) => into_buf(v),
+        None => none,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +336,44 @@ mod tests {
 
     extern "C" fn digit_lower(byte: c_int) -> c_int {
         (byte as u8).to_ascii_lowercase() as c_int
+    }
+
+    #[test]
+    fn webutil_nulls_borrowing_and_ownership() {
+        unsafe {
+            for find in [nzbget_rs_xml_find_tag, nzbget_rs_json_find_field] {
+                let mut length = -7;
+                for (text, name) in [(std::ptr::null(), c"x".as_ptr()),
+                                     (c"".as_ptr(), std::ptr::null()),
+                                     (c"".as_ptr(), c"x".as_ptr())] {
+                    assert!(find(text, name, &mut length).is_null());
+                    assert_eq!(length, -7);
+                }
+                assert!(find(c"".as_ptr(), c"x".as_ptr(), std::ptr::null_mut()).is_null());
+            }
+            let xml = c"<x>abc</x>";
+            let json = c"\"x\": 123";
+            let mut length = -7;
+            assert_eq!(nzbget_rs_xml_find_tag(xml.as_ptr(), c"x".as_ptr(), &mut length), xml.as_ptr().add(3));
+            assert_eq!(length, 3);
+            assert_eq!(nzbget_rs_json_find_field(json.as_ptr(), c"x".as_ptr(), &mut length), json.as_ptr().add(5));
+            assert_eq!(length, 3);
+
+            for fold in [None, Some(digit_lower as extern "C" fn(c_int) -> c_int)] {
+                let result = nzbget_rs_content_disposition_filename(std::ptr::null(), std::ptr::null(), fold);
+                assert!(result.data.is_null());
+                nzbget_rs_free(result);
+            }
+            for (mut raw, expected) in [(b"filename=\"\"\0".to_vec(), &b"\0"[..]),
+                                         (b"FILENAME=abc\0".to_vec(), &b"abc\0"[..])] {
+                let result = nzbget_rs_content_disposition_filename(raw.as_ptr().cast(), std::ptr::null(), Some(digit_lower));
+                raw.fill(b'!');
+                assert!(!result.data.is_null());
+                assert_eq!(result.len, expected.len() - 1);
+                assert_eq!(std::slice::from_raw_parts(result.data.cast::<u8>(), result.len + 1), expected);
+                nzbget_rs_free(result);
+            }
+        }
     }
 
     #[test]

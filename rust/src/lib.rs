@@ -5,5 +5,6 @@ pub mod crc;
 pub mod decode;
 pub mod escape;
 pub mod text;
+pub mod webutil;
 pub mod ffi;
 pub mod wildmask;

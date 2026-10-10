@@ -29,7 +29,7 @@ impl Lower<'_> {
     }
 
     #[inline]
-    fn eq(&self, a: u8, b: u8) -> bool {
+    pub(crate) fn eq(&self, a: u8, b: u8) -> bool {
         a == b || self.get(a) == self.get(b)
     }
 }
