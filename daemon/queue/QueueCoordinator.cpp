@@ -1647,22 +1647,26 @@ bool QueueCoordinator::HasSizeTwin(DownloadQueue* downloadQueue, NzbInfo* nzbInf
 	}
 
 	// a duplicate with a file of that size, or of the same size in all (a
-	// download in history has no file list): within 0.3%, nzb sizes are encoded
-	auto near = [](int64 size1, int64 size2) { return std::llabs(size1 - size2) * 1000 <= size1 * 3; };
-	auto twin = [nzbInfo, largest, &near](NzbInfo* other)
+	// download in history has no file list): within 0.3%, nzb sizes are encoded.
+	// Its par2-files don't count: the same archives reposted with other par2
+	// volumes are still a twin of this par-less download
+	// ("sizeNear": "near" and "far" are macros in the Windows headers)
+	auto sizeNear = [](int64 size1, int64 size2) { return std::llabs(size1 - size2) * 1000 <= size1 * 3; };
+	auto twin = [nzbInfo, largest, &sizeNear](NzbInfo* other)
 		{
 			if (other == nzbInfo || !DupeCoordinator::SameNameOrKey(other->GetName(), other->GetDupeKey(),
 				nzbInfo->GetName(), nzbInfo->GetDupeKey()))
 			{
 				return false;
 			}
-			if (near(nzbInfo->GetSize(), other->GetSize()))
+			if (sizeNear(nzbInfo->GetSize(), other->GetSize()) ||
+				(other->GetParSize() > 0 && sizeNear(nzbInfo->GetSize(), other->GetSize() - other->GetParSize())))
 			{
 				return true;
 			}
 			for (FileInfo* fileInfo : other->GetFileList())
 			{
-				if (near(largest, fileInfo->GetSize()))
+				if (sizeNear(largest, fileInfo->GetSize()))
 				{
 					return true;
 				}
@@ -1861,14 +1865,14 @@ void QueueCoordinator::CheckDeadDownload(DownloadQueue* downloadQueue, NzbInfo* 
 		bool borrowing = g_Options->GetDupeArticleFallback() != Options::dafNone &&
 			(nzbInfo->GetDupeParDeferState() == NzbInfo::dpDeferred ||
 			 (attempted > 0 && nzbInfo->GetDupeRecoveredArticles() * 2 >= attempted));
-		bool far = projected * 2 < critical;
+		bool farBelow = projected * 2 < critical;
 		bool below = projected < critical && tried >= ParkBelowCriticalSample;
-		if (tried >= ProjectedFailureSample && FilesTried(nzbInfo) >= 3 && (far || below) && !borrowing)
+		if (tried >= ProjectedFailureSample && FilesTried(nzbInfo) >= 3 && (farBelow || below) && !borrowing)
 		{
 			nzbInfo->PrintMessage(Message::mkWarning,
 				"Parking %s: %i of %i tried article(s) of its own arrived, projected health %.1f%% "
 				"%s critical %.1f%%, and no duplicate in history to fail over to (%s)",
-				nzbInfo->GetName(), own, tried, projected / 10.0, far ? "under half the" : "below",
+				nzbInfo->GetName(), own, tried, projected / 10.0, farBelow ? "under half the" : "below",
 				critical / 10.0,
 				g_DupeCoordinator->NoBackupReason(downloadQueue, nzbInfo).c_str());
 			nzbInfo->SetDeleteStatus(NzbInfo::dsHealth);

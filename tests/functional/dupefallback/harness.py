@@ -9460,7 +9460,7 @@ def scenario_pardamagerepairable(daemon, t):
     return ('pardamagerepairable', ok, 'primary=%s failover_logs=%d' % (hp['Status'], over))
 
 
-def _parless_run(daemon, t, tag, backup_size):
+def _parless_run(daemon, t, tag, backup_size, backup_par2=0):
     """A single .mkv without par2 (400 articles, every 10th missing: health
     90%, and enough failures for the failover check) and a duplicate in
     history whose file is <backup_size> bytes."""
@@ -9471,6 +9471,11 @@ def _parless_run(daemon, t, tag, backup_size):
     bdata = _payload(backup_size, 12471)
     pb = _place_copy(t, tag + 'B', bdata, 'movie.mkv')
     backup = build_nzb(pb, 'movie.mkv', backup_size, seg, set())
+    if backup_par2:
+        # the same file posted with its own par2 volumes: the totals differ
+        pp2 = _place_copy(t, tag + 'B', _payload(backup_par2, 12472), 'movie.vol00+10.par2')
+        backup = build_multi_nzb([(pb, 'movie.mkv', backup_size, seg, set()),
+                                  (pp2, 'movie.vol00+10.par2', backup_par2, seg, set())])
     api = daemon.wait_ready()
     daemon.append(api, 'Primary', primary, True, tag + '-key', 100)
     daemon.append(api, 'Backup', backup, False, tag + '-key', 90)
@@ -9489,6 +9494,14 @@ def scenario_parlesscritical(daemon, t):
     over = _grep_log(t, 'below critical 100.0%')
     return ('parlesscritical', over >= 1 and hp['Status'].startswith(('DELETED', 'FAILURE')),
             'primary=%s failover_logs=%d' % (hp['Status'], over))
+
+
+def scenario_parlesstwinpar(daemon, t):
+    """The twin posted with par2 volumes of 5% of its size: the totals differ,
+    the data doesn't. Its par2 doesn't count, so it's still a twin: the 85% stays."""
+    hp = _parless_run(daemon, t, 'pq', 20_000_000, backup_par2=1_000_000)
+    hundred = _grep_log(t, 'below critical 100.0%')
+    return ('parlesstwinpar', hundred == 0, 'primary=%s logs_100=%d' % (hp['Status'], hundred))
 
 
 def scenario_parlesstwin(daemon, t):
@@ -9940,6 +9953,7 @@ SCENARIOS = {
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
     'parlesstwin': scenario_parlesstwin,
+    'parlesstwinpar': scenario_parlesstwinpar,
     'movemissingtarget': scenario_movemissingtarget,
     'scangrowing': scenario_scangrowing,
     'archiveyoung': scenario_archiveyoung,
@@ -10258,6 +10272,7 @@ SCENARIO_OPTIONS = {
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
+    'parlesstwinpar': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'scangrowing': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'archiveyoung': ['NzbDirInterval=1', 'NzbDirFileAge=4'],
     'scriptparcheck': ['ParCheck=auto', 'Extensions=askpar'],
