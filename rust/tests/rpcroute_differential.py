@@ -245,6 +245,42 @@ static void check(const std::string& u, const std::string& req, bool get)
 
 static void boundaries()
 {
+	// Field lookup is a substring search, not a JSON parser: the first match
+	// wins even inside a string/nested object or when its value is malformed.
+	for (const char* body : {
+		"\"method\":\"first\",\"method\":\"second\",\"id\":1,\"id\":2",
+		"\"method\":,\"method\":\"second\",\"id\":},\"id\":2",
+		"{\"nested\":{\"method\":\"inner\",\"id\":3},\"method\":\"outer\",\"id\":4}",
+		"\"text containing \"method\":\"inside\" and \"id\":5\"",
+		"\"METHOD\":\"upper\",\"ID\":6",
+		"\"method\"\"id\":7",
+		"\"method\":\"unterminated",
+		"\"id\":\"unterminated"})
+		check("/jsonrpc", body, false);
+	// Exhaust short suffixes so adjacent escapes, separators and closing
+	// delimiters are covered without relying on random mutations.
+	const char alphabet[] = "x\"\\,}: \v";
+	size_t count = 1;
+	for (int len = 0; len <= 4; ++len)
+	{
+		for (size_t code = 0; code < count; ++code)
+		{
+			size_t digits = code;
+			std::string token;
+			for (int i = 0; i < len; ++i)
+			{
+				token += alphabet[digits % (sizeof(alphabet) - 1)];
+				digits /= sizeof(alphabet) - 1;
+			}
+			check("/jsonrpc", "\"method\":" + token, false);
+			check("/jsonrpc", "\"id\":" + token, false);
+		}
+		count *= sizeof(alphabet) - 1;
+	}
+	// The C ABI must ignore bytes after the first NUL in URLs as in bodies.
+	const char nulUrl[] = "/jsonrpc/a\0?ignored=1/xmlrpc";
+	check(std::string(nulUrl, sizeof(nulUrl) - 1), "\"id\":7", true);
+	check(std::string(nulUrl, sizeof(nulUrl) - 1), "\"id\":7", false);
 	for (int n : {0, 1, 2, 3, 96, 97, 98, 99, 100, 101, 4095, 4096, 4097})
 	{
 		std::string s(n, 'x');
