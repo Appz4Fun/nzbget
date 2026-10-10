@@ -238,6 +238,22 @@ int main(int argc, char** argv)
 					compare(value, "1,-5,7", opt, value, " , a.py; B.sh\r\n", "b.SH", value);
 		}
 		oldimpl::Options::lookupMode = newimpl::Options::lookupMode = fallbackimpl::Options::lookupMode = -1;
+		// Include every section/suffix combination without relying on random picks.
+		for (const char* prefix : PREFIXES)
+			for (const char* suffix : SUFFIXES)
+				for (const char* digits : {"", "0", "00001", "2147483648"})
+					compare(":", "1, -5", std::string(prefix) + digits + suffix, "x", "", "", "auto");
+		// Tokenizer switches between its stack buffer and CString at this boundary.
+		for (int len : {1022, 1023, 1024, 1025, 4096})
+		{
+			std::string script(len, 'a');
+			compare("*", "", "Bogus", "", script, script, "");
+			compare("*", "", "Bogus", "", script + ";tail", "tail", "");
+		}
+		// All interfaces take C strings, so bytes after the first NUL are ignored.
+		compare(std::string("1:2\0:3", 7), std::string("1-3\0x", 5), std::string("Decode\0x", 8),
+			std::string("no\0yes", 6), std::string("a.py\0;b.py", 10), std::string("a.py\0x", 6),
+			std::string("feedfile\0x", 10));
 		for (const char* opt : {"Category1.DefScript.DefScript", "Category.PostScript.DefScript", "Category.DefScript.defscript",
 			"Category.DefScript.PostScript", "Feed.FeedScript.FeedScript", "Feed.FeedScript.feedscript"})
 			compare("*", "1-3-5", opt, "x", "a.py", "a.py", "feedfile");
@@ -248,6 +264,9 @@ int main(int argc, char** argv)
 		{
 			std::string b(1, (char)byte);
 			compare(b + ":0", "1" + b + "7", "Server" + b + ".Host", b + "1024", b + "a.py" + b, "a.py", "feedf" + b + "le");
+			// Exercise strtol's locale whitespace/sign handling in the conversion itself.
+			compare("*", "", "WriteBufferSize", b + "1024", "", "", "");
+			compare("*", "", "WriteBufferSize", b + "-1", "", "", "");
 			for (int other = 1; other <= 255; other++)
 			{
 				std::string n(1, (char)other);
