@@ -108,9 +108,97 @@ pub unsafe extern "C" fn nzbget_rs_wild_match(
     WildResult { matched: matched.into(), count }
 }
 
+/// Base64-decodes `input` into `output` (WebUtil::DecodeBase64); a length of
+/// 0 or less means up to the NUL, with the legacy uint32 length truncation.
+/// `output` may be `input`.
+///
+/// # Safety
+/// `input` is null or readable for its length (or through its NUL). Null input
+/// returns zero without accessing output. Otherwise `output` is writable for
+/// `len / 4 * 3` bytes and is `input` or doesn't overlap it. No terminator is
+/// written. Both buffers remain caller-owned.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decode_base64(input: *const c_char, length: c_int, output: *mut c_char) -> u32 {
+    if input.is_null() {
+        return 0;
+    }
+    // C++ stores strlen's result in uint32 before reading any quartets.
+    let len = if length > 0 { length as usize } else { CStr::from_ptr(input).to_bytes().len() as u32 as usize };
+    crate::decode::base64_in_place(input.cast(), len, output.cast()) as u32
+}
+
+/// Decodes a JSON string body in place (WebUtil::JsonDecode).
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_json_decode(raw: *mut c_char) {
+    if raw.is_null() {
+        return;
+    }
+    let len = CStr::from_ptr(raw).to_bytes().len();
+    let buf = std::slice::from_raw_parts_mut(raw.cast::<u8>(), len);
+    let n = crate::decode::json_decode(buf);
+    *raw.add(n) = 0;
+}
+
+/// The next JSON value in `text` (WebUtil::JsonNextValue): its start, with
+/// its length in `value_length`, or null.
+///
+/// # Safety
+/// `text` is null or a NUL-terminated string; `value_length` is null or
+/// writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_json_next_value(text: *const c_char, value_length: *mut c_int) -> *const c_char {
+    if text.is_null() || value_length.is_null() {
+        return std::ptr::null();
+    }
+    match crate::decode::json_next_value(CStr::from_ptr(text).to_bytes()) {
+        Some((start, len)) => {
+            *value_length = len as c_int;
+            text.add(start)
+        }
+        None => std::ptr::null(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoder_null_arguments_and_failed_value_preserve_length() {
+        unsafe {
+            assert_eq!(nzbget_rs_decode_base64(std::ptr::null(), 4, std::ptr::null_mut()), 0);
+            nzbget_rs_json_decode(std::ptr::null_mut());
+            let mut length = -7;
+            for text in [std::ptr::null(), b"\0".as_ptr().cast(), b"\"x\\a\0".as_ptr().cast()] {
+                assert!(nzbget_rs_json_next_value(text, &mut length).is_null());
+                assert_eq!(length, -7);
+            }
+            assert!(nzbget_rs_json_next_value(b"123\0".as_ptr().cast(), std::ptr::null_mut()).is_null());
+        }
+    }
+
+    #[test]
+    fn decoder_in_place_buffers_and_borrowed_value_pointer() {
+        unsafe {
+            let mut base64 = *b"YWJj\0YQ==!";
+            let ptr = base64.as_mut_ptr().cast();
+            assert_eq!(nzbget_rs_decode_base64(ptr, 9, ptr), 4);
+            assert_eq!(&base64, b"abca\0YQ==!");
+
+            let mut json = *b"\\ud83d\\ude00\\u0000\0!";
+            nzbget_rs_json_decode(json.as_mut_ptr().cast());
+            assert_eq!(&json[..8], b"\xf0\x9f\x98\x80\xef\xbf\xbd\0");
+            assert_eq!(json[19], b'!');
+
+            let text = b" ,\"x\\\"y\", rest\0";
+            let mut length = -7;
+            assert_eq!(nzbget_rs_json_next_value(text.as_ptr().cast(), &mut length), text.as_ptr().add(2).cast());
+            assert_eq!(length, 6);
+        }
+    }
 
     extern "C" fn lower(b: c_int) -> c_int {
         (b as u8).to_ascii_lowercase() as c_int

@@ -896,6 +896,13 @@ void Util::Sleep(int ms)
 	std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
+#ifdef NZBGET_USE_RUST
+uint32 WebUtil::DecodeBase64(char* inputBuffer, int inputBufferLength, char* outputBuffer)
+{
+	// rust/src/decode.rs
+	return nzbget_rs_decode_base64(inputBuffer, inputBufferLength, outputBuffer);
+}
+#else
 uint32 WebUtil::DecodeBase64(char* inputBuffer, int inputBufferLength, char* outputBuffer)
 {
 	uint32 InputBufferIndex  = 0;
@@ -931,6 +938,7 @@ uint32 WebUtil::DecodeBase64(char* inputBuffer, int inputBufferLength, char* out
 	// in our buffer.
 	return OutputBufferIndex;
 }
+#endif
 
 /* END - Base64
 */
@@ -1462,6 +1470,13 @@ BreakLoop:
 #endif
 }
 
+#ifdef NZBGET_USE_RUST
+void WebUtil::JsonDecode(char* raw)
+{
+	// rust/src/decode.rs
+	nzbget_rs_json_decode(raw);
+}
+#else
 void WebUtil::JsonDecode(char* raw)
 {
 	char* output = raw;
@@ -1551,6 +1566,7 @@ BreakLoop:
 
 	*output = '\0';
 }
+#endif
 
 const char* WebUtil::JsonFindField(const char* jsonText, const char* fieldName, int* valueLength)
 {
@@ -1564,6 +1580,13 @@ const char* WebUtil::JsonFindField(const char* jsonText, const char* fieldName, 
 	return JsonNextValue(pstart, valueLength);
 }
 
+#ifdef NZBGET_USE_RUST
+const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)
+{
+	// rust/src/decode.rs
+	return nzbget_rs_json_next_value(jsonText, valueLength);
+}
+#else
 const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)
 {
 	if (!jsonText || !valueLength)
@@ -1611,6 +1634,7 @@ const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)
 	*valueLength = static_cast<int>(pend - pstart);
 	return pstart;
 }
+#endif
 
 void WebUtil::HttpUnquote(char* raw)
 {
