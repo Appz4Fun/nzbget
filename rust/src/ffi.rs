@@ -438,6 +438,179 @@ pub unsafe extern "C" fn nzbget_rs_parse_url(address: *const c_char, out: *mut U
     *out = r;
 }
 
+/// A FeedFilter's view of the C++ feed item (rust/src/feedfilter.rs).
+#[repr(C)]
+pub struct FeedItemCallbacks {
+    pub user: *mut std::ffi::c_void,
+    /// a field's text (null for a null C string) and number; `attr` is the
+    /// attribute name for "attr-" fields
+    pub field: unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const c_char, *mut *const c_char, *mut i64),
+    /// GetSeason (0) or GetEpisode (1) after the title is parsed
+    pub season_episode: unsafe extern "C" fn(*mut std::ffi::c_void, c_int) -> *const c_char,
+    /// RegEx(pattern, bufSize): a handle
+    pub regex_new: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, c_int) -> usize,
+    /// RegEx::Match: -1 when it doesn't match, else GetMatchCount, with up to
+    /// `capacity` (start, length) pairs written
+    pub regex_match: unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, *mut [c_int; 2], c_int) -> c_int,
+    pub apply: unsafe extern "C" fn(*mut std::ffi::c_void, *const FeedOptions),
+    pub set_match: unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int),
+    /// case folding for WildMask: glibc's tolower table (entries -128..=255,
+    /// pointing at entry zero) or null for `fold`
+    pub lower_table: *const c_int,
+    pub char_signed: c_int,
+    pub fold: Option<extern "C" fn(c_int) -> c_int>,
+}
+
+/// A matched rule's options for ApplyOptions; strings may be null.
+#[repr(C)]
+pub struct FeedOptions {
+    pub has_pause: c_int,
+    pub pause: c_int,
+    pub has_category: c_int,
+    pub category: *const c_char,
+    pub has_priority: c_int,
+    pub priority: c_int,
+    pub has_add_priority: c_int,
+    pub add_priority: c_int,
+    pub has_dupe_score: c_int,
+    pub dupe_score: c_int,
+    pub has_add_dupe_score: c_int,
+    pub add_dupe_score: c_int,
+    pub has_build_dupe_key: c_int,
+    /// rageid, tvdbid, tvmazeid, series
+    pub ids: [*const c_char; 4],
+    pub has_dupe_key: c_int,
+    pub dupe_key: *const c_char,
+    pub has_add_dupe_key: c_int,
+    pub add_dupe_key: *const c_char,
+    pub has_dupe_mode: c_int,
+    pub dupe_mode: c_int,
+}
+
+struct CItem<'c> {
+    cb: &'c FeedItemCallbacks,
+    lower: crate::wildmask::Lower<'c>,
+}
+
+unsafe fn c_text(p: *const c_char) -> Option<Vec<u8>> {
+    (!p.is_null()).then(|| CStr::from_ptr(p).to_bytes().to_vec())
+}
+
+impl crate::feedfilter::Item for CItem<'_> {
+    fn field(&mut self, field: crate::feedfilter::Field, attr: &[u8]) -> (Option<Vec<u8>>, i64) {
+        let attr = std::ffi::CString::new(attr).unwrap_or_default();
+        let mut s: *const c_char = std::ptr::null();
+        let mut n: i64 = 0;
+        unsafe {
+            (self.cb.field)(self.cb.user, field as c_int, attr.as_ptr(), &mut s, &mut n);
+            (c_text(s), n)
+        }
+    }
+
+    fn season_episode(&mut self, episode: bool) -> Option<Vec<u8>> {
+        unsafe { c_text((self.cb.season_episode)(self.cb.user, episode as c_int)) }
+    }
+
+    fn regex_new(&mut self, pattern: &[u8], buf_size: i32) -> usize {
+        let p = std::ffi::CString::new(pattern).unwrap_or_default();
+        unsafe { (self.cb.regex_new)(self.cb.user, p.as_ptr(), buf_size) }
+    }
+
+    fn regex_match(&mut self, handle: usize, text: &[u8]) -> Option<Vec<(i32, i32)>> {
+        let t = std::ffi::CString::new(text).unwrap_or_default();
+        let mut groups = [[0 as c_int; 2]; 100];
+        let n = unsafe { (self.cb.regex_match)(self.cb.user, handle, t.as_ptr(), groups.as_mut_ptr(), 100) };
+        (n >= 0).then(|| groups[..(n as usize).min(100)].iter().map(|g| (g[0], g[1])).collect())
+    }
+
+    fn apply(&mut self, o: &crate::feedfilter::Applied<'_>) {
+        // C strings for the call; None (a null C string) stays null
+        let keep: Vec<Option<std::ffi::CString>> = [
+            o.category.flatten(),
+            o.dupe_key.flatten(),
+            o.add_dupe_key.flatten(),
+        ]
+        .into_iter()
+        .chain(o.build_dupe_key.unwrap_or_default())
+        .map(|v| v.map(|b| std::ffi::CString::new(b).unwrap_or_default()))
+        .collect();
+        let ptr = |k: usize| keep[k].as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+        let flag = |b: bool| b as c_int;
+        let opts = FeedOptions {
+            has_pause: flag(o.pause.is_some()),
+            pause: flag(o.pause.unwrap_or(false)),
+            has_category: flag(o.category.is_some()),
+            category: ptr(0),
+            has_priority: flag(o.priority.is_some()),
+            priority: o.priority.unwrap_or(0),
+            has_add_priority: flag(o.add_priority.is_some()),
+            add_priority: o.add_priority.unwrap_or(0),
+            has_dupe_score: flag(o.dupe_score.is_some()),
+            dupe_score: o.dupe_score.unwrap_or(0),
+            has_add_dupe_score: flag(o.add_dupe_score.is_some()),
+            add_dupe_score: o.add_dupe_score.unwrap_or(0),
+            has_build_dupe_key: flag(o.build_dupe_key.is_some()),
+            ids: [ptr(3), ptr(4), ptr(5), ptr(6)],
+            has_dupe_key: flag(o.dupe_key.is_some()),
+            dupe_key: ptr(1),
+            has_add_dupe_key: flag(o.add_dupe_key.is_some()),
+            add_dupe_key: ptr(2),
+            has_dupe_mode: flag(o.dupe_mode.is_some()),
+            dupe_mode: o.dupe_mode.map_or(0, |m| m as c_int),
+        };
+        unsafe { (self.cb.apply)(self.cb.user, &opts) }
+    }
+
+    fn set_match(&mut self, status: i32, rule: i32) {
+        unsafe { (self.cb.set_match)(self.cb.user, status, rule) }
+    }
+
+    fn lower(&self) -> &crate::wildmask::Lower<'_> {
+        &self.lower
+    }
+}
+
+/// FeedFilter(filter): a compiled filter; free it with
+/// nzbget_rs_feed_filter_free.
+///
+/// # Safety
+/// `filter` is null (an empty filter) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_feed_filter_new(filter: *const c_char) -> *mut crate::feedfilter::FeedFilter {
+    Box::into_raw(Box::new(crate::feedfilter::FeedFilter::new(input(filter))))
+}
+
+/// # Safety
+/// `filter` is null or from nzbget_rs_feed_filter_new, not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_feed_filter_free(filter: *mut crate::feedfilter::FeedFilter) {
+    if !filter.is_null() {
+        drop(Box::from_raw(filter));
+    }
+}
+
+/// FeedFilter::Match.
+///
+/// # Safety
+/// `filter` is from nzbget_rs_feed_filter_new; `item` is valid with
+/// callbacks that don't unwind and a table as described.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_feed_filter_match(filter: *mut crate::feedfilter::FeedFilter, item: *const FeedItemCallbacks) {
+    if filter.is_null() || item.is_null() {
+        return;
+    }
+    let cb = &*item;
+    let fold = cb.fold;
+    let call = move |b: u8| fold.map_or(b as c_int, |f| f(b as c_int));
+    let lower = if cb.lower_table.is_null() {
+        crate::wildmask::Lower::Fold(&call)
+    } else {
+        crate::wildmask::Lower::Table(&*cb.lower_table.sub(128).cast::<[c_int; 384]>(), cb.char_signed != 0)
+    };
+    let mut c_item = CItem { cb, lower };
+    (*filter).matches(&mut c_item);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

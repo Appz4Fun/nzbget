@@ -119,6 +119,42 @@ typedef struct
 } NzbgetRsUrlParts;
 void nzbget_rs_parse_url(const char* address, NzbgetRsUrlParts* out);
 
+// FeedFilter (rust/src/feedfilter.rs): the feed item stays in C++ and is read
+// and changed through these callbacks, in the C++ order. Fields: title,
+// filename, category, url, size, age, imdbid, rageid, tvdbid, tvmazeid,
+// description, season, episode, priority, dupekey, dupescore, dupestatus,
+// attr- (0..17). Match status: 0 ignored, 1 accepted, 2 rejected.
+typedef struct NzbgetRsFeedOptions
+{
+	int hasPause, pause;
+	int hasCategory; const char* category;
+	int hasPriority, priority;
+	int hasAddPriority, addPriority;
+	int hasDupeScore, dupeScore;
+	int hasAddDupeScore, addDupeScore;
+	int hasBuildDupeKey; const char* ids[4]; // rageid, tvdbid, tvmazeid, series
+	int hasDupeKey; const char* dupeKey;
+	int hasAddDupeKey; const char* addDupeKey;
+	int hasDupeMode, dupeMode;
+} NzbgetRsFeedOptions;
+typedef struct NzbgetRsFeedItem
+{
+	void* user;
+	void (*field)(void* user, int field, const char* attr, const char** str, long long* num);
+	const char* (*seasonEpisode)(void* user, int episode);
+	size_t (*regexNew)(void* user, const char* pattern, int bufSize);
+	int (*regexMatch)(void* user, size_t regex, const char* text, int (*groups)[2], int capacity);
+	void (*apply)(void* user, const NzbgetRsFeedOptions* options);
+	void (*setMatch)(void* user, int status, int rule);
+	const int* lowerTable; // *__ctype_tolower_loc() or NULL for fold
+	int charSigned;
+	int (*fold)(int);
+} NzbgetRsFeedItem;
+typedef struct NzbgetRsFeedFilter NzbgetRsFeedFilter;
+NzbgetRsFeedFilter* nzbget_rs_feed_filter_new(const char* filter);
+void nzbget_rs_feed_filter_free(NzbgetRsFeedFilter* filter);
+void nzbget_rs_feed_filter_match(NzbgetRsFeedFilter* filter, const NzbgetRsFeedItem* item);
+
 #ifdef __cplusplus
 }
 #endif

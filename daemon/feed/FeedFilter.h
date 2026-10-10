@@ -26,6 +26,32 @@
 #include "FeedInfo.h"
 #include "Util.h"
 
+#ifdef NZBGET_USE_RUST
+struct NzbgetRsFeedFilter;
+
+// rust/src/feedfilter.rs
+class FeedFilter
+{
+public:
+	FeedFilter(const char* filter);
+	~FeedFilter();
+	FeedFilter(const FeedFilter&) = delete;
+	FeedFilter& operator=(const FeedFilter&) = delete;
+	void Match(FeedItemInfo& feedItemInfo);
+
+private:
+	NzbgetRsFeedFilter* m_filter;
+	std::vector<std::unique_ptr<RegEx>> m_regExes;
+
+	struct Context;
+	static void Field(void* user, int field, const char* attr, const char** str, long long* num);
+	static const char* SeasonEpisode(void* user, int episode);
+	static size_t RegexNew(void* user, const char* pattern, int bufSize);
+	static int RegexMatch(void* user, size_t regex, const char* text, int (*groups)[2], int capacity);
+	static void Apply(void* user, const struct NzbgetRsFeedOptions* options);
+	static void SetMatch(void* user, int status, int rule);
+};
+#else
 class FeedFilter
 {
 public:
@@ -184,5 +210,6 @@ private:
 	void CompileRule(char* rule);
 	void ApplyOptions(Rule& rule, FeedItemInfo& feedItemInfo);
 };
+#endif
 
 #endif
