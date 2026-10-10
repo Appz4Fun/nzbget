@@ -171,6 +171,13 @@ void nzbget_rs_feed_filter_match(NzbgetRsFeedFilter* filter, const NzbgetRsFeedI
 int nzbget_rs_is_excessively_obfuscated(const char* str, size_t len);
 NzbgetRsBuf nzbget_rs_deobfuscate(const char* str, size_t len);
 
+// FileTypes (rust/src/filetypes.rs): name checks by number, in FileTypes.h's
+// order (IsSevenZipExt 0 ... IsSampleFile 24); a sniffed extension is static
+// ("" for none), its length in outLen
+int nzbget_rs_file_type(int which, const char* str, size_t len);
+const char* nzbget_rs_sniff_extension(const unsigned char* header, size_t len, size_t* outLen);
+const char* nzbget_rs_sniff_file(const char* path, size_t* outLen);
+
 #ifdef __cplusplus
 }
 #endif

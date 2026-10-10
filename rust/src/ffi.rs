@@ -645,6 +645,63 @@ pub unsafe extern "C" fn nzbget_rs_deobfuscate(s: *const c_char, len: usize) -> 
     into_buf(crate::deobfuscation::deobfuscate(bytes(s, len)))
 }
 
+/// FileTypes' name checks (rust/src/filetypes.rs), by number (see nzbget_rs.h).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_file_type(which: c_int, s: *const c_char, len: usize) -> c_int {
+    use crate::filetypes::*;
+    const CHECKS: [fn(&[u8]) -> bool; 25] = [
+        is_seven_zip_ext, is_rar_ext, is_rar_volume_ext, is_numeric_volume_ext, is_all_digits_ext, is_archive_ext,
+        is_disc_structure_ext, is_disc_structure_dir, is_disc_descriptor_ext, is_disc_image_ext,
+        is_generic_disc_image_ext, is_clutter_dir, is_clutter_file, is_parity_ext, is_video_ext, is_audio_ext,
+        is_subtitle_ext, is_nfo_ext, is_book_ext, is_image_ext, is_sample_stem, is_seven_zip_file, is_rar_file,
+        is_archive_file, is_sample_file,
+    ];
+    match usize::try_from(which).ok().and_then(|w| CHECKS.get(w)) {
+        Some(check) => check(bytes(s, len)) as c_int,
+        None => 0,
+    }
+}
+
+fn static_str(e: &'static CStr, out_len: *mut usize) -> *const c_char {
+    if !out_len.is_null() {
+        unsafe { *out_len = e.to_bytes().len() };
+    }
+    e.as_ptr()
+}
+
+/// FileTypes::SniffExtension of a header: a static extension ("" for none),
+/// its length in `out_len`.
+///
+/// # Safety
+/// `header` is null or readable for `len` bytes; `out_len` null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_sniff_extension(header: *const u8, len: usize, out_len: *mut usize) -> *const c_char {
+    let h = if header.is_null() || len == 0 { &[][..] } else { std::slice::from_raw_parts(header, len) };
+    static_str(crate::filetypes::sniff_extension(h), out_len)
+}
+
+/// FileTypes::SniffExtension of a file (its first 512 bytes).
+///
+/// # Safety
+/// `path` is null or NUL-terminated; `out_len` null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_sniff_file(path: *const c_char, out_len: *mut usize) -> *const c_char {
+    if path.is_null() {
+        return static_str(c"", out_len);
+    }
+    #[cfg(unix)]
+    let p = {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(CStr::from_ptr(path).to_bytes()))
+    };
+    #[cfg(not(unix))]
+    let p = std::path::PathBuf::from(CStr::from_ptr(path).to_string_lossy().into_owned());
+    static_str(crate::filetypes::sniff_file(&p), out_len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,13 +6,14 @@
 
 use std::ffi::c_int;
 
+use crate::filetypes::{file_extension, is_parity_ext, is_rar_ext, is_rar_volume_ext, is_seven_zip_ext};
+
 extern "C" {
     fn isalpha(c: c_int) -> c_int;
     fn isalnum(c: c_int) -> c_int;
     fn isdigit(c: c_int) -> c_int;
     fn isupper(c: c_int) -> c_int;
     fn islower(c: c_int) -> c_int;
-    fn tolower(c: c_int) -> c_int;
 }
 
 fn alpha(b: u8) -> bool {
@@ -29,11 +30,6 @@ fn upper(b: u8) -> bool {
 }
 fn lower(b: u8) -> bool {
     unsafe { islower(b as c_int) != 0 }
-}
-
-/// Util::StrCaseCmp: equal through the C library's tolower.
-fn str_case_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| unsafe { tolower(x as c_int) == tolower(y as c_int) })
 }
 
 const MAX_TITLE_LEN: usize = 32;
@@ -64,31 +60,6 @@ fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
     (0..=hay.len() - needle.len()).rev().find(|&k| &hay[k..k + needle.len()] == needle)
 }
 
-/// FileSystem::GetFileExtension: from the last '.' on.
-fn file_extension(s: &[u8]) -> Option<&[u8]> {
-    s.iter().rposition(|&b| b == b'.').map(|k| &s[k..])
-}
-
-fn is_seven_zip_ext(ext: &[u8]) -> bool {
-    [".7z", ".zip", ".tar", ".gz", ".bz", ".bz2", ".tgz", ".txz", ".xz"].iter().any(|f| str_case_eq(ext, f.as_bytes()))
-}
-
-fn is_rar_ext(ext: &[u8]) -> bool {
-    str_case_eq(ext, b".rar")
-}
-
-fn is_rar_volume_ext(ext: &[u8]) -> bool {
-    if ext.len() != 4 || ext[0] != b'.' {
-        return false;
-    }
-    let l = unsafe { tolower(ext[1] as c_int) };
-    l >= b'r' as c_int && l <= b'z' as c_int && digit(ext[2]) && digit(ext[3])
-}
-
-fn is_parity_ext(ext: &[u8]) -> bool {
-    str_case_eq(ext, b".par2") || str_case_eq(ext, b".sfv")
-}
-
 fn strip_one_extension(s: &[u8]) -> &[u8] {
     let Some(dot) = s.iter().rposition(|&b| b == b'.') else { return s };
     let ext = &s[dot + 1..];
@@ -101,13 +72,13 @@ fn strip_one_extension(s: &[u8]) -> &[u8] {
 /// The extension as written, and the real one before a numeric volume
 /// extension (".001" of "x.rar.001").
 fn extension_info(s: &[u8]) -> (Vec<u8>, Vec<u8>) {
-    let raw = file_extension(s).unwrap_or_default().to_vec();
+    let raw = file_extension(s).to_vec();
     if raw.is_empty() {
         return (raw, Vec::new());
     }
     let mut real = raw.clone();
     if raw.len() > 1 && raw[0] == b'.' && raw[1..].iter().all(|&c| digit(c)) {
-        real = file_extension(&s[..s.len() - raw.len()]).unwrap_or_default().to_vec();
+        real = file_extension(&s[..s.len() - raw.len()]).to_vec();
     }
     (raw, real)
 }

@@ -25,6 +25,154 @@
 #include <fstream>
 #include <cstring>
 
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+
+namespace FileTypes
+{
+
+// rust/src/filetypes.rs
+bool IsSevenZipExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(0, ext.data(), ext.size()) != 0;
+}
+
+bool IsRarExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(1, ext.data(), ext.size()) != 0;
+}
+
+bool IsRarVolumeExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(2, ext.data(), ext.size()) != 0;
+}
+
+bool IsNumericVolumeExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(3, ext.data(), ext.size()) != 0;
+}
+
+bool IsAllDigitsExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(4, ext.data(), ext.size()) != 0;
+}
+
+bool IsArchiveExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(5, ext.data(), ext.size()) != 0;
+}
+
+bool IsDiscStructureExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(6, ext.data(), ext.size()) != 0;
+}
+
+bool IsDiscStructureDir(std::string_view dirname)
+{
+	return nzbget_rs_file_type(7, dirname.data(), dirname.size()) != 0;
+}
+
+bool IsDiscDescriptorExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(8, ext.data(), ext.size()) != 0;
+}
+
+bool IsDiscImageExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(9, ext.data(), ext.size()) != 0;
+}
+
+bool IsGenericDiscImageExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(10, ext.data(), ext.size()) != 0;
+}
+
+bool IsClutterDir(std::string_view dirname)
+{
+	return nzbget_rs_file_type(11, dirname.data(), dirname.size()) != 0;
+}
+
+bool IsClutterFile(std::string_view filename)
+{
+	return nzbget_rs_file_type(12, filename.data(), filename.size()) != 0;
+}
+
+bool IsParityExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(13, ext.data(), ext.size()) != 0;
+}
+
+bool IsVideoExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(14, ext.data(), ext.size()) != 0;
+}
+
+bool IsAudioExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(15, ext.data(), ext.size()) != 0;
+}
+
+bool IsSubtitleExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(16, ext.data(), ext.size()) != 0;
+}
+
+bool IsNfoExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(17, ext.data(), ext.size()) != 0;
+}
+
+bool IsBookExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(18, ext.data(), ext.size()) != 0;
+}
+
+bool IsImageExt(std::string_view ext)
+{
+	return nzbget_rs_file_type(19, ext.data(), ext.size()) != 0;
+}
+
+bool IsSampleStem(std::string_view stem)
+{
+	return nzbget_rs_file_type(20, stem.data(), stem.size()) != 0;
+}
+
+bool IsSevenZipFile(std::string_view filename)
+{
+	return nzbget_rs_file_type(21, filename.data(), filename.size()) != 0;
+}
+
+bool IsRarFile(std::string_view filename)
+{
+	return nzbget_rs_file_type(22, filename.data(), filename.size()) != 0;
+}
+
+bool IsArchiveFile(std::string_view filename)
+{
+	return nzbget_rs_file_type(23, filename.data(), filename.size()) != 0;
+}
+
+bool IsSampleFile(std::string_view filename)
+{
+	return nzbget_rs_file_type(24, filename.data(), filename.size()) != 0;
+}
+
+std::string_view SniffExtension(std::span<const uint8_t> header)
+{
+	size_t len = 0;
+	const char* ext = nzbget_rs_sniff_extension(header.data(), header.size(), &len);
+	return std::string_view(ext, len);
+}
+
+std::string_view SniffExtension(const std::filesystem::path& filePath)
+{
+	size_t len = 0;
+	const char* ext = nzbget_rs_sniff_file(filePath.c_str(), &len);
+	return std::string_view(ext, len);
+}
+
+}
+#else
 namespace
 {
 	bool MatchesAnyExt(std::string_view ext, std::span<const std::string_view> formats)
@@ -544,3 +692,4 @@ std::string_view SniffExtension(const std::filesystem::path& filePath)
 }
 
 }
+#endif
