@@ -742,6 +742,174 @@ pub unsafe extern "C" fn nzbget_rs_normalize_path_separators(path: *mut c_char) 
     })
 }
 
+/// A CollectionAnalyzer::FileEntry (rust/src/collection.rs).
+#[repr(C)]
+pub struct FileEntryC {
+    pub path: *const c_char,
+    pub path_len: usize,
+    pub filename: *const c_char,
+    pub filename_len: usize,
+    pub stem: *const c_char,
+    pub stem_len: usize,
+    pub ext: *const c_char,
+    pub ext_len: usize,
+    pub size: u64,
+}
+
+unsafe fn entries(files: *const FileEntryC, count: usize) -> Vec<crate::collection::Entry> {
+    if files.is_null() || count == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(files, count)
+        .iter()
+        .map(|f| crate::collection::Entry {
+            path: bytes(f.path, f.path_len).to_vec(),
+            filename: bytes(f.filename, f.filename_len).to_vec(),
+            stem: bytes(f.stem, f.stem_len).to_vec(),
+            ext: bytes(f.ext, f.ext_len).to_vec(),
+            size: f.size,
+        })
+        .collect()
+}
+
+/// AnalysisResult by index into the files (-1: an empty FileEntry); the
+/// index arrays have room for `count` each.
+#[repr(C)]
+pub struct AnalysisC {
+    pub main_video: isize,
+    pub sample_video: isize,
+    pub main_book: isize,
+    pub subtitles: *mut usize,
+    pub subtitle_count: usize,
+    pub nfos: *mut usize,
+    pub nfo_count: usize,
+    pub other_files: *mut usize,
+    pub other_count: usize,
+    pub ambiguous: c_int,
+    pub disc_structure: c_int,
+    pub has_audio: c_int,
+}
+
+/// CollectionAnalyzer::Analyze.
+///
+/// # Safety
+/// `files` holds `count` valid entries; `out`'s arrays have room for `count`.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_collection_analyze(files: *const FileEntryC, count: usize, out: *mut AnalysisC) {
+    if out.is_null() {
+        return;
+    }
+    let a = crate::collection::analyze(&entries(files, count));
+    let o = &mut *out;
+    let idx = |i: Option<usize>| i.map_or(-1, |k| k as isize);
+    o.main_video = idx(a.main_video);
+    o.sample_video = idx(a.sample_video);
+    o.main_book = idx(a.main_book);
+    let fill = |dst: *mut usize, src: &[usize]| {
+        if !dst.is_null() {
+            for (k, &v) in src.iter().take(count).enumerate() {
+                *dst.add(k) = v;
+            }
+        }
+        src.len().min(count)
+    };
+    o.subtitle_count = fill(o.subtitles, &a.subtitles);
+    o.nfo_count = fill(o.nfos, &a.nfos);
+    o.other_count = fill(o.other_files, &a.other_files);
+    o.ambiguous = a.ambiguous as c_int;
+    o.disc_structure = a.disc_structure as c_int;
+    o.has_audio = a.has_audio as c_int;
+}
+
+/// What CollectionAnalyzer::BuildPlan asks of the C++ side, and where it
+/// puts the plan.
+#[repr(C)]
+pub struct PlanCallbacks {
+    pub user: *mut std::ffi::c_void,
+    pub exists: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int,
+    pub ignored: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int,
+    /// a rename: the file's index, the new path, the new file name
+    pub action: unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, usize, *const c_char, usize),
+}
+
+/// RenamePlan's flags; the effective base name is returned.
+#[repr(C)]
+pub struct PlanFlagsC {
+    pub ambiguous: c_int,
+    pub disc_structure: c_int,
+    pub can_rename: c_int,
+    pub target_name_obfuscated: c_int,
+}
+
+struct CDisk<'c>(&'c PlanCallbacks);
+
+impl crate::collection::Disk for CDisk<'_> {
+    fn exists(&mut self, path: &[u8]) -> bool {
+        unsafe { (self.0.exists)(self.0.user, path.as_ptr().cast(), path.len()) != 0 }
+    }
+    fn ignored(&mut self, path: &[u8]) -> bool {
+        unsafe { (self.0.ignored)(self.0.user, path.as_ptr().cast(), path.len()) != 0 }
+    }
+}
+
+/// CollectionAnalyzer::BuildPlan for the walked files; free the returned
+/// effective base name with nzbget_rs_free.
+///
+/// # Safety
+/// `files` holds `count` valid entries; `target` is readable for
+/// `target_len`; the callbacks are valid and don't unwind; `flags` writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_collection_plan(
+    files: *const FileEntryC,
+    count: usize,
+    disc_dir: c_int,
+    target: *const c_char,
+    target_len: usize,
+    callbacks: *const PlanCallbacks,
+    flags: *mut PlanFlagsC,
+) -> RsBuf {
+    if callbacks.is_null() || flags.is_null() {
+        return into_buf(Vec::new());
+    }
+    let cb = &*callbacks;
+    let plan = crate::collection::build_plan(&entries(files, count), disc_dir != 0, bytes(target, target_len), &mut CDisk(cb));
+    for a in &plan.actions {
+        (cb.action)(cb.user, a.src, a.dst_path.as_ptr().cast(), a.dst_path.len(), a.new_filename.as_ptr().cast(), a.new_filename.len());
+    }
+    *flags = PlanFlagsC {
+        ambiguous: plan.ambiguous as c_int,
+        disc_structure: plan.disc_structure as c_int,
+        can_rename: plan.can_rename as c_int,
+        target_name_obfuscated: plan.target_name_obfuscated as c_int,
+    };
+    into_buf(plan.effective_base_name)
+}
+
+/// CollectionAnalyzer's names: 0 ResolveTargetName(a: meta, b: nzb),
+/// 1 ResolveSubtitleName(a: base, b: stem, c: ext), 2 ResolveSampleName(a:
+/// base, b: ext); free the result with nzbget_rs_free.
+///
+/// # Safety
+/// Each text is null or readable for its length.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_collection_name(
+    op: c_int,
+    a: *const c_char,
+    a_len: usize,
+    b: *const c_char,
+    b_len: usize,
+    c: *const c_char,
+    c_len: usize,
+) -> RsBuf {
+    let (a, b, c) = (bytes(a, a_len), bytes(b, b_len), bytes(c, c_len));
+    into_buf(match op {
+        0 => crate::collection::resolve_target_name(a, b),
+        1 => crate::collection::resolve_subtitle_name(a, b, c),
+        2 => crate::collection::resolve_sample_name(a, b),
+        _ => Vec::new(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
