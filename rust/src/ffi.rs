@@ -837,6 +837,10 @@ pub struct PlanCallbacks {
     pub ignored: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int>,
     /// a rename: the file's index, the new path, the new file name
     pub action: Option<unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, usize, *const c_char, usize)>,
+    /// the stem of a path as the platform's path has it, written to `out`
+    /// (room for `cap` bytes); returns its length (more than `cap`: called
+    /// again with that room); None: the stem of the bytes as they are
+    pub stem: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize, *mut c_char, usize) -> usize>,
 }
 
 /// RenamePlan's flags; the effective base name is returned.
@@ -852,6 +856,22 @@ pub struct PlanFlagsC {
 struct CDisk<'c>(&'c PlanCallbacks);
 
 impl crate::collection::Disk for CDisk<'_> {
+    fn stem(&mut self, path: &[u8]) -> Vec<u8> {
+        let Some(f) = self.0.stem else {
+            let name = path.iter().rposition(|&b| b == b'/' || b == b'\\').map_or(path, |k| &path[k + 1..]);
+            return crate::collection::stem_ext(name).0.to_vec();
+        };
+        let mut buf = vec![0u8; path.len() * 3 + 16];
+        loop {
+            let n = unsafe { f(self.0.user, path.as_ptr().cast(), path.len(), buf.as_mut_ptr().cast(), buf.len()) };
+            if n <= buf.len() {
+                buf.truncate(n);
+                return buf;
+            }
+            buf.resize(n, 0);
+        }
+    }
+
     fn exists(&mut self, path: &[u8]) -> bool {
         self.0.exists.is_some_and(|f| unsafe { f(self.0.user, path.as_ptr().cast(), path.len()) != 0 })
     }
@@ -948,7 +968,7 @@ mod tests {
             assert_eq!((out.ambiguous, out.disc_structure, out.has_audio), (0, 0, 0));
             nzbget_rs_collection_analyze(std::ptr::null(), 0, std::ptr::null_mut());
 
-            let cb = PlanCallbacks { user: std::ptr::null_mut(), exists: None, ignored: None, action: None };
+            let cb = PlanCallbacks { user: std::ptr::null_mut(), exists: None, ignored: None, action: None, stem: None };
             let mut flags = PlanFlagsC { can_rename: 1, ..PlanFlagsC::default() };
             let empty = nzbget_rs_collection_plan(std::ptr::null(), 99, 0, std::ptr::null(), 99, std::ptr::null(), &mut flags);
             assert_eq!(empty.len, 0);

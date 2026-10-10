@@ -228,6 +228,9 @@ typedef struct
 	int (*exists)(void* user, const char* path, size_t len);
 	int (*ignored)(void* user, const char* path, size_t len);
 	void (*action)(void* user, size_t file, const char* dstPath, size_t dstLen, const char* newName, size_t newLen);
+	// the stem of a path as fs::path has it, into out (room for cap); returns
+	// its length (more than cap: called again with that room); NULL: as is
+	size_t (*stem)(void* user, const char* path, size_t len, char* out, size_t cap);
 } NzbgetRsPlanCallbacks;
 typedef struct
 {

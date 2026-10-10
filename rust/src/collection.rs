@@ -157,6 +157,12 @@ pub trait Disk {
     fn exists(&mut self, path: &[u8]) -> bool;
     /// Util::MatchFileExt(path, ignoreExt, ",").
     fn ignored(&mut self, path: &[u8]) -> bool;
+    /// fs::u8string(fs::u8path(path).stem()): the stem as the platform's path
+    /// has it (on Windows the UTF-8 conversion may change bytes).
+    fn stem(&mut self, path: &[u8]) -> Vec<u8> {
+        let name = path.iter().rposition(|&b| b == b'/' || b == b'\\').map_or(path, |k| &path[k + 1..]);
+        stem_ext(name).0.to_vec()
+    }
 }
 
 /// CollectionAnalyzer::BuildPlan for the files of the directory (in the
@@ -205,7 +211,9 @@ pub fn build_plan(files: &[Entry], disc_dir: bool, target_name: &[u8], disk: &mu
             }
         }
         let name = dst[entry.rename_prefix.len()..].to_vec();
-        let final_stem = stem_ext(&name).0.to_vec();
+        // the stem of the destination as the platform's path has it, as the
+        // C++ planner derived it
+        let final_stem = disk.stem(&dst);
         used.push(dst.clone());
         plan.actions.push(Action { src: k, dst_path: dst, new_filename: name });
         final_stem

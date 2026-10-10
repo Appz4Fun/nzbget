@@ -230,6 +230,16 @@ namespace CollectionAnalyzer
 			(void)nameLen;
 			c->plan.actions.push_back({entry.path, std::move(dstPath), entry.filename, std::move(newFilename)});
 		};
+		callbacks.stem = [](void*, const char* path, size_t len, char* out, size_t cap) noexcept -> size_t
+		{
+			// the stem as the converted destination path has it
+			std::string stem = fs::u8string(fs::u8path(std::string(path, len)).stem());
+			if (stem.size() <= cap)
+			{
+				memcpy(out, stem.data(), stem.size());
+			}
+			return stem.size();
+		};
 		NzbgetRsPlanFlags flags{};
 		plan.effectiveBaseName = TakeString(nzbget_rs_collection_plan(entries.data(), entries.size(), discFound,
 			targetName.data(), targetName.size(), &callbacks, &flags));
