@@ -1290,6 +1290,83 @@ pub unsafe extern "C" fn nzbget_rs_scheduler_check(
     n
 }
 
+/// The request from `p` through its NUL, writable.
+unsafe fn request_buf<'a>(p: *mut c_char) -> &'a mut [u8] {
+    let len = CStr::from_ptr(p).to_bytes().len();
+    std::slice::from_raw_parts_mut(p.cast::<u8>(), len + 1)
+}
+
+/// XmlCommand::PrepareParams for a JSON POST: the read position after
+/// `"params"`, or `request` emptied (and returned) without it.
+///
+/// # Safety
+/// `request` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_skip_to_params(request: *mut c_char) -> *mut c_char {
+    if request.is_null() {
+        return request;
+    }
+    request.add(crate::rpcparams::skip_to_params(request_buf(request)))
+}
+
+/// XmlCommand::NextParamAsInt (`what` 0), NextParamAsBool (1, as 0/1 in
+/// `*int_value`) and NextParamAsStr (2, a pointer into the request in
+/// `*str_value`): parses the next parameter at `*request` in place and moves
+/// `*request` past it. Returns 1 with a value, else 0 (outputs untouched).
+///
+/// # Safety
+/// `request` points to null or to a pointer into a writable NUL-terminated
+/// request; `int_value`/`str_value` are writable for the kinds that use them.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
+    request: *mut *mut c_char,
+    get: c_int,
+    json: c_int,
+    what: c_int,
+    int_value: *mut c_int,
+    str_value: *mut *mut c_char,
+) -> c_int {
+    use crate::rpcparams::{next_bool, next_int, next_str, Kind};
+    if request.is_null() || (*request).is_null() {
+        return 0;
+    }
+    let base = *request;
+    let buf = request_buf(base);
+    let kind = if get != 0 {
+        Kind::Get
+    } else if json != 0 {
+        Kind::Json
+    } else {
+        Kind::Xml
+    };
+    let (pos, ok) = match what {
+        0 => {
+            let (pos, v) = next_int(buf, kind);
+            if let Some(v) = v {
+                *int_value = v;
+            }
+            (pos, v.is_some())
+        }
+        1 => {
+            let (pos, v) = next_bool(buf, kind, json != 0);
+            if let Some(v) = v {
+                *int_value = v as c_int;
+            }
+            (pos, v.is_some())
+        }
+        2 => {
+            let (pos, v) = next_str(buf, kind);
+            if let Some(v) = v {
+                *str_value = base.add(v);
+            }
+            (pos, v.is_some())
+        }
+        _ => (0, false),
+    };
+    *request = base.add(pos);
+    ok as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -325,6 +325,15 @@ typedef struct NzbgetRsSchedTm
 // gmtime must fill all fields and must not throw. NULL is rejected atomically.
 size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long currentOffset, long long lastCheckOffset, size_t* due, size_t dueCapacity, int* reset, void (*gmtime)(long long, NzbgetRsSchedTm*));
 
+// XmlCommand's request parameters (rust/src/rpcparams.rs), parsed in place in
+// the writable NUL-terminated request. skip_to_params: PrepareParams for a JSON
+// POST (the position after "params", or the request emptied). next_param: what
+// 0 int, 1 bool (0/1 in *intValue), 2 string (*strValue points into the
+// request); get: a GET query string, else json: JSON-RPC, else XML-RPC. Moves
+// *request past the parameter; returns 1 with a value, else 0.
+char* nzbget_rs_rpc_skip_to_params(char* request);
+int nzbget_rs_rpc_next_param(char** request, int get, int json, int what, int* intValue, char** strValue);
+
 #ifdef __cplusplus
 }
 #endif

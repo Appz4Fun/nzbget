@@ -21,6 +21,10 @@
 
 #include "nzbget.h"
 #include "XmlRpc.h"
+
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "Fleet.h"
 #include "Log.h"
 #include "Options.h"
@@ -1148,6 +1152,10 @@ void XmlCommand::PrepareParams()
 {
 	if (IsJson() && m_httpMethod == XmlRpcProcessor::hmPost)
 	{
+#ifdef NZBGET_USE_RUST
+		// without "params" the request is emptied: no parameters follow
+		m_requestPtr = nzbget_rs_rpc_skip_to_params(m_requestPtr);
+#else
 		char* params = strstr(m_requestPtr, "\"params\"");
 		if (!params)
 		{
@@ -1155,6 +1163,7 @@ void XmlCommand::PrepareParams()
 			return;
 		}
 		m_requestPtr = params + 8; // strlen("\"params\"")
+#endif
 	}
 
 	if (m_protocol == XmlRpcProcessor::rpJsonPRpc)
@@ -1201,6 +1210,9 @@ static bool ParseIntParam(const char* text, int* value)
 
 bool XmlCommand::NextParamAsInt(int* value)
 {
+#ifdef NZBGET_USE_RUST
+	return nzbget_rs_rpc_next_param(&m_requestPtr, m_httpMethod == XmlRpcProcessor::hmGet, IsJson(), 0, value, nullptr);
+#else
 	if (m_httpMethod == XmlRpcProcessor::hmGet)
 	{
 		char* param = strchr(m_requestPtr, '=');
@@ -1255,10 +1267,20 @@ bool XmlCommand::NextParamAsInt(int* value)
 		m_requestPtr = param + len + tagLen;
 		return true;
 	}
+#endif
 }
 
 bool XmlCommand::NextParamAsBool(bool* value)
 {
+#ifdef NZBGET_USE_RUST
+	int intValue;
+	if (!nzbget_rs_rpc_next_param(&m_requestPtr, m_httpMethod == XmlRpcProcessor::hmGet, IsJson(), 1, &intValue, nullptr))
+	{
+		return false;
+	}
+	*value = intValue != 0;
+	return true;
+#else
 	if (m_httpMethod == XmlRpcProcessor::hmGet)
 	{
 		char* param;
@@ -1324,10 +1346,14 @@ bool XmlCommand::NextParamAsBool(bool* value)
 		m_requestPtr = param + len + 9; //strlen("<boolean>");
 		return true;
 	}
+#endif
 }
 
 bool XmlCommand::NextParamAsStr(char** value)
 {
+#ifdef NZBGET_USE_RUST
+	return nzbget_rs_rpc_next_param(&m_requestPtr, m_httpMethod == XmlRpcProcessor::hmGet, IsJson(), 2, nullptr, value);
+#else
 	if (m_httpMethod == XmlRpcProcessor::hmGet)
 	{
 		char* param = strchr(m_requestPtr, '=');
@@ -1379,6 +1405,7 @@ bool XmlCommand::NextParamAsStr(char** value)
 		*value = param;
 		return true;
 	}
+#endif
 }
 
 const char* XmlCommand::BoolToStr(bool value)
