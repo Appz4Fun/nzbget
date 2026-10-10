@@ -33,6 +33,7 @@
 #include "FileSystem.h"
 #include <sstream>
 #include <mutex>
+#include <atomic>
 #ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
 #endif
@@ -51,13 +52,22 @@ std::string RsString(NzbgetRsBuf buf)
 
 // the store of par2 file lists (queue directory, file "twincheck"), opened on
 // first use: the constructors run before the options are read
-void OpenStore()
+bool OpenStore()
 {
-	static std::once_flag opened;
-	std::call_once(opened, []()
-		{
-			nzbget_rs_twin_open((std::string(g_Options->GetQueueDir()) + PATH_SEPARATOR + "twincheck").c_str());
-		});
+	// no options (unit tests): no store, and every list unknown
+	static std::atomic<bool> opened{false};
+	static std::mutex mutex;
+	if (opened)
+	{
+		return true;
+	}
+	std::lock_guard<std::mutex> guard(mutex);
+	if (!opened && g_Options && !Util::EmptyStr(g_Options->GetQueueDir()))
+	{
+		nzbget_rs_twin_open((std::string(g_Options->GetQueueDir()) + PATH_SEPARATOR + "twincheck").c_str());
+		opened = true;
+	}
+	return opened;
 }
 
 std::vector<TwinCheck::FileSig> SigLines(const std::string& text)
@@ -181,8 +191,10 @@ void TwinCheckJob::Run()
 #ifdef NZBGET_USE_RUST
 	if (readable)
 	{
-		OpenStore();
-		fingerprint = RsString(nzbget_rs_twin_put_par2(m_nzbId, (const unsigned char*)data.data(), data.size()));
+		if (OpenStore())
+		{
+			fingerprint = RsString(nzbget_rs_twin_put_par2(m_nzbId, (const unsigned char*)data.data(), data.size()));
+		}
 	}
 #endif
 	bool known = !fingerprint.empty();
@@ -389,19 +401,28 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 
 std::vector<TwinCheck::FileSig> TwinCheck::SigsOf(int nzbId)
 {
-	OpenStore();
+	if (!OpenStore())
+	{
+		return {};
+	}
 	return SigLines(RsString(nzbget_rs_twin_sigs(nzbId)));
 }
 
 std::string TwinCheck::Kind(int primaryId, int dupeId)
 {
-	OpenStore();
+	if (!OpenStore())
+	{
+		return "";
+	}
 	return RsString(nzbget_rs_twin_kind(primaryId, dupeId));
 }
 
 std::string TwinCheck::MatchByContent(int ownId, const char* target, const char* targetAlt, int donorId)
 {
-	OpenStore();
+	if (!OpenStore())
+	{
+		return "";
+	}
 	return RsString(nzbget_rs_twin_match(ownId, target, targetAlt, donorId));
 }
 

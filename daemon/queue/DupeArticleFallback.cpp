@@ -989,7 +989,7 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 	// by content first, when the par2 file lists of both postings are known
 	// (twin.rs): a donor file with the target's MD5 and length is the same bytes
 	// under any name, one named alike with another MD5 is not
-	std::string byContent = donorNzbId ? TwinCheck::MatchByContent(targetFile->GetNzbInfo()->GetId(),
+	std::string byContent = donorNzbId && targetFile->GetNzbInfo() ? TwinCheck::MatchByContent(targetFile->GetNzbInfo()->GetId(),
 		targetFile->GetFilename(), targetNzbFilename, donorNzbId) : "";
 	if (byContent == "-")
 	{
