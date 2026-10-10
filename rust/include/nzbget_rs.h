@@ -193,6 +193,55 @@ int nzbget_rs_reserved_char(char c);
 // path is NULL (no-op) or a writable NUL-terminated string, owned by the caller.
 void nzbget_rs_normalize_path_separators(char* path);
 
+// CollectionAnalyzer (rust/src/collection.rs): files as text and length;
+// an analysis by index (-1: none), index arrays with room for every file;
+// a plan through callbacks (exists, ignored by the ignoreExt list, each
+// rename), the effective base name returned (free with nzbget_rs_free).
+// NULL files/text means empty, regardless of length. NULL analysis output is
+// ignored; NULL index arrays report counts only. Non-NULL arrays hold count
+// indices and must not overlap the output struct. NULL plan table/flags
+// returns an empty buffer and clears non-NULL flags. NULL exists/ignored
+// returns false; NULL action discards actions. Callback strings are borrowed
+// only during each call; callbacks must not throw or invalidate table/flags.
+// Panics abort; input storage remains caller-owned.
+typedef struct
+{
+	const char* path; size_t pathLen;
+	// UTF-8 parent_path() / "x", with the final "x" removed.
+	const char* renamePrefix; size_t renamePrefixLen;
+	const char* filename; size_t filenameLen;
+	const char* stem; size_t stemLen;
+	const char* ext; size_t extLen;
+	unsigned long long size;
+} NzbgetRsFileEntry;
+typedef struct
+{
+	ptrdiff_t mainVideo, sampleVideo, mainBook;
+	size_t* subtitles; size_t subtitleCount;
+	size_t* nfos; size_t nfoCount;
+	size_t* otherFiles; size_t otherCount;
+	int ambiguous, discStructure, hasAudio;
+} NzbgetRsAnalysis;
+typedef struct
+{
+	void* user;
+	int (*exists)(void* user, const char* path, size_t len);
+	int (*ignored)(void* user, const char* path, size_t len);
+	void (*action)(void* user, size_t file, const char* dstPath, size_t dstLen, const char* newName, size_t newLen);
+	// the stem of a path as fs::path has it, into out (room for cap); returns
+	// its length (more than cap: called again with that room); NULL: as is
+	size_t (*stem)(void* user, const char* path, size_t len, char* out, size_t cap);
+} NzbgetRsPlanCallbacks;
+typedef struct
+{
+	int ambiguous, discStructure, canRename, targetNameObfuscated;
+} NzbgetRsPlanFlags;
+void nzbget_rs_collection_analyze(const NzbgetRsFileEntry* files, size_t count, NzbgetRsAnalysis* out);
+NzbgetRsBuf nzbget_rs_collection_plan(const NzbgetRsFileEntry* files, size_t count, int discDir,
+	const char* target, size_t targetLen, const NzbgetRsPlanCallbacks* callbacks, NzbgetRsPlanFlags* flags);
+NzbgetRsBuf nzbget_rs_collection_name(int op, const char* a, size_t aLen, const char* b, size_t bLen,
+	const char* c, size_t cLen);
+
 #ifdef __cplusplus
 }
 #endif
