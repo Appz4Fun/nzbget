@@ -180,12 +180,13 @@ bool DupeArticleFallback::TryFallback(DownloadQueue* downloadQueue, FileInfo* fi
 		// Once lifted, the wait stays lifted: a projection can fall back below the
 		// par2 data (articles fetched from a lead duplicate count as arrived).
 		bool parDefer = ShouldDeferToPar(nzbInfo);
+		ParDamage::Verdict damage = parDefer ? ParDamage::Judge(nzbInfo) : ParDamage::Verdict();
 		// par2 repairs whole blocks: the blocks the failed articles spoiled may
 		// be more than its volumes hold long before the bytes are (ParDamage);
 		// borrowing then starts, and the par-damage failover waits for it
 		bool defer = parDefer && articleInfo->GetPartNumber() != 1 &&
 			nzbInfo->GetDupeParDeferState() != NzbInfo::dpLifted && !ParCannotCover(nzbInfo) &&
-			!ParDamage::Judge(nzbInfo).Certain();
+			!damage.Certain() && !damage.Projected();
 		// say once per collection which way the par-first rule went, so a
 		// download that borrowed nothing can be told apart from one that tried
 		if (defer && nzbInfo->GetDupeParDeferState() == NzbInfo::dpNone &&

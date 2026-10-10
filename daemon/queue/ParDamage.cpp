@@ -147,7 +147,10 @@ ParDamage::Verdict ParDamage::Judge(NzbInfo* nzbInfo)
 		const DupeArticleFallback::Par2Desc* match = nullptr;
 		for (const DupeArticleFallback::Par2Desc& desc : state.par2)
 		{
-			if (desc.blockSize > 0 && (desc.name == damage.name ||
+			// a block size no real set uses (a damaged or crafted packet) isn't trusted
+			if (desc.blockSize > 0 && desc.blockSize % 4 == 0 &&
+				desc.blockSize <= (uint64)DupeArticleFallback::MaxPar2BlockSize &&
+				(desc.name == damage.name ||
 				(damage.size > 0 && (int64)desc.length == damage.size)))
 			{
 				match = &desc;

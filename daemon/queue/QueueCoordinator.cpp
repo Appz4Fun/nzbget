@@ -2360,6 +2360,7 @@ bool QueueCoordinator::MergeQueueEntries(DownloadQueue* downloadQueue, NzbInfo* 
 	destNzbInfo->SetQueuedFilename(queuedFilename);
 
 	g_DiskState->DiscardFiles(srcNzbInfo);
+	ParDamage::Forget(srcNzbInfo->GetId());
 	downloadQueue->GetQueue()->Remove(srcNzbInfo);
 
 	return true;
@@ -2481,6 +2482,7 @@ bool QueueCoordinator::SplitQueueEntries(DownloadQueue* downloadQueue, RawFileLi
 	if (srcNzbInfo->GetFileList()->empty())
 	{
 		g_DiskState->DiscardFiles(srcNzbInfo);
+		ParDamage::Forget(srcNzbInfo->GetId());
 		downloadQueue->GetQueue()->Remove(srcNzbInfo);
 	}
 

@@ -42,6 +42,7 @@
 #include "DirectUnpack.h"
 #include "PostUnpackRenamer.h"
 #include "PostDownloadRenamer.h"
+#include "ParDamage.h"
 #include <mutex>
 
 PrePostProcessor::PrePostProcessor()
@@ -503,6 +504,7 @@ void PrePostProcessor::NzbCompleted(DownloadQueue* downloadQueue, NzbInfo* nzbIn
 	if (!addToHistory)
 	{
 		g_HistoryCoordinator->DeleteDiskFiles(nzbInfo);
+		ParDamage::Forget(nzbInfo->GetId());
 		downloadQueue->GetQueue()->Remove(nzbInfo);
 		// the removal must reach the disk: the saved queue may hold the download
 		// with its files already flagged deleted, which a restart before the next

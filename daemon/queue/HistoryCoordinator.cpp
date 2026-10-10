@@ -524,6 +524,8 @@ void HistoryCoordinator::MoveToQueue(DownloadQueue* downloadQueue, HistoryList::
 	nzbInfo->SetDupeAttemptedArticles(0);
 	nzbInfo->SetDupeUnsourcedArticles(0);
 	nzbInfo->SetDupeFailedRun(0);
+	// and decides again whether to wait for par-check
+	nzbInfo->SetDupeParDeferState(NzbInfo::dpNone);
 	nzbInfo->SetMarkStatus(NzbInfo::ksNone);
 	nzbInfo->GetScriptStatuses()->clear();
 	nzbInfo->SetParkedFileCount(0);
