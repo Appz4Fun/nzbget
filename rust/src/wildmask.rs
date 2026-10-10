@@ -10,9 +10,11 @@ use std::ffi::c_int;
 /// stays distinct from 255).
 pub enum Lower<'a> {
     /// glibc's tolower table for the calling thread's locale (what tolower
-    /// itself reads), indexed by the C++ char value, -128..=255, and whether
+    /// itself reads), stored in order for char values -128..=255, and whether
     /// that char is signed (a compiler setting, so the C++ side says).
-    Table(*const i32, bool),
+    /// Borrow the entire table so safe Rust callers cannot supply a dangling
+    /// pointer or a table that is too short.
+    Table(&'a [c_int; 384], bool),
     /// Any other C library: a call per comparison of two different bytes.
     Fold(&'a dyn Fn(u8) -> c_int),
 }
@@ -21,8 +23,7 @@ impl Lower<'_> {
     #[inline]
     fn get(&self, b: u8) -> c_int {
         match *self {
-            // SAFETY: the table covers -128..=255 (see nzbget_rs.h)
-            Lower::Table(t, signed) => unsafe { *t.offset(if signed { b as i8 as isize } else { b as isize }) },
+            Lower::Table(t, signed) => t[(if signed { b as i8 as i32 } else { b as i32 } + 128) as usize],
             Lower::Fold(f) => f(b),
         }
     }
@@ -205,11 +206,11 @@ mod tests {
             let c = i as i32 - 128;
             *slot = if (b'A' as i32..=b'Z' as i32).contains(&c) { c + 32 } else { c };
         }
-        let lower = Lower::Table(table[128..].as_ptr(), true);
+        let lower = Lower::Table(&table, true);
         assert!(wild_match(&lower, b"*aBc*", b"xxAbCxx", None));
         assert!(!wild_match(&lower, b"\xff", b"\x7f", None));
         assert!(wild_match(&lower, b"\xe9", b"\xe9", None));
-        let unsigned = Lower::Table(table[128..].as_ptr(), false);
+        let unsigned = Lower::Table(&table, false);
         assert!(wild_match(&unsigned, b"*aBc*", b"xxAbCxx", None));
     }
 

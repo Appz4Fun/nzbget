@@ -34,6 +34,8 @@ typedef struct
 // table: glibc's tolower table of the calling thread (*__ctype_tolower_loc(),
 // valid for indexes -128..255; char_signed: CHAR_MIN < 0 of the caller), or NULL to use fold(byte 0..255), which returns
 // tolower of that byte as the caller's char in the current locale.
+// fold may be NULL when table is supplied. If both are NULL, returns {0, 0}
+// without writing positions.
 // positions is caller-owned writable storage for capacity pairs, disjoint from
 // the inputs. NULL disables positions. Both result fields are valid on failure.
 // count is the TOTAL capture count, even if only capacity pairs could be written;
