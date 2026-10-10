@@ -182,10 +182,13 @@ unsafe fn in_place(raw: *mut c_char, f: impl FnOnce(&mut [u8]) -> usize) {
 /// WebUtil::XmlDecode, in place (rust/src/text.rs).
 ///
 /// # Safety
-/// `raw` is null or a writable NUL-terminated string.
+/// `raw` is null or a writable NUL-terminated string. `lower`, if supplied,
+/// takes an ASCII hex letter and returns the caller's tolower result; it must
+/// not unwind or access `raw`. A null callback leaves the buffer unchanged.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_xml_decode(raw: *mut c_char) {
-    in_place(raw, crate::text::xml_decode)
+pub unsafe extern "C" fn nzbget_rs_xml_decode(raw: *mut c_char, lower: Option<extern "C" fn(c_int) -> c_int>) {
+    let Some(lower) = lower else { return };
+    in_place(raw, |b| crate::text::xml_decode(b, &|c| lower(c as c_int)))
 }
 
 /// WebUtil::XmlStripTags, in place.
@@ -262,13 +265,22 @@ mod tests {
         (byte == b'@' as c_int || byte == 0xe9 || (byte as u8).is_ascii_alphabetic()) as c_int
     }
 
+    extern "C" fn digit_lower(byte: c_int) -> c_int {
+        (byte as u8).to_ascii_lowercase() as c_int
+    }
+
     #[test]
     fn text_null_inputs_and_callback() {
         unsafe {
-            for f in [nzbget_rs_xml_decode, nzbget_rs_xml_strip_tags,
+            for f in [nzbget_rs_xml_strip_tags,
                       nzbget_rs_http_unquote, nzbget_rs_url_decode] {
                 f(std::ptr::null_mut());
             }
+            nzbget_rs_xml_decode(std::ptr::null_mut(), Some(digit_lower));
+            nzbget_rs_xml_decode(std::ptr::null_mut(), None);
+            let mut xml = *b"&#xA;\0tail";
+            nzbget_rs_xml_decode(xml.as_mut_ptr().cast(), None);
+            assert_eq!(&xml, b"&#xA;\0tail");
             nzbget_rs_xml_remove_entities(std::ptr::null_mut(), Some(entity_alpha));
             nzbget_rs_xml_remove_entities(std::ptr::null_mut(), None);
             let mut raw = *b"&amp;\0tail";

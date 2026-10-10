@@ -1130,10 +1130,19 @@ namespace
 }
 
 #ifdef NZBGET_USE_RUST
+namespace
+{
+	// Numeric XML references use the caller's locale-specific case mapping.
+	int XmlDigitLower(int byte)
+	{
+		return tolower(byte);
+	}
+}
+
 void WebUtil::XmlDecode(char* raw)
 {
 	// rust/src/text.rs
-	nzbget_rs_xml_decode(raw);
+	nzbget_rs_xml_decode(raw, XmlDigitLower);
 }
 #else
 void WebUtil::XmlDecode(char* raw)

@@ -63,7 +63,9 @@ unsigned int nzbget_rs_crc32_combine(unsigned int crc1, unsigned int crc2, unsig
 
 // WebUtil's text helpers (rust/src/text.rs): the in-place ones take NULL (no-op)
 // or a caller-owned writable NUL-terminated string. Panics abort.
-void nzbget_rs_xml_decode(char* raw);
+// lower receives an ASCII hex letter and returns the caller's tolower result.
+// It must not unwind or access raw. NULL lower is a no-op.
+void nzbget_rs_xml_decode(char* raw, int (*lower)(int));
 void nzbget_rs_xml_strip_tags(char* raw);
 // isAlpha receives a byte in 0..255 and classifies it using the caller's locale
 // and char signedness. It must not unwind or access raw. NULL isAlpha is a no-op.

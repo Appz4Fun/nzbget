@@ -55,6 +55,8 @@ for sig in ("void WebUtil::XmlDecode(char* raw)", "void WebUtil::XmlStripTags(ch
 # Exercise the actual production classifier, including its platform guards.
 harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
                  "namespace\n{\n\t// Classify the byte")
+harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
+                 "namespace\n{\n\t// Numeric XML references")
 harness += r'''
 static unsigned state = 0x7e57da7a;
 static unsigned next() { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; }
@@ -74,7 +76,7 @@ template <class F, class G> static void same(const char* what, const std::string
     if (memcmp(a.data(), b.data(), in.size() + 1)) fail(what, in);
 }
 static void check(const std::string& in) {
-    same("XmlDecode", in, WebUtil::XmlDecode, nzbget_rs_xml_decode);
+    same("XmlDecode", in, WebUtil::XmlDecode, [](char* s) { nzbget_rs_xml_decode(s, XmlDigitLower); });
     same("XmlStripTags", in, WebUtil::XmlStripTags, nzbget_rs_xml_strip_tags);
     same("XmlRemoveEntities", in, WebUtil::XmlRemoveEntities, [](char* s) { nzbget_rs_xml_remove_entities(s, XmlEntityAlpha); });
     same("HttpUnquote", in, WebUtil::HttpUnquote, nzbget_rs_http_unquote);
@@ -92,7 +94,7 @@ int main(int argc, char** argv) {
     for (int l = 1; l < argc; ++l) {
         if (!setlocale(LC_CTYPE, argv[l])) std::abort();
         for (const char* in : {"", "&", "&#", "&#x", "&#;", "&#x;", "&#0", "&#0;tail",
-                "&#xD800;", "&#x10ffff;", "&#1114112;", "&#999999999999999999999999;",
+                "&#xA;", "&#xa;", "&#xAB;", "&#xD800;", "&#x10ffff;", "&#1114112;", "&#999999999999999999999999;",
                 "&#xFFFFFFFFFFFFFFFFFFF;", "&lt;&gt;&amp;&apos;&quot;", "&&amp;", "&@;",
                 "<![CDATA[&lt;<tag>]]>tail", "<![CDATA[unclosed", "<![CDATA[]]>",
                 "<open", "<a><b>tail", "\"a\\\"b\\\\c\"tail", "\"trailing\\", "\"",
@@ -129,7 +131,9 @@ with tempfile.TemporaryDirectory(prefix="nzbget-text-") as temp:
         # including ASCII punctuation. Do not assume bytes < 0x80 are invariant.
         custom = temp / "custom-locale"
         custom.write_text(Path("/usr/share/i18n/locales/en_US").read_text().replace(
-            'copy "i18n"', 'alpha <U0041>..<U005A>;<U0061>..<U007A>;<U0040>'))
+            'copy "i18n"', 'alpha <U0041>..<U005A>;<U0061>..<U007A>;<U0040>\n'
+            # XmlDecode also uses locale-sensitive tolower for hex letters.
+            'tolower (<U0041>,<U0062>);(<U0042>,<U0061>)'))
         subprocess.run(["localedef", "--no-archive", "-i", str(custom), "-f", "ISO-8859-15",
                         str(locdir / "custom.ISO8859-15")], check=True)
         locales.append("custom.ISO8859-15")

@@ -14,8 +14,8 @@ fn push_utf8(code: u32, out: &mut Vec<u8>) {
 
 /// WebUtil::XmlDecode: the five predefined entities, numeric references (as
 /// UTF-8; digits clamp at 0x110000), CDATA sections as their text; an unknown
-/// entity is kept.
-pub fn xml_decode(buf: &mut [u8]) -> usize {
+/// entity is kept. `lower` supplies C's locale-sensitive tolower for hex letters.
+pub fn xml_decode(buf: &mut [u8], lower: &dyn Fn(u8) -> i32) -> usize {
     let s = buf.to_vec();
     let mut out = Vec::with_capacity(s.len());
     let mut p = 0;
@@ -44,8 +44,16 @@ pub fn xml_decode(buf: &mut [u8]) -> usize {
                     }
                     let mut code: u32 = 0;
                     let mut any = false;
-                    while let Some(d) = (at(p) as char).to_digit(if hex { 16 } else { 10 }) {
-                        code = (code * if hex { 16 } else { 10 } + d).min(0x110000);
+                    while if hex { at(p).is_ascii_hexdigit() } else { at(p).is_ascii_digit() } {
+                        // C's digit classes are fixed, but tolower need not map
+                        // A-F to a-f in every locale. Preserve the C++ unsigned
+                        // arithmetic even when the mapped digit is negative.
+                        let d = if at(p).is_ascii_digit() {
+                            i32::from(at(p) - b'0')
+                        } else {
+                            lower(at(p)) - i32::from(b'a') + 10
+                        };
+                        code = (code * if hex { 16 } else { 10 }).wrapping_add(d as u32).min(0x110000);
                         any = true;
                         p += 1;
                     }
@@ -195,6 +203,7 @@ mod tests {
 
     #[test]
     fn decoders() {
+        let xml_decode = |b: &mut [u8]| super::xml_decode(b, &|c| i32::from(c.to_ascii_lowercase()));
         assert_eq!(
             inplace(xml_decode, b"a&lt;b&gt;&amp;&apos;&quot;&#233;&#xe9;&nbsp;<![CDATA[&lt;]]>&"),
             "a<b>&'\"\u{e9}\u{e9}&nbsp;&lt;&".as_bytes()
@@ -207,5 +216,16 @@ mod tests {
         let mut v = b"a<b>c<d".to_vec();
         xml_strip_tags(&mut v);
         assert_eq!(v, b"a   c<d");
+    }
+
+    #[test]
+    fn xml_numeric_references_use_locale_case_mapping() {
+        // A custom LC_CTYPE can map A to b and leave C uppercase. The latter
+        // yields a negative digit, which C++ adds to its unsigned accumulator.
+        let lower = |c| if c == b'A' { i32::from(b'b') } else { i32::from(c) };
+        assert_eq!(
+            inplace(|b| xml_decode(b, &lower), b"&#xA;&#xa;&#xC;&#x1C;"),
+            "\u{b}\u{a}\u{fffd}\u{fffd}".as_bytes()
+        );
     }
 }
