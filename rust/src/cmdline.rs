@@ -11,7 +11,6 @@ extern "C" {
     static mut optarg: *mut c_char;
     fn getopt(argc: c_int, argv: *const *mut c_char, optstring: *const c_char) -> c_int;
     fn atoi(s: *const c_char) -> c_int;
-    fn atof(s: *const c_char) -> f64;
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
     fn getcwd(buf: *mut c_char, size: usize) -> *mut c_char;
@@ -42,7 +41,6 @@ pub mod field {
     pub const ADD_DUPE_MODE: i32 = 12;
     /// EMatchMode: 1 id, 2 name, 3 regex
     pub const MATCH_MODE: i32 = 13;
-    pub const SET_RATE: i32 = 14;
     pub const TEST_BACKTRACE: i32 = 15;
     pub const WEB_GET: i32 = 16;
     pub const SIG_VERIFY: i32 = 17;
@@ -67,6 +65,8 @@ pub mod field {
     pub const ADD_NZB_FILENAME: i32 = 37;
     pub const ADD_DUPE_KEY: i32 = 38;
     pub const EDIT_QUEUE_TEXT: i32 = 39;
+    /// The host evaluates the original (int)(atof(value) * 1024) conversion.
+    pub const SET_RATE_ARG: i32 = 40;
 }
 
 /// The edit actions, in the order the C++ table maps them.
@@ -146,7 +146,7 @@ pub trait Sink {
     /// for the platform libc call.
     unsafe fn getopt_long(&mut self, argc: c_int, argv: *mut *mut c_char) -> c_int;
     fn set_int(&mut self, field: i32, value: i32) -> Result<(), Abort>;
-    /// a copy of `value` (null: a null CString)
+    /// Consume borrowed `value`, copying it if stored (null: a null CString).
     fn set_str(&mut self, field: i32, value: *const c_char) -> Result<(), Abort>;
     /// std::move of argument `index` of the argv array into the field (the
     /// entry becomes null)
@@ -603,11 +603,9 @@ fn init_command_line(s: &mut State, use_long: bool) -> Result<(), Abort> {
             b'P' | b'U' => pause(s, c as u8)?,
             b'R' => {
                 s.set(field::CLIENT_OPERATION, op::SET_RATE)?;
-                // (int)(atof(optarg) * 1024); out of the int range (or NaN) the
-                // C++ conversion is undefined: x86's cvttsd2si gives INT_MIN
-                let v = unsafe { atof(arg) } * 1024.0;
-                let v = if v.is_nan() || v >= 2147483648.0 || v < -2147483648.0 { i32::MIN } else { v as i32 };
-                s.set(field::SET_RATE, v)?;
+                // C++'s out-of-range float-to-int behavior depends on the host
+                // compiler/architecture. Do not impose x86 results on ARM.
+                s.sink.set_str(field::SET_RATE_ARG, arg)?;
                 Flow::Next
             }
             b'B' => system(s, arg)?,
@@ -792,8 +790,9 @@ fn init_file_arg(s: &mut State) -> Result<(), Abort> {
 /// place by getopt).
 ///
 /// # Safety
-/// `argv` points to `argc` non-null C strings. The sink may move entries
-/// already consumed by getopt, nulling them without freeing their strings.
+/// `argv` has `argc` non-null C strings followed by a null sentinel. The sink
+/// may move entries already consumed by getopt, nulling them and retaining
+/// their strings until the destination is overwritten or parsing finishes.
 /// Callbacks must preserve unread arguments; getopt globals are exclusive.
 pub unsafe fn parse(argc: c_int, argv: *mut *mut c_char, use_long: bool, sink: &mut dyn Sink) -> Result<(), Abort> {
     let mut s = State {

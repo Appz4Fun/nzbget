@@ -515,9 +515,11 @@ int nzbget_rs_nntp_join_group(const NzbgetRsNntpIo* io, const char* group, int* 
 // rust/src/cmdline.rs: field, edit); steal moves argv[index] into a field
 // (std::move, the entry becomes null). Callbacks return 0, or -1 when they
 // threw (parsing stops, the call returns -1: rethrow then). No callback may
-// unwind. String arguments are borrowed and must be copied before returning;
-// steal retains the moved allocation until parsing finishes. The argv array
-// initially contains argc non-NULL strings. NULL inputs/entries or missing
+// unwind. String arguments are borrowed for the callback; copy them if retained.
+// steal keeps a moved allocation alive until its destination is overwritten
+// or parsing finishes. The argv array
+// initially contains argc non-NULL strings followed by a NULL sentinel.
+// NULL inputs/entries or missing
 // callbacks return -1. getopt globals must not be used concurrently.
 typedef struct NzbgetRsCmdlineSink
 {

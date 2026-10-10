@@ -10,6 +10,8 @@ messages, getopt globals, and the permuted/moved argument array are compared too
 
 Usage: cmdline_differential.py BUILD_DIR [ROUNDS]
 Set CMDLINE_SHORT_ONLY=1 to test the build without getopt_long.
+CMDLINE_RUST_ARCHIVE and CMDLINE_CXX_FLAGS can select a Debug archive and
+compiler flags while reusing the build's other link dependencies.
 """
 import os
 from pathlib import Path
@@ -56,6 +58,7 @@ globals_block = tests_main[tests_main.index('#include "ServerPool.h"'):tests_mai
 
 decls = "\n".join(renamed("", h, n)[0:0] + h.replace("private:", "public:").replace("COMMANDLINEPARSER_H", n.upper() + "_H").replace("CommandLineParser", n)
                   for h, n in ((old_header, "OldCommandLineParser"), (header, "FallbackCommandLineParser")))
+rust_decl = header.replace("private:", "public:").replace("COMMANDLINEPARSER_H", "RUSTCOMMANDLINEPARSER_H").replace("CommandLineParser", "RustCommandLineParser")
 
 main = r'''
 #include "nzbget.h"
@@ -67,7 +70,7 @@ main = r'''
 #include <vector>
 #include <unistd.h>
 #include <clocale>
-''' + globals_block + r'''
+''' + rust_decl + globals_block + r'''
 #undef NZBGET_USE_RUST
 ''' + decls + r'''
 
@@ -75,6 +78,9 @@ static unsigned long long state = 0x9e3779b97f4a7c15ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
 static int below(int n) { return (int)(next() % (unsigned long long)n); }
 template <size_t N> static const char* pick(const char* const (&a)[N]) { return a[below(N)]; }
+
+// Distinguish NULL from the literal "(null)" and preserve list boundaries.
+static std::string str(const char* s) { return s ? std::to_string(strlen(s)) + ":" + s : "null"; }
 
 static const char* const ARGS[] = {"-c", "conf", "-n", "-p", "-s", "-D", "-v", "-h", "-o", "Opt=1", "-A", "F", "U",
 	"T", "P", "I", "5", "C", "cat", "N", "name", "DK", "key", "DS", "10", "DM", "score", "all", "force", "x", "-L", "FR",
@@ -87,15 +93,13 @@ static const char* const ARGS[] = {"-c", "conf", "-n", "-p", "-s", "-D", "-v", "
 template <class P> static std::string dumpList(P& p)
 {
 	std::string s;
-	for (CString& o : *p.GetOptionList()) s += std::string(o ? (const char*)o : "(null)") + ",";
+	for (CString& o : *p.GetOptionList()) s += str(o) + ",";
 	s += "|";
 	for (int id : *p.GetEditQueueIdList()) s += std::to_string(id) + ",";
 	s += "|";
-	for (CString& n : *p.GetEditQueueNameList()) s += std::string(n ? (const char*)n : "(null)") + ",";
+	for (CString& n : *p.GetEditQueueNameList()) s += str(n) + ",";
 	return s;
 }
-
-static std::string str(const char* s) { return s ? s : "(null)"; }
 
 template <class P> static std::string run(const std::vector<const char*>& args, int captureFd)
 {
@@ -131,7 +135,8 @@ template <class P> static std::string run(const std::vector<const char*>& args, 
 	s += str(p.GetConfigFilename()) + "|" + str(p.GetEditQueueText()) + "|" + str(p.GetArgFilename()) + "|" +
 		str(p.GetAddCategory()) + "|" + str(p.GetLastArg()) + "|" + str(p.GetAddNzbFilename()) + "|" + str(p.GetAddDupeKey()) + "|" +
 		str(p.GetWebGetFilename()) + "|" + str(p.GetPubKeyFilename()) + "|" + str(p.GetSigFilename()) + "|" + dumpList(p);
-	s += "|optind=" + std::to_string(optind) + "|optarg=" + str(optarg);
+	s += "|optind=" + std::to_string(optind) + "|optarg=" + str(optarg) +
+		"|optopt=" + std::to_string(optopt) + "|opterr=" + std::to_string(opterr);
 	for (CString& arg : p.m_args) s += "|argv=" + str(arg);
 	return s;
 }
@@ -151,20 +156,47 @@ int main(int argc, char** argv)
 	int fd = fileno(capture);
 	setlocale(LC_ALL, "");
 	std::vector<std::vector<const char*>> cases;
+	for (auto value : {"nan", "-nan", "inf", "-inf", "1e300", "-1e300", "2097152", "2097151.999999",
+		"-2097152", "-2097152.0001", "0x1p2", "1,25", "\t1.5", "", "x"})
+		cases.push_back({"nzbget", "-R", value});
+	// Moves overwrite an existing destination, including after getopt permutes
+	// the array. Clustered switches keep getopt's internal cursor in an argument.
+	for (auto prefix : {"-A", "-sA", "--append"})
+		cases.push_back({"nzbget", "file", prefix, "N", "first", "DK", "key1", "N", "second", "DK", "key2",
+			"-L", "FR", "pattern1", "-E", "G", "N", "pattern2", "1"});
+	for (auto option : {"-AL", "-LP", "-PS", "-sPn", "-R1.25", "-EG", "-EGR", "--", "--a", "--s",
+		"--edit=GN", "--list=FR", "--rate=", "--configfile", "--option", "--write=G"})
+		for (auto value : {"", "N", "I", "Opt=v", "--", "(null)", "\xff"})
+			cases.push_back({"nzbget", "file", option, value, "-c", "conf"});
+	// BString<100> truncates the first endpoint before atoi; large endpoints
+	// here stay adjacent to avoid allocating enormous ID lists.
+	std::vector<std::string> idCases = {"2147483646-2147483647", "2147483647-2147483646", "1-2-3",
+		"1,\t2,\n3,\v4,\f5,\r6", "1,\xa0" "2", "1,0,2", "1,2x,3", ", ,", "1,-2"};
+	for (int zeros : {97, 98, 99, 100, 200}) idCases.push_back(std::string(zeros, '0') + "1-3");
+	for (const auto& ids : idCases) cases.push_back({"nzbget", "-E", "G", "D", ids.c_str()});
 	for (auto mode : {"F", "FN", "FR", "G", "GN", "GR", "O", "H"})
-		for (auto action : {"T", "B", "P", "A", "R", "U", "D", "DP", "SF", "C", "K", "CP", "N", "M", "S", "O", "I", "+2", "-2", "0", "x"})
+		for (auto action : {"T", "B", "P", "A", "R", "U", "D", "DP", "SF", "C", "K", "CP", "N", "M", "S", "O", "I", "F", "G", "+2", "-2", "0", "x"})
 			for (auto value : {"1,3-5,7-6", "0", "00", "-1", "Opt=v", "[[:alpha:]]", "\\d+", "", " 2", "2147483647"})
 				cases.push_back({"nzbget", "-E", mode, action, value, "1", "-c", "conf"});
 	for (auto option : {"I", "C", "N", "DK", "DS", "DM"})
 		for (auto value : {"0", "-2", "2147483648", "score", "all", "force", "", "\xff"})
 			cases.push_back({"nzbget", "file.nzb", "-A", option, value, "-c", "conf"});
+	// Every early end of a structured command exercises missing values and
+	// the constructor's InitFileArg call even after InitCommandLine reports errors.
+	size_t fullCases = cases.size();
+	for (size_t i = 0; i < fullCases; ++i)
+		for (size_t len = 1; len < cases[i].size(); ++len)
+		{
+			std::vector<const char*> prefix(cases[i].begin(), cases[i].begin() + len);
+			cases.push_back(std::move(prefix));
+		}
 	for (long round = 0; round < rounds + (long)cases.size(); round++)
 	{
 		std::vector<const char*> args{"nzbget"};
 		if (round < (long)cases.size()) args = cases[round];
 		else { int n = below(15); for (int i = 0; i < n; i++) args.push_back(pick(ARGS)); }
 		std::string a = run<OldCommandLineParser>(args, fd);
-		std::string b = run<CommandLineParser>(args, fd);
+		std::string b = run<RustCommandLineParser>(args, fd);
 		std::string c = run<FallbackCommandLineParser>(args, fd);
 		if (a != b || a != c)
 		{
@@ -191,7 +223,9 @@ void TestSinkExceptions()
 {
     for (auto args : {
         std::vector<const char*>{"nzbget", "-A", "N", "name", "-c", "conf", "-o", "X=1", "-E", "G", "D", "1,3-5"},
-        std::vector<const char*>{"nzbget", "-E", "GN", "D", "name"}})
+        std::vector<const char*>{"nzbget", "file", "-A", "N", "first", "N", "second", "DK", "key", "-R", "nan"},
+        std::vector<const char*>{"nzbget", "-E", "GN", "D", "name"},
+        std::vector<const char*>{"nzbget", "-E", "G", "I", "invalid"}})
     {
         for (failAt = 1; failAt < 100; ++failAt)
         {
@@ -212,12 +246,14 @@ void TestSinkExceptions()
     failAt = 0;
 }
 '''
-    (temp / "new.cpp").write_text(renamed(instrumented, header, "CommandLineParser"))
+    # Rename this parser too: Debug/non-inlined dependencies can pull the
+    # application's CommandLineParser.o from libnzbget, causing duplicate symbols.
+    (temp / "new.cpp").write_text(renamed(instrumented, header, "RustCommandLineParser"))
     (temp / "old.cpp").write_text(renamed(old_src, old_header, "OldCommandLineParser"))
     (temp / "fallback.cpp").write_text(renamed(new_src, header, "FallbackCommandLineParser", fallback=True))
     binary = temp / "cmdline"
     for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], []):
-        subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
+        subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(os.environ.get("CMDLINE_CXX_FLAGS", get("CXX_FLAGS"))), *shlex.split(get("CXX_DEFINES")),
                         *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "old.cpp"),
                         str(temp / "fallback.cpp"), str(temp / "new.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)

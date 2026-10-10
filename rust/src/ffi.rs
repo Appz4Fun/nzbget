@@ -2142,10 +2142,12 @@ impl crate::cmdline::Sink for FfiCmdline<'_> {
 /// when a callback threw.
 ///
 /// # Safety
-/// `argv` points to `argc` C strings, writable as getopt permutes them.
+/// `argv` points to `argc` C strings and a trailing null sentinel, writable
+/// as getopt permutes them.
 /// NULL inputs/entries and missing callbacks return -1. Only consumed entries
-/// may be nulled by `steal`; it must keep their strings alive in the sink.
-/// String callbacks copy borrowed data before returning; no callback may
+/// may be nulled by `steal`; it keeps their strings alive until the destination
+/// is overwritten or parsing finishes. String callbacks copy borrowed data
+/// if retaining it; no callback may
 /// unwind. `sink` is valid; getopt globals are not used concurrently.
 /// Rust panics abort at this ABI boundary; they never unwind into C++.
 #[no_mangle]

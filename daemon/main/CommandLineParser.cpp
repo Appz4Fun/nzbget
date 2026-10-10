@@ -72,7 +72,16 @@ static char short_options[] = "c:hno:psvAB:DCE:G:K:LPR:STUQOVW:";
 struct CommandLineParser::RsSink
 {
 	CommandLineParser* parser;
+	char** argv;
 	std::exception_ptr error;
+
+	// getopt permutes pointers, not CString objects. Transfer the existing
+	// ownership into that order without aliasing a vector<CString> as char**.
+	void SyncArgs() noexcept
+	{
+		for (CString& arg : parser->m_args) arg.Unbind();
+		for (size_t i = 0; i < parser->m_args.size(); i++) parser->m_args[i].Bind(argv[i]);
+	}
 
 	template <typename F>
 	static int Call(void* ctx, F f) noexcept
@@ -128,7 +137,6 @@ int CommandLineParser::RsSetInt(void* ctx, int field, int value)
 			case 11: p->m_addDupeScore = value; break;
 			case 12: p->m_addDupeMode = DUPE_MODES[value]; break;
 			case 13: p->m_matchMode = (EMatchMode)value; break;
-			case 14: p->m_setRate = value; break;
 			case 15: p->m_testBacktrace = value; break;
 			case 16: p->m_webGet = value; break;
 			case 17: p->m_sigVerify = value; break;
@@ -155,14 +163,19 @@ int CommandLineParser::RsSetStr(void* ctx, int field, const char* value)
 			case 34: p->SetAddCategory(value); break;
 			case 35: p->m_lastArg = value; break;
 			case 36: p->m_argFilename = value; break;
+			// Keep the original host conversion, including its platform-specific
+			// result for NaN and out-of-range values (not portable C++ behavior).
+			case 40: p->m_setRate = (int)(atof(value) * 1024); break;
 		}
 	});
 }
 
 int CommandLineParser::RsSteal(void* ctx, int field, int index)
 {
-	return RsSink::Call(ctx, [field, index](CommandLineParser* p)
+	return RsSink::Call(ctx, [ctx, field, index](CommandLineParser* p)
 	{
+		RsSink* sink = static_cast<RsSink*>(ctx);
+		sink->SyncArgs();
 		CString& arg = p->m_args[index];
 		switch (field)
 		{
@@ -170,6 +183,7 @@ int CommandLineParser::RsSteal(void* ctx, int field, int index)
 			case 38: p->m_addDupeKey = std::move(arg); break;
 			case 39: p->m_editQueueText = std::move(arg); break;
 		}
+		sink->argv[index] = arg;
 	});
 }
 
@@ -215,7 +229,11 @@ CommandLineParser::CommandLineParser(int argc, const char* argv[])
 		m_args.emplace_back(argv[i]);
 	}
 
-	RsSink sink{this, nullptr};
+	std::vector<char*> args;
+	args.reserve(static_cast<size_t>(argc) + 1);
+	for (CString& arg : m_args) args.push_back(arg);
+	args.push_back(nullptr); // getopt's argv[argc] sentinel
+	RsSink sink{this, args.data(), nullptr};
 	NzbgetRsCmdlineSink rsSink{nullptr, &sink, RsSetInt, RsSetStr, RsSteal, RsPushOption, RsPushId, RsPushName, RsError};
 #ifdef HAVE_GETOPT_LONG
 	const int useLong = 1;
@@ -223,7 +241,8 @@ CommandLineParser::CommandLineParser(int argc, const char* argv[])
 #else
 	const int useLong = 0;
 #endif
-	int result = nzbget_rs_cmdline_parse(argc, (char**)m_args.data(), useLong, &rsSink);
+	int result = nzbget_rs_cmdline_parse(argc, args.data(), useLong, &rsSink);
+	sink.SyncArgs();
 	if (sink.error)
 	{
 		std::rethrow_exception(sink.error);
