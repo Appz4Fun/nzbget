@@ -828,12 +828,15 @@ void DupeArticleFallback::PinSources(DownloadQueue* downloadQueue, FileInfo* fil
 		}
 	}
 
-	if (candidates.empty() && !donors.empty())
+	if (candidates.empty() && !donors.empty() && !fileInfo->GetDupeNoSourceLogged())
 	{
-		// the silent "did not even try" case: say why no duplicate could help
+		// the silent "did not even try" case: say why no duplicate could help,
+		// once per file (it was once per missing article: dozens a second)
+		fileInfo->SetDupeNoSourceLogged(true);
 		nzbInfo->PrintMessage(Message::mkDetail,
 			"No duplicate source for %s [%i]: %i duplicate(s), %i same posting, "
-			"%i without readable nzb-file, none with a matching file (nzb name: %s)",
+			"%i without readable nzb-file, none with a matching file (nzb name: %s); "
+			"not repeated for its other articles",
 			fileInfo->GetFilename(), articleInfo->GetPartNumber(), (int)donors.size(),
 			samePosting, unparsed, targetNzbFilename.Empty() ? "unknown" : *targetNzbFilename);
 	}

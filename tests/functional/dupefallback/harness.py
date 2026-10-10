@@ -9421,6 +9421,27 @@ def scenario_pardamageborrow(daemon, t):
     return ('pardamageborrow', ok, 'primary=%s backup=%s failover_logs=%d' % (hp['Status'], hb['Status'], over))
 
 
+def scenario_nosourceonce(daemon, t):
+    """The only duplicate is another posting (other file names and sizes): no
+    article can be borrowed. "No duplicate source" was logged for every missing
+    article, dozens a second in production; now once per file."""
+    # 8 files with par2 (borrowing needs it to check), 13 articles lost in each
+    members = _pardamage_release(t, 'nsP', 12500, set(range(2, 41, 3)))
+    bmembers = []
+    for i in range(3):
+        bsize = 2_300_000
+        b = _place_copy(t, 'nsB', _payload(bsize, 12600 + i), 'other%02d.bin' % i)
+        bmembers.append((b, 'other%02d.bin' % i, bsize, 50_000, set()))
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(members), True, 'ns-key', 100)
+    daemon.append(api, 'Backup', build_multi_nzb(bmembers), True, 'ns-key', 90)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=300)
+    logs = _grep_log(t, 'No duplicate source for')
+    ok = 1 <= logs <= 8
+    return ('nosourceonce', ok, 'status=%s no_source_logs=%d (8 files, 104 missing articles)' % (hp['Status'], logs))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -9915,6 +9936,7 @@ SCENARIOS = {
     'parvolnames': scenario_parvolnames,
     'pardamagefailover': scenario_pardamagefailover,
     'pardamageborrow': scenario_pardamageborrow,
+    'nosourceonce': scenario_nosourceonce,
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
     'parlesstwin': scenario_parlesstwin,
@@ -10232,6 +10254,7 @@ SCENARIO_OPTIONS = {
     'parvolnames': ['ParCheck=auto'],
     'pardamagefailover': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
+    'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],

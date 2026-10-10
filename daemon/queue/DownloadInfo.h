@@ -227,6 +227,8 @@ public:
 	void SetDupeAttemptedArticles(int dupeAttemptedArticles) { m_dupeAttemptedArticles = dupeAttemptedArticles; }
 	bool GetDupeCutover() { return m_dupeCutover; }
 	void SetDupeCutover(bool dupeCutover) { m_dupeCutover = dupeCutover; }
+	bool GetDupeNoSourceLogged() { return m_dupeNoSourceLogged; }
+	void SetDupeNoSourceLogged(bool logged) { m_dupeNoSourceLogged = logged; }
 	int GetDupeLeadDonorId() { return m_dupeLeadDonorId; }
 	void SetDupeLeadDonorId(int dupeLeadDonorId) { m_dupeLeadDonorId = dupeLeadDonorId; }
 	int GetDupeLeadFailures() { return m_dupeLeadFailures; }
@@ -306,6 +308,7 @@ private:
 	// with the duplicate for the remaining articles instead of failing on the
 	// primary first (not persisted)
 	bool m_dupeCutover = false;
+	bool m_dupeNoSourceLogged = false;	// in memory only: said once per file
 	// nzb-id of the duplicate this file's fresh articles try first; rotated to
 	// the next duplicate when the lead keeps missing articles, so fresh
 	// articles do not re-fail on a holed posting; 0 = not decided yet, the
