@@ -28,6 +28,7 @@
 #include "Util.h"
 #ifdef NZBGET_USE_RUST
 #include <exception>
+#include <stdexcept>
 #include "nzbget_rs.h"
 #endif
 
@@ -192,8 +193,20 @@ int CommandLineParser::RsError(void* ctx, const char* msg)
 	return RsSink::Call(ctx, [msg](CommandLineParser* p) { p->ReportError(msg); });
 }
 
+#ifdef HAVE_GETOPT_LONG
+static int RsGetoptLong(int argc, char** argv) noexcept
+{
+	int index = 0;
+	return getopt_long(argc, argv, short_options, long_options, &index);
+}
+#endif
+
 CommandLineParser::CommandLineParser(int argc, const char* argv[])
 {
+	if (argc < 1 || !argv)
+	{
+		throw std::invalid_argument("Invalid command line");
+	}
 	// getopt_long reorders it (non-options to the end): rust/src/cmdline.rs
 	// parses it in place, as InitCommandLine did
 	m_args.reserve(argc);
@@ -203,16 +216,21 @@ CommandLineParser::CommandLineParser(int argc, const char* argv[])
 	}
 
 	RsSink sink{this, nullptr};
-	NzbgetRsCmdlineSink rsSink{&sink, RsSetInt, RsSetStr, RsSteal, RsPushOption, RsPushId, RsPushName, RsError};
+	NzbgetRsCmdlineSink rsSink{nullptr, &sink, RsSetInt, RsSetStr, RsSteal, RsPushOption, RsPushId, RsPushName, RsError};
 #ifdef HAVE_GETOPT_LONG
 	const int useLong = 1;
+	rsSink.getoptLong = RsGetoptLong;
 #else
 	const int useLong = 0;
 #endif
-	nzbget_rs_cmdline_parse(argc, (char**)m_args.data(), useLong, &rsSink);
+	int result = nzbget_rs_cmdline_parse(argc, (char**)m_args.data(), useLong, &rsSink);
 	if (sink.error)
 	{
 		std::rethrow_exception(sink.error);
+	}
+	if (result != 0)
+	{
+		throw std::runtime_error("Command line parsing failed");
 	}
 }
 #else

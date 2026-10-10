@@ -10,59 +10,12 @@ extern "C" {
     static mut optind: c_int;
     static mut optarg: *mut c_char;
     fn getopt(argc: c_int, argv: *const *mut c_char, optstring: *const c_char) -> c_int;
-    fn getopt_long(argc: c_int, argv: *const *mut c_char, optstring: *const c_char, longopts: *const LongOption, longindex: *mut c_int) -> c_int;
     fn atoi(s: *const c_char) -> c_int;
     fn atof(s: *const c_char) -> f64;
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
     fn getcwd(buf: *mut c_char, size: usize) -> *mut c_char;
 }
-
-/// struct option
-#[repr(C)]
-pub struct LongOption {
-    name: *const c_char,
-    has_arg: c_int,
-    flag: *mut c_int,
-    val: c_int,
-}
-
-// SAFETY: the table only points to static strings and is never written.
-unsafe impl Sync for LongOption {}
-
-const fn opt(name: &'static CStr, has_arg: c_int, val: u8) -> LongOption {
-    LongOption { name: name.as_ptr(), has_arg, flag: std::ptr::null_mut(), val: val as c_int }
-}
-
-static LONG_OPTIONS: [LongOption; 27] = [
-    opt(c"help", 0, b'h'),
-    opt(c"configfile", 1, b'c'),
-    opt(c"noconfigfile", 0, b'n'),
-    opt(c"printconfig", 0, b'p'),
-    opt(c"server", 0, b's'),
-    opt(c"daemon", 0, b'D'),
-    opt(c"version", 0, b'v'),
-    opt(c"serverversion", 0, b'V'),
-    opt(c"option", 1, b'o'),
-    opt(c"append", 0, b'A'),
-    opt(c"list", 0, b'L'),
-    opt(c"pause", 0, b'P'),
-    opt(c"unpause", 0, b'U'),
-    opt(c"rate", 1, b'R'),
-    opt(c"system", 0, b'B'),
-    opt(c"log", 1, b'G'),
-    opt(c"top", 0, b'T'),
-    opt(c"edit", 1, b'E'),
-    opt(c"connect", 0, b'C'),
-    opt(c"quit", 0, b'Q'),
-    opt(c"reload", 0, b'O'),
-    opt(c"write", 1, b'W'),
-    opt(c"category", 1, b'K'),
-    opt(c"scan", 0, b'S'),
-    LongOption { name: std::ptr::null(), has_arg: 0, flag: std::ptr::null_mut(), val: 0 },
-    LongOption { name: std::ptr::null(), has_arg: 0, flag: std::ptr::null_mut(), val: 0 },
-    LongOption { name: std::ptr::null(), has_arg: 0, flag: std::ptr::null_mut(), val: 0 },
-];
 
 const SHORT_OPTIONS: &CStr = c"c:hno:psvAB:DCE:G:K:LPR:STUQOVW:";
 
@@ -185,6 +138,13 @@ mod op {
 
 /// Where the parser's results go (the C++ CommandLineParser).
 pub trait Sink {
+    /// Use the host C++ option table and its HAVE_GETOPT_LONG selection.
+    /// Like libc getopt, this callback must not throw.
+    ///
+    /// # Safety
+    /// The arguments and exclusive access to getopt globals must be valid
+    /// for the platform libc call.
+    unsafe fn getopt_long(&mut self, argc: c_int, argv: *mut *mut c_char) -> c_int;
     fn set_int(&mut self, field: i32, value: i32) -> Result<(), Abort>;
     /// a copy of `value` (null: a null CString)
     fn set_str(&mut self, field: i32, value: *const c_char) -> Result<(), Abort>;
@@ -594,8 +554,7 @@ fn init_command_line(s: &mut State, use_long: bool) -> Result<(), Abort> {
     loop {
         let c = unsafe {
             if use_long {
-                let mut index = 0;
-                getopt_long(s.argc, s.argv, SHORT_OPTIONS.as_ptr(), LONG_OPTIONS.as_ptr(), &mut index)
+                s.sink.getopt_long(s.argc, s.argv)
             } else {
                 getopt(s.argc, s.argv, SHORT_OPTIONS.as_ptr())
             }
@@ -833,8 +792,9 @@ fn init_file_arg(s: &mut State) -> Result<(), Abort> {
 /// place by getopt).
 ///
 /// # Safety
-/// `argv` points to `argc` C strings (or nulls); getopt's globals are not
-/// used concurrently.
+/// `argv` points to `argc` non-null C strings. The sink may move entries
+/// already consumed by getopt, nulling them without freeing their strings.
+/// Callbacks must preserve unread arguments; getopt globals are exclusive.
 pub unsafe fn parse(argc: c_int, argv: *mut *mut c_char, use_long: bool, sink: &mut dyn Sink) -> Result<(), Abort> {
     let mut s = State {
         sink,
