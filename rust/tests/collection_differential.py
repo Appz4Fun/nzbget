@@ -4,8 +4,9 @@ on random download directories built on disk: AnalyzeDirectory (every field)
 and BuildPlan (every action and flag) for random release names and ignore
 lists, with existing files to collide with, and the name resolvers.
 
-The pre-port code is compiled as OldCollectionAnalyzer and linked with a
-built libnzbget.
+The pre-port code is compiled as OldCollectionAnalyzer, with independent
+C++ FileTypes and Deobfuscation helpers (including the original regexes),
+and linked with a built libnzbget.
 
 Usage: collection_differential.py BUILD_DIR [ROUNDS]
 """
@@ -33,7 +34,7 @@ flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
 get = lambda k: re.search(rf"^{k} = (.*)$", flags, re.M).group(1)
 if "-DNZBGET_USE_RUST" not in get("CXX_DEFINES"):
     sys.exit("the build doesn't use Rust: nothing to compare")
-link = (BUILD / "CMakeFiles/nzbget.dir/link.txt").read_text().split()
+link = shlex.split((BUILD / "CMakeFiles/nzbget.dir/link.txt").read_text())
 libs = link[link.index("liblibnzbget.a"):]
 
 harness = r'''
@@ -76,7 +77,7 @@ int main(int argc, char** argv) {
     const char* exts[] = {".mkv", ".MKV", ".mp4", ".avi", ".srt", ".en.srt", ".eng.sub", ".nfo", ".mp3", ".flac", ".epub",
         ".pdf", ".rar", ".par2", ".vob", ".ifo", ".cue", ".iso", ".jpg", ".txt", "", ".bin", ".mkv.1", ".duplicate1.mkv"};
     const char* targets[] = {"Movie.2014.1080p", "Show.S01E01.720p", "nzb", "", "abc", "a8f7s6d5f4g3h2j1k0l9", "Bad/Name:..",
-        "Movie.2014.1080p.mkv", "  spaced  ", "Re.Release", "CON", ".hidden", "Movie\nTitle", "Movie.\xff"};
+        "Movie.2014.1080p.mkv", "  spaced  ", "Re.Release", "CON", ".hidden", "Movie\nTitle", "Movie.\xff", "abc\n", "abc\r", "Backup_12345S01-02", "ABCDEFGHIJK123", "abcdefghijkl123"};
     const char* ignores[] = {nullptr, ".nfo", ".srt,.sub", "*.mkv"};
     fs::path base = fs::temp_directory_path() / ("nzbget-collection-" + std::to_string(getpid()));
     long cases = 0;
@@ -146,10 +147,18 @@ harness = harness.replace('std::string[]{"sub", "BDMV", "@eaDir", "CD1", "Sample
 with tempfile.TemporaryDirectory(prefix="nzbget-collection-") as temp:
     temp = Path(temp)
     (temp / "OldCollectionAnalyzer.h").write_text(header)
-    (temp / "OldCollectionAnalyzer.cpp").write_text(old)
+    # Do not let the reference call the same Rust classification/regex
+    # helpers as the implementation under test.
+    legacy = "#undef NZBGET_USE_RUST\n#define FileTypes OldFileTypes\n#define Deobfuscation OldDeobfuscation\n"
+    (temp / "OldCollectionAnalyzer.cpp").write_text(legacy + old)
+    helper_sources = []
+    for relative in ("daemon/util/FileTypes.cpp", "daemon/queue/Deobfuscation.cpp"):
+        source = temp / Path(relative).name
+        source.write_text(legacy + (ROOT / relative).read_text())
+        helper_sources.append(str(source))
     (temp / "main.cpp").write_text(harness)
     binary = temp / "collection"
     subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                    "-w", f"-I{temp}", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "OldCollectionAnalyzer.cpp"),
+                    "-w", f"-I{temp}", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "OldCollectionAnalyzer.cpp"), *helper_sources,
                     "-o", str(binary), *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
     subprocess.run([str(binary), ROUNDS], check=True)

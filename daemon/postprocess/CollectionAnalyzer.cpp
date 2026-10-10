@@ -111,18 +111,33 @@ namespace CollectionAnalyzer
 			return true;
 		}
 
-		std::vector<NzbgetRsFileEntry> ToRust(const std::vector<FileEntry>& files)
+		struct RustEntries
 		{
-			std::vector<NzbgetRsFileEntry> out;
-			out.reserve(files.size());
-			for (const FileEntry& f : files)
+			// Own the UTF-8 conversions until Rust has finished borrowing them.
+			std::vector<std::string> paths, renamePrefixes;
+			std::vector<NzbgetRsFileEntry> entries;
+
+			explicit RustEntries(const std::vector<FileEntry>& files)
 			{
-				const std::string& path = f.path.native();
-				out.push_back({path.data(), path.size(), f.filename.data(), f.filename.size(),
-					f.stem.data(), f.stem.size(), f.ext.data(), f.ext.size(), f.size});
+				paths.reserve(files.size());
+				renamePrefixes.reserve(files.size());
+				entries.reserve(files.size());
+				for (const FileEntry& f : files)
+				{
+					paths.push_back(fs::u8string(f.path));
+					// Preserve this standard library's root/separator spelling and
+					// Windows drive-relative paths. The appended name is removed.
+					std::string prefix = fs::u8string(f.path.parent_path() / fs::u8path("x"));
+					if (!prefix.empty()) prefix.pop_back();
+					renamePrefixes.push_back(std::move(prefix));
+					const auto& path = paths.back();
+					const auto& dir = renamePrefixes.back();
+					entries.push_back({path.data(), path.size(), dir.data(), dir.size(),
+						f.filename.data(), f.filename.size(), f.stem.data(), f.stem.size(),
+						f.ext.data(), f.ext.size(), f.size});
+				}
 			}
-			return out;
-		}
+		};
 
 		std::string TakeString(NzbgetRsBuf buf)
 		{
@@ -142,7 +157,8 @@ namespace CollectionAnalyzer
 	// rust/src/collection.rs
 	AnalysisResult Analyze(const std::vector<FileEntry>& files)
 	{
-		std::vector<NzbgetRsFileEntry> entries = ToRust(files);
+		RustEntries input(files);
+		const auto& entries = input.entries;
 		std::vector<size_t> subtitles(files.size()), nfos(files.size()), others(files.size());
 		NzbgetRsAnalysis a{};
 		a.subtitles = subtitles.data();
@@ -185,7 +201,8 @@ namespace CollectionAnalyzer
 		std::vector<FileEntry> files;
 		bool discFound = false;
 		Walk(dir, files, discFound);
-		std::vector<NzbgetRsFileEntry> entries = ToRust(files);
+		RustEntries input(files);
+		const auto& entries = input.entries;
 
 		PlanContext context{files, ignoreExt, plan};
 		NzbgetRsPlanCallbacks callbacks{};
@@ -193,7 +210,7 @@ namespace CollectionAnalyzer
 		callbacks.exists = [](void*, const char* path, size_t len) noexcept -> int
 		{
 			fs::error_code ec;
-			return fs::exists(fs::path(std::string(path, len)), ec);
+			return fs::exists(fs::u8path(std::string_view(path, len)), ec);
 		};
 		callbacks.ignored = [](void* user, const char* path, size_t len) noexcept -> int
 		{
@@ -204,7 +221,7 @@ namespace CollectionAnalyzer
 		{
 			PlanContext* c = static_cast<PlanContext*>(user);
 			const FileEntry& entry = c->files[file];
-			c->plan.actions.push_back({entry.path, fs::path(std::string(dst, dstLen)), entry.filename, std::string(name, nameLen)});
+			c->plan.actions.push_back({entry.path, fs::u8path(std::string_view(dst, dstLen)), entry.filename, std::string(name, nameLen)});
 		};
 		NzbgetRsPlanFlags flags{};
 		plan.effectiveBaseName = TakeString(nzbget_rs_collection_plan(entries.data(), entries.size(), discFound,

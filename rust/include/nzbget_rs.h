@@ -207,6 +207,8 @@ void nzbget_rs_normalize_path_separators(char* path);
 typedef struct
 {
 	const char* path; size_t pathLen;
+	// UTF-8 parent_path() / "x", with the final "x" removed.
+	const char* renamePrefix; size_t renamePrefixLen;
 	const char* filename; size_t filenameLen;
 	const char* stem; size_t stemLen;
 	const char* ext; size_t extLen;

@@ -747,6 +747,8 @@ pub unsafe extern "C" fn nzbget_rs_normalize_path_separators(path: *mut c_char) 
 pub struct FileEntryC {
     pub path: *const c_char,
     pub path_len: usize,
+    pub rename_prefix: *const c_char,
+    pub rename_prefix_len: usize,
     pub filename: *const c_char,
     pub filename_len: usize,
     pub stem: *const c_char,
@@ -764,6 +766,7 @@ unsafe fn entries(files: *const FileEntryC, count: usize) -> Vec<crate::collecti
         .iter()
         .map(|f| crate::collection::Entry {
             path: bytes(f.path, f.path_len).to_vec(),
+            rename_prefix: bytes(f.rename_prefix, f.rename_prefix_len).to_vec(),
             filename: bytes(f.filename, f.filename_len).to_vec(),
             stem: bytes(f.stem, f.stem_len).to_vec(),
             ext: bytes(f.ext, f.ext_len).to_vec(),
@@ -960,6 +963,7 @@ mod tests {
 
             let file = FileEntryC {
                 path: c"/d/abc.mkv".as_ptr(), path_len: 10,
+                rename_prefix: c"/d/".as_ptr(), rename_prefix_len: 3,
                 filename: c"abc.mkv".as_ptr(), filename_len: 7,
                 stem: c"abc".as_ptr(), stem_len: 3,
                 ext: c".mkv".as_ptr(), ext_len: 4, size: 1,

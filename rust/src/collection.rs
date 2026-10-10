@@ -13,12 +13,14 @@ extern "C" {
 
 use crate::deobfuscation::is_excessively_obfuscated;
 use crate::filetypes::{is_audio_ext, is_book_ext, is_disc_descriptor_ext, is_disc_structure_ext, is_nfo_ext, is_sample_stem, is_subtitle_ext, is_video_ext};
-use crate::paths::{sanitize_path_segment, PATH_SEPARATOR};
+use crate::paths::sanitize_path_segment;
 
 /// A file of the download (FileEntry).
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct Entry {
     pub path: Vec<u8>,
+    /// Exact UTF-8 prefix of parent_path() / filename, supplied by C++.
+    pub rename_prefix: Vec<u8>,
     pub filename: Vec<u8>,
     pub stem: Vec<u8>,
     pub ext: Vec<u8>,
@@ -130,33 +132,6 @@ pub fn stem_ext(name: &[u8]) -> (&[u8], &[u8]) {
     }
 }
 
-/// The file name of a path (after the last separator).
-fn file_name(path: &[u8]) -> &[u8] {
-    path.iter().rposition(|&b| b == PATH_SEPARATOR).map_or(path, |k| &path[k + 1..])
-}
-
-/// parent_path() / name, for the paths the directory walk gives.
-fn sibling(path: &[u8], name: &[u8]) -> Vec<u8> {
-    let parent = match path.iter().rposition(|&b| b == PATH_SEPARATOR) {
-        None => &path[..0],
-        Some(0) => &path[..1],
-        Some(mut k) => {
-            // parent_path() removes the entire separator run before the
-            // filename, retaining one separator for the root directory.
-            while k > 1 && path[k - 1] == PATH_SEPARATOR {
-                k -= 1;
-            }
-            &path[..k]
-        }
-    };
-    let mut p = parent.to_vec();
-    if !p.is_empty() && *p.last().unwrap() != PATH_SEPARATOR {
-        p.push(PATH_SEPARATOR);
-    }
-    p.extend_from_slice(name);
-    p
-}
-
 /// A planned rename (RenameAction): the file's index, the new path and name.
 #[derive(Debug, PartialEq)]
 pub struct Action {
@@ -212,7 +187,7 @@ pub fn build_plan(files: &[Entry], disc_dir: bool, target_name: &[u8], disk: &mu
             used.push(entry.path.clone());
             return entry.stem.clone();
         }
-        let mut dst = sibling(&entry.path, &clean);
+        let mut dst = [&entry.rename_prefix[..], &clean].concat();
         if disk.ignored(&dst) {
             return entry.stem.clone();
         }
@@ -223,13 +198,13 @@ pub fn build_plan(files: &[Entry], disc_dir: bool, target_name: &[u8], disk: &mu
             loop {
                 n += 1;
                 let name = [stem, b".duplicate", n.to_string().as_bytes(), ext].concat();
-                dst = sibling(&entry.path, &name);
+                dst = [&entry.rename_prefix[..], &name].concat();
                 if !collides(disk, &used, &dst) {
                     break;
                 }
             }
         }
-        let name = file_name(&dst).to_vec();
+        let name = dst[entry.rename_prefix.len()..].to_vec();
         let final_stem = stem_ext(&name).0.to_vec();
         used.push(dst.clone());
         plan.actions.push(Action { src: k, dst_path: dst, new_filename: name });
@@ -311,9 +286,10 @@ mod tests {
     use super::*;
 
     fn entry(path: &str, size: u64) -> Entry {
-        let name = file_name(path.as_bytes()).to_vec();
+        let split = path.rfind('/').map_or(0, |k| k + 1);
+        let name = path.as_bytes()[split..].to_vec();
         let (stem, ext) = stem_ext(&name);
-        Entry { path: path.into(), filename: name.clone(), stem: stem.to_vec(), ext: ext.to_vec(), size }
+        Entry { path: path.into(), rename_prefix: path.as_bytes()[..split].to_vec(), filename: name.clone(), stem: stem.to_vec(), ext: ext.to_vec(), size }
     }
 
     struct NoDisk;
@@ -337,13 +313,16 @@ mod tests {
     }
 
     #[test]
-    fn repeated_separators() {
-        for path in ["/d//abc.mkv", "/d///abc.mkv"] {
-            let p = build_plan(&[entry(path, 1)], false, b"Movie.2026", &mut NoDisk);
-            assert_eq!(p.actions[0].dst_path, b"/d/Movie.2026.mkv");
+    fn platform_path_prefixes() {
+        // The C++ library owns path spelling: libc++ preserves root runs,
+        // libstdc++ collapses them; Windows also has drive-relative paths.
+        for prefix in [&b"/"[..], b"///", b"/d/", b"C:", b"C:\\", b"C:/", b"\\\\server\\share\\", b""] {
+            let mut f = entry("abc.mkv", 1);
+            f.rename_prefix = prefix.to_vec();
+            let p = build_plan(&[f], false, b"Movie.2026", &mut NoDisk);
+            assert_eq!(p.actions[0].dst_path, [prefix, b"Movie.2026.mkv"].concat());
+            assert_eq!(p.actions[0].new_filename, b"Movie.2026.mkv");
         }
-        assert_eq!(sibling(b"///abc.mkv", b"Movie.mkv"), b"/Movie.mkv");
-        assert_eq!(sibling(b"d///abc.mkv", b"Movie.mkv"), b"d/Movie.mkv");
     }
 
     #[test]
