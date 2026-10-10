@@ -42,6 +42,7 @@
 #include "DiskState.h"
 #include "PrePostProcessor.h"
 #include "HistoryCoordinator.h"
+#include "TwinCheck.h"
 #include "DupeCoordinator.h"
 #include "Scheduler.h"
 #include "Scanner.h"
@@ -210,6 +211,7 @@ private:
 	std::unique_ptr<StatMeter> m_statMeter;
 	std::unique_ptr<PrePostProcessor> m_prePostProcessor;
 	std::unique_ptr<HistoryCoordinator> m_historyCoordinator;
+	std::unique_ptr<TwinCheck> m_twinCheck;
 	std::unique_ptr<DupeCoordinator> m_dupeCoordinator;
 	std::unique_ptr<DiskState> m_diskState;
 	std::unique_ptr<Scanner> m_scanner;
@@ -421,6 +423,7 @@ void NZBGet::CreateGlobals()
 	g_PrePostProcessor = m_prePostProcessor.get();
 
 	m_historyCoordinator = std::make_unique<HistoryCoordinator>();
+	m_twinCheck = std::make_unique<TwinCheck>();
 	g_HistoryCoordinator = m_historyCoordinator.get();
 
 	m_dupeCoordinator = std::make_unique<DupeCoordinator>();

@@ -76,6 +76,7 @@ target_sources(libnzbget PRIVATE
 	${CMAKE_SOURCE_DIR}/daemon/queue/DupeArticleFallback.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/DupeCoordinator.cpp
 	${CMAKE_SOURCE_DIR}/daemon/queue/DupeProbe.cpp
+	${CMAKE_SOURCE_DIR}/daemon/queue/TwinCheck.cpp
 	${CMAKE_SOURCE_DIR}/daemon/dupesearch/DeadPostings.cpp
 	${CMAKE_SOURCE_DIR}/daemon/dupesearch/DonorHealth.cpp
 	${CMAKE_SOURCE_DIR}/daemon/dupesearch/DonorScore.cpp

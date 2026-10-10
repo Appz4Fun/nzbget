@@ -243,7 +243,8 @@ var History = (new function($)
 			(hist.Category !== '' ? Util.textToHtml(hist.Category) : '<span class="none-category">' + I18n.translate('label_none') + '</span>')
 			: '';
 		var backup = hist.Kind === 'NZB' ? DownloadsUI.buildBackupLabel(hist) : '';
-		var dupeScore = hist.Kind === 'NZB' ? DownloadsUI.buildDupeScoreLabel(hist.DupeScore, hist.Health) : '';
+		var dupeScore = hist.Kind === 'NZB' ? DownloadsUI.buildDupeScoreLabel(hist.DupeScore, hist.Health) +
+			DownloadsUI.buildTwinGroupLabel(hist.Parameters, hist.Status.indexOf('DELETED/') !== 0) : '';
 
 		if (hist.Kind === 'URL')
 		{
@@ -667,7 +668,13 @@ var HistoryUI = (new function($)
 			{
 				if (detail === 'COPY') return I18n.translate('status_copy');
 				if (detail === 'MANUAL') return I18n.translate('btn_history_filter_deleted');
-				if (detail === 'DUPE') return I18n.translate('status_dupe');
+				if (detail === 'DUPE')
+				{
+					// a twin or an alt of the primary of its dupe key (TwinCheck)
+					var kind = hist.Kind === 'NZB' ? DownloadsUI.parameterValue(hist.Parameters, 'DupeKind') : '';
+					return kind === 'twin' ? I18n.translate('status_twin') :
+						kind === 'alt' ? I18n.translate('status_alt') : I18n.translate('status_dupe');
+				}
 				if (detail === 'GOOD') return I18n.translate('status_good');
 				if (detail === 'SUCCESS') return I18n.translate('status_success');
 				if (detail === 'HEALTH') return I18n.translate('status_health_val');

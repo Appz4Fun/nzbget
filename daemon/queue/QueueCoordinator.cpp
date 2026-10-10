@@ -35,6 +35,7 @@
 #include "Deobfuscation.h"
 #include "DupeCoordinator.h"
 #include "DupeProbe.h"
+#include "TwinCheck.h"
 #include "DupeStreamRepair.h"
 #include "ParDamage.h"
 #include "DupeArticleFallback.h"
@@ -102,6 +103,7 @@ QueueCoordinator::QueueCoordinator()
 	g_WorkState->Attach(this);
 	// a reload creates a new coordinator: probes may run again
 	DupeProbe::Reset();
+	TwinCheck::Reset();
 }
 
 QueueCoordinator::~QueueCoordinator()
@@ -109,6 +111,7 @@ QueueCoordinator::~QueueCoordinator()
 	debug("Destroying QueueCoordinator");
 
 	DupeProbe::WaitAll();
+	TwinCheck::WaitAll();
 
 	for (ArticleDownloader* articleDownloader : m_activeDownloads)
 	{
@@ -522,6 +525,7 @@ void QueueCoordinator::Stop()
 	Thread::Stop();
 
 	DupeProbe::StopAll();
+	TwinCheck::StopAll();
 
 	debug("Stopping ArticleDownloads");
 	{

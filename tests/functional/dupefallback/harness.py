@@ -9442,6 +9442,57 @@ def scenario_nosourceonce(daemon, t):
     return ('nosourceonce', ok, 'status=%s no_source_logs=%d (8 files, 104 missing articles)' % (hp['Status'], logs))
 
 
+def _twin_release(t, tag, seed, seg, block, recovery):
+    """2 data files of <seed>'s bytes with a par2 set of <block> and <recovery>
+    blocks, posted in articles of <seg> bytes."""
+    import subprocess as _sp
+    work = t.path('data', tag)
+    os.makedirs(work, exist_ok=True)
+    names = []
+    for i in range(2):
+        name = 'rel.part%02d.rar' % (i + 1)
+        t.write_file(os.path.join('data', tag, name), _payload(1_500_000, seed + i))
+        names.append(name)
+    _sp.run(['par2', 'create', '-q', '-q', '-s%d' % block, '-c%d' % recovery, '-n2', '-a', 'rel', 'rel.par2'] + names,
+            cwd=work, check=True, capture_output=True)
+    members = []
+    for name in sorted(os.listdir(work)):
+        members.append(('%s/%s' % (tag, name), name, os.path.getsize(os.path.join(work, name)), seg, set()))
+    return members
+
+
+def scenario_twinalt(daemon, t):
+    """A dupe key with three postings: the primary; a twin (the same files, posted
+    in other article sizes with another par2 set: other block size and parity
+    level); and an alt (another encode: other bytes). Each gets a fingerprint
+    from its smallest par2-file, and the duplicates in history are labelled a
+    twin or an alt of the primary."""
+    primary = _twin_release(t, 'taP', 12700, 50_000, 65536, 4)
+    twin = _twin_release(t, 'taT', 12700, 70_000, 131072, 9)
+    alt = _twin_release(t, 'taA', 12800, 50_000, 65536, 4)
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'ta-key', 100)
+    daemon.append(api, 'Twin', build_multi_nzb(twin), False, 'ta-key', 90)
+    daemon.append(api, 'Alt', build_multi_nzb(alt), False, 'ta-key', 80)
+    daemon.wait_history(api, 'Alt', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    daemon.wait_history(api, 'Primary', timeout=180)
+
+    def param(h, name):
+        return next((p['Value'] for p in h.get('Parameters', []) if p['Name'] == name), '')
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        hist = {h['Name']: h for h in api.history()}
+        kinds = {n: param(hist.get(n, {}), 'DupeKind') for n in ('Twin', 'Alt')}
+        if kinds['Twin'] and kinds['Alt']:
+            break
+        time.sleep(2)
+    prints = {n: param(hist.get(n, {}), 'DupeFiles') for n in ('Primary', 'Twin', 'Alt')}
+    ok = (kinds == {'Twin': 'twin', 'Alt': 'alt'} and prints['Primary'] == prints['Twin'] and
+          prints['Primary'] != prints['Alt'] and prints['Primary'] not in ('', 'none'))
+    return ('twinalt', ok, 'kinds=%s prints=%s' % (kinds, prints))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -9950,6 +10001,7 @@ SCENARIOS = {
     'pardamagefailover': scenario_pardamagefailover,
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
+    'twinalt': scenario_twinalt,
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
     'parlesstwin': scenario_parlesstwin,
@@ -10269,6 +10321,7 @@ SCENARIO_OPTIONS = {
     'pardamagefailover': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
+    'twinalt': ['HealthCheck=dupe'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],

@@ -3378,6 +3378,18 @@
     "message": "encrypted",
     "description": "Status label indicating that a download contains encrypted files. Used in UI labels."
   },
+  "status_twin": {
+    "message": "twin",
+    "description": "History status of a duplicate whose files are byte-identical to the primary download's (by their par2 checksums)."
+  },
+  "status_alt": {
+    "message": "alt",
+    "description": "History status of a duplicate that is another encode of the same release (its files differ from the primary's)."
+  },
+  "desc_twin_group": {
+    "message": "Twin group $1: postings with this label hold byte-identical files",
+    "description": "Tooltip of the twin group label. $1 is the posting's fingerprint."
+  },
   "label_dupe_score": {
     "message": "dupe score: $1 | $2%",
     "description": "Badge next to a download's name: $1 is its duplicate score, $2 its health in percent."

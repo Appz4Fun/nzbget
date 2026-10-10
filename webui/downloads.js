@@ -290,14 +290,14 @@ var Downloads = (new function($)
 			priority = '<div data-nzbid="' + group.NZBID + '"' +  (group.postprocess ? ' class="dropdown-disabled"' : '') + '>' + priority + '</div>';
 			status = '<div data-nzbid="' + group.NZBID + '">' + status + '</div>';
 			category = '<div data-nzbid="' + group.NZBID + '"' +  (group.postprocess ? ' class="dropdown-disabled"' : '') + '>' + category + '</div>';
-			var info = name + ' ' + url + dupe + dupeScore + health + backup + propagation + progresslabel;
+			var info = name + ' ' + url + dupe + dupeScore + DownloadsUI.buildTwinGroupLabel(group.Parameters, group.Status !== 'PAUSED') + health + backup + propagation + progresslabel;
 			item.fields = ['<div class="check img-check"></div>', priority, status, info, category, item.data.age, progress, item.data.estimated];
 		}
 		else
 		{
 			var info = '<div class="check img-check"></div><span class="row-title">' +
 				name + '</span>' + url + ' ' + (group.MaxPriority == 0 ? '' : priority) +
-				' ' + (group.Status === 'QUEUED' ? '' : status) + dupe + dupeScore + health + backup + propagation;
+				' ' + (group.Status === 'QUEUED' ? '' : status) + dupe + dupeScore + DownloadsUI.buildTwinGroupLabel(group.Parameters, group.Status !== 'PAUSED') + health + backup + propagation;
 			if (group.Category !== '')
 			{
 				info += ' <span class="label label-status">' + category + '</span>';
@@ -972,6 +972,35 @@ var DownloadsUI = (new function($)
 		}
 		return encryptedPassword != '' ?
 			' <span class="label label-info" title="'+ Util.textToAttr(encryptedPassword) +'">' + I18n.translate('label_encrypted') + '</span>' : '';
+	}
+
+	this.parameterValue = function(parameters, name)
+	{
+		for (var i = 0; parameters && i < parameters.length; i++)
+		{
+			if (parameters[i].Name.toLowerCase() === name.toLowerCase())
+			{
+				return parameters[i].Value;
+			}
+		}
+		return '';
+	}
+
+	// the twin group of a posting: the first characters of its fingerprint (postings
+	// with byte-identical files share it), in a colour taken from it
+	this.buildTwinGroupLabel = function(parameters, primary)
+	{
+		var print = DownloadsUI.parameterValue(parameters, 'DupeFiles');
+		if (!/^[0-9a-f]{16}-[0-9]+$/.test(print))
+		{
+			return '';
+		}
+		var hue = parseInt(print.substring(0, 6), 16) % 360;
+		// TWIN-/ALT- of the primary, PRIMARY- on the primary itself
+		var kind = DownloadsUI.parameterValue(parameters, 'DupeKind');
+		var prefix = kind === 'twin' ? 'TWIN-' : kind === 'alt' ? 'ALT-' : primary ? 'PRIMARY-' : '';
+		return ' <span class="label" style="background-color: hsl(' + hue + ', 45%, 40%)" title="' +
+			Util.textToAttr(I18n.translate('desc_twin_group', print)) + '">' + prefix + print.substring(0, 6) + '</span>';
 	}
 
 	// "dupe score: N | H%", coloured by the health: green 95-100%, yellow 85-95%, red below
