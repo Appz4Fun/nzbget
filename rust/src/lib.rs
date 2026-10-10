@@ -3,3 +3,4 @@
 
 pub mod escape;
 pub mod ffi;
+pub mod wildmask;

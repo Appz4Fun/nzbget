@@ -187,6 +187,30 @@ BOOST_AUTO_TEST_CASE(WildMaskTest)
 	BOOST_CHECK(mask.Match("par2") == false);
 }
 
+BOOST_AUTO_TEST_CASE(WildMaskCaptureBacktrackingTest)
+{
+	WildMask mask("*?ab", true);
+	std::string text(200, 'a');
+	text += 'b';
+	BOOST_REQUIRE(mask.Match(text.c_str()));
+	BOOST_REQUIRE_EQUAL(mask.GetMatchCount(), 200);
+	BOOST_CHECK_EQUAL(mask.GetMatchStart(0), 0);
+	BOOST_CHECK_EQUAL(mask.GetMatchLen(0), 0);
+	BOOST_CHECK_EQUAL(mask.GetMatchStart(199), 198);
+	BOOST_CHECK_EQUAL(mask.GetMatchLen(199), 2);
+
+	// Failed matches expose partial captures, and repeated calls reset them.
+	WildMask failed("?x", true);
+	BOOST_CHECK(!failed.Match("ay"));
+	BOOST_REQUIRE_EQUAL(failed.GetMatchCount(), 1);
+	BOOST_CHECK_EQUAL(failed.GetMatchStart(0), 0);
+	BOOST_CHECK_EQUAL(failed.GetMatchLen(0), 1);
+	BOOST_CHECK(!failed.Match(""));
+	BOOST_CHECK_EQUAL(failed.GetMatchCount(), 0);
+	BOOST_CHECK(failed.Match("ax"));
+	BOOST_CHECK_EQUAL(failed.GetMatchCount(), 1);
+}
+
 BOOST_AUTO_TEST_CASE(RegExTest)
 {
 	RegEx regExRar(".*\\.rar$");

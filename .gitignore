@@ -101,3 +101,6 @@ docker/config
 
 # local, credential-driven manual tests — never commit
 tests/manual/
+
+# Rust build output
+rust/target/
