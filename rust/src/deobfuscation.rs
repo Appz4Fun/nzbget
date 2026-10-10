@@ -163,7 +163,7 @@ fn looks_like_camel_case_title(tok: &[u8]) -> bool {
     if tail.iter().all(|&c| digit(c)) && ((1..=3).contains(&tail.len()) || is_year(tail)) {
         return true;
     }
-    ROMAN.iter().any(|r| tail == *r)
+    ROMAN.contains(&tail)
 }
 
 fn is_vowel(c: u8) -> bool {
