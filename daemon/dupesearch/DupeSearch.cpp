@@ -110,6 +110,8 @@ DupeSearch::DupeSearch()
 DupeSearch::~DupeSearch()
 {
 	debug("Destroying DupeSearch");
+	// the queue (QueueCoordinator's) outlives this, and would notify freed memory
+	DownloadQueue::Guard()->Detach(&m_observer);
 }
 
 void DupeSearch::Stop()
@@ -562,16 +564,16 @@ void DupeSearch::Search(const Job& job)
 	rejected["parse"] += fetchStats.parse;
 	rejected["deadline"] += notTried;
 
-	// a search that learned nothing - every query failed, or no posting could be
-	// fetched (indexers refusing, the deadline) - doesn't hold the key for
-	// SearchWindowSec: the next add of the key, or a restart, searches it again
-	bool queriesFailed = stats.queries > 0 && stats.failed == stats.queries;
+	// a search that learned nothing - a query failed and nothing came back, or no
+	// posting could be fetched (indexers refusing, the deadline) - doesn't hold the
+	// key for SearchWindowSec: the next add of the key, or a restart, searches it again
+	bool queriesFailed = stats.failed > 0 && fetched.empty();
 	bool nothingFetched = fetched.empty() && fetchStats.refused + fetchStats.fetch + notTried > 0;
 	if (queriesFailed || nothingFetched)
 	{
 		ForgetSearch(job.dupeKey);
 		Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: %s, the key may be searched again", job.name.c_str(),
-			queriesFailed ? "no indexer answered" : "no posting could be fetched");
+			queriesFailed ? "an indexer query failed and nothing came back" : "no posting could be fetched");
 	}
 
 	// what was fetched is kept until it is placed: a restart resumes from it
@@ -775,7 +777,9 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 					Placed& donor = it->second;
 					ranks.Release(donor.entry.score);
 					int score = isDead ? DonorScore::Dead : ranks.Take(alive, donor.entry.twin);
-					std::string param = std::string(AliveParam) + "=" + std::to_string(alive < 0 ? 100 : (int)std::lround(100 * alive));
+					// one found dead says so (DupeAlive=0): a measured 5% would stay a backup
+					std::string param = std::string(AliveParam) + "=" +
+						std::to_string(isDead ? 0 : alive < 0 ? 100 : (int)std::lround(100 * alive));
 					if (alive < 0 || SetScore(donor.id, base + score,
 						param.empty() ? std::vector<std::string>() : std::vector<std::string>{ param }))
 					{
