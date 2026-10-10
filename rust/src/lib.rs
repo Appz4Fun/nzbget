@@ -10,6 +10,7 @@ pub mod escape;
 pub mod extload;
 pub mod feedfilter;
 pub mod filetypes;
+pub mod nntp;
 pub mod options;
 pub mod paths;
 pub mod rpcparams;
