@@ -42,6 +42,7 @@ endif()
 
 if(NOT NZBGET_RUST_TARGET)
 	execute_process(COMMAND "${RUSTC}" -vV OUTPUT_VARIABLE RUST_VERSION
+		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
 		ERROR_VARIABLE RUST_VERSION_ERROR RESULT_VARIABLE RUST_STATUS)
 	if(NOT RUST_STATUS EQUAL 0 OR NOT RUST_VERSION MATCHES "host: ([^\r\n]+)")
 		message(STATUS "Rust host toolchain unavailable: using C++ web encoders")
@@ -55,9 +56,11 @@ if(NOT NZBGET_RUST_TARGET)
 endif()
 
 # The crate is built with Rust 1.99 (rust/rust-toolchain.toml, rust-version in
-# Cargo.toml). Cargo gets the rustc checked here (RUSTC).
+# Cargo.toml). Every probe runs in rust/, so rustup picks the pinned toolchain
+# there as it does for the build; Cargo gets the rustc checked here (RUSTC).
 foreach(RUST_TOOL CARGO RUSTC)
 	execute_process(COMMAND "${${RUST_TOOL}}" --version OUTPUT_VARIABLE RUST_TOOL_VERSION
+		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
 		ERROR_QUIET RESULT_VARIABLE RUST_TOOL_STATUS)
 	if(NOT RUST_TOOL_STATUS EQUAL 0 OR NOT RUST_TOOL_VERSION MATCHES "^[a-z]+ ([0-9]+\\.[0-9]+\\.[0-9]+)"
 		OR CMAKE_MATCH_1 VERSION_LESS 1.99)
@@ -99,6 +102,7 @@ execute_process(
 		--target "${NZBGET_RUST_TARGET}" --print native-static-libs
 		"${CMAKE_BINARY_DIR}/rust/native-libs.rs" -o "${CMAKE_BINARY_DIR}/rust/native-libs.a"
 	RESULT_VARIABLE RUST_STATUS OUTPUT_VARIABLE RUST_NATIVE_OUTPUT ERROR_VARIABLE RUST_NATIVE_ERROR
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
 )
 if(NOT RUST_STATUS EQUAL 0)
 	if(RUST_TARGET_EXPLICIT)
