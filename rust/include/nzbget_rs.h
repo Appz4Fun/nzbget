@@ -414,6 +414,46 @@ void nzbget_rs_convert_old_option(const char* option, const char* value, NzbgetR
 int nzbget_rs_has_script(const char* list, const char* name);
 int nzbget_rs_parse_category_source(const char* value);
 
+// ExtensionLoader::V1 (rust/src/extload.rs): a pre-manifest script's header.
+// parse returns a handle (free with ext_v1_free) or NULL when the file isn't
+// an extension script. Strings are borrowed from the handle (not NUL-
+// terminated). text: 0 about (untrimmed), 1 queue events, 2 task time,
+// 3 description line i, 4 requirement i. count: 0 description lines,
+// 1 requirements, 2 options, 3 commands. item_text (command 0 option, 1
+// command): 0 section name, 1 section prefix, 2 name, 3 action, 4 description
+// line j. item_count: 0 section multi, 1 description lines, 2 select values.
+// select: option i's value (j == SIZE_MAX) or select value j: 1 a number in
+// *num, 0 a text in *text, -1 none.
+typedef struct NzbgetRsStr
+{
+	const char* data;
+	size_t len;
+} NzbgetRsStr;
+typedef struct NzbgetRsExtV1 NzbgetRsExtV1;
+// data is borrowed for this call; NULL is empty. The result owns its bytes.
+// rightSpace classifies byte 0..255 as Util::TrimRight does in the caller's
+// current C locale and char signedness. It must not throw. NULL returns NULL.
+// All returned strings are length-delimited, may contain NUL, are immutable,
+// and remain valid until free(h); never free them separately. Free accepts NULL.
+// Invalid indexes/fields and NULL handles return empty/zero (select: -1).
+// select outputs may be NULL: if the required output is NULL, returns -1;
+// otherwise writes only that output. Outputs must not overlap the handle.
+// Rust panics abort; no exception may unwind through these functions.
+NzbgetRsExtV1* nzbget_rs_ext_v1_parse(const char* data, size_t len, int (*rightSpace)(int));
+// next returns one std::getline line (without '\n'): 1 line, 0 EOF, -1 error.
+// Its bytes remain readable until next is called again. On error parsing
+// returns NULL. next must catch all C++ exceptions; rethrow after read returns.
+// NULL callbacks return NULL. No callback is retained after this call.
+typedef int (*NzbgetRsExtV1Next)(void* context, NzbgetRsStr* line);
+NzbgetRsExtV1* nzbget_rs_ext_v1_read(NzbgetRsExtV1Next next, void* context, int (*rightSpace)(int));
+void nzbget_rs_ext_v1_free(NzbgetRsExtV1* h);
+int nzbget_rs_ext_v1_kind(const NzbgetRsExtV1* h);
+NzbgetRsStr nzbget_rs_ext_v1_text(const NzbgetRsExtV1* h, int which, size_t i);
+size_t nzbget_rs_ext_v1_count(const NzbgetRsExtV1* h, int which);
+NzbgetRsStr nzbget_rs_ext_v1_item_text(const NzbgetRsExtV1* h, int command, size_t i, int field, size_t j);
+size_t nzbget_rs_ext_v1_item_count(const NzbgetRsExtV1* h, int command, size_t i, int which);
+int nzbget_rs_ext_v1_select(const NzbgetRsExtV1* h, size_t i, size_t j, double* num, NzbgetRsStr* text);
+
 #ifdef __cplusplus
 }
 #endif

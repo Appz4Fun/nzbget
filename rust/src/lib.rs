@@ -7,6 +7,7 @@ pub mod decode;
 pub mod decoder;
 pub mod deobfuscation;
 pub mod escape;
+pub mod extload;
 pub mod feedfilter;
 pub mod filetypes;
 pub mod options;

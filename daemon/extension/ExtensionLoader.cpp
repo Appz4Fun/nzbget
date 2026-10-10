@@ -24,6 +24,11 @@
 #include "ManifestFile.h"
 #include "ScriptConfig.h"
 #include "FileSystem.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include <memory>
+#include "nzbget_rs.h"
+#endif
 
 namespace
 {
@@ -58,6 +63,144 @@ namespace ExtensionLoader
 
 	namespace V1
 	{
+#ifdef NZBGET_USE_RUST
+		bool Load(Extension::Script& script, const char* location, const char* rootDir)
+		{
+			std::ifstream file(script.GetEntry());
+			if (!file.is_open())
+			{
+				return false;
+			}
+			// Keep std::getline's text-mode behavior and stop reading at the same
+			// line as the old parser. A script body need not fit in memory.
+			struct Reader
+			{
+				std::ifstream& file;
+				std::string line;
+				std::exception_ptr error;
+			} reader{file, {}, {}};
+			auto next = [](void* context, NzbgetRsStr* line) noexcept -> int
+			{
+				auto& r = *static_cast<Reader*>(context);
+				try
+				{
+					if (!std::getline(r.file, r.line)) return 0;
+					*line = {r.line.data(), r.line.size()};
+					return 1;
+				}
+				catch (...)
+				{
+					r.error = std::current_exception();
+					return -1;
+				}
+			};
+			auto rightSpace = [](int byte) noexcept -> int
+			{
+				// Match Util::TrimRight, including compiler-selected signedness.
+				int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+				return std::isspace(ch);
+#else
+				return ch < 0 ? 0 : std::isspace(ch);
+#endif
+			};
+			std::unique_ptr<NzbgetRsExtV1, void (*)(NzbgetRsExtV1*)> parsed(
+				nzbget_rs_ext_v1_read(next, &reader, rightSpace), nzbget_rs_ext_v1_free);
+			// Rethrow only after Rust has returned and discarded the partial parse.
+			if (reader.error) std::rethrow_exception(reader.error);
+			if (!parsed)
+			{
+				return false;
+			}
+			const NzbgetRsExtV1* h = parsed.get();
+			auto text = [](NzbgetRsStr str) { return std::string(str.data ? str.data : "", str.len); };
+			auto selectOpt = [h](size_t i, size_t j)
+			{
+				double num = 0;
+				NzbgetRsStr str{};
+				if (nzbget_rs_ext_v1_select(h, i, j, &num, &str) == 1)
+				{
+					return ManifestFile::SelectOption(num);
+				}
+				return ManifestFile::SelectOption(std::string(str.data ? str.data : "", str.len));
+			};
+			auto fillItem = [h, &text](auto& item, int command, size_t i)
+			{
+				item.section.name = text(nzbget_rs_ext_v1_item_text(h, command, i, 0, 0));
+				item.section.prefix = text(nzbget_rs_ext_v1_item_text(h, command, i, 1, 0));
+				item.section.multi = nzbget_rs_ext_v1_item_count(h, command, i, 0) != 0;
+				item.name = text(nzbget_rs_ext_v1_item_text(h, command, i, 2, 0));
+				item.displayName = item.name;
+				for (size_t j = 0; j < nzbget_rs_ext_v1_item_count(h, command, i, 1); j++)
+				{
+					item.description.push_back(text(nzbget_rs_ext_v1_item_text(h, command, i, 4, j)));
+				}
+			};
+
+			int kindBits = nzbget_rs_ext_v1_kind(h);
+			Extension::Kind kind;
+			kind.post = kindBits & 1;
+			kind.scan = kindBits & 2;
+			kind.queue = kindBits & 4;
+			kind.scheduler = kindBits & 8;
+			kind.feed = kindBits & 16;
+
+			std::string about = text(nzbget_rs_ext_v1_text(h, 0, 0));
+			std::string queueEvents = text(nzbget_rs_ext_v1_text(h, 1, 0));
+			std::string taskTime = text(nzbget_rs_ext_v1_text(h, 2, 0));
+			std::vector<std::string> description;
+			for (size_t i = 0; i < nzbget_rs_ext_v1_count(h, 0); i++)
+			{
+				description.push_back(text(nzbget_rs_ext_v1_text(h, 3, i)));
+			}
+			std::vector<std::string> requirements;
+			for (size_t i = 0; i < nzbget_rs_ext_v1_count(h, 1); i++)
+			{
+				requirements.push_back(text(nzbget_rs_ext_v1_text(h, 4, i)));
+			}
+			std::vector<ManifestFile::Option> options;
+			for (size_t i = 0; i < nzbget_rs_ext_v1_count(h, 2); i++)
+			{
+				ManifestFile::Option option{};
+				fillItem(option, 0, i);
+				option.value = selectOpt(i, SIZE_MAX);
+				for (size_t j = 0; j < nzbget_rs_ext_v1_item_count(h, 0, i, 2); j++)
+				{
+					option.select.push_back(selectOpt(i, j));
+				}
+				options.push_back(std::move(option));
+			}
+			std::vector<ManifestFile::Command> commands;
+			for (size_t i = 0; i < nzbget_rs_ext_v1_count(h, 3); i++)
+			{
+				ManifestFile::Command command{};
+				fillItem(command, 1, i);
+				command.action = text(nzbget_rs_ext_v1_item_text(h, 1, i, 3, 0));
+				commands.push_back(std::move(command));
+			}
+			parsed.reset();
+
+			BuildDisplayName(script);
+			Util::TrimRight(about);
+
+			requirements.shrink_to_fit();
+			options.shrink_to_fit();
+			commands.shrink_to_fit();
+
+			script.SetLocation(location);
+			script.SetRootDir(rootDir);
+			script.SetRequirements(std::move(requirements));
+			script.SetKind(std::move(kind));
+			script.SetQueueEvents(std::move(queueEvents));
+			script.SetAbout(std::move(about));
+			script.SetDescription(std::move(description));
+			script.SetTaskTime(std::move(taskTime));
+			script.SetOptions(std::move(options));
+			script.SetCommands(std::move(commands));
+
+			return true;
+		}
+#else
 		bool Load(Extension::Script& script, const char* location, const char* rootDir)
 		{
 			std::ifstream file(script.GetEntry());
@@ -195,6 +338,8 @@ namespace ExtensionLoader
 
 			return true;
 		}
+#endif
+
 
 		void RemoveTailAndTrim(std::string& str, const char* tail)
 		{

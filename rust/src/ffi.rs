@@ -1673,9 +1673,261 @@ pub unsafe extern "C" fn nzbget_rs_parse_category_source(value: *const c_char) -
     crate::options::parse_category_source((!value.is_null()).then(|| CStr::from_ptr(value)))
 }
 
+/// Borrowed bytes: NzbgetRsStr.
+#[repr(C)]
+pub struct RsStr {
+    pub data: *const c_char,
+    pub len: usize,
+}
+
+fn rs_str(v: &[u8]) -> RsStr {
+    RsStr { data: v.as_ptr().cast(), len: v.len() }
+}
+
+const NO_STR: RsStr = RsStr { data: std::ptr::null(), len: 0 };
+
+/// ExtensionLoader::V1's parsing of a script file's `len` bytes. Owns the
+/// result independently of the input. Null input is empty regardless of len;
+/// a missing classifier or unrepresentable length returns null.
+///
+/// # Safety
+/// Nonnull `data` is readable for `len` bytes (at most isize::MAX).
+/// `right_space` classifies a byte as C++ Util::TrimRight does and must not
+/// unwind. Rust panics abort rather than crossing the ABI.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_parse(
+    data: *const c_char, len: usize, right_space: Option<extern "C" fn(c_int) -> c_int>,
+) -> *mut crate::extload::Script {
+    let Some(space) = right_space else { return std::ptr::null_mut() };
+    if len > isize::MAX as usize { return std::ptr::null_mut() }
+    ext_handle(crate::extload::parse(span(data, len), &|b| space(b as c_int) != 0))
+}
+
+fn ext_handle(script: Option<crate::extload::Script>) -> *mut crate::extload::Script {
+    script.map_or(std::ptr::null_mut(), |s| Box::into_raw(Box::new(s)))
+}
+
+/// Streaming variant: next returns 1 for a line, 0 for EOF, -1 for failure.
+/// A failure discards the partial parse. It is never called after the header
+/// terminator. Null callbacks return null.
+///
+/// # Safety
+/// `next` must not unwind. Its output is null (empty), or readable for len
+/// bytes (<= isize::MAX) until the next call. It may mutate only its context
+/// and the supplied output, not Rust-owned memory. `context` is passed through
+/// untouched. The classifier has the same contract as ext_v1_parse.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_read(
+    next: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut RsStr) -> c_int>,
+    context: *mut std::ffi::c_void,
+    right_space: Option<extern "C" fn(c_int) -> c_int>,
+) -> *mut crate::extload::Script {
+    let (Some(next), Some(space)) = (next, right_space) else { return std::ptr::null_mut() };
+    let mut failed = false;
+    let mut lines = std::iter::from_fn(|| {
+        let mut line = NO_STR;
+        match next(context, &mut line) {
+            0 => None,
+            1 if line.len <= isize::MAX as usize => Some(span(line.data, line.len).to_vec()),
+            _ => { failed = true; None }
+        }
+    });
+    let script = crate::extload::parse_lines(&mut lines, &|b| space(b as c_int) != 0);
+    if failed { std::ptr::null_mut() } else { ext_handle(script) }
+}
+
+/// Frees a handle from nzbget_rs_ext_v1_parse.
+///
+/// # Safety
+/// `h` is null or a handle not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_free(h: *mut crate::extload::Script) {
+    if !h.is_null() {
+        drop(Box::from_raw(h));
+    }
+}
+
+/// The script kind bits (1 post-processing, 2 scan, 4 queue, 8 scheduler, 16 feed).
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_kind(h: *const crate::extload::Script) -> c_int {
+    h.as_ref().map_or(0, |s| s.kind)
+}
+
+/// Script texts: 0 about (untrimmed), 1 queue events, 2 task time; script
+/// lists: 3 description line `i`, 4 requirement `i`. Borrowed from the handle.
+///
+/// # Safety
+/// `h` is null (empty) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_text(h: *const crate::extload::Script, which: c_int, i: usize) -> RsStr {
+    let Some(s) = h.as_ref() else { return NO_STR };
+    match which {
+        0 => rs_str(&s.about),
+        1 => rs_str(&s.queue_events),
+        2 => rs_str(&s.task_time),
+        3 => s.description.get(i).map_or(NO_STR, |v| rs_str(v)),
+        4 => s.requirements.get(i).map_or(NO_STR, |v| rs_str(v)),
+        _ => NO_STR,
+    }
+}
+
+/// Counts: 0 description lines, 1 requirements, 2 options, 3 commands.
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_count(h: *const crate::extload::Script, which: c_int) -> usize {
+    let Some(s) = h.as_ref() else { return 0 };
+    match which {
+        0 => s.description.len(),
+        1 => s.requirements.len(),
+        2 => s.options.len(),
+        3 => s.commands.len(),
+        _ => 0,
+    }
+}
+
+fn ext_item(s: &crate::extload::Script, command: c_int, i: usize) -> Option<&crate::extload::Item> {
+    if command != 0 { s.commands.get(i) } else { s.options.get(i) }
+}
+
+/// Option (`command` 0) or command (1) `i`: its texts - 0 section name, 1
+/// section prefix, 2 name, 3 action (commands), 4 description line `j` -
+/// borrowed from the handle.
+///
+/// # Safety
+/// `h` is null (empty) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_item_text(h: *const crate::extload::Script, command: c_int, i: usize, field: c_int, j: usize) -> RsStr {
+    let Some(item) = h.as_ref().and_then(|s| ext_item(s, command, i)) else { return NO_STR };
+    match field {
+        0 => rs_str(&item.section.name),
+        1 => rs_str(&item.section.prefix),
+        2 => rs_str(&item.name),
+        3 => rs_str(&item.action),
+        4 => item.description.get(j).map_or(NO_STR, |v| rs_str(v)),
+        _ => NO_STR,
+    }
+}
+
+/// Option or command `i`: 0 whether its section is multi, 1 its description
+/// line count, 2 its select value count (options).
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_item_count(h: *const crate::extload::Script, command: c_int, i: usize, which: c_int) -> usize {
+    let Some(item) = h.as_ref().and_then(|s| ext_item(s, command, i)) else { return 0 };
+    match which {
+        0 => item.section.multi as usize,
+        1 => item.description.len(),
+        2 => item.select.len(),
+        _ => 0,
+    }
+}
+
+/// Option `i`'s value (`j` == SIZE_MAX) or select value `j`: 1 with the
+/// number in `*num`, 0 with the text in `*text` (borrowed), -1 if none.
+///
+/// # Safety
+/// `h` is null or a live handle; `num` and `text` are null or writable,
+/// aligned, and disjoint from the handle and each other. A null required
+/// output returns -1; other outputs are left untouched. Borrowed text remains
+/// valid until the handle is freed and must not be mutated or freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_select(h: *const crate::extload::Script, i: usize, j: usize, num: *mut f64, text: *mut RsStr) -> c_int {
+    use crate::extload::Select;
+    let Some(item) = h.as_ref().and_then(|s| s.options.get(i)) else { return -1 };
+    let value = if j == usize::MAX { Some(&item.value) } else { item.select.get(j) };
+    match value {
+        Some(Select::Num(n)) if !num.is_null() => {
+            *num = *n;
+            1
+        }
+        Some(Select::Str(t)) if !text.is_null() => {
+            *text = rs_str(t);
+            0
+        }
+        _ => -1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    extern "C" fn ext_space(b: c_int) -> c_int {
+        i32::from((b as u8).is_ascii_whitespace())
+    }
+
+    #[test]
+    fn extload_owned_handle_borrowed_bytes_and_nulls() {
+        unsafe {
+            let null = std::ptr::null();
+            assert!(nzbget_rs_ext_v1_parse(null, usize::MAX, Some(ext_space)).is_null());
+            assert!(nzbget_rs_ext_v1_parse(null, 0, None).is_null());
+            nzbget_rs_ext_v1_free(std::ptr::null_mut());
+            let null = std::ptr::null();
+            assert_eq!(nzbget_rs_ext_v1_kind(null), 0);
+            assert_eq!(nzbget_rs_ext_v1_count(null, 2), 0);
+            assert_eq!(nzbget_rs_ext_v1_text(null, 0, 0).len, 0);
+            assert_eq!(nzbget_rs_ext_v1_item_text(null, 0, 0, 0, 0).len, 0);
+            assert_eq!(nzbget_rs_ext_v1_item_count(null, 0, 0, 0), 0);
+            assert_eq!(nzbget_rs_ext_v1_select(null, 0, 0, std::ptr::null_mut(), std::ptr::null_mut()), -1);
+            let input = b"### NZBGET SCAN SCRIPT\n### OPTIONS\n# Range (1-2).\n#N=1.5\n#S=a\0b\n#Cmd@go\n".to_vec();
+            let h = nzbget_rs_ext_v1_parse(input.as_ptr().cast(), input.len(), Some(ext_space));
+            drop(input);
+            assert!(!h.is_null());
+            assert_eq!(nzbget_rs_ext_v1_kind(h), 2);
+            assert_eq!(nzbget_rs_ext_v1_count(h, 2), 2);
+            assert_eq!(nzbget_rs_ext_v1_count(h, -1), 0);
+            assert_eq!(nzbget_rs_ext_v1_item_text(h, 0, usize::MAX, 0, 0).len, 0);
+            assert_eq!(nzbget_rs_ext_v1_item_text(h, 0, 0, 4, usize::MAX).len, 0);
+            assert_eq!(nzbget_rs_ext_v1_item_count(h, 1, usize::MAX, 0), 0);
+            let mut number = 77.0;
+            let mut text = NO_STR;
+            assert_eq!(nzbget_rs_ext_v1_select(h, 0, usize::MAX, &mut number, &mut text), 1);
+            assert_eq!(number, 1.5);
+            assert!(text.data.is_null());
+            assert_eq!(nzbget_rs_ext_v1_select(h, 0, usize::MAX, std::ptr::null_mut(), &mut text), -1);
+            assert_eq!(nzbget_rs_ext_v1_select(h, 1, usize::MAX, &mut number, &mut text), 0);
+            assert_eq!(span(text.data, text.len), b"a\0b");
+            assert_eq!(number, 1.5);
+            assert_eq!(nzbget_rs_ext_v1_select(h, 1, usize::MAX, &mut number, std::ptr::null_mut()), -1);
+            assert_eq!(nzbget_rs_ext_v1_select(h, usize::MAX, 0, &mut number, &mut text), -1);
+            assert_eq!(span(text.data, text.len), b"a\0b");
+            assert_eq!(nzbget_rs_ext_v1_select(h, 0, 99, &mut number, &mut text), -1);
+            nzbget_rs_ext_v1_free(h);
+        }
+    }
+
+    #[test]
+    fn extload_reader_stops_and_discards_failed_parse() {
+        struct Reader { index: usize, fail_at: usize }
+        unsafe extern "C" fn next(context: *mut std::ffi::c_void, out: *mut RsStr) -> c_int {
+            let r = &mut *context.cast::<Reader>();
+            if r.index == r.fail_at { return -1 }
+            let lines: [&[u8]; 4] = [b"### NZBGET SCAN SCRIPT", b"### OPTIONS", b"#N=x", b" SCRIPT"];
+            let Some(line) = lines.get(r.index) else { return -1 };
+            r.index += 1;
+            *out = rs_str(line);
+            1
+        }
+        unsafe {
+            assert!(nzbget_rs_ext_v1_read(None, std::ptr::null_mut(), Some(ext_space)).is_null());
+            assert!(nzbget_rs_ext_v1_read(Some(next), std::ptr::null_mut(), None).is_null());
+            for fail_at in 0..=4 {
+                let mut r = Reader { index: 0, fail_at };
+                let h = nzbget_rs_ext_v1_read(Some(next), (&mut r as *mut Reader).cast(), Some(ext_space));
+                assert_eq!(r.index, fail_at);
+                assert_eq!(h.is_null(), fail_at < 4);
+                nzbget_rs_ext_v1_free(h);
+            }
+        }
+    }
 
     #[test]
     fn options_ffi_outputs() {
