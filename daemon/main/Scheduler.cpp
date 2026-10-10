@@ -30,6 +30,10 @@
 #include "FeedCoordinator.h"
 #include "SchedulerScript.h"
 
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
+
 void Scheduler::AddTask(std::unique_ptr<Task> task)
 {
 	Guard guard(m_taskListMutex);
@@ -102,6 +106,58 @@ void Scheduler::CheckTasks()
 
 		time_t current = Util::CurrentTime();
 
+#ifdef NZBGET_USE_RUST
+		std::vector<NzbgetRsSchedTask> tasks;
+		tasks.reserve(m_taskList.size());
+		for (Task* task : &m_taskList)
+		{
+			tasks.push_back({task->m_hours, task->m_minutes, task->m_weekDaysBits,
+				static_cast<long long>(task->m_lastExecuted)});
+		}
+		std::vector<size_t> due(m_taskList.size() * 9);
+		long long lastCheck = m_lastCheck;
+		int reset = 0;
+		// StatMeter can change the atomic offset between these two readings.
+		// Preserve the original readings and reuse them if the buffer grows.
+		int currentOffset = tasks.empty() ? 0 : g_WorkState->GetLocalTimeOffset();
+		int lastCheckOffset = tasks.empty() ? 0 : g_WorkState->GetLocalTimeOffset();
+		auto calendar = [](long long value, NzbgetRsSchedTm* result)
+		{
+			time_t time = static_cast<time_t>(value);
+			tm fields{};
+			gmtime_r(&time, &fields);
+			*result = {static_cast<long long>(fields.tm_year) + 1900, fields.tm_mon,
+				fields.tm_mday, fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
+		};
+		size_t dueCount;
+		while (true)
+		{
+			dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
+				currentOffset, lastCheckOffset, due.data(), due.size(), &reset, calendar);
+			if (dueCount <= due.size())
+			{
+				break;
+			}
+			// Leap corrections in libc's calendar can exceed the usual count * 9.
+			// An undersized output leaves all input state unchanged for this retry.
+			due.resize(dueCount);
+		}
+
+		if (reset)
+		{
+			debug("Reset scheduled tasks (detected clock change greater than 90 minutes or negative)");
+			m_executeProcess = false;
+		}
+		for (size_t i = 0; i < tasks.size(); i++)
+		{
+			m_taskList[i]->m_lastExecuted = static_cast<time_t>(tasks[i].lastExecuted);
+		}
+		for (size_t i = 0; i < dueCount; i++)
+		{
+			ExecuteTask(m_taskList[due[i]].get());
+		}
+		m_lastCheck = static_cast<time_t>(lastCheck);
+#else
 		if (!m_taskList.empty())
 		{
 			// Detect large step changes of system time
@@ -175,6 +231,7 @@ void Scheduler::CheckTasks()
 		}
 
 		m_lastCheck = current;
+#endif
 	}
 
 	PrintLog();
