@@ -54,6 +54,14 @@ if(NOT NZBGET_RUST_TARGET)
 	endif()
 endif()
 
+# Match the CRT selection to the final C++ link. Without this, GNU targets
+# report -lgcc_s even for ENABLE_STATIC, which cannot be linked with -static.
+# Pass the same option to the probe and the crate's final staticlib compilation.
+set(RUST_CODEGEN_ARGS)
+if(ENABLE_STATIC AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+	list(APPEND RUST_CODEGEN_ARGS -C target-feature=+crt-static)
+endif()
+
 # Ask this Rust toolchain for std's native libraries instead of assuming that
 # dl alone suffices (notably for older Linux, static linking, and BSD).
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/rust")
@@ -61,6 +69,7 @@ file(WRITE "${CMAKE_BINARY_DIR}/rust/native-libs.rs" "// Probe Rust's native lin
 execute_process(
 	COMMAND "${CMAKE_COMMAND}" -E env ${RUST_ENV} "${RUSTC}"
 		--crate-name nzbget_rs_native_libs --crate-type staticlib -C panic=abort
+		${RUST_CODEGEN_ARGS}
 		--target "${NZBGET_RUST_TARGET}" --print native-static-libs
 		"${CMAKE_BINARY_DIR}/rust/native-libs.rs" -o "${CMAKE_BINARY_DIR}/rust/native-libs.a"
 	RESULT_VARIABLE RUST_STATUS OUTPUT_VARIABLE RUST_NATIVE_OUTPUT ERROR_VARIABLE RUST_NATIVE_ERROR
@@ -96,9 +105,10 @@ foreach(RUST_CONFIG IN LISTS RUST_CONFIGS)
 	set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG}")
 	set(RUST_LIB "${RUST_TARGET_DIR}/${NZBGET_RUST_TARGET}/${RUST_PROFILE_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}nzbget_rs${CMAKE_STATIC_LIBRARY_SUFFIX}")
 	add_custom_target(nzbget-rs-build-${RUST_CONFIG}
-		COMMAND "${CMAKE_COMMAND}" -E env ${RUST_ENV} "${CARGO}" build --locked
+		COMMAND "${CMAKE_COMMAND}" -E env ${RUST_ENV} "${CARGO}" rustc --lib --locked
 			--profile "${RUST_PROFILE}" --target "${NZBGET_RUST_TARGET}"
 			--manifest-path "${CMAKE_SOURCE_DIR}/rust/Cargo.toml" --target-dir "${RUST_TARGET_DIR}"
+			-- ${RUST_CODEGEN_ARGS}
 		BYPRODUCTS "${RUST_LIB}"
 		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
 		COMMENT "Building nzbget-rs (${RUST_CONFIG})"

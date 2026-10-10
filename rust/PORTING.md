@@ -35,6 +35,7 @@ are available; otherwise they retain the C++ encoders. Debug selects Cargo's dev
 profile; other CMake configurations select release. Cargo is invoked on each build to track its own
 sources, lockfile, build scripts, and configuration. Both the daemon and test
 executable inherit the archive and Rust's native link dependencies.
+Static executable builds select Rust's static CRT dependencies as well.
 
 Windows keeps the original C++ encoders, so its existing build does not acquire a
 Rust dependency. Non-macOS cross builds also keep C++ unless a matching target is
