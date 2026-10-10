@@ -10,6 +10,14 @@ use std::ffi::{c_char, c_int, CStr};
 // a locale's decimal separator need not be UTF-8.
 extern "C" {
     fn snprintf(buf: *mut c_char, size: usize, format: *const c_char, ...) -> c_int;
+    fn sscanf(s: *const c_char, format: *const c_char, ...) -> c_int;
+    fn isspace(c: c_int) -> c_int;
+    fn isalpha(c: c_int) -> c_int;
+    fn isdigit(c: c_int) -> c_int;
+    fn tolower(c: c_int) -> c_int;
+    fn atoi(s: *const c_char) -> c_int;
+    fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
+    fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
 }
 
 fn decimal(value: f64, precision: c_int, suffix: &[u8]) -> Vec<u8> {
@@ -188,6 +196,203 @@ pub fn match_file_ext(filename: &[u8], list: &[u8], separators: &[u8], case_lowe
     })
 }
 
+/// Util::SplitCommandLine: words split at spaces; a word starting with `'`
+/// runs to the next lone `'` (`''` is a quote), each cut to 1023 bytes.
+pub fn split_command_line(s: &[u8]) -> Vec<Vec<u8>> {
+    const MAX: usize = 1023;
+    let at = |i: usize| s.get(i).copied().unwrap_or(0);
+    let mut result = Vec::new();
+    let mut buf = Vec::new();
+    let mut escaping = false;
+    let mut space = true;
+    let mut i = 0;
+    loop {
+        let c = at(i);
+        if c != 0 {
+            if escaping {
+                if c == b'\'' {
+                    if at(i + 1) == b'\'' && buf.len() < MAX {
+                        buf.push(c);
+                        i += 1;
+                    } else {
+                        escaping = false;
+                        space = true;
+                    }
+                } else if buf.len() < MAX {
+                    buf.push(c);
+                }
+            } else if c == b' ' {
+                space = true;
+            } else if c == b'\'' && space {
+                escaping = true;
+                space = false;
+            } else if buf.len() < MAX {
+                buf.push(c);
+                space = false;
+            }
+        }
+        if (space || c == 0) && !buf.is_empty() {
+            result.push(std::mem::take(&mut buf));
+        }
+        if c == 0 {
+            break;
+        }
+        i += 1;
+    }
+    result
+}
+
+fn line_space(c: u8) -> bool {
+    matches!(c, b'\n' | b'\r' | b' ' | b'\t')
+}
+
+/// Util::TrimRight(char*): the length without trailing CR, LF, space and tab.
+pub fn trim_right_line(s: &[u8]) -> usize {
+    s.len() - s.iter().rev().take_while(|&&c| line_space(c)).count()
+}
+
+/// Util::Trim(char*): (start, end) without CR, LF, space and tab around.
+pub fn trim_line(s: &[u8]) -> (usize, usize) {
+    let end = trim_right_line(s);
+    (s[..end].iter().take_while(|&&c| line_space(c)).count(), end)
+}
+
+/// Util::Trim(std::string&): (start, end) without the locale's isspace around:
+/// TrimLeft tests unsigned bytes; the caller classifies TrimRight's C++ char
+/// (whose signedness can differ from Rust's c_char with compiler flags).
+pub fn trim_string(s: &[u8], left: bool, right: bool, right_space: impl Fn(u8) -> bool) -> (usize, usize) {
+    let start = if left { s.iter().take_while(|&&c| unsafe { isspace(c as c_int) } != 0).count() } else { 0 };
+    let mut end = s.len();
+    if right {
+        while end > start && right_space(s[end - 1]) {
+            end -= 1;
+        }
+        // TrimRight runs after TrimLeft erased the start: nothing more to strip
+    }
+    (start, end)
+}
+
+/// Util::SanitizeLine: control characters (below space, and DEL) become
+/// spaces, then Trim.
+pub fn sanitize_line(s: &mut [u8], right_space: impl Fn(u8) -> bool) -> (usize, usize) {
+    for c in s.iter_mut() {
+        if *c < 32 || *c == 127 {
+            *c = b' ';
+        }
+    }
+    trim_string(s, true, true, right_space)
+}
+
+/// Util::EndsWith (std::string_view): `suffix` ends `s`, case-insensitively
+/// with the locale's tolower of unsigned bytes unless `case_sensitive`.
+pub fn ends_with(s: &[u8], suffix: &[u8], case_sensitive: bool) -> bool {
+    if suffix.is_empty() {
+        return true;
+    }
+    if s.len() < suffix.len() {
+        return false;
+    }
+    let tail = &s[s.len() - suffix.len()..];
+    if case_sensitive {
+        return tail == suffix;
+    }
+    tail.iter().zip(suffix).all(|(&a, &b)| unsafe { tolower(a as c_int) == tolower(b as c_int) })
+}
+
+/// Util::FormatBuffer: each byte as `%02x `.
+pub fn format_buffer(buf: &[u8]) -> Vec<u8> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = Vec::with_capacity(buf.len() * 3 + 1);
+    for &b in buf {
+        out.extend_from_slice(&[HEX[(b >> 4) as usize], HEX[(b & 15) as usize], b' ']);
+    }
+    out
+}
+
+/// Util::Timegm (Boost's arithmetic) on the fields ParseRfc822DateTime sets,
+/// in the C++ int arithmetic (wrapping where it would overflow).
+fn timegm_c(year: i32, mon: i32, mday: i32, hour: i32, min: i32, sec: i32) -> i64 {
+    const DAYS: [[i32; 12]; 2] = [
+        [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334],
+        [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335],
+    ];
+    let leap = year % 400 == 0 || (year % 100 != 0 && year % 4 == 0);
+    let y = year.wrapping_sub(1);
+    let days_from_0 = 365i32.wrapping_mul(y).wrapping_add(y / 400).wrapping_sub(y / 100).wrapping_add(y / 4);
+    let day_of_year = DAYS[leap as usize][mon as usize].wrapping_add(mday).wrapping_sub(1);
+    let days = days_from_0.wrapping_sub(719162).wrapping_add(day_of_year);
+    86400i64 * days as i64 + 3600i32.wrapping_mul(hour) as i64 + 60i32.wrapping_mul(min) as i64 + sec as i64
+}
+
+/// WebUtil::ParseRfc822DateTime: `[Day,] DD Mon YYYY HH:MM[:SS] [zone]` as a
+/// Unix time, 0 if it doesn't parse. Numbers are read by the C library
+/// (sscanf, atoi) and names compared in the current locale, as before.
+pub fn parse_rfc822_date_time(s: &CStr) -> i64 {
+    let bytes = s.to_bytes_with_nul();
+    let mut p = 0;
+    while bytes[p] == b' ' {
+        p += 1;
+    }
+    if unsafe { isalpha(bytes[p] as c_int) } != 0 {
+        while bytes[p] != 0 && bytes[p] != b',' && bytes[p] != b' ' {
+            p += 1;
+        }
+        if bytes[p] == b',' {
+            p += 1;
+        }
+    }
+    let at = |p: usize| bytes[p..].as_ptr().cast::<c_char>();
+    let mut month = [0 as c_char; 4];
+    let (mut day, mut year, mut hours, mut minutes, mut seconds, mut len): (c_int, c_int, c_int, c_int, c_int, c_int) =
+        (0, 0, 0, 0, 0, 0);
+    // the format's conversions and the argument types agree; %3s writes at most 4 bytes
+    let n = unsafe {
+        sscanf(
+            at(p),
+            c"%d %3s %d %d:%d%n".as_ptr(),
+            &mut day as *mut c_int,
+            month.as_mut_ptr(),
+            &mut year as *mut c_int,
+            &mut hours as *mut c_int,
+            &mut minutes as *mut c_int,
+            &mut len as *mut c_int,
+        )
+    };
+    if n != 5 {
+        return 0;
+    }
+    p += len as usize;
+    if bytes[p] == b':' {
+        let mut sec_len: c_int = 0;
+        if unsafe { sscanf(at(p + 1), c"%d%n".as_ptr(), &mut seconds as *mut c_int, &mut sec_len as *mut c_int) } != 1 {
+            return 0;
+        }
+        p += 1 + sec_len as usize;
+    }
+    while bytes[p] == b' ' {
+        p += 1;
+    }
+    let mut zone_offset: i32 = 0; // minutes east of UTC
+    if (bytes[p] == b'+' || bytes[p] == b'-') && unsafe { isdigit(bytes[p + 1] as c_int) } != 0 {
+        let zone = unsafe { atoi(at(p + 1)) };
+        zone_offset = (zone / 100).wrapping_mul(60).wrapping_add(zone % 100);
+        if bytes[p] == b'-' {
+            zone_offset = zone_offset.wrapping_neg();
+        }
+    } else {
+        const ZONES: [(&CStr, i32); 8] = [
+            (c"EST", -5), (c"EDT", -4), (c"CST", -6), (c"CDT", -5),
+            (c"MST", -7), (c"MDT", -6), (c"PST", -8), (c"PDT", -7),
+        ];
+        if let Some((_, hours)) = ZONES.iter().find(|(name, _)| unsafe { strncasecmp(at(p), name.as_ptr(), 3) } == 0) {
+            zone_offset = hours * 60;
+        }
+    }
+    const MONTHS: [&CStr; 12] = [c"Jan", c"Feb", c"Mar", c"Apr", c"May", c"Jun", c"Jul", c"Aug", c"Sep", c"Oct", c"Nov", c"Dec"];
+    let mon = MONTHS.iter().position(|m| unsafe { strcasecmp(month.as_ptr(), m.as_ptr()) } == 0).unwrap_or(0) as i32;
+    timegm_c(year, mon, day, hours, minutes, seconds) - zone_offset.wrapping_mul(60) as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +436,18 @@ mod tests {
             reduce_str(b.as_mut_ptr().cast(), c"a".as_ptr(), b.as_ptr().add(1).cast());
             assert_eq!(&b, b"\0\0\0");
         }
+    }
+
+    #[test]
+    fn command_line_and_trims() {
+        assert_eq!(split_command_line(b"a 'b c' 'd''e' f"), [b"a" as &[u8], b"b c", b"d'e", b"f"]);
+        assert_eq!(trim_line(b" \tx y\r\n"), (2, 5));
+        assert!(ends_with(b"file.NZB", b".nzb", false));
+        assert!(!ends_with(b"file.NZB", b".nzb", true));
+        assert_eq!(format_buffer(b"\x00\xff"), b"00 ff ");
+        assert_eq!(parse_rfc822_date_time(c"Wed, 26 Jun 2013 01:02:54 -0600"), 1372230174);
+        assert_eq!(parse_rfc822_date_time(c"26 Jun 2013 01:02 GMT"), 1372208520);
+        assert_eq!(parse_rfc822_date_time(c"junk"), 0);
     }
 
     #[test]

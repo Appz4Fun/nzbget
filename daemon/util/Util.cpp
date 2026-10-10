@@ -453,6 +453,16 @@ CString Util::FormatTime(time_t timeSec)
 	return result;
 }
 
+#ifdef NZBGET_USE_RUST
+CString Util::FormatBuffer(const char* buf, int len)
+{
+	// rust/src/util.rs
+	NzbgetRsBuf out = nzbget_rs_format_buffer(buf, len);
+	CString result(out.data, static_cast<int>(out.len));
+	nzbget_rs_free(out);
+	return result;
+}
+#else
 CString Util::FormatBuffer(const char* buf, int len)
 {
 	CString result;
@@ -463,6 +473,7 @@ CString Util::FormatBuffer(const char* buf, int len)
 	}
 	return result;
 }
+#endif
 
 #ifdef NZBGET_USE_RUST
 namespace
@@ -523,6 +534,28 @@ bool Util::MatchFileExt(const char* filename, const char* extensionList, const c
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+std::vector<CString> Util::SplitCommandLine(const char* commandLine)
+{
+	// rust/src/util.rs: the words back to back, each NUL-terminated
+	NzbgetRsBuf words = nzbget_rs_split_command_line(commandLine);
+	std::vector<CString> result;
+	try
+	{
+		for (size_t i = 0; i < words.len; i += strlen(words.data + i) + 1)
+		{
+			result.emplace_back(words.data + i);
+		}
+	}
+	catch (...)
+	{
+		nzbget_rs_free(words);
+		throw;
+	}
+	nzbget_rs_free(words);
+	return result;
+}
+#else
 std::vector<CString> Util::SplitCommandLine(const char* commandLine)
 {
 	std::vector<CString> result;
@@ -590,25 +623,68 @@ std::vector<CString> Util::SplitCommandLine(const char* commandLine)
 
 	return result;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
 void Util::TrimRight(char* str)
 {
-	char* end = str + strlen(str) - 1;
-	while (end >= str && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
+	// rust/src/util.rs
+	nzbget_rs_trim_line(str, 1);
+}
+#else
+void Util::TrimRight(char* str)
+{
+	if (!str) return;
+	char* end = str + strlen(str);
+	while (end > str && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
 	{
-		*end = '\0';
-		end--;
+		*--end = '\0';
+	}
+}
+#endif
+
+namespace
+{
+	int TextRightSpace(int byte)
+	{
+		// The caller can override char's signedness independently of Rust.
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		// glibc supports negative signed chars, keeping EOF distinct from 255.
+		return std::isspace(ch);
+#else
+		// Negative chars other than EOF are outside the portable ctype domain.
+		return ch < 0 ? 0 : std::isspace(ch);
+#endif
 	}
 }
 
+#ifdef NZBGET_USE_RUST
 void Util::TrimRight(std::string& str)
 {
-	while (!str.empty() && std::isspace(str.back()))
+	// rust/src/util.rs
+	size_t start;
+	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 0, 1, 0, &start, TextRightSpace));
+}
+#else
+void Util::TrimRight(std::string& str)
+{
+	while (!str.empty() && TextRightSpace(static_cast<unsigned char>(str.back())))
 	{
 		str.pop_back();
 	}
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+void Util::TrimLeft(std::string& str)
+{
+	// rust/src/util.rs
+	size_t start;
+	nzbget_rs_trim_string(str.data(), str.size(), 1, 0, 0, &start, TextRightSpace);
+	str.erase(0, start);
+}
+#else
 void Util::TrimLeft(std::string& str)
 {
 	str.erase(
@@ -619,9 +695,18 @@ void Util::TrimLeft(std::string& str)
 			[](unsigned char ch){ return !std::isspace(ch); })
 	);
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
 char* Util::Trim(char* str)
 {
+	// rust/src/util.rs
+	return nzbget_rs_trim_line(str, 0);
+}
+#else
+char* Util::Trim(char* str)
+{
+	if (!str) return str;
 	TrimRight(str);
 	while (*str == '\n' || *str == '\r' || *str == ' ' || *str == '\t')
 	{
@@ -629,6 +714,7 @@ char* Util::Trim(char* str)
 	}
 	return str;
 }
+#endif
 
 void Util::Trim(std::string& str)
 {
@@ -636,11 +722,21 @@ void Util::Trim(std::string& str)
 	TrimRight(str);
 }
 
+#ifdef NZBGET_USE_RUST
+void Util::SanitizeLine(std::string& str)
+{
+	// rust/src/util.rs
+	size_t start;
+	str.resize(nzbget_rs_trim_string(str.data(), str.size(), 1, 1, 1, &start, TextRightSpace));
+	str.erase(0, start);
+}
+#else
 void Util::SanitizeLine(std::string& str)
 {
 	std::replace_if(str.begin(), str.end(), IsControlChar, ' ');
 	Trim(str);
 }
+#endif
 
 #ifdef NZBGET_USE_RUST
 char* Util::ReduceStr(char* str, const char* from, const char* to)
@@ -680,6 +776,13 @@ std::vector<CString> Util::SplitStr(const char* str, const char* separators)
 	return result;
 }
 
+#ifdef NZBGET_USE_RUST
+bool Util::EndsWith(std::string_view str, std::string_view suffix, bool caseSensitive)
+{
+	// rust/src/util.rs
+	return nzbget_rs_ends_with(str.data(), str.size(), suffix.data(), suffix.size(), caseSensitive) != 0;
+}
+#else
 bool Util::EndsWith(std::string_view str, std::string_view suffix, bool caseSensitive)
 {
 	if (suffix.empty())
@@ -696,6 +799,7 @@ bool Util::EndsWith(std::string_view str, std::string_view suffix, bool caseSens
 	}
 	return StrCaseCmp(str.substr(str.size() - suffix.size()), suffix);
 }
+#endif
 
 bool Util::EndsWith(const char* str, const char* suffix, bool caseSensitive)
 {
@@ -2100,6 +2204,13 @@ CString WebUtil::Latin1ToUtf8(const char* str)
  unknown names count as UTC. Only the first format was read before: the others
  (GMT is common in feeds) gave no time at all.
 */
+#ifdef NZBGET_USE_RUST
+time_t WebUtil::ParseRfc822DateTime(const char* dateTimeStr)
+{
+	// rust/src/util.rs
+	return static_cast<time_t>(nzbget_rs_parse_rfc822_date_time(dateTimeStr));
+}
+#else
 time_t WebUtil::ParseRfc822DateTime(const char* dateTimeStr)
 {
 	const char* p = dateTimeStr;
@@ -2182,6 +2293,7 @@ time_t WebUtil::ParseRfc822DateTime(const char* dateTimeStr)
 
 	return enctime;
 }
+#endif
 
 
 URL::URL(const char* address) :

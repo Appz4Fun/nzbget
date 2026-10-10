@@ -353,6 +353,25 @@ int nzbget_rs_rpc_protocol(const char* url);
 void nzbget_rs_rpc_route(const char* url, const char* request, int get, int protocol, char* methodName, const char** params, const char** id, int* idLen);
 void nzbget_rs_rpc_envelope(int protocol, int fault, const char* callback, const char* id, NzbgetRsBuf* head, NzbgetRsBuf* tail);
 
+// Util text helpers (rust/src/util.rs). split_command_line: the words, each
+// NUL-terminated, back to back (len covers all). trim_line: TrimRight(char*)
+// (rightOnly) or Trim(char*) in place, returning the start. trim_string:
+// TrimLeft/TrimRight/Trim of a std::string, or SanitizeLine (which blanks
+// control characters in place): the kept range [*start, result). ends_with:
+// EndsWith on byte ranges. parse_rfc822_date_time: WebUtil's, 0 if invalid.
+// NULL inputs are empty; trim_line(NULL) returns NULL. trim_string accepts a
+// NULL start output; rightSpace classifies unsigned bytes as the caller's char
+// in its current C locale (NULL means no right whitespace). The callback must
+// not throw or access the buffer. All input buffers remain caller-owned.
+// Rust panics abort and never unwind across the ABI.
+// Free returned buffers with nzbget_rs_free.
+NzbgetRsBuf nzbget_rs_split_command_line(const char* s);
+char* nzbget_rs_trim_line(char* s, int rightOnly);
+size_t nzbget_rs_trim_string(char* data, size_t len, int left, int right, int sanitize, size_t* start, int (*rightSpace)(int));
+int nzbget_rs_ends_with(const char* s, size_t len, const char* suffix, size_t suffixLen, int caseSensitive);
+NzbgetRsBuf nzbget_rs_format_buffer(const char* buf, int len);
+long long nzbget_rs_parse_rfc822_date_time(const char* s);
+
 #ifdef __cplusplus
 }
 #endif
