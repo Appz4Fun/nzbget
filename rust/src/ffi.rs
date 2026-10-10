@@ -1229,6 +1229,34 @@ pub unsafe extern "C" fn nzbget_rs_decoder_filename(d: *mut crate::decoder::Deco
     d.as_mut().map_or(c"".as_ptr(), |d| d.filename_c().cast())
 }
 
+/// Scheduler::CheckTasks' timing: updates the tasks' last runs and
+/// `*last_check`, writes the indexes of the tasks to run (in order) to `due`
+/// and returns their count; `*reset` is set to whether the clock jumped.
+///
+/// # Safety
+/// `tasks` points to `count` tasks (or is null with `count` 0), `due` to
+/// `count * 9` writable entries, `last_check` and `reset` to writable values.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_scheduler_check(
+    tasks: *mut crate::scheduler::Task,
+    count: usize,
+    last_check: *mut i64,
+    current: i64,
+    local_offset: i64,
+    due: *mut usize,
+    reset: *mut c_int,
+) -> usize {
+    let tasks: &mut [crate::scheduler::Task] =
+        if count == 0 || tasks.is_null() { &mut [] } else { std::slice::from_raw_parts_mut(tasks, count) };
+    let r = crate::scheduler::check_tasks(tasks, &mut *last_check, current, local_offset);
+    *reset = r.reset as c_int;
+    let n = r.due.len().min(count * crate::scheduler::MAX_LOOP_DAYS);
+    if n > 0 {
+        std::ptr::copy_nonoverlapping(r.due.as_ptr(), due, n);
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

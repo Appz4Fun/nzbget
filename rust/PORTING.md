@@ -24,6 +24,9 @@ in `rust/include/nzbget_rs.h`.
 | `WebUtil::JsonDecode`                 | `decode::json_decode`      | 2.3x     |
 | `Crc32::Combine`                      | `crc::combine`             | 135x     |
 | `WebUtil::XmlDecode`, `XmlStripTags`, `XmlRemoveEntities`, `HttpUnquote`, `UrlDecode`, `UrlEncode`, `Latin1ToUtf8` | `text` | port only |
+| `WebProcessor` header, URL, credential and IP checks | `webserver` | port only |
+| `Decoder` (yEnc, UU, raw; rapidyenc kept) | `decoder` | parity |
+| `Scheduler::CheckTasks` timing (tasks run in C++) | `scheduler` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.

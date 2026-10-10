@@ -297,6 +297,20 @@ void nzbget_rs_decoder_set(NzbgetRsDecoder* decoder, int which, int value);
 long long nzbget_rs_decoder_get(NzbgetRsDecoder* decoder, int which);
 const char* nzbget_rs_decoder_filename(NzbgetRsDecoder* decoder);
 
+// Scheduler::CheckTasks' timing (rust/src/scheduler.rs): which tasks are due
+// between *lastCheck and current (local time = UTC + localOffset). Updates the
+// tasks' lastExecuted and *lastCheck, writes the due task indexes in execution
+// order to due (room for count * 9) and returns how many; *reset tells whether
+// the clock jumped (> 90 minutes or back) and a week was rechecked.
+typedef struct NzbgetRsSchedTask
+{
+	int hours; // -1: startup task
+	int minutes;
+	int weekDays; // bit n: weekday n + 1 (1 Monday .. 7 Sunday); 0: all
+	long long lastExecuted;
+} NzbgetRsSchedTask;
+size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long localOffset, size_t* due, int* reset);
+
 #ifdef __cplusplus
 }
 #endif

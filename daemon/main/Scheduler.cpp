@@ -30,6 +30,10 @@
 #include "FeedCoordinator.h"
 #include "SchedulerScript.h"
 
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
+
 void Scheduler::AddTask(std::unique_ptr<Task> task)
 {
 	Guard guard(m_taskListMutex);
@@ -102,6 +106,35 @@ void Scheduler::CheckTasks()
 
 		time_t current = Util::CurrentTime();
 
+#ifdef NZBGET_USE_RUST
+		std::vector<NzbgetRsSchedTask> tasks;
+		tasks.reserve(m_taskList.size());
+		for (Task* task : &m_taskList)
+		{
+			tasks.push_back({task->m_hours, task->m_minutes, task->m_weekDaysBits,
+				static_cast<long long>(task->m_lastExecuted)});
+		}
+		std::vector<size_t> due(m_taskList.size() * 9);
+		long long lastCheck = m_lastCheck;
+		int reset = 0;
+		size_t dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
+			g_WorkState->GetLocalTimeOffset(), due.data(), &reset);
+
+		if (reset)
+		{
+			debug("Reset scheduled tasks (detected clock change greater than 90 minutes or negative)");
+			m_executeProcess = false;
+		}
+		for (size_t i = 0; i < tasks.size(); i++)
+		{
+			m_taskList[i]->m_lastExecuted = static_cast<time_t>(tasks[i].lastExecuted);
+		}
+		for (size_t i = 0; i < dueCount; i++)
+		{
+			ExecuteTask(m_taskList[due[i]].get());
+		}
+		m_lastCheck = static_cast<time_t>(lastCheck);
+#else
 		if (!m_taskList.empty())
 		{
 			// Detect large step changes of system time
@@ -175,6 +208,7 @@ void Scheduler::CheckTasks()
 		}
 
 		m_lastCheck = current;
+#endif
 	}
 
 	PrintLog();
