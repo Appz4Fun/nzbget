@@ -430,7 +430,22 @@ typedef struct NzbgetRsStr
 	size_t len;
 } NzbgetRsStr;
 typedef struct NzbgetRsExtV1 NzbgetRsExtV1;
-NzbgetRsExtV1* nzbget_rs_ext_v1_parse(const char* data, size_t len);
+// data is borrowed for this call; NULL is empty. The result owns its bytes.
+// rightSpace classifies byte 0..255 as Util::TrimRight does in the caller's
+// current C locale and char signedness. It must not throw. NULL returns NULL.
+// All returned strings are length-delimited, may contain NUL, are immutable,
+// and remain valid until free(h); never free them separately. Free accepts NULL.
+// Invalid indexes/fields and NULL handles return empty/zero (select: -1).
+// select outputs may be NULL: if the required output is NULL, returns -1;
+// otherwise writes only that output. Outputs must not overlap the handle.
+// Rust panics abort; no exception may unwind through these functions.
+NzbgetRsExtV1* nzbget_rs_ext_v1_parse(const char* data, size_t len, int (*rightSpace)(int));
+// next returns one std::getline line (without '\n'): 1 line, 0 EOF, -1 error.
+// Its bytes remain readable until next is called again. On error parsing
+// returns NULL. next must catch all C++ exceptions; rethrow after read returns.
+// NULL callbacks return NULL. No callback is retained after this call.
+typedef int (*NzbgetRsExtV1Next)(void* context, NzbgetRsStr* line);
+NzbgetRsExtV1* nzbget_rs_ext_v1_read(NzbgetRsExtV1Next next, void* context, int (*rightSpace)(int));
 void nzbget_rs_ext_v1_free(NzbgetRsExtV1* h);
 int nzbget_rs_ext_v1_kind(const NzbgetRsExtV1* h);
 NzbgetRsStr nzbget_rs_ext_v1_text(const NzbgetRsExtV1* h, int which, size_t i);

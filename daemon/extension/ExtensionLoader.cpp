@@ -25,7 +25,7 @@
 #include "ScriptConfig.h"
 #include "FileSystem.h"
 #ifdef NZBGET_USE_RUST
-#include <iterator>
+#include <exception>
 #include <memory>
 #include "nzbget_rs.h"
 #endif
@@ -71,11 +71,43 @@ namespace ExtensionLoader
 			{
 				return false;
 			}
-			std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-
-			// rust/src/extload.rs parses the header; the script is filled here
+			// Keep std::getline's text-mode behavior and stop reading at the same
+			// line as the old parser. A script body need not fit in memory.
+			struct Reader
+			{
+				std::ifstream& file;
+				std::string line;
+				std::exception_ptr error;
+			} reader{file, {}, {}};
+			auto next = [](void* context, NzbgetRsStr* line) noexcept -> int
+			{
+				auto& r = *static_cast<Reader*>(context);
+				try
+				{
+					if (!std::getline(r.file, r.line)) return 0;
+					*line = {r.line.data(), r.line.size()};
+					return 1;
+				}
+				catch (...)
+				{
+					r.error = std::current_exception();
+					return -1;
+				}
+			};
+			auto rightSpace = [](int byte) noexcept -> int
+			{
+				// Match Util::TrimRight, including compiler-selected signedness.
+				int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+				return std::isspace(ch);
+#else
+				return ch < 0 ? 0 : std::isspace(ch);
+#endif
+			};
 			std::unique_ptr<NzbgetRsExtV1, void (*)(NzbgetRsExtV1*)> parsed(
-				nzbget_rs_ext_v1_parse(content.data(), content.size()), nzbget_rs_ext_v1_free);
+				nzbget_rs_ext_v1_read(next, &reader, rightSpace), nzbget_rs_ext_v1_free);
+			// Rethrow only after Rust has returned and discarded the partial parse.
+			if (reader.error) std::rethrow_exception(reader.error);
 			if (!parsed)
 			{
 				return false;

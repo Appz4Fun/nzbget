@@ -85,26 +85,18 @@ fn space_left(b: u8) -> bool {
     unsafe { isspace(b as c_int) != 0 }
 }
 
-/// std::isspace of the C++ char (signed or not) as Util::TrimRight tests it.
-fn space_right(b: u8) -> bool {
-    let ch = b as c_char as c_int;
-    if cfg!(target_env = "gnu") || ch >= 0 {
-        unsafe { isspace(ch) != 0 }
-    } else {
-        false
-    }
-}
-
-fn trim_right(s: &mut Vec<u8>) {
-    while s.last().is_some_and(|&b| space_right(b)) {
+// The caller supplies right-space classification because C++ can override
+// char's signedness independently of Rust (e.g. -funsigned-char).
+fn trim_right(s: &mut Vec<u8>, right_space: &dyn Fn(u8) -> bool) {
+    while s.last().is_some_and(|&b| right_space(b)) {
         s.pop();
     }
 }
 
-fn trim(s: &mut Vec<u8>) {
+fn trim(s: &mut Vec<u8>, right_space: &dyn Fn(u8) -> bool) {
     let start = s.iter().take_while(|&&b| space_left(b)).count();
     s.drain(..start);
-    trim_right(s);
+    trim_right(s, right_space);
 }
 
 /// TextAfter: the text from `pos`, or nothing.
@@ -113,11 +105,11 @@ fn text_after(line: &[u8], pos: usize) -> Vec<u8> {
 }
 
 /// RemoveTailAndTrim
-fn remove_tail_and_trim(s: &mut Vec<u8>, tail: &[u8]) {
+fn remove_tail_and_trim(s: &mut Vec<u8>, tail: &[u8], right_space: &dyn Fn(u8) -> bool) {
     if let Some(i) = find(s, tail) {
         s.truncate(i);
     }
-    trim_right(s);
+    trim_right(s, right_space);
 }
 
 /// ExtensionLoader::GetScriptKind
@@ -131,12 +123,12 @@ pub fn script_kind(line: &[u8]) -> i32 {
 
 /// std::getline's lines: split at '\n'; a last line without one counts
 /// unless empty.
-fn lines(data: &[u8]) -> Vec<&[u8]> {
-    let mut v: Vec<&[u8]> = data.split(|&b| b == b'\n').collect();
-    if v.last().is_some_and(|l| l.is_empty()) {
-        v.pop();
-    }
-    v
+fn lines(data: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
+    let mut lines = data.split(|&b| b == b'\n').peekable();
+    std::iter::from_fn(move || {
+        let line = lines.next()?;
+        if line.is_empty() && lines.peek().is_none() { None } else { Some(line.to_vec()) }
+    })
 }
 
 /// GetSelectOpt: a number (strtod, finite or NaN) when it can be one.
@@ -216,9 +208,9 @@ pub fn extract_elements(s: &[u8]) -> (Vec<Vec<u8>>, &'static str) {
 }
 
 /// ParseSectionAndSet
-fn item(section_name: &[u8], line: &[u8], sep: usize) -> Item {
+fn item(section_name: &[u8], line: &[u8], sep: usize, right_space: &dyn Fn(u8) -> bool) -> Item {
     let mut name = substr(line, 1, sep.wrapping_sub(1));
-    trim(&mut name);
+    trim(&mut name, right_space);
     let mut section = Section { multi: false, name: section_name.to_vec(), prefix: Vec::new() };
     if let Some(digit) = find(&name, b"1.") {
         section.prefix = name[..digit].to_vec();
@@ -229,11 +221,12 @@ fn item(section_name: &[u8], line: &[u8], sep: usize) -> Item {
 }
 
 /// ParseOptionsAndCommands over the lines after `### OPTIONS`.
-fn options_and_commands(lines: &[&[u8]], script: &mut Script) {
+fn options_and_commands(lines: &mut impl Iterator<Item = Vec<u8>>, script: &mut Script, right_space: &dyn Fn(u8) -> bool) {
     let mut select: Vec<Select> = Vec::new();
     let mut description: Vec<Vec<u8>> = Vec::new();
     let mut section = b"options".to_vec();
-    for &line in lines {
+    for line in lines {
+        let line = line.as_slice();
         if contains(line, b" SCRIPT") {
             break;
         }
@@ -242,7 +235,7 @@ fn options_and_commands(lines: &[&[u8]], script: &mut Script) {
         }
         if c(line).starts_with(b"###") {
             section = text_after(line, 4);
-            remove_tail_and_trim(&mut section, b"###");
+            remove_tail_and_trim(&mut section, b"###", right_space);
             continue;
         }
         let starts_hash_space = c(line).starts_with(b"# ");
@@ -275,19 +268,19 @@ fn options_and_commands(lines: &[&[u8]], script: &mut Script) {
         let eq = find(line, b"=");
         let at = find(line, b"@");
         if let (Some(at), None) = (at, eq) {
-            let mut command = item(&section, line, at);
+            let mut command = item(&section, line, at, right_space);
             command.action = line[at + 1..].to_vec();
-            trim(&mut command.action);
+            trim(&mut command.action, right_space);
             command.description = std::mem::take(&mut description);
             script.commands.push(command);
             select.clear();
             continue;
         }
         if let Some(eq) = eq {
-            let mut option = item(&section, line, eq);
+            let mut option = item(&section, line, eq, right_space);
             let can_be_num = matches!(select.first(), Some(Select::Num(_)));
             let mut value = line[eq + 1..].to_vec();
-            trim(&mut value);
+            trim(&mut value, right_space);
             option.value = select_opt(&value, can_be_num);
             option.description = std::mem::take(&mut description);
             option.select = std::mem::take(&mut select);
@@ -298,14 +291,17 @@ fn options_and_commands(lines: &[&[u8]], script: &mut Script) {
 
 /// V1::Load's parsing of the script file `data`; None when it isn't an
 /// extension script (no kind).
-pub fn parse(data: &[u8]) -> Option<Script> {
-    let lines = lines(data);
+pub fn parse(data: &[u8], right_space: &dyn Fn(u8) -> bool) -> Option<Script> {
+    parse_lines(&mut lines(data), right_space)
+}
+
+/// Consume only lines the legacy loader would read, including its terminating
+/// signature. The iterator may read a file; never request its unused body.
+pub fn parse_lines(lines: &mut impl Iterator<Item = Vec<u8>>, right_space: &dyn Fn(u8) -> bool) -> Option<Script> {
     let mut s = Script::default();
     let (mut before_config, mut in_config, mut in_about, mut in_description) = (false, false, false, false);
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        i += 1;
+    while let Some(line) = lines.next() {
+        let line = line.as_slice();
         if line.is_empty() {
             continue;
         }
@@ -318,7 +314,7 @@ pub fn parse(data: &[u8]) -> Option<Script> {
         }
         if cl.starts_with(b"### TASK TIME:") {
             s.task_time = text_after(line, 15);
-            remove_tail_and_trim(&mut s.task_time, b"###");
+            remove_tail_and_trim(&mut s.task_time, b"###", right_space);
             continue;
         }
         if cl.starts_with(b"### NZBGET ") && contains(line, b" SCRIPT") {
@@ -332,7 +328,7 @@ pub fn parse(data: &[u8]) -> Option<Script> {
         }
         if cl.starts_with(b"### QUEUE EVENTS:") {
             s.queue_events = text_after(line, 18);
-            remove_tail_and_trim(&mut s.queue_events, b"###");
+            remove_tail_and_trim(&mut s.queue_events, b"###", right_space);
             continue;
         }
         if in_config && cl.starts_with(b"# ") && !in_description {
@@ -355,7 +351,7 @@ pub fn parse(data: &[u8]) -> Option<Script> {
             continue;
         }
         if cl.starts_with(b"### OPTIONS") {
-            options_and_commands(&lines[i..], &mut s);
+            options_and_commands(lines, &mut s, right_space);
             break;
         }
     }
@@ -395,7 +391,7 @@ mod tests {
 
     #[test]
     fn script() {
-        let s = parse(SCRIPT).unwrap();
+        let s = parse(SCRIPT, &space_left).unwrap();
         assert_eq!(s.kind, 1);
         assert_eq!(s.about, b"Sorts movies and tv shows.\n");
         assert_eq!(s.requirements, [b"This script requires Python to be installed on your system.".to_vec()]);
@@ -408,7 +404,7 @@ mod tests {
         assert_eq!((s.options[2].section.prefix.as_slice(), s.options[2].section.multi), (b"Category".as_slice(), true));
         assert_eq!(s.options[2].section.name, b"CATEGORIES");
         assert_eq!((s.commands[0].name.as_slice(), s.commands[0].action.as_slice()), (b"ConnectionTest".as_slice(), b"Send Test E-Mail".as_slice()));
-        assert!(parse(b"just text\n").is_none());
+        assert!(parse(b"just text\n", &space_left).is_none());
     }
 
     #[test]
