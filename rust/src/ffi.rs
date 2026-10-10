@@ -48,6 +48,36 @@ pub unsafe extern "C" fn nzbget_rs_free(buf: RsBuf) {
     }
 }
 
+/// Wildcard match (WildMask::Match). When `positions` isn't null it gets
+/// (start, length) pairs, at most `capacity` of them; the return value is the
+/// number of pairs, or -1 for no match. A pattern of n bytes yields at most n pairs.
+///
+/// # Safety
+/// `pattern` and `text` are null or valid NUL-terminated strings; `positions`
+/// is null or points to `capacity` writable pairs.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_wild_match(
+    pattern: *const c_char,
+    text: *const c_char,
+    positions: *mut [i32; 2],
+    capacity: usize,
+) -> i32 {
+    let lower = crate::wildmask::Lower::get();
+    if positions.is_null() {
+        return if crate::wildmask::wild_match(lower, input(pattern), input(text), None) { 0 } else { -1 };
+    }
+    let mut v = Vec::new();
+    if !crate::wildmask::wild_match(lower, input(pattern), input(text), Some(&mut v)) {
+        return -1;
+    }
+    let n = v.len().min(capacity);
+    let out = std::slice::from_raw_parts_mut(positions, n);
+    for (slot, (start, len)) in out.iter_mut().zip(v) {
+        *slot = [start, len];
+    }
+    n as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

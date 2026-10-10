@@ -2095,6 +2095,32 @@ int RegEx::GetMatchLen(int index)
 }
 
 
+#ifdef NZBGET_USE_RUST
+bool WildMask::Match(const char* text)
+{
+	// rust/src/wildmask.rs
+	if (!m_wantsPositions)
+	{
+		m_wildCount = 0;
+		return nzbget_rs_wild_match(m_pattern, text, nullptr, 0) >= 0;
+	}
+
+	// a pattern of n bytes has at most n wildcard matches
+	size_t capacity = strlen(m_pattern) + 1;
+	std::vector<std::array<int, 2>> positions(capacity);
+	int count = nzbget_rs_wild_match(m_pattern, text,
+		reinterpret_cast<int (*)[2]>(positions.data()), capacity);
+	m_wildCount = count < 0 ? 0 : count;
+	m_wildStart.resize(m_wildCount);
+	m_wildLen.resize(m_wildCount);
+	for (int i = 0; i < m_wildCount; i++)
+	{
+		m_wildStart[i] = positions[i][0];
+		m_wildLen[i] = positions[i][1];
+	}
+	return count >= 0;
+}
+#else
 void WildMask::ExpandArray()
 {
 	m_wildCount++;
@@ -2243,6 +2269,7 @@ bool WildMask::Match(const char* text)
 
 	return *pat == '\0';
 }
+#endif
 
 
 #ifndef DISABLE_GZIP

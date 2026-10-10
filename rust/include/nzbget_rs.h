@@ -24,6 +24,10 @@ NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
 // is also accepted. Copy the bytes before freeing if they must outlive the result.
 void nzbget_rs_free(NzbgetRsBuf buf);
 
+// Wildcard match (rust/src/wildmask.rs): -1 for no match, else the number of
+// (start, length) pairs written to positions (null: none wanted)
+int nzbget_rs_wild_match(const char* pattern, const char* text, int (*positions)[2], size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif
