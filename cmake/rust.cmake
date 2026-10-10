@@ -2,6 +2,10 @@
 # build scripts and .cargo/config.toml). Invoke it on every build; a fresh crate
 # is a cheap no-op, and consumers relink only when the archive changes.
 set(NZBGET_RUST_TARGET "" CACHE STRING "Rust target triple (required for non-macOS cross builds)")
+set(RUST_TARGET_EXPLICIT FALSE)
+if(NZBGET_RUST_TARGET)
+	set(RUST_TARGET_EXPLICIT TRUE)
+endif()
 
 # Keep the original implementation for toolchains not yet covered by the port.
 # In particular, never link a host Cargo archive into a cross-compiled binary.
@@ -13,7 +17,11 @@ endif()
 find_program(CARGO cargo HINTS "$ENV{HOME}/.cargo/bin")
 find_program(RUSTC rustc HINTS "$ENV{HOME}/.cargo/bin")
 if(NOT CARGO OR NOT RUSTC)
-	message(FATAL_ERROR "Building the Rust encoders requires cargo and rustc")
+	if(RUST_TARGET_EXPLICIT)
+		message(FATAL_ERROR "Building the Rust encoders requires cargo and rustc")
+	endif()
+	message(STATUS "Cargo or rustc unavailable: using C++ web encoders")
+	return()
 endif()
 
 set(RUST_ENV)
@@ -33,9 +41,11 @@ if(APPLE)
 endif()
 
 if(NOT NZBGET_RUST_TARGET)
-	execute_process(COMMAND "${RUSTC}" -vV OUTPUT_VARIABLE RUST_VERSION RESULT_VARIABLE RUST_STATUS)
+	execute_process(COMMAND "${RUSTC}" -vV OUTPUT_VARIABLE RUST_VERSION
+		ERROR_VARIABLE RUST_VERSION_ERROR RESULT_VARIABLE RUST_STATUS)
 	if(NOT RUST_STATUS EQUAL 0 OR NOT RUST_VERSION MATCHES "host: ([^\r\n]+)")
-		message(FATAL_ERROR "Could not determine the Rust host target")
+		message(STATUS "Rust host toolchain unavailable: using C++ web encoders")
+		return()
 	endif()
 	set(NZBGET_RUST_TARGET "${CMAKE_MATCH_1}")
 	# A native compiler invoked with -m32 is not a CMake cross build.
@@ -56,7 +66,11 @@ execute_process(
 	RESULT_VARIABLE RUST_STATUS OUTPUT_VARIABLE RUST_NATIVE_OUTPUT ERROR_VARIABLE RUST_NATIVE_ERROR
 )
 if(NOT RUST_STATUS EQUAL 0)
-	message(FATAL_ERROR "Rust target ${NZBGET_RUST_TARGET} is unavailable: ${RUST_NATIVE_ERROR}")
+	if(RUST_TARGET_EXPLICIT)
+		message(FATAL_ERROR "Rust target ${NZBGET_RUST_TARGET} is unavailable: ${RUST_NATIVE_ERROR}")
+	endif()
+	message(STATUS "Rust target ${NZBGET_RUST_TARGET} is unavailable: using C++ web encoders")
+	return()
 endif()
 if(NOT "${RUST_NATIVE_OUTPUT}${RUST_NATIVE_ERROR}" MATCHES "native-static-libs: ([^\r\n]+)")
 	message(FATAL_ERROR "Could not determine Rust native link libraries")
