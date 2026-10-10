@@ -5,6 +5,7 @@
 //!
 //! `buf` is the request from the read position through its NUL (the last
 //! byte). Positions are offsets into it.
+//! Unterminated slices are rejected without mutation, including empty slices.
 
 use std::ffi::{c_char, c_int};
 
@@ -29,6 +30,12 @@ pub enum Kind {
 /// The text up to the first NUL.
 fn text(buf: &[u8]) -> &[u8] {
     &buf[..buf.iter().position(|&b| b == 0).unwrap_or(buf.len())]
+}
+
+// Validate the safe Rust API before any indexing or call to C's strtoll.
+fn terminated(buf: &mut [u8]) -> Option<&mut [u8]> {
+    let end = buf.iter().position(|&b| b == 0)?;
+    Some(&mut buf[..=end])
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -79,6 +86,7 @@ fn xml_next_value(buf: &[u8], tag: &[u8]) -> Option<(usize, usize)> {
 /// PrepareParams' POST part for JSON: the read position after `"params"`,
 /// or 0 with the request emptied.
 pub fn skip_to_params(buf: &mut [u8]) -> usize {
+    let Some(buf) = terminated(buf) else { return 0 };
     match find(text(buf), b"\"params\"") {
         Some(at) => at + 8,
         None => {
@@ -91,6 +99,7 @@ pub fn skip_to_params(buf: &mut [u8]) -> usize {
 /// NextParamAsInt: (new read position, value); the position is unchanged
 /// without a value.
 pub fn next_int(buf: &mut [u8], kind: Kind) -> (usize, Option<i32>) {
+    let Some(buf) = terminated(buf) else { return (0, None) };
     let r = match kind {
         Kind::Get => (|| {
             let param = find(text(buf), b"=")? + 1;
@@ -133,6 +142,7 @@ pub fn next_int(buf: &mut [u8], kind: Kind) -> (usize, Option<i32>) {
 /// NextParamAsStr: (new read position, offset of the NUL-terminated value).
 /// The position is unchanged without a value.
 pub fn next_str(buf: &mut [u8], kind: Kind) -> (usize, Option<usize>) {
+    let Some(buf) = terminated(buf) else { return (0, None) };
     let r = match kind {
         Kind::Get => (|| {
             let param = find(text(buf), b"=")? + 1;
@@ -174,6 +184,7 @@ pub fn next_str(buf: &mut [u8], kind: Kind) -> (usize, Option<usize>) {
 /// NextParamAsBool: (new read position, value). A GET parameter moves the
 /// position even when it isn't a JSON boolean, as the C++ did.
 pub fn next_bool(buf: &mut [u8], kind: Kind, json: bool) -> (usize, Option<bool>) {
+    let Some(buf) = terminated(buf) else { return (0, None) };
     match kind {
         Kind::Get => {
             let (pos, param) = next_str(buf, kind);
@@ -214,6 +225,20 @@ mod tests {
         let mut v = s.as_bytes().to_vec();
         v.push(0);
         v
+    }
+
+    #[test]
+    fn unterminated_safe_api() {
+        for input in [b"".as_slice(), b"a=123", b"\"params\"", b"\"s\""] {
+            let mut b = input.to_vec();
+            assert_eq!(skip_to_params(&mut b), 0);
+            for kind in [Kind::Get, Kind::Json, Kind::Xml] {
+                assert_eq!(next_int(&mut b, kind), (0, None));
+                assert_eq!(next_bool(&mut b, kind, true), (0, None));
+                assert_eq!(next_str(&mut b, kind), (0, None));
+            }
+            assert_eq!(b, input);
+        }
     }
 
     #[test]

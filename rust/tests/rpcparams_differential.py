@@ -6,7 +6,8 @@ strings, JSON-RPC, JSONP-RPC and XML-RPC requests, comparing every result,
 the returned strings, the read position and the request buffer afterwards.
 
 Each version's method bodies are compiled into a stand-in XmlCommand with the
-members they use (in its own namespace), against the build's WebUtil.
+members they use (in its own namespace). The reference and fallback use the
+original C++ WebUtil helpers, independent of the build's Rust-backed WebUtil.
 
 Usage: rpcparams_differential.py BUILD_DIR [ROUNDS]
 """
@@ -32,6 +33,27 @@ def methods(src):
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/remote/XmlRpc.cpp"], cwd=ROOT, text=True)
 new_src = (ROOT / "daemon/remote/XmlRpc.cpp").read_text()
+old_util = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/Util.cpp"], cwd=ROOT, text=True)
+
+
+def helper(signature):
+    start = old_util.rindex(signature + "\n{")
+    end = old_util.index("\n}\n", start) + 3
+    return old_util[start:end]
+
+
+helpers = r'''
+class WebUtil {
+public:
+    static const char* XmlFindTag(const char*, const char*, int*);
+    static const char* JsonNextValue(const char*, int*);
+    static void UrlDecode(char*);
+};
+''' + "\n".join(helper(signature) for signature in (
+    "const char* WebUtil::XmlFindTag(const char* xml, const char* tag, int* valueLength)",
+    "const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)",
+    "void WebUtil::UrlDecode(char* raw)",
+))
 
 flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
 get = lambda k: re.search(rf"^{k} = (.*)$", flags, re.M).group(1)
@@ -67,6 +89,9 @@ main = r'''
 #include <climits>
 #include <string>
 #include <vector>
+#include <memory>
+#include <cassert>
+#include <clocale>
 
 struct XmlRpcProcessor
 {
@@ -75,14 +100,14 @@ struct XmlRpcProcessor
 };
 
 namespace oldimpl {
-''' + command + methods(old_src) + r'''
+''' + helpers + command + methods(old_src) + r'''
 }
 namespace newimpl {
 ''' + command + methods(new_src) + r'''
 }
 #undef NZBGET_USE_RUST
 namespace fallbackimpl {
-''' + command + methods(new_src) + r'''
+''' + helpers + command + methods(new_src) + r'''
 }
 
 static unsigned long long state = 0x9e3779b97f4a7c15ull;
@@ -166,51 +191,124 @@ static std::string request(int protocol, bool get)
 
 template <class C> static std::string run(const std::string& req, int protocol, bool get, const std::vector<int>& ops)
 {
-	std::vector<char> buf(req.begin(), req.end());
-	buf.push_back('\0');
-	buf.push_back('\0'); // stand-in for what follows the request
+	// Exact allocation: ASan must catch reads/writes after the single terminator.
+	std::unique_ptr<char[]> storage(new char[req.size() + 1]);
+	char* const base = storage.get();
+	memcpy(base, req.data(), req.size());
+	base[req.size()] = 0;
+	auto checked = [&](const char* p) {
+		assert(p >= base && p <= base + req.size());
+		assert(memchr(p, 0, base + req.size() + 1 - p));
+	};
 	C c;
-	c.m_request = c.m_requestPtr = buf.data();
+	c.m_request = c.m_requestPtr = base;
 	c.m_protocol = (XmlRpcProcessor::ERpcProtocol)protocol;
 	c.m_httpMethod = get ? XmlRpcProcessor::hmGet : XmlRpcProcessor::hmPost;
 	std::string log;
 	c.PrepareParams();
-	log += "cb:" + (c.m_callbackFunc ? std::to_string(c.m_callbackFunc - buf.data()) + "=" + c.m_callbackFunc : std::string("-"));
+	checked(c.m_requestPtr);
+	if (c.m_callbackFunc) checked(c.m_callbackFunc);
+	log += "cb:" + (c.m_callbackFunc ? std::to_string(c.m_callbackFunc - base) + "=" + c.m_callbackFunc : std::string("-"));
+	log.append(base, req.size() + 1);
 	for (int op : ops)
 	{
-		log += "|" + std::to_string(c.m_requestPtr - buf.data()) + ":";
+		checked(c.m_requestPtr);
+		log += "|" + std::to_string(c.m_requestPtr - base) + ":";
 		if (op == 0) { int v = 12345; bool ok = c.NextParamAsInt(&v); log += "i" + std::to_string(ok) + "," + std::to_string(v); }
 		else if (op == 1) { bool v = true; bool ok = c.NextParamAsBool(&v); log += "b" + std::to_string(ok) + "," + std::to_string(v); }
-		else { char* v = nullptr; bool ok = c.NextParamAsStr(&v); log += "s" + std::to_string(ok) + "," + (v ? std::to_string(v - buf.data()) + "=" + v : std::string("-")); }
+		else { char* v = nullptr; bool ok = c.NextParamAsStr(&v); if (v) checked(v); log += "s" + std::to_string(ok) + "," + (v ? std::to_string(v - base) + "=" + v : std::string("-")); }
+		log.append(base, req.size() + 1);
 	}
-	log += "|end " + std::to_string(c.m_requestPtr - buf.data()) + "|";
-	log.append(buf.begin(), buf.end());
+	log += "|end " + std::to_string(c.m_requestPtr - base) + "|";
+	checked(c.m_requestPtr);
+	log.append(base, req.size() + 1);
 	return log;
+}
+
+static long cases = 0, calls = 0;
+static void compare(const std::string& req, int protocol, bool get, const std::vector<int>& ops)
+{
+    std::string a = run<oldimpl::XmlCommand>(req, protocol, get, ops);
+    std::string b = run<newimpl::XmlCommand>(req, protocol, get, ops);
+    std::string c = run<fallbackimpl::XmlCommand>(req, protocol, get, ops);
+    if (a != b || a != c)
+    {
+        fprintf(stderr, "mismatch: protocol %d get %d request hex:", protocol, get);
+        for (unsigned char ch : req) fprintf(stderr, "%02x", ch);
+        fprintf(stderr, "\nold: %s\nrust: %s\nfallback: %s\n", a.c_str(), b.c_str(), c.c_str());
+        exit(1);
+    }
+    cases++;
+    calls += ops.size();
+}
+
+static void sequences(const std::string& req, int protocol, bool get)
+{
+    // Every three-operation sequence, including continued parsing after failure.
+    for (int i = 0; i < 27; i++) compare(req, protocol, get, {i % 3, i / 3 % 3, i / 9});
+}
+
+static void directed()
+{
+    const char* inputs[] = {
+        "", "=", "a=&b=", "a=%00abc&b=true", "a= \t+12&b=7", "a=1&&&b=-2",
+        "\"params\"", "\"params\":[\"\",1,true]", "\"params\":[\"a\\\"\",false]",
+        "\"params\":[\"a\\", "\"params\":[\"a\\x", "\"params\":[12abc,+5,1e3]",
+        "\"params\":[truex,false,true]", "\"params\":[\v1,\f2,3]",
+        "<value/>", "<value><string/></value>", "<value><boolean/></value>",
+        "<value><i4/></value>", "<value><int>2</int><i4>1</i4></value>",
+        "<value><i4>invalid</i4><int>2</int></value>",
+        "<value><string></value>outside</string>",
+        "<value><boolean></value>1</boolean>",
+        "<value><string>x</string></value><value><int>7</int></value>",
+        "<value><value><string>nested</string></value></value>",
+        "<value></value><string>outside</string>"
+    };
+    for (const char* input : inputs)
+    {
+        std::string req(input);
+        // Every truncation, including exactly at a terminator or escape boundary.
+        for (size_t n = 0; n <= req.size(); n++)
+            for (int protocol = 1; protocol <= 3; protocol++)
+                for (bool get : {false, true}) sequences(req.substr(0, n), protocol, get);
+    }
+    for (int byte = 0; byte < 256; byte++)
+    {
+        std::string ch(1, (char)byte);
+        for (int protocol = 1; protocol <= 3; protocol++)
+        {
+            sequences("a=" + ch + "12&b=true&c=last", protocol, true);
+            sequences("a=%" + ch + "1&b=%1" + ch, protocol, true);
+            if (protocol != 1) {
+                sequences("\"params\":[" + ch + "12,true,\"s\"]", protocol, false);
+                sequences("\"params\":[\"a" + ch + "b\",false,1]", protocol, false);
+            } else {
+                sequences("<value><string>" + ch + "</string></value><value><int>2</int></value>", protocol, false);
+            }
+        }
+    }
 }
 
 int main(int argc, char** argv)
 {
-	long rounds = atol(argv[1]), calls = 0, hits = 0;
-	for (long round = 0; round < rounds; round++)
-	{
-		int protocol = 1 + below(3);
-		bool get = below(3) == 0;
-		std::string req = request(protocol, get);
-		std::vector<int> ops(1 + below(7));
-		for (int& op : ops) op = below(3);
-		std::string a = run<oldimpl::XmlCommand>(req, protocol, get, ops);
-		std::string b = run<newimpl::XmlCommand>(req, protocol, get, ops);
-		std::string c = run<fallbackimpl::XmlCommand>(req, protocol, get, ops);
-		if (a != b || a != c)
-		{
-			fprintf(stderr, "mismatch: protocol %d get %d request [%s]\nold:      %s\nrust:     %s\nfallback: %s\n",
-				protocol, get, req.c_str(), a.c_str(), b.c_str(), c.c_str());
-			return 1;
-		}
-		calls += ops.size();
-		for (size_t i = 0; (i = a.find("1,", i)) != std::string::npos; i++) hits++;
-	}
-	printf("%ld requests, %ld calls agree (~%ld values) (reference %s)\n", rounds, calls, hits, "''' + REFERENCE + r'''");
+    // Preserve the classic C++ locale; exercise C's active locale separately.
+    for (const char* locale : {"C", "C.UTF-8", "en_US.UTF-8"}) {
+        if (!setlocale(LC_ALL, locale)) continue;
+        directed();
+        printf("directed cases agree in %s\n", locale);
+    }
+    setlocale(LC_ALL, "C");
+    long rounds = atol(argv[1]);
+    for (long round = 0; round < rounds; round++)
+    {
+        int protocol = 1 + below(3);
+        bool get = below(3) == 0;
+        std::string req = request(protocol, get);
+        std::vector<int> ops(1 + below(7));
+        for (int& op : ops) op = below(3);
+        compare(req, protocol, get, ops);
+    }
+    printf("%ld requests, %ld calls agree (reference %s)\n", cases, calls, "''' + REFERENCE + r'''");
 }
 '''
 
@@ -220,6 +318,6 @@ with tempfile.TemporaryDirectory(prefix="nzbget-rpcparams-") as temp:
     binary = temp / "rpcparams"
     for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], []):
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                        *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
+                        *extra, "-UNDEBUG", "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
         subprocess.run([str(binary), ROUNDS], check=True)

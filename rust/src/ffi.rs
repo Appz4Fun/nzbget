@@ -1315,8 +1315,11 @@ pub unsafe extern "C" fn nzbget_rs_rpc_skip_to_params(request: *mut c_char) -> *
 /// `*request` past it. Returns 1 with a value, else 0 (outputs untouched).
 ///
 /// # Safety
-/// `request` points to null or to a pointer into a writable NUL-terminated
-/// request; `int_value`/`str_value` are writable for the kinds that use them.
+/// Non-null `request` points to null or to a pointer into a writable
+/// NUL-terminated request; non-null `int_value`/`str_value` are writable for
+/// the kinds that use them. The pointer slots, value output and request buffer
+/// must be disjoint. All storage stays caller-owned; returned strings borrow
+/// the request. Panics abort rather than unwinding across the ABI.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     request: *mut *mut c_char,
@@ -1327,7 +1330,11 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     str_value: *mut *mut c_char,
 ) -> c_int {
     use crate::rpcparams::{next_bool, next_int, next_str, Kind};
-    if request.is_null() || (*request).is_null() {
+    if request.is_null() || (*request).is_null()
+        || !matches!(what, 0..=2)
+        || (what != 2 && int_value.is_null())
+        || (what == 2 && str_value.is_null())
+    {
         return 0;
     }
     let base = *request;
@@ -1370,6 +1377,31 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rpc_null_arguments_and_unknown_kind() {
+        unsafe {
+            assert!(nzbget_rs_rpc_skip_to_params(std::ptr::null_mut()).is_null());
+            assert_eq!(nzbget_rs_rpc_next_param(std::ptr::null_mut(), 1, 1, 0,
+                std::ptr::null_mut(), std::ptr::null_mut()), 0);
+            let mut null = std::ptr::null_mut();
+            let mut number = 12345;
+            assert_eq!(nzbget_rs_rpc_next_param(&mut null, 1, 1, 0,
+                &mut number, std::ptr::null_mut()), 0);
+            assert_eq!(number, 12345);
+            for (what, input) in [(0, b"a=12&b=3\0".as_slice()),
+                (1, b"a=true&b=false\0"), (2, b"a=x%20y&b=z\0"), (-1, b"a=1\0"), (3, b"a=1\0")]
+            {
+                let mut buf = input.to_vec();
+                let base = buf.as_mut_ptr().cast();
+                let mut request = base;
+                assert_eq!(nzbget_rs_rpc_next_param(&mut request, 1, 1, what,
+                    std::ptr::null_mut(), std::ptr::null_mut()), 0);
+                assert_eq!(request, base);
+                assert_eq!(buf, input);
+            }
+        }
+    }
 
     #[test]
     fn scheduler_capacity_retry_preserves_all_outputs() {
