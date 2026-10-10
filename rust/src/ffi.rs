@@ -1855,6 +1855,61 @@ pub unsafe extern "C" fn nzbget_rs_ext_v1_select(h: *const crate::extload::Scrip
     }
 }
 
+/// NzbgetRsHttpResponse: WebDownloader::CheckResponse's decision.
+#[repr(C)]
+pub struct HttpResponse {
+    pub result: c_int,
+    pub set_status: c_int,
+    pub http_status: c_int,
+    pub warn: c_int,
+    pub status_offset: usize,
+}
+
+/// WebDownloader::CheckResponse for the first response line (null: closed).
+///
+/// # Safety
+/// `response` is null or NUL-terminated; `out` is null (a no-op) or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_check_response(response: *const c_char, out: *mut HttpResponse) {
+    let Some(out) = out.as_mut() else { return };
+    let r = crate::webdownload::check_response((!response.is_null()).then(|| CStr::from_ptr(response)));
+    *out = HttpResponse {
+        result: r.result,
+        set_status: r.set_status as c_int,
+        http_status: r.http_status,
+        warn: r.warn,
+        status_offset: r.status_offset,
+    };
+}
+
+/// WebDownloader::ProcessHeader: 0 nothing, 1 Content-Length (`*value`),
+/// 2 gzip, 3 Content-Disposition, 4 Location (the address at `line + *value`).
+///
+/// # Safety
+/// `line` is null (nothing) or NUL-terminated; `value` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_header(line: *const c_char, redirecting: c_int, value: *mut c_int) -> c_int {
+    if line.is_null() {
+        return 0;
+    }
+    let (action, v) = crate::webdownload::process_header(CStr::from_ptr(line), redirecting != 0);
+    if let Some(value) = value.as_mut() {
+        *value = v;
+    }
+    action
+}
+
+/// WebDownloader::ParseRedirect: where `location` leads from `old_url`; free
+/// with nzbget_rs_free. Null inputs read as empty.
+///
+/// # Safety
+/// `old_url` and `location` are null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_redirect(old_url: *const c_char, location: *const c_char) -> RsBuf {
+    let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
+    into_buf(crate::webdownload::redirect(as_c(old_url), as_c(location)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

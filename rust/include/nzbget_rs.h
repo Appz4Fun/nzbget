@@ -454,6 +454,25 @@ NzbgetRsStr nzbget_rs_ext_v1_item_text(const NzbgetRsExtV1* h, int command, size
 size_t nzbget_rs_ext_v1_item_count(const NzbgetRsExtV1* h, int command, size_t i, int which);
 int nzbget_rs_ext_v1_select(const NzbgetRsExtV1* h, size_t i, size_t j, double* num, NzbgetRsStr* text);
 
+// WebDownloader's HTTP decisions (rust/src/webdownload.rs). check_response:
+// result 0 running, 1 running a redirect, 2 connect error, 3 not found,
+// 4 failed; setStatus/httpStatus the status code read; warn 0 none,
+// 1 connection closed, 2 failed with the whole line, 3 failed with the text at
+// statusOffset. http_header: 0 nothing, 1 Content-Length (*value), 2 gzip,
+// 3 Content-Disposition, 4 Location (at line + *value). http_redirect: the
+// address a Location leads to (free with nzbget_rs_free).
+typedef struct NzbgetRsHttpResponse
+{
+	int result;
+	int setStatus;
+	int httpStatus;
+	int warn;
+	size_t statusOffset;
+} NzbgetRsHttpResponse;
+void nzbget_rs_http_check_response(const char* response, NzbgetRsHttpResponse* out);
+int nzbget_rs_http_header(const char* line, int redirecting, int* value);
+NzbgetRsBuf nzbget_rs_http_redirect(const char* oldUrl, const char* location);
+
 #ifdef __cplusplus
 }
 #endif

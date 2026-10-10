@@ -21,6 +21,9 @@
 
 #include "nzbget.h"
 #include "WebDownloader.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "Log.h"
 #include "Options.h"
 #include "WorkState.h"
@@ -425,6 +428,53 @@ WebDownloader::EStatus WebDownloader::DownloadBody()
 	return Status;
 }
 
+#ifdef NZBGET_USE_RUST
+WebDownloader::EStatus WebDownloader::CheckResponse(const char* response)
+{
+	// rust/src/webdownload.rs decides; the warnings are logged here
+	NzbgetRsHttpResponse r;
+	nzbget_rs_http_check_response(response, &r);
+	if (r.setStatus)
+	{
+		m_httpStatus = r.httpStatus;
+	}
+	switch (r.warn)
+	{
+		case 1:
+			if (!IsStopped())
+			{
+				warn("URL %s: Connection closed by remote host", *m_infoName);
+			}
+			break;
+
+		case 2:
+			warn("URL %s failed: %s", *m_infoName, response);
+			break;
+
+		case 3:
+			warn("URL %s failed: %s", *m_infoName, response + r.statusOffset);
+			break;
+	}
+	switch (r.result)
+	{
+		case 0:
+			return adRunning;
+
+		case 1:
+			m_redirecting = true;
+			return adRunning;
+
+		case 2:
+			return adConnectError;
+
+		case 3:
+			return adNotFound;
+
+		default:
+			return adFailed;
+	}
+}
+#else
 WebDownloader::EStatus WebDownloader::CheckResponse(const char* response)
 {
 	if (!response)
@@ -475,7 +525,35 @@ WebDownloader::EStatus WebDownloader::CheckResponse(const char* response)
 		return adFailed;
 	}
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+void WebDownloader::ProcessHeader(const char* line)
+{
+	// rust/src/webdownload.rs
+	int value = 0;
+	switch (nzbget_rs_http_header(line, m_redirecting, &value))
+	{
+		case 1:
+			m_contentLen = value;
+			m_confirmedLength = true;
+			break;
+
+		case 2:
+			m_gzip = true;
+			break;
+
+		case 3:
+			ParseFilename(line);
+			break;
+
+		case 4:
+			ParseRedirect(line + value);
+			m_redirected = true;
+			break;
+	}
+}
+#else
 void WebDownloader::ProcessHeader(const char* line)
 {
 	if (!strncasecmp(line, "Content-Length: ", 16))
@@ -497,6 +575,7 @@ void WebDownloader::ProcessHeader(const char* line)
 		m_redirected = true;
 	}
 }
+#endif
 
 void WebDownloader::ParseFilename(const char* contentDisposition)
 {
@@ -511,6 +590,20 @@ void WebDownloader::ParseFilename(const char* contentDisposition)
 	debug("OriginalFilename: %s", *m_originalFilename);
 }
 
+#ifdef NZBGET_USE_RUST
+void WebDownloader::ParseRedirect(const char* location)
+{
+	// rust/src/webdownload.rs resolves the address
+	NzbgetRsBuf buf = nzbget_rs_http_redirect(m_url, location);
+	std::string newLocation(buf.data, buf.len);
+	nzbget_rs_free(buf);
+	// without the query: it carries api keys and passwords (indexer links do),
+	// and this went into the log
+	auto noQuery = [](const char* url) { return std::string(url, strcspn(url, "?")); };
+	detail("URL %s redirected to %s", noQuery(m_url).c_str(), noQuery(newLocation.c_str()).c_str());
+	SetUrl(newLocation.c_str());
+}
+#else
 void WebDownloader::ParseRedirect(const char* location)
 {
 	const char* newLocation = location;
@@ -571,6 +664,7 @@ void WebDownloader::ParseRedirect(const char* location)
 	detail("URL %s redirected to %s", noQuery(m_url).c_str(), noQuery(newLocation).c_str());
 	SetUrl(newLocation);
 }
+#endif
 
 bool WebDownloader::Write(void* buffer, int len)
 {

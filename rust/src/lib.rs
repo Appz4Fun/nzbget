@@ -19,6 +19,7 @@ pub mod statmeter;
 pub mod text;
 pub mod url;
 pub mod util;
+pub mod webdownload;
 pub mod webserver;
 pub mod webutil;
 pub mod ffi;
