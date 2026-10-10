@@ -1771,7 +1771,7 @@ bool Options::ValidateOptionName(const char* optname, const char* optvalue)
 		if (optvalue && strlen(optvalue) > 0)
 		{
 			ConfigError("Option \"%s\" is obsolete, ignored, use \"%s\" and \"%s\" instead",
-				optname, SCRIPTDIR, EXTENSIONS);
+				optname, SCRIPTDIR.data(), EXTENSIONS.data());
 		}
 		return true;
 	}
@@ -1800,11 +1800,14 @@ void Options::ConvertOldOption(CString& option, CString& value)
 	// rust/src/options.rs
 	NzbgetRsBuf newOption, newValue;
 	nzbget_rs_convert_old_option(option, value, &newOption, &newValue);
+	// Decide before changing option: callers may pass the same CString twice.
+	// An unchanged null value must also remain null.
+	bool valueChanged = value ? strcmp(value, newValue.data) != 0 : newValue.len != 0;
 	if (!option || strcmp(option, newOption.data))
 	{
 		option = newOption.data;
 	}
-	if (!value || strcmp(value, newValue.data))
+	if (valueChanged)
 	{
 		value = newValue.data;
 	}

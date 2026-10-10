@@ -30,10 +30,16 @@ fn from(s: &CStr, at: usize) -> &CStr {
 /// Options::ParseTime: `*` (a startup task: hours -1), `*:MM` (every hour:
 /// hours -2) or `HH:MM`. Writes the outputs as the C++ did, also on failure.
 pub fn parse_time(time: &CStr, hours: &mut i32, minutes: &mut i32) -> bool {
+    parse_time_with(time, |h| *hours = h, |m| *minutes = m)
+}
+
+// Keep writes ordered and optional: C callers may alias the two outputs or
+// supply uninitialized storage. Creating two &mut references would be UB.
+pub(crate) fn parse_time_with(time: &CStr, mut hours: impl FnMut(i32), mut minutes: impl FnMut(i32)) -> bool {
     let t = time.to_bytes();
     if t == b"*" {
-        *hours = -1;
-        *minutes = 0;
+        hours(-1);
+        minutes(0);
         return true;
     }
     if t.iter().any(|c| !b"0123456789: *".contains(c)) {
@@ -44,18 +50,20 @@ pub fn parse_time(time: &CStr, hours: &mut i32, minutes: &mut i32) -> bool {
     }
     let colon = t.iter().position(|&c| c == b':').expect("one colon");
     if t[0] == b'*' {
-        *hours = -2;
+        hours(-2);
     } else {
-        *hours = unsafe { atoi(time.as_ptr()) };
-        if *hours < 0 || *hours > 23 {
+        let h = unsafe { atoi(time.as_ptr()) };
+        hours(h);
+        if !(0..=23).contains(&h) {
             return false;
         }
     }
     if t.get(colon + 1) == Some(&b'*') {
         return false;
     }
-    *minutes = unsafe { atoi(from(time, colon + 1).as_ptr()) };
-    !(*minutes < 0 || *minutes > 59)
+    let m = unsafe { atoi(from(time, colon + 1).as_ptr()) };
+    minutes(m);
+    (0..=59).contains(&m)
 }
 
 /// Options::ParseWeekDays: days 1 (Monday) to 7, lists and ranges (`1-5,7`)
@@ -211,17 +219,18 @@ pub fn convert_old_option(option: &CStr, value: &CStr) -> (CString, CString) {
     if eq(&option, c"DefScript") || eq(&option, c"PostScript") {
         option = c"Extensions".to_owned();
     }
-    let name_len = option.to_bytes().len();
+    // The original stores strlen in an int before checking the suffix.
+    let name_len = option.to_bytes().len() as c_int;
     if eq_n(&option, c"Category", 8)
-        && ((name_len > 10 && eq(from(&option, name_len - 10), c".DefScript"))
-            || (name_len > 11 && eq(from(&option, name_len - 11), c".PostScript")))
+        && ((name_len > 10 && eq(from(&option, (name_len - 10) as usize), c".DefScript"))
+            || (name_len > 11 && eq(from(&option, (name_len - 11) as usize), c".PostScript")))
     {
         let mut v = option.as_bytes().to_vec();
         replace_all(&mut v, b".DefScript", b".Extensions");
         replace_all(&mut v, b".PostScript", b".Extensions");
         option = cstring(v);
     }
-    if eq_n(&option, c"Feed", 4) && name_len > 11 && eq(from(&option, name_len - 11), c".FeedScript") {
+    if eq_n(&option, c"Feed", 4) && name_len > 11 && eq(from(&option, (name_len - 11) as usize), c".FeedScript") {
         let mut v = option.as_bytes().to_vec();
         replace_all(&mut v, b".FeedScript", b".Extensions");
         option = cstring(v);
@@ -256,7 +265,16 @@ pub fn convert_old_option(option: &CStr, value: &CStr) -> (CString, CString) {
 /// Options::HasScript: `name` is in the `,;`-separated list (as Tokenizer
 /// splits and trims it), compared with strcasecmp.
 pub fn has_script(list: &[u8], name: &CStr) -> bool {
+    let list = &list[..tokenizer_length(list.len())];
     crate::util::tokens(list, b",;").any(|t| eq(&cstring(t.to_vec()), name))
+}
+
+fn tokenizer_length(len: usize) -> usize {
+    // Tokenizer narrows strlen to int to select its BString<1024>. A long
+    // input whose narrowed length is small/negative takes that path and is
+    // truncated by BString::Set to 1023 bytes. The other path's CString::Set
+    // also narrows strlen before copying the string.
+    if (len as c_int) < 1023 { len.min(1023) } else { len as c_int as usize }
 }
 
 /// Options::ParseCategorySource: 0 Auto, 1 NZBFile (also the default), 2 FeedFile.
@@ -276,6 +294,20 @@ pub fn parse_category_source(value: Option<&CStr>) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tokenizer_length_narrowing() {
+        assert_eq!(tokenizer_length(0), 0);
+        assert_eq!(tokenizer_length(1022), 1022);
+        assert_eq!(tokenizer_length(1023), 1023);
+        assert_eq!(tokenizer_length(1024), 1024);
+        assert_eq!(tokenizer_length(c_int::MAX as usize), c_int::MAX as usize);
+        assert_eq!(tokenizer_length(c_int::MAX as usize + 1), 1023);
+        if usize::BITS > 32 {
+            assert_eq!(tokenizer_length(0x1_0000_0000_u64 as usize), 1023);
+            assert_eq!(tokenizer_length(0x1_0000_0400_u64 as usize), 1024);
+        }
+    }
 
     #[test]
     fn times_and_days() {
