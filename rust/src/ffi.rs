@@ -1673,6 +1673,148 @@ pub unsafe extern "C" fn nzbget_rs_parse_category_source(value: *const c_char) -
     crate::options::parse_category_source((!value.is_null()).then(|| CStr::from_ptr(value)))
 }
 
+/// Borrowed bytes: NzbgetRsStr.
+#[repr(C)]
+pub struct RsStr {
+    pub data: *const c_char,
+    pub len: usize,
+}
+
+fn rs_str(v: &[u8]) -> RsStr {
+    RsStr { data: v.as_ptr().cast(), len: v.len() }
+}
+
+const NO_STR: RsStr = RsStr { data: std::ptr::null(), len: 0 };
+
+/// ExtensionLoader::V1's parsing of a script file's `len` bytes: a handle
+/// (free with nzbget_rs_ext_v1_free), or null when it isn't an extension script.
+///
+/// # Safety
+/// `data` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_parse(data: *const c_char, len: usize) -> *mut crate::extload::Script {
+    match crate::extload::parse(span(data, len)) {
+        Some(script) => Box::into_raw(Box::new(script)),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Frees a handle from nzbget_rs_ext_v1_parse.
+///
+/// # Safety
+/// `h` is null or a handle not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_free(h: *mut crate::extload::Script) {
+    if !h.is_null() {
+        drop(Box::from_raw(h));
+    }
+}
+
+/// The script kind bits (1 post-processing, 2 scan, 4 queue, 8 scheduler, 16 feed).
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_kind(h: *const crate::extload::Script) -> c_int {
+    h.as_ref().map_or(0, |s| s.kind)
+}
+
+/// Script texts: 0 about (untrimmed), 1 queue events, 2 task time; script
+/// lists: 3 description line `i`, 4 requirement `i`. Borrowed from the handle.
+///
+/// # Safety
+/// `h` is null (empty) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_text(h: *const crate::extload::Script, which: c_int, i: usize) -> RsStr {
+    let Some(s) = h.as_ref() else { return NO_STR };
+    match which {
+        0 => rs_str(&s.about),
+        1 => rs_str(&s.queue_events),
+        2 => rs_str(&s.task_time),
+        3 => s.description.get(i).map_or(NO_STR, |v| rs_str(v)),
+        4 => s.requirements.get(i).map_or(NO_STR, |v| rs_str(v)),
+        _ => NO_STR,
+    }
+}
+
+/// Counts: 0 description lines, 1 requirements, 2 options, 3 commands.
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_count(h: *const crate::extload::Script, which: c_int) -> usize {
+    let Some(s) = h.as_ref() else { return 0 };
+    match which {
+        0 => s.description.len(),
+        1 => s.requirements.len(),
+        2 => s.options.len(),
+        3 => s.commands.len(),
+        _ => 0,
+    }
+}
+
+fn ext_item(s: &crate::extload::Script, command: c_int, i: usize) -> Option<&crate::extload::Item> {
+    if command != 0 { s.commands.get(i) } else { s.options.get(i) }
+}
+
+/// Option (`command` 0) or command (1) `i`: its texts - 0 section name, 1
+/// section prefix, 2 name, 3 action (commands), 4 description line `j` -
+/// borrowed from the handle.
+///
+/// # Safety
+/// `h` is null (empty) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_item_text(h: *const crate::extload::Script, command: c_int, i: usize, field: c_int, j: usize) -> RsStr {
+    let Some(item) = h.as_ref().and_then(|s| ext_item(s, command, i)) else { return NO_STR };
+    match field {
+        0 => rs_str(&item.section.name),
+        1 => rs_str(&item.section.prefix),
+        2 => rs_str(&item.name),
+        3 => rs_str(&item.action),
+        4 => item.description.get(j).map_or(NO_STR, |v| rs_str(v)),
+        _ => NO_STR,
+    }
+}
+
+/// Option or command `i`: 0 whether its section is multi, 1 its description
+/// line count, 2 its select value count (options).
+///
+/// # Safety
+/// `h` is null (0) or a live handle.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_item_count(h: *const crate::extload::Script, command: c_int, i: usize, which: c_int) -> usize {
+    let Some(item) = h.as_ref().and_then(|s| ext_item(s, command, i)) else { return 0 };
+    match which {
+        0 => item.section.multi as usize,
+        1 => item.description.len(),
+        2 => item.select.len(),
+        _ => 0,
+    }
+}
+
+/// Option `i`'s value (`j` == SIZE_MAX) or select value `j`: 1 with the
+/// number in `*num`, 0 with the text in `*text` (borrowed), -1 if none.
+///
+/// # Safety
+/// `h` is null or a live handle; `num` and `text` are writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ext_v1_select(h: *const crate::extload::Script, i: usize, j: usize, num: *mut f64, text: *mut RsStr) -> c_int {
+    use crate::extload::Select;
+    let Some(item) = h.as_ref().and_then(|s| s.options.get(i)) else { return -1 };
+    let value = if j == usize::MAX { Some(&item.value) } else { item.select.get(j) };
+    match value {
+        Some(Select::Num(n)) if !num.is_null() => {
+            *num = *n;
+            1
+        }
+        Some(Select::Str(t)) if !text.is_null() => {
+            *text = rs_str(t);
+            0
+        }
+        _ => -1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

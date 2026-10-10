@@ -414,6 +414,31 @@ void nzbget_rs_convert_old_option(const char* option, const char* value, NzbgetR
 int nzbget_rs_has_script(const char* list, const char* name);
 int nzbget_rs_parse_category_source(const char* value);
 
+// ExtensionLoader::V1 (rust/src/extload.rs): a pre-manifest script's header.
+// parse returns a handle (free with ext_v1_free) or NULL when the file isn't
+// an extension script. Strings are borrowed from the handle (not NUL-
+// terminated). text: 0 about (untrimmed), 1 queue events, 2 task time,
+// 3 description line i, 4 requirement i. count: 0 description lines,
+// 1 requirements, 2 options, 3 commands. item_text (command 0 option, 1
+// command): 0 section name, 1 section prefix, 2 name, 3 action, 4 description
+// line j. item_count: 0 section multi, 1 description lines, 2 select values.
+// select: option i's value (j == SIZE_MAX) or select value j: 1 a number in
+// *num, 0 a text in *text, -1 none.
+typedef struct NzbgetRsStr
+{
+	const char* data;
+	size_t len;
+} NzbgetRsStr;
+typedef struct NzbgetRsExtV1 NzbgetRsExtV1;
+NzbgetRsExtV1* nzbget_rs_ext_v1_parse(const char* data, size_t len);
+void nzbget_rs_ext_v1_free(NzbgetRsExtV1* h);
+int nzbget_rs_ext_v1_kind(const NzbgetRsExtV1* h);
+NzbgetRsStr nzbget_rs_ext_v1_text(const NzbgetRsExtV1* h, int which, size_t i);
+size_t nzbget_rs_ext_v1_count(const NzbgetRsExtV1* h, int which);
+NzbgetRsStr nzbget_rs_ext_v1_item_text(const NzbgetRsExtV1* h, int command, size_t i, int field, size_t j);
+size_t nzbget_rs_ext_v1_item_count(const NzbgetRsExtV1* h, int command, size_t i, int which);
+int nzbget_rs_ext_v1_select(const NzbgetRsExtV1* h, size_t i, size_t j, double* num, NzbgetRsStr* text);
+
 #ifdef __cplusplus
 }
 #endif
