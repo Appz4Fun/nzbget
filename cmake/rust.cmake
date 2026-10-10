@@ -54,17 +54,17 @@ if(NOT NZBGET_RUST_TARGET)
 	endif()
 endif()
 
-# Cargo.lock is format 4, which Cargo reads from 1.78 on, and Cargo.toml asks
-# for rustc 1.78 (rust-version). Cargo gets the rustc checked here (RUSTC).
+# The crate is built with Rust 1.99 (rust/rust-toolchain.toml, rust-version in
+# Cargo.toml). Cargo gets the rustc checked here (RUSTC).
 foreach(RUST_TOOL CARGO RUSTC)
 	execute_process(COMMAND "${${RUST_TOOL}}" --version OUTPUT_VARIABLE RUST_TOOL_VERSION
 		ERROR_QUIET RESULT_VARIABLE RUST_TOOL_STATUS)
 	if(NOT RUST_TOOL_STATUS EQUAL 0 OR NOT RUST_TOOL_VERSION MATCHES "^[a-z]+ ([0-9]+\\.[0-9]+\\.[0-9]+)"
-		OR CMAKE_MATCH_1 VERSION_LESS 1.78)
+		OR CMAKE_MATCH_1 VERSION_LESS 1.99)
 		if(RUST_TARGET_EXPLICIT)
-			message(FATAL_ERROR "Building the Rust encoders requires Cargo and rustc 1.78 or later")
+			message(FATAL_ERROR "Building the Rust encoders requires Cargo and rustc 1.99 or later")
 		endif()
-		message(STATUS "Cargo or rustc older than 1.78 or unusable: using C++ web encoders")
+		message(STATUS "Cargo or rustc older than 1.99 or unusable: using C++ web encoders")
 		return()
 	endif()
 endforeach()
