@@ -196,9 +196,12 @@ template <class C> static std::string run(const std::string& req, int protocol, 
 	char* const base = storage.get();
 	memcpy(base, req.data(), req.size());
 	base[req.size()] = 0;
+	// An embedded NUL ends the request too; trailing allocated bytes are not
+	// permission to advance the cursor past the original C string.
+	const char* const requestEnd = (const char*)memchr(base, 0, req.size() + 1);
 	auto checked = [&](const char* p) {
-		assert(p >= base && p <= base + req.size());
-		assert(memchr(p, 0, base + req.size() + 1 - p));
+		assert(p >= base && p <= requestEnd);
+		assert(memchr(p, 0, requestEnd + 1 - p));
 	};
 	C c;
 	c.m_request = c.m_requestPtr = base;
@@ -210,13 +213,16 @@ template <class C> static std::string run(const std::string& req, int protocol, 
 	if (c.m_callbackFunc) checked(c.m_callbackFunc);
 	log += "cb:" + (c.m_callbackFunc ? std::to_string(c.m_callbackFunc - base) + "=" + c.m_callbackFunc : std::string("-"));
 	log.append(base, req.size() + 1);
+	size_t opIndex = 0;
 	for (int op : ops)
 	{
 		checked(c.m_requestPtr);
 		log += "|" + std::to_string(c.m_requestPtr - base) + ":";
 		if (op == 0) { int v = 12345; bool ok = c.NextParamAsInt(&v); log += "i" + std::to_string(ok) + "," + std::to_string(v); }
-		else if (op == 1) { bool v = true; bool ok = c.NextParamAsBool(&v); log += "b" + std::to_string(ok) + "," + std::to_string(v); }
-		else { char* v = nullptr; bool ok = c.NextParamAsStr(&v); if (v) checked(v); log += "s" + std::to_string(ok) + "," + (v ? std::to_string(v - base) + "=" + v : std::string("-")); }
+		else if (op == 1) { bool v = (opIndex % 2) != 0; bool ok = c.NextParamAsBool(&v); log += "b" + std::to_string(ok) + "," + std::to_string(v); }
+		// A non-null sentinel detects incorrectly clearing the output on failure.
+		else { char* v = base; bool ok = c.NextParamAsStr(&v); if (v) checked(v); log += "s" + std::to_string(ok) + "," + (v ? std::to_string(v - base) + "=" + v : std::string("-")); }
+		opIndex++;
 		log.append(base, req.size() + 1);
 	}
 	log += "|end " + std::to_string(c.m_requestPtr - base) + "|";
@@ -287,6 +293,29 @@ static void directed()
             }
         }
     }
+    // Adjacent escapes/quotes and each possible ending expose cursor mistakes
+    // that inserting single random bytes into ordinary requests rarely reaches.
+    for (int n = 0; n <= 7; n++)
+        for (int bits = 0; bits < (1 << n); bits++)
+        {
+            std::string body;
+            for (int i = 0; i < n; i++) body += (bits & (1 << i)) ? '\\' : '"';
+            for (const char* end : {"", "x", "\"", "\",1,true]", "\" true false", "\"}1"})
+                for (int protocol : {2, 3})
+                    sequences("\"params\":[\"" + body + end, protocol, false);
+        }
+    // The legacy XML search permits misplaced closing tags, prefers the first
+    // opening/self-closing tag, and can find a type past </value>.
+    for (const char* tag : {"i4", "int", "boolean", "string"})
+        for (const char* prefix : {"<value>", "<value/>", "<value></value>", "<value><value>"})
+            for (const char* content : {"", "1", "-2", "true", "</value>", "</value>1"})
+                for (const char* end : {"", "</value>", "<value><int>3</int></value>"})
+                {
+                    std::string open = std::string("<") + tag + ">";
+                    std::string close = std::string("</") + tag + ">";
+                    sequences(prefix + open + content + close + end, 1, false);
+                    sequences(prefix + std::string("<") + tag + "/>" + open + content + close + end, 1, false);
+                }
 }
 
 int main(int argc, char** argv)
