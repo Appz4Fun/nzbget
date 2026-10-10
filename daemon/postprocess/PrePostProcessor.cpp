@@ -967,6 +967,34 @@ void PrePostProcessor::StartJob(DownloadQueue* downloadQueue, PostInfo* postInfo
 		return;
 	}
 
+	// damaged, and the par2-files downloaded so far all failed (a lost index file):
+	// any par2-volume carries the set's description too, so the smallest one held
+	// back is fetched, and the job waits for it (it isn't picked while files download)
+	if ((nzbInfo->GetParStatus() == NzbInfo::psNone || nzbInfo->GetParStatus() == NzbInfo::psSkipped) &&
+		nzbInfo->GetDeleteStatus() == NzbInfo::dsNone && nzbInfo->CalcHealth() < 1000 &&
+		!ParParser::FindMainPars(nzbInfo->GetDestDir(), nullptr))
+	{
+		FileInfo* smallest = nullptr;
+		for (FileInfo* fileInfo : nzbInfo->GetFileList())
+		{
+			if (fileInfo->GetParFile() && fileInfo->GetPaused() && !fileInfo->GetDeleted() &&
+				(!smallest || fileInfo->GetSize() < smallest->GetSize()))
+			{
+				smallest = fileInfo;
+			}
+		}
+		if (smallest)
+		{
+			nzbInfo->PrintMessage(Message::mkInfo,
+				"No par2-file of %s on disk to check it with: unpausing %s", nzbInfo->GetName(), smallest->GetFilename());
+			smallest->SetPaused(false);
+			smallest->SetExtraPriority(true);
+			nzbInfo->SetChanged(true);
+			downloadQueue->SaveChanged();
+			return;
+		}
+	}
+
 	if (nzbInfo->GetParStatus() == NzbInfo::psNone &&
 		nzbInfo->GetDeleteStatus() == NzbInfo::dsNone)
 	{

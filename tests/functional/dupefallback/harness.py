@@ -9598,6 +9598,28 @@ def scenario_obfuscatedparnoborrow(daemon, t):
             % (hp['Status'], par_borrowed, data_borrowed))
 
 
+def scenario_lostindexpar(daemon, t):
+    """The index par2-file (rel.par2) is lost entirely and the data file has
+    holes; the recovery volumes are held back (ParCheck=auto). Post-processing
+    found no par2-file on disk and skipped par-check, the download ended
+    damaged with the volumes unused (8479). Now the smallest held-back volume
+    is fetched: it carries the set's description, and repair runs."""
+    members = _twin_release(t, 'liP', 13200, 50_000, 65536, 12)
+    lost = []
+    for m in members:
+        if m[1] == 'rel.par2':
+            m = m[:4] + (set(range(1, m[2] // m[3] + 2)),)
+        elif m[1] == 'rel.part01.rar':
+            m = m[:4] + ({4, 11},)
+        lost.append(m)
+    api = daemon.wait_ready()
+    daemon.append(api, 'Lost', build_multi_nzb(lost), False, 'li-key', 100)
+    h = daemon.wait_history(api, 'Lost', timeout=180)
+    unpaused = _grep_log(t, 'No par2-file of Lost on disk to check it with')
+    ok = h['Status'].startswith('SUCCESS') and unpaused == 1
+    return ('lostindexpar', ok, 'status=%s unpaused_logs=%d' % (h['Status'], unpaused))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -10107,6 +10129,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'lostindexpar': scenario_lostindexpar,
     'obfuscatedparnoborrow': scenario_obfuscatedparnoborrow,
     'twinaltsampled': scenario_twinaltsampled,
     'twinparrepair': scenario_twinparrepair,
@@ -10430,6 +10453,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'lostindexpar': ['ParCheck=auto', 'Unpack=no', 'DupeArticleFallback=no'],
     'obfuscatedparnoborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'DirectRename=no', 'ParCheck=force'],
     'twinaltsampled': ['HealthCheck=dupe'],
     'twinparrepair': ['HealthCheck=none', 'DupeArticleFallback=no', 'ParCheck=force', 'Unpack=no'],
