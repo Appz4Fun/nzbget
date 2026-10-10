@@ -1446,6 +1446,90 @@ pub unsafe extern "C" fn nzbget_rs_rpc_envelope(
     *tail = into_buf(t);
 }
 
+/// `len` bytes at `data` (empty when null or zero).
+unsafe fn span<'a>(data: *const c_char, len: usize) -> &'a [u8] {
+    if data.is_null() || len == 0 { &[] } else { std::slice::from_raw_parts(data.cast::<u8>(), len) }
+}
+
+/// Util::SplitCommandLine: the words, each NUL-terminated, one after the
+/// other (`len` covers them all); free with nzbget_rs_free.
+///
+/// # Safety
+/// `s` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_split_command_line(s: *const c_char) -> RsBuf {
+    let mut v = Vec::new();
+    for word in crate::util::split_command_line(input(s)) {
+        v.extend_from_slice(&word);
+        v.push(0);
+    }
+    into_buf(v)
+}
+
+/// Util::TrimRight(char*) (`right_only`) or Util::Trim(char*): trims CR, LF,
+/// space and tab in place and returns where the text starts.
+///
+/// # Safety
+/// `s` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_trim_line(s: *mut c_char, right_only: c_int) -> *mut c_char {
+    if s.is_null() {
+        return s;
+    }
+    let text = CStr::from_ptr(s).to_bytes();
+    let (start, end) = if right_only != 0 { (0, crate::util::trim_right_line(text)) } else { crate::util::trim_line(text) };
+    *s.add(end) = 0;
+    s.add(start)
+}
+
+/// Util::TrimLeft/TrimRight/Trim(std::string&) (`left`, `right`) and
+/// Util::SanitizeLine (`sanitize`, which also blanks control characters in
+/// place): the kept range [*start, return value) of the `len` bytes.
+///
+/// # Safety
+/// `data` is null or writable for `len` bytes; `start` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_trim_string(data: *mut c_char, len: usize, left: c_int, right: c_int, sanitize: c_int, start: *mut usize) -> usize {
+    let (s, e) = if data.is_null() || len == 0 {
+        (0, 0)
+    } else {
+        let buf = std::slice::from_raw_parts_mut(data.cast::<u8>(), len);
+        if sanitize != 0 { crate::util::sanitize_line(buf) } else { crate::util::trim_string(buf, left != 0, right != 0) }
+    };
+    *start = s;
+    e
+}
+
+/// Util::EndsWith over byte ranges (std::string_view).
+///
+/// # Safety
+/// `s` and `suffix` are null or readable for their lengths.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_ends_with(s: *const c_char, len: usize, suffix: *const c_char, suffix_len: usize, case_sensitive: c_int) -> c_int {
+    crate::util::ends_with(span(s, len), span(suffix, suffix_len), case_sensitive != 0) as c_int
+}
+
+/// Util::FormatBuffer; free with nzbget_rs_free.
+///
+/// # Safety
+/// `buf` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_format_buffer(buf: *const c_char, len: c_int) -> RsBuf {
+    into_buf(crate::util::format_buffer(span(buf, len.max(0) as usize)))
+}
+
+/// WebUtil::ParseRfc822DateTime (0 for null).
+///
+/// # Safety
+/// `s` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_rfc822_date_time(s: *const c_char) -> i64 {
+    if s.is_null() {
+        return 0;
+    }
+    crate::util::parse_rfc822_date_time(CStr::from_ptr(s))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
