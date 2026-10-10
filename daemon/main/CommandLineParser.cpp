@@ -294,16 +294,27 @@ void CommandLineParser::InitCommandLine(int argc, const char* const_argv[])
 	// reset getopt
 	optind = 0;
 
+	// getopt writes char* entries and may read argv[argc]. CString objects
+	// are not a char* array, even when their layout happens to match it.
+	std::vector<char*> getoptArgs;
+	getoptArgs.reserve(static_cast<size_t>(argc) + 1);
 	while (true)
 	{
 		int c;
+		getoptArgs.clear();
+		for (CString& arg : argv) getoptArgs.push_back(arg);
+		getoptArgs.push_back(nullptr);
 
 #ifdef HAVE_GETOPT_LONG
 		int option_index  = 0;
-		c = getopt_long(argc, (char**)argv.data(), short_options, long_options, &option_index);
+		c = getopt_long(argc, getoptArgs.data(), short_options, long_options, &option_index);
 #else
-		c = getopt(argc, (char**)argv.data(), short_options);
+		c = getopt(argc, getoptArgs.data(), short_options);
 #endif
+		// Rebind only after releasing all old owners: the pointers may have
+		// been permuted. Subsequent std::move operations still null argv entries.
+		for (CString& arg : argv) arg.Unbind();
+		for (size_t i = 0; i < argv.size(); i++) argv[i].Bind(getoptArgs[i]);
 
 		if (c == -1) break;
 
@@ -522,6 +533,13 @@ void CommandLineParser::InitCommandLine(int argc, const char* const_argv[])
 				m_setRate = (int)(atof(optarg)*1024);
 				break;
 			case 'B':
+				// The legacy long option is declared no_argument. Unlike -B,
+				// --system therefore arrives with a null optarg.
+				if (!optarg)
+				{
+					ReportError("Could not parse value of option 'B'");
+					return;
+				}
 				if (!strcasecmp(optarg, "dump"))
 				{
 					m_clientOperation = opClientRequestDumpDebug;

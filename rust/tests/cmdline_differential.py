@@ -68,6 +68,7 @@ main = r'''
 #undef private
 #include <string>
 #include <vector>
+#include <deque>
 #include <unistd.h>
 #include <clocale>
 ''' + rust_decl + globals_block + r'''
@@ -155,7 +156,39 @@ int main(int argc, char** argv)
 	FILE* capture = tmpfile();
 	int fd = fileno(capture);
 	setlocale(LC_ALL, "");
+	if (getenv("CMDLINE_QUIET_GETOPT")) opterr = 0;
+	// The reference dereferences NULL for the no_argument --system option.
+	// Compare only the safe implementations for this previously undefined case.
+	if (''' + str(not SHORT_ONLY).lower() + r''')
+		for (auto args : {std::vector<const char*>{"nzbget", "--system"},
+			std::vector<const char*>{"nzbget", "--system", "dump"},
+			std::vector<const char*>{"nzbget", "--system", "-h"}})
+		{
+			std::string a = run<RustCommandLineParser>(args, fd);
+			std::string b = run<FallbackCommandLineParser>(args, fd);
+			if (a != b || a.find("Could not parse value of option 'B'") == std::string::npos)
+			{
+				fprintf(stderr, "--system regression: rust: %s\nfallback: %s\n", a.c_str(), b.c_str());
+				return 1;
+			}
+		}
 	std::vector<std::vector<const char*>> cases;
+	// Keep generated strings stable while cases borrow their c_str() pointers.
+	std::deque<std::string> clusters;
+	for (char first : std::string("npsDATLPUCS"))
+		for (char second : std::string("chnopsvABDCEGKLPRSTUQOVW"))
+		{
+			clusters.push_back(std::string("-") + first + second);
+			for (auto value : {"file", "N", "DK", "FR", "G", "D", "W", "I", "0", "", "--"})
+				cases.push_back({"nzbget", "before", clusters.back().c_str(), value, "text", "-n", "after"});
+		}
+	// Regex/name arguments are opaque, including invalid expressions and bytes.
+	for (auto mode : {"FN", "FR", "GN", "GR", "fn", "fr", "gn", "gr"})
+		cases.push_back({"nzbget", "-E", mode, "d", "[", "(a)\\1", "[[:alpha:]]", "\\d+", "\xff", "", "a,b c"});
+	for (auto mode : {"ScOrE", "ALL", "FoRcE"})
+		cases.push_back({"nzbget", "-A", "i", "\t+2x", "ds", "-3", "dm", mode, "c", "", "n", "name", "file"});
+	for (auto name : {"http:/x", "https:/x", "HTTP:/x", "HTTPS:/x", "http:", "https:", "//x", "./x", "../x", ""})
+		cases.push_back({"nzbget", name});
 	for (auto value : {"nan", "-nan", "inf", "-inf", "1e300", "-1e300", "2097152", "2097151.999999",
 		"-2097152", "-2097152.0001", "0x1p2", "1,25", "\t1.5", "", "x"})
 		cases.push_back({"nzbget", "-R", value});
@@ -265,7 +298,7 @@ void TestSinkExceptions()
         subprocess.run([str(binary), "2000"], check=True, cwd=deep)
         subprocess.run([str(binary), "2000"], check=True, env={**os.environ, "CMDLINE_DELETED_CWD": "1"})
         # Locale-sensitive libc conversion and POSIX getopt ordering.
-        for env in ({"LC_ALL": "C"}, {"LC_ALL": "en_DK.utf8"}, {"POSIXLY_CORRECT": "1"}):
+        for env in ({"LC_ALL": "C"}, {"LC_ALL": "en_DK.utf8"}, {"POSIXLY_CORRECT": "1"}, {"CMDLINE_QUIET_GETOPT": "1"}):
             if "LC_ALL" in env:
                 import locale
                 try:
