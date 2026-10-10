@@ -44,12 +44,13 @@ private:
 	std::vector<std::unique_ptr<RegEx>> m_regExes;
 
 	struct Context;
-	static void Field(void* user, int field, const char* attr, const char** str, long long* num);
-	static const char* SeasonEpisode(void* user, int episode);
-	static size_t RegexNew(void* user, const char* pattern, int bufSize);
-	static int RegexMatch(void* user, size_t regex, const char* text, int (*groups)[2], int capacity);
-	static void Apply(void* user, const struct NzbgetRsFeedOptions* options);
-	static void SetMatch(void* user, int status, int rule);
+	// Allocation failures and helper exceptions must not unwind through Rust.
+	static void Field(void* user, int field, const char* attr, const char** str, long long* num) noexcept;
+	static const char* SeasonEpisode(void* user, int episode) noexcept;
+	static size_t RegexNew(void* user, const char* pattern, int bufSize) noexcept;
+	static int RegexMatch(void* user, size_t regex, const char* text, int (*groups)[2], int capacity) noexcept;
+	static void Apply(void* user, const struct NzbgetRsFeedOptions* options) noexcept;
+	static void SetMatch(void* user, int status, int rule) noexcept;
 };
 #else
 class FeedFilter

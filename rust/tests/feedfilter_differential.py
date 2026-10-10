@@ -7,7 +7,10 @@ The pre-port FeedFilter is compiled as OldFeedFilter and linked with a built
 libnzbget (the Rust one), so both share FeedItemInfo, WildMask and RegEx.
 
 Usage: feedfilter_differential.py [BUILD_DIR]  (default: build; configure and
-build it first). Run at idle priority.
+build it first). Run at idle priority. Uses the environment's locale by
+default; FEEDFILTER_COMPILE_LOCALE and FEEDFILTER_MATCH_LOCALE can override
+the locale at construction and matching independently (with LOCPATH for
+privately generated locales). Also compares helper callback order.
 """
 import os
 from pathlib import Path
@@ -40,6 +43,7 @@ harness = r'''
 #include "FeedFilter.h"
 #include "OldFeedFilter.h"
 #include <chrono>
+#include <clocale>
 #include <random>
 #include <string>
 #include <vector>
@@ -49,16 +53,18 @@ static int pick(int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng
 template <class T, size_t N> static const T& any(const T (&a)[N]) { return a[pick(N)]; }
 
 static const char* words[] = {"game", "Game", "of", "clowns", "S02E06", "s02e*", "1080p", "720p", "HDTV", "WEB-DL",
-    "x264", "*am*", "gam*", "game.of?clowns", "S##E##", "*", "?", "#", "-group", "kings", "\xc3\xa9t\xc3\xa9", "\xe9t\xe9", "IDE"};
+    "x264", "*am*", "gam*", "game.of?clowns", "S##E##", "*", "?", "#", "-group", "kings", "\xc3\xa9t\xc3\xa9", "\xe9t\xe9", "IDE",
+    "", "\t", "\r", "0", "-0", ".", "--1", "1.5", "9223372036854775808", "99999999999999999999999999999999999999999"};
 static const char* fields[] = {"", "title:", "filename:", "category:", "url:", "link:", "size:", "age:", "rageid:",
     "tvdbid:", "imdbid:", "season:", "episode:", "priority:", "dupekey:", "dupescore:", "dupestatus:", "description:",
-    "attr-genre:", "attr-missing:", "TITLE:", "bogus:", ":"};
+    "attr-genre:", "attr-missing:", "TITLE:", "bogus:", ":", "tvmazeid:", "SIZE:", "PRIORITY:", "attr-:"};
 static const char* comps[] = {"", "", "", "@", "$", "=", "<", "<=", ">", ">=", "=1.5", "<4GB", ">600MB", "<10", ">=1h", "<2d", "<x"};
 static const char* regexes[] = {"game.*\\.s02e[0-9]*\\..*", ".+S([0-9]{1,2})E([0-9]{1,2})", "(cl)(own)s", "[", "^Game", "x26([45])"};
 static const char* options[] = {"category:my series", "c:TV-${1}", "pause:yes", "p:n", "p:maybe", "priority:100", "r:-5",
     "r:abc", "pr+:10", "s:1000", "ds+:-50", "k:1080p", "k:series=GOT-${1}-${2}", "dk+:-x${season}E${episode}", "m:force",
     "dm:all", "dupemode:bogus", "rageid:123", "tvdbid:77", "tvmazeid:9", "series:Show", "paused", "unpaused", "100",
-    "my category", "cat : spaced", ":x", "k:${}", "k:${3", "c:${season}"};
+    "my category", "cat : spaced", ":x", "k:${}", "k:${3", "c:${season}", "c:${episode}", "c:", "k:",
+    "c:${1}${2}${3}", "c:${100}", "c:${0}", "c:${1x}", "c:${episode}-${season}", "priority:", "ds:", "r:+5junk"};
 static const char* commands[] = {"", "", "A:", "Accept:", "R:", "Reject:", "Q:", "Require:", "#", "a:", "O:"};
 
 static std::string term() {
@@ -78,6 +84,15 @@ static std::string term() {
 }
 
 static std::string rule() {
+    // Exercise valid option rules frequently; arbitrary terms otherwise make
+    // most randomly generated option/reference rules invalid or nonmatching.
+    if (pick(4) == 0) {
+        std::string r = pick(2) ? "A(" : "O(";
+        int n = pick(6) + 1;
+        for (int i = 0; i < n; ++i) r += std::string(i ? "," : "") + any(options);
+        static const char* patterns[] = {"**", "*.*", "$^(.*)$", "$(.*)(.*)", "S##E##", "** | dupestatus:**", "-missing | **"};
+        return r + "): " + any(patterns);
+    }
     std::string cmd = any(commands);
     std::string r = cmd;
     if ((cmd == "" || cmd == "A:" || cmd == "Accept:") && pick(2)) {
@@ -95,8 +110,13 @@ static std::string rule() {
 // what FeedCoordinator gives the items: title/episode regexes and a dupe status
 struct Helper : FeedFilterHelper {
     std::unique_ptr<RegEx> regExes[2];
-    std::unique_ptr<RegEx>& GetRegEx(int id) override { return regExes[id]; }
+    std::vector<std::string> calls;
+    std::unique_ptr<RegEx>& GetRegEx(int id) override {
+        calls.push_back("regex " + std::to_string(id));
+        return regExes[id];
+    }
     void CalcDupeStatus(const char* title, const char* dupeKey, char* buf, int len) override {
+        calls.push_back(std::string("status ") + title + " key " + dupeKey);
         snprintf(buf, len, "%s", title && strstr(title, "Kings") ? "SUCCESS" : (dupeKey && *dupeKey ? "QUEUED" : ""));
     }
 };
@@ -106,15 +126,19 @@ static void setup(FeedItemInfo& item, int seed) {
     std::mt19937 r(seed);
     auto p = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(r); };
     const char* titles[] = {"Game.of.Clowns.S02E06.REAL.1080p.HDTV.X264-Group.WEB-DL", "Kings.S01E01.720p.x265",
-        "\xc3\xa9t\xc3\xa9 2020", "", "Show Name - 1x02 - Title [1080p]"};
-    if (p(6)) item.SetTitle(titles[p(5)]);
-    if (p(2)) item.SetFilename(titles[p(5)]);
+        "\xc3\xa9t\xc3\xa9 2020", "", "Show Name - 1x02 - Title [1080p]", "\tgame\r", "1.5", "nan", "inf", "-inf", "\xddDE \xfdde IDE"};
+    if (p(6)) item.SetTitle(titles[p(sizeof(titles) / sizeof(*titles))]);
+    if (p(2)) item.SetFilename(titles[p(sizeof(titles) / sizeof(*titles))]);
     if (p(2)) item.SetCategory(p(2) ? "TV > HD" : "Movies");
     item.SetSize((int64)p(4000) * 1024 * 1024);
     // ages away from whole seconds of the thresholds
     item.SetTime(Util::CurrentTime() - p(90) * 3600 - 1800);
     item.SetRageId(p(3) ? 123456 : 0);
     item.SetTvdbId(p(1000));
+    item.SetTvmazeId(p(1000));
+    item.SetImdbId(p(1000));
+    item.SetUrl(p(2) ? "https://example.test/file.nzb" : "");
+    item.SetDescription(p(2) ? "Some description" : "1.5");
     if (p(2)) { item.SetSeason("02"); item.SetEpisode("06"); }
     if (p(2)) item.SetDupeKey("old-key");
     item.SetDupeScore(p(200) - 100);
@@ -131,14 +155,35 @@ static std::string state(FeedItemInfo& i) {
 }
 
 int main(int argc, char** argv) {
+    const char* compileLocale = getenv("FEEDFILTER_COMPILE_LOCALE");
+    const char* matchLocale = getenv("FEEDFILTER_MATCH_LOCALE");
+    auto locale = [](const char* name) {
+        if (!setlocale(LC_ALL, name ? name : "")) {
+            fprintf(stderr, "Unavailable locale: %s\n", name ? name : "environment");
+            exit(2);
+        }
+    };
+    const char* regressions[] = {
+        "", "%", "%%A:**%", "A(c:${1}): $(a*)", "A(c:${1}): $^(.*)$",
+        "A(c:${1},legacy): **", "A(c:${1},c:literal): **", "A(c:${season},k:${episode},dk+:${1}): **",
+        "O(r:4,pr+:3,ds:6,s+:2,k:x,dk+:y,m:all): **%A: priority:=7 dupescore:=8 dupekey:x-y",
+        "O(k:new): **%Q: dupestatus:QUEUED%A: **",
+        "A(r:2147483647,r+:1,ds:-2147483648,ds+:-1): **",
+        "TITLE:**", "-TITLE:**", "PRIORITY:=0", "SIZE:>=0", "title:**"
+    };
     long cases = 0;
     int filters = argc > 1 ? atoi(argv[1]) : 20000;
-    for (int f = 0; f < filters; ++f) {
+    for (int f = -int(sizeof(regressions) / sizeof(*regressions)); f < filters; ++f) {
         std::string filter;
-        int n = pick(4) + 1;
-        for (int i = 0; i < n; ++i) filter += std::string(i ? "%" : "") + rule();
+        if (f < 0) filter = regressions[-f - 1];
+        else {
+            int n = pick(4) + 1;
+            for (int i = 0; i < n; ++i) filter += std::string(i ? "%" : "") + rule();
+        }
+        locale(compileLocale);
         OldFeedFilter oldFilter(filter.c_str());
         FeedFilter newFilter(filter.c_str());
+        locale(matchLocale ? matchLocale : compileLocale);
         // the same filters on several items: state carries over between matches
         for (int k = 0; k < 8; ++k) {
             int seed = pick(1 << 30);
@@ -147,10 +192,14 @@ int main(int argc, char** argv) {
             setup(b, seed);
             a.SetFeedFilterHelper(&helperA);
             b.SetFeedFilterHelper(&helperB);
+            helperA.calls.clear();
+            helperB.calls.clear();
             oldFilter.Match(a);
             newFilter.Match(b);
-            if (state(a) != state(b)) {
+            if (state(a) != state(b) || helperA.calls != helperB.calls) {
                 printf("MISMATCH filter [%s] item %d\n  C++:  %s\n  Rust: %s\n", filter.c_str(), seed, state(a).c_str(), state(b).c_str());
+                for (auto& c : helperA.calls) printf("  C++ callback: %s\n", c.c_str());
+                for (auto& c : helperB.calls) printf("  Rust callback: %s\n", c.c_str());
                 return 1;
             }
             ++cases;

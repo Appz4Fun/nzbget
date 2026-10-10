@@ -58,7 +58,7 @@ fn trim(b: &[u8]) -> &[u8] {
     &b[start..end.max(start)]
 }
 
-/// A feed item field, resolved from its name when the filter is compiled.
+/// A feed item field, resolved using the current C locale.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(C)]
 pub enum Field {
@@ -171,8 +171,7 @@ enum Cmd {
 
 struct Term {
     positive: bool,
-    field: Field,
-    attr: Vec<u8>,
+    field_name: Option<Vec<u8>>,
     cmd: Cmd,
     param: Vec<u8>,
     int_param: i64,
@@ -199,8 +198,7 @@ impl Term {
     fn compile(token: &[u8], refs: bool) -> Option<Term> {
         let mut t = Term {
             positive: token.first() != Some(&b'-'),
-            field: Field::Title,
-            attr: Vec::new(),
+            field_name: None,
             cmd: Cmd::Equal,
             param: Vec::new(),
             int_param: 0,
@@ -251,10 +249,8 @@ impl Term {
         t.cmd = cmd;
         sv = &sv[skip..];
 
-        t.field = field_of(field_name)?;
-        if t.field == Field::Attr {
-            t.attr = field_name.unwrap_or_default()[5..].to_vec();
-        }
+        field_of(field_name)?;
+        t.field_name = field_name.map(<[u8]>::to_vec);
         if let Some(f) = field_name {
             if !t.parse_param(f, sv) {
                 return None;
@@ -305,7 +301,16 @@ impl Term {
     }
 
     fn matches(&mut self, item: &mut dyn Item, refs: &mut Vec<Vec<u8>>) -> bool {
-        let (s, i) = item.field(self.field, &self.attr);
+        // GetFieldData resolves the name again at match time. A filter may
+        // be matched under a different thread locale than it was compiled
+        // in (notably, Turkish changes how uppercase I compares).
+        let Some(field) = field_of(self.field_name.as_deref()) else { return false };
+        let attr = if field == Field::Attr {
+            &self.field_name.as_deref().unwrap_or_default()[5..]
+        } else {
+            &[]
+        };
+        let (s, i) = item.field(field, attr);
         let m = self.match_value(item, s, i, refs);
         self.positive == m
     }

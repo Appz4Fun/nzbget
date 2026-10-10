@@ -124,6 +124,10 @@ void nzbget_rs_parse_url(const char* address, NzbgetRsUrlParts* out);
 // filename, category, url, size, age, imdbid, rageid, tvdbid, tvmazeid,
 // description, season, episode, priority, dupekey, dupescore, dupestatus,
 // attr- (0..17). Match status: 0 ignored, 1 accepted, 2 rejected.
+// Callbacks must not throw/unwind or reenter/free the same filter. Callback
+// strings are borrowed: returned strings stay valid until the next callback;
+// strings passed to callbacks are valid only for that call and must be copied
+// if retained. regexNew handles must stay valid for this filter's lifetime.
 typedef struct NzbgetRsFeedOptions
 {
 	int hasPause, pause;
@@ -151,8 +155,14 @@ typedef struct NzbgetRsFeedItem
 	int (*fold)(int);
 } NzbgetRsFeedItem;
 typedef struct NzbgetRsFeedFilter NzbgetRsFeedFilter;
+// Copies filter (NULL means empty). The opaque handle is owned by Rust and
+// must only be released with feed_filter_free; free(NULL) is harmless.
 NzbgetRsFeedFilter* nzbget_rs_feed_filter_new(const char* filter);
 void nzbget_rs_feed_filter_free(NzbgetRsFeedFilter* filter);
+// NULL filter/item or missing callbacks are a no-op. All callbacks are
+// required except fold when lowerTable is supplied. lowerTable points to
+// entry zero of a valid int table spanning indices -128..255.
+// Matching requires exclusive access to the filter and its regex handles.
 void nzbget_rs_feed_filter_match(NzbgetRsFeedFilter* filter, const NzbgetRsFeedItem* item);
 
 #ifdef __cplusplus

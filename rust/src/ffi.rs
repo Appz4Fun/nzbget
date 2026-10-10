@@ -444,16 +444,16 @@ pub struct FeedItemCallbacks {
     pub user: *mut std::ffi::c_void,
     /// a field's text (null for a null C string) and number; `attr` is the
     /// attribute name for "attr-" fields
-    pub field: unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const c_char, *mut *const c_char, *mut i64),
+    pub field: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const c_char, *mut *const c_char, *mut i64)>,
     /// GetSeason (0) or GetEpisode (1) after the title is parsed
-    pub season_episode: unsafe extern "C" fn(*mut std::ffi::c_void, c_int) -> *const c_char,
+    pub season_episode: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int) -> *const c_char>,
     /// RegEx(pattern, bufSize): a handle
-    pub regex_new: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, c_int) -> usize,
+    pub regex_new: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, c_int) -> usize>,
     /// RegEx::Match: -1 when it doesn't match, else GetMatchCount, with up to
     /// `capacity` (start, length) pairs written
-    pub regex_match: unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, *mut [c_int; 2], c_int) -> c_int,
-    pub apply: unsafe extern "C" fn(*mut std::ffi::c_void, *const FeedOptions),
-    pub set_match: unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int),
+    pub regex_match: Option<unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, *mut [c_int; 2], c_int) -> c_int>,
+    pub apply: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const FeedOptions)>,
+    pub set_match: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int)>,
     /// case folding for WildMask: glibc's tolower table (entries -128..=255,
     /// pointing at entry zero) or null for `fold`
     pub lower_table: *const c_int,
@@ -502,24 +502,24 @@ impl crate::feedfilter::Item for CItem<'_> {
         let mut s: *const c_char = std::ptr::null();
         let mut n: i64 = 0;
         unsafe {
-            (self.cb.field)(self.cb.user, field as c_int, attr.as_ptr(), &mut s, &mut n);
+            (self.cb.field.expect("callbacks validated"))(self.cb.user, field as c_int, attr.as_ptr(), &mut s, &mut n);
             (c_text(s), n)
         }
     }
 
     fn season_episode(&mut self, episode: bool) -> Option<Vec<u8>> {
-        unsafe { c_text((self.cb.season_episode)(self.cb.user, episode as c_int)) }
+        unsafe { c_text((self.cb.season_episode.expect("callbacks validated"))(self.cb.user, episode as c_int)) }
     }
 
     fn regex_new(&mut self, pattern: &[u8], buf_size: i32) -> usize {
         let p = std::ffi::CString::new(pattern).unwrap_or_default();
-        unsafe { (self.cb.regex_new)(self.cb.user, p.as_ptr(), buf_size) }
+        unsafe { (self.cb.regex_new.expect("callbacks validated"))(self.cb.user, p.as_ptr(), buf_size) }
     }
 
     fn regex_match(&mut self, handle: usize, text: &[u8]) -> Option<Vec<(i32, i32)>> {
         let t = std::ffi::CString::new(text).unwrap_or_default();
         let mut groups = [[0 as c_int; 2]; 100];
-        let n = unsafe { (self.cb.regex_match)(self.cb.user, handle, t.as_ptr(), groups.as_mut_ptr(), 100) };
+        let n = unsafe { (self.cb.regex_match.expect("callbacks validated"))(self.cb.user, handle, t.as_ptr(), groups.as_mut_ptr(), 100) };
         (n >= 0).then(|| groups[..(n as usize).min(100)].iter().map(|g| (g[0], g[1])).collect())
     }
 
@@ -558,11 +558,11 @@ impl crate::feedfilter::Item for CItem<'_> {
             has_dupe_mode: flag(o.dupe_mode.is_some()),
             dupe_mode: o.dupe_mode.map_or(0, |m| m as c_int),
         };
-        unsafe { (self.cb.apply)(self.cb.user, &opts) }
+        unsafe { (self.cb.apply.expect("callbacks validated"))(self.cb.user, &opts) }
     }
 
     fn set_match(&mut self, status: i32, rule: i32) {
-        unsafe { (self.cb.set_match)(self.cb.user, status, rule) }
+        unsafe { (self.cb.set_match.expect("callbacks validated"))(self.cb.user, status, rule) }
     }
 
     fn lower(&self) -> &crate::wildmask::Lower<'_> {
@@ -581,7 +581,8 @@ pub unsafe extern "C" fn nzbget_rs_feed_filter_new(filter: *const c_char) -> *mu
 }
 
 /// # Safety
-/// `filter` is null or from nzbget_rs_feed_filter_new, not yet freed.
+/// `filter` is null or from nzbget_rs_feed_filter_new, not yet freed and
+/// not currently being matched.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_feed_filter_free(filter: *mut crate::feedfilter::FeedFilter) {
     if !filter.is_null() {
@@ -592,16 +593,27 @@ pub unsafe extern "C" fn nzbget_rs_feed_filter_free(filter: *mut crate::feedfilt
 /// FeedFilter::Match.
 ///
 /// # Safety
-/// `filter` is from nzbget_rs_feed_filter_new; `item` is valid with
-/// callbacks that don't unwind and a table as described.
+/// `filter` is null or an exclusively accessed handle from
+/// nzbget_rs_feed_filter_new. `item` is null or a valid callback table for
+/// the duration of this call. Callbacks must not unwind, reenter/free this
+/// filter, or invalidate the table. Returned strings must be null or valid
+/// NUL-terminated strings until the next callback; passed strings are only
+/// borrowed for the callback. Regex handles must remain valid across calls.
+/// A nonnull lower_table spans entries -128..255 as described above.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_feed_filter_match(filter: *mut crate::feedfilter::FeedFilter, item: *const FeedItemCallbacks) {
     if filter.is_null() || item.is_null() {
         return;
     }
     let cb = &*item;
+    if cb.field.is_none() || cb.season_episode.is_none() || cb.regex_new.is_none()
+        || cb.regex_match.is_none() || cb.apply.is_none() || cb.set_match.is_none()
+        || (cb.lower_table.is_null() && cb.fold.is_none())
+    {
+        return;
+    }
     let fold = cb.fold;
-    let call = move |b: u8| fold.map_or(b as c_int, |f| f(b as c_int));
+    let call = move |b: u8| fold.expect("callbacks validated")(b as c_int);
     let lower = if cb.lower_table.is_null() {
         crate::wildmask::Lower::Fold(&call)
     } else {
@@ -614,6 +626,88 @@ pub unsafe extern "C" fn nzbget_rs_feed_filter_match(filter: *mut crate::feedfil
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feed_filter_nulls_ownership_and_callback_order() {
+        use std::ffi::c_void;
+        #[derive(Default)]
+        struct Probe {
+            events: Vec<String>,
+            category: Vec<u8>,
+            priority: i64,
+        }
+        unsafe fn probe<'a>(user: *mut c_void) -> &'a mut Probe {
+            &mut *user.cast::<Probe>()
+        }
+        unsafe extern "C" fn field(user: *mut c_void, f: c_int, _: *const c_char, s: *mut *const c_char, n: *mut i64) {
+            let p = probe(user);
+            p.events.push(format!("field {f}"));
+            *s = std::ptr::null();
+            *n = if f == 13 { p.priority } else { 0 };
+        }
+        unsafe extern "C" fn season(user: *mut c_void, episode: c_int) -> *const c_char {
+            probe(user).events.push(format!("season {episode}"));
+            c"02".as_ptr()
+        }
+        unsafe extern "C" fn regex_new(_: *mut c_void, _: *const c_char, _: c_int) -> usize { 0 }
+        unsafe extern "C" fn regex_match(_: *mut c_void, _: usize, _: *const c_char, _: *mut [c_int; 2], _: c_int) -> c_int { -1 }
+        unsafe extern "C" fn apply(user: *mut c_void, o: *const FeedOptions) {
+            let p = probe(user);
+            let o = &*o;
+            p.events.push("apply".into());
+            if o.has_category != 0 {
+                p.category = c_text(o.category).unwrap_or_default();
+            }
+            if o.has_priority != 0 { p.priority = o.priority as i64; }
+        }
+        unsafe extern "C" fn set_match(user: *mut c_void, status: c_int, rule: c_int) {
+            probe(user).events.push(format!("match {status} {rule}"));
+        }
+        extern "C" fn fold(c: c_int) -> c_int { c }
+        let mut p = Probe::default();
+        let cb = FeedItemCallbacks {
+            user: (&mut p as *mut Probe).cast(), field: Some(field),
+            season_episode: Some(season), regex_new: Some(regex_new), regex_match: Some(regex_match),
+            apply: Some(apply), set_match: Some(set_match), lower_table: std::ptr::null(),
+            char_signed: 1, fold: Some(fold),
+        };
+        unsafe {
+            nzbget_rs_feed_filter_free(std::ptr::null_mut());
+            nzbget_rs_feed_filter_match(std::ptr::null_mut(), std::ptr::null());
+            let empty = nzbget_rs_feed_filter_new(std::ptr::null());
+            nzbget_rs_feed_filter_match(empty, &cb);
+            nzbget_rs_feed_filter_free(empty);
+            assert_eq!(p.events, ["match 0 0"]);
+            p.events.clear();
+
+            let input = std::ffi::CString::new("O(c:${season},r:7): **%A: priority:=7").unwrap();
+            let filter = nzbget_rs_feed_filter_new(input.as_ptr());
+            drop(input);
+            nzbget_rs_feed_filter_match(filter, std::ptr::null());
+            // A zero-initialized C callback table and each missing callback
+            // must be representable and rejected without invoking anything.
+            let zero: FeedItemCallbacks = std::mem::zeroed();
+            nzbget_rs_feed_filter_match(filter, &zero);
+            for missing in 0..7 {
+                let mut bad = FeedItemCallbacks { ..cb };
+                match missing {
+                    0 => bad.field = None,
+                    1 => bad.season_episode = None,
+                    2 => bad.regex_new = None,
+                    3 => bad.regex_match = None,
+                    4 => bad.apply = None,
+                    5 => bad.set_match = None,
+                    _ => bad.fold = None,
+                }
+                nzbget_rs_feed_filter_match(filter, &bad);
+            }
+            assert!(p.events.is_empty());
+            nzbget_rs_feed_filter_match(filter, &cb);
+            nzbget_rs_feed_filter_free(filter);
+            assert_eq!(p.category, b"02");
+            assert_eq!(p.events, ["field 0", "season 0", "match 1 1", "apply", "field 13", "match 1 2", "apply"]);
+        }
+    }
 
     #[test]
     fn util_ffi_nulls_ownership_and_table_without_callbacks() {

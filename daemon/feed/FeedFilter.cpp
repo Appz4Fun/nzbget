@@ -47,7 +47,7 @@ FeedFilter::~FeedFilter()
 }
 
 // Term::GetFieldData's values, by field number (see nzbget_rs.h)
-void FeedFilter::Field(void* user, int field, const char* attr, const char** str, long long* num)
+void FeedFilter::Field(void* user, int field, const char* attr, const char** str, long long* num) noexcept
 {
 	FeedItemInfo* item = static_cast<Context*>(user)->item;
 	*str = nullptr;
@@ -80,7 +80,7 @@ void FeedFilter::Field(void* user, int field, const char* attr, const char** str
 	}
 }
 
-const char* FeedFilter::SeasonEpisode(void* user, int episode)
+const char* FeedFilter::SeasonEpisode(void* user, int episode) noexcept
 {
 	FeedItemInfo* item = static_cast<Context*>(user)->item;
 	// GetSeasonNum/GetEpisodeNum parse the title
@@ -93,14 +93,14 @@ const char* FeedFilter::SeasonEpisode(void* user, int episode)
 	return item->GetSeason();
 }
 
-size_t FeedFilter::RegexNew(void* user, const char* pattern, int bufSize)
+size_t FeedFilter::RegexNew(void* user, const char* pattern, int bufSize) noexcept
 {
 	FeedFilter* filter = static_cast<Context*>(user)->filter;
 	filter->m_regExes.push_back(std::make_unique<RegEx>(pattern, bufSize));
 	return filter->m_regExes.size() - 1;
 }
 
-int FeedFilter::RegexMatch(void* user, size_t regex, const char* text, int (*groups)[2], int capacity)
+int FeedFilter::RegexMatch(void* user, size_t regex, const char* text, int (*groups)[2], int capacity) noexcept
 {
 	RegEx* regEx = static_cast<Context*>(user)->filter->m_regExes[regex].get();
 	if (!regEx->Match(text))
@@ -117,7 +117,7 @@ int FeedFilter::RegexMatch(void* user, size_t regex, const char* text, int (*gro
 }
 
 // ApplyOptions
-void FeedFilter::Apply(void* user, const NzbgetRsFeedOptions* o)
+void FeedFilter::Apply(void* user, const NzbgetRsFeedOptions* o) noexcept
 {
 	FeedItemInfo* item = static_cast<Context*>(user)->item;
 	if (o->hasPause)
@@ -134,7 +134,9 @@ void FeedFilter::Apply(void* user, const NzbgetRsFeedOptions* o)
 	}
 	if (o->hasAddPriority)
 	{
-		item->SetPriority(item->GetPriority() + o->addPriority);
+		// Preserve the legacy wraparound without signed-overflow UB.
+		item->SetPriority(static_cast<int>(static_cast<unsigned int>(item->GetPriority()) +
+			static_cast<unsigned int>(o->addPriority)));
 	}
 	if (o->hasDupeScore)
 	{
@@ -142,7 +144,8 @@ void FeedFilter::Apply(void* user, const NzbgetRsFeedOptions* o)
 	}
 	if (o->hasAddDupeScore)
 	{
-		item->SetDupeScore(item->GetDupeScore() + o->addDupeScore);
+		item->SetDupeScore(static_cast<int>(static_cast<unsigned int>(item->GetDupeScore()) +
+			static_cast<unsigned int>(o->addDupeScore)));
 	}
 	if (o->hasBuildDupeKey)
 	{
@@ -162,7 +165,7 @@ void FeedFilter::Apply(void* user, const NzbgetRsFeedOptions* o)
 	}
 }
 
-void FeedFilter::SetMatch(void* user, int status, int rule)
+void FeedFilter::SetMatch(void* user, int status, int rule) noexcept
 {
 	FeedItemInfo* item = static_cast<Context*>(user)->item;
 	item->SetMatchStatus(status == 1 ? FeedItemInfo::msAccepted :
