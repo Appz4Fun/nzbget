@@ -1374,6 +1374,73 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     ok as c_int
 }
 
+/// XmlRpcProcessor::Execute: the protocol of an RPC URL (0 if none).
+///
+/// # Safety
+/// `url` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_protocol(url: *const c_char) -> c_int {
+    crate::rpcroute::protocol(input(url))
+}
+
+/// XmlRpcProcessor::Dispatch's parsing: writes the method name (NUL-terminated,
+/// at most 99 bytes) to `method_name` (100 bytes), where the parameters start to
+/// `*params` (into `url` for GET, else `request`) and the JSON-RPC id to
+/// `*id`/`*id_len` (null if none).
+///
+/// # Safety
+/// `url` and `request` are null or NUL-terminated; the outputs are writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_route(
+    url: *const c_char,
+    request: *const c_char,
+    get: c_int,
+    protocol: c_int,
+    method_name: *mut c_char,
+    params: *mut *const c_char,
+    id: *mut *const c_char,
+    id_len: *mut c_int,
+) {
+    let r = crate::rpcroute::route(input(url), input(request), get != 0, protocol);
+    std::ptr::copy_nonoverlapping(r.method.as_ptr().cast::<c_char>(), method_name, r.method.len());
+    *method_name.add(r.method.len()) = 0;
+    *params = match r.params {
+        Some(at) => url.add(at),
+        None => request,
+    };
+    match r.id {
+        Some((at, len)) => {
+            *id = request.add(at);
+            *id_len = len as c_int;
+        }
+        None => {
+            *id = std::ptr::null();
+            *id_len = 0;
+        }
+    }
+}
+
+/// XmlRpcProcessor::BuildResponse: the text before and after a response; free
+/// both with nzbget_rs_free.
+///
+/// # Safety
+/// `callback` and `id` are null or NUL-terminated; `head` and `tail` are writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_envelope(
+    protocol: c_int,
+    fault: c_int,
+    callback: *const c_char,
+    id: *const c_char,
+    head: *mut RsBuf,
+    tail: *mut RsBuf,
+) {
+    let callback = (!callback.is_null()).then(|| input(callback));
+    let id = (!id.is_null()).then(|| input(id));
+    let (h, t) = crate::rpcroute::envelope(protocol, fault != 0, callback, id);
+    *head = into_buf(h);
+    *tail = into_buf(t);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

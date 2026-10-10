@@ -338,6 +338,16 @@ size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long lo
 char* nzbget_rs_rpc_skip_to_params(char* request);
 int nzbget_rs_rpc_next_param(char** request, int get, int json, int what, int* intValue, char** strValue);
 
+// XmlRpcProcessor's routing (rust/src/rpcroute.rs). protocol: the
+// ERpcProtocol of an RPC URL (rpUndefined if none). route: Dispatch's method
+// name (into a 100-byte buffer), where the parameters start (*params, into url
+// for GET, else request) and the JSON-RPC id (*id, *idLen; null if none or
+// longer than 4096). envelope: BuildResponse's text before (head) and after
+// (tail) the response; free both with nzbget_rs_free.
+int nzbget_rs_rpc_protocol(const char* url);
+void nzbget_rs_rpc_route(const char* url, const char* request, int get, int protocol, char* methodName, const char** params, const char** id, int* idLen);
+void nzbget_rs_rpc_envelope(int protocol, int fault, const char* callback, const char* id, NzbgetRsBuf* head, NzbgetRsBuf* tail);
+
 #ifdef __cplusplus
 }
 #endif

@@ -28,6 +28,7 @@ in `rust/include/nzbget_rs.h`.
 | `Decoder` (yEnc, UU, raw; rapidyenc kept) | `decoder` | parity |
 | `Scheduler::CheckTasks` timing (tasks run in C++) | `scheduler` | port only |
 | `XmlCommand` request parameters (`PrepareParams`, `NextParamAsInt/Bool/Str`) | `rpcparams` | port only |
+| `XmlRpcProcessor` routing (`Execute` protocol, `Dispatch` method/id/params) and `BuildResponse` envelope | `rpcroute` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.

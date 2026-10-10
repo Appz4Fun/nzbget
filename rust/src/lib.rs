@@ -11,6 +11,7 @@ pub mod feedfilter;
 pub mod filetypes;
 pub mod paths;
 pub mod rpcparams;
+pub mod rpcroute;
 pub mod scheduler;
 pub mod text;
 pub mod url;

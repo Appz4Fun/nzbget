@@ -584,6 +584,11 @@ bool XmlRpcProcessor::IsRpcRequest(const char* url)
 
 void XmlRpcProcessor::Execute()
 {
+#ifdef NZBGET_USE_RUST
+	m_protocol = (ERpcProtocol)nzbget_rs_rpc_protocol(m_url);
+	if (m_protocol == rpUndefined)
+	{
+#else
 	m_protocol = rpUndefined;
 	if (!strcmp(m_url, "/xmlrpc") || !strncmp(m_url, "/xmlrpc/", 8))
 	{
@@ -599,6 +604,7 @@ void XmlRpcProcessor::Execute()
 	}
 	else
 	{
+#endif
 		error("internal error: invalid rpc-request: %s", *m_url);
 		return;
 	}
@@ -615,6 +621,18 @@ void XmlRpcProcessor::Dispatch()
 	// past 4 KB is left out rather than cut)
 	CString requestId;
 
+#ifdef NZBGET_USE_RUST
+	const char* params = nullptr;
+	const char* requestIdPtr = nullptr;
+	int requestIdLen = 0;
+	nzbget_rs_rpc_route(m_url, m_request, m_httpMethod == hmGet, m_protocol, methodName, &params,
+		&requestIdPtr, &requestIdLen);
+	request = const_cast<char*>(params);
+	if (requestIdPtr)
+	{
+		requestId.Set(requestIdPtr, requestIdLen);
+	}
+#else
 	if (m_httpMethod == hmGet)
 	{
 		request = (char*)m_url + 1;
@@ -655,6 +673,8 @@ void XmlRpcProcessor::Dispatch()
 			}
 		}
 	}
+
+#endif
 
 	debug("MethodName=%s", *methodName);
 
@@ -755,6 +775,19 @@ void XmlRpcProcessor::MutliCall()
 void XmlRpcProcessor::BuildResponse(const char* response, const char* callbackFunc,
 	bool fault, const char* requestId)
 {
+	debug("Response=%s", response);
+
+	bool xmlRpc = m_protocol == rpXmlRpc;
+
+#ifdef NZBGET_USE_RUST
+	NzbgetRsBuf head, tail;
+	nzbget_rs_rpc_envelope(m_protocol, fault, callbackFunc, requestId, &head, &tail);
+	m_response.Append(head.data);
+	m_response.Append(response);
+	m_response.Append(tail.data);
+	nzbget_rs_free(head);
+	nzbget_rs_free(tail);
+#else
 	const char XML_HEADER[] = "<?xml version=\"1.0\"?>\n<methodResponse>\n";
 	const char XML_FOOTER[] = "</methodResponse>";
 	const char XML_OK_OPEN[] = "<params><param><value>";
@@ -774,16 +807,12 @@ void XmlRpcProcessor::BuildResponse(const char* response, const char* callbackFu
 	const char JSONP_CALLBACK_HEADER[] = "(";
 	const char JSONP_CALLBACK_FOOTER[] = ")";
 
-	bool xmlRpc = m_protocol == rpXmlRpc;
-
 	const char* callbackHeader = m_protocol == rpJsonPRpc ? JSONP_CALLBACK_HEADER : "";
 	const char* header = xmlRpc ? XML_HEADER : JSON_HEADER;
 	const char* footer = xmlRpc ? XML_FOOTER : JSON_FOOTER;
 	const char* openTag = fault ? (xmlRpc ? XML_FAULT_OPEN : JSON_FAULT_OPEN) : (xmlRpc ? XML_OK_OPEN : JSON_OK_OPEN);
 	const char* closeTag = fault ? (xmlRpc ? XML_FAULT_CLOSE : JSON_FAULT_CLOSE ) : (xmlRpc ? XML_OK_CLOSE : JSON_OK_CLOSE);
 	const char* callbackFooter = m_protocol == rpJsonPRpc ? JSONP_CALLBACK_FOOTER : "";
-
-	debug("Response=%s", response);
 
 	if (callbackFunc)
 	{
@@ -802,6 +831,8 @@ void XmlRpcProcessor::BuildResponse(const char* response, const char* callbackFu
 	m_response.Append(closeTag);
 	m_response.Append(footer);
 	m_response.Append(callbackFooter);
+
+#endif
 
 	m_contentType = xmlRpc ? "text/xml" : "application/json";
 }
