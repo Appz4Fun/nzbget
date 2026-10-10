@@ -3,6 +3,7 @@
 
 pub mod crc;
 pub mod decode;
+pub mod deobfuscation;
 pub mod escape;
 pub mod feedfilter;
 pub mod text;

@@ -623,6 +623,28 @@ pub unsafe extern "C" fn nzbget_rs_feed_filter_match(filter: *mut crate::feedfil
     (*filter).matches(&mut c_item);
 }
 
+unsafe fn bytes<'a>(p: *const c_char, len: usize) -> &'a [u8] {
+    if p.is_null() || len == 0 { &[] } else { std::slice::from_raw_parts(p.cast(), len) }
+}
+
+/// Deobfuscation::IsExcessivelyObfuscated (rust/src/deobfuscation.rs).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_is_excessively_obfuscated(s: *const c_char, len: usize) -> c_int {
+    crate::deobfuscation::is_excessively_obfuscated(bytes(s, len)) as c_int
+}
+
+/// Deobfuscation::Deobfuscate; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_deobfuscate(s: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::deobfuscation::deobfuscate(bytes(s, len)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

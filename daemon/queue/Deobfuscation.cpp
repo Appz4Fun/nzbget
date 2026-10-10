@@ -24,6 +24,27 @@
 #include "FileTypes.h"
 #include "FileSystem.h"
 
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+
+namespace Deobfuscation
+{
+	// rust/src/deobfuscation.rs
+	bool IsExcessivelyObfuscated(std::string_view str)
+	{
+		return nzbget_rs_is_excessively_obfuscated(str.data(), str.size()) != 0;
+	}
+
+	std::string Deobfuscate(std::string_view str)
+	{
+		NzbgetRsBuf buf = nzbget_rs_deobfuscate(str.data(), str.size());
+		std::string result(buf.data, buf.len);
+		nzbget_rs_free(buf);
+		return result;
+	}
+}
+#else
+
 namespace
 {
 	constexpr size_t MAX_TITLE_LEN = 32;
@@ -478,3 +499,4 @@ namespace Deobfuscation
 		return std::string(sv.substr(firstQuotPos + 1, distance));
 	}
 }
+#endif
