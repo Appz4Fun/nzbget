@@ -178,6 +178,22 @@ int main()
 	for (int gap : {0, 1, 60, 5400, 5401})
 	for (int hour : {-1, 0, 23})
 		boundary(now, now - gap, 0, hour, 0, 0, 0);
+	if (std::getenv("NZBGET_SCHEDULER_LEAP_BOUNDARIES"))
+	{
+		std::puts("negative leap-second checks agree");
+		return 0;
+	}
+	// The zero last-execution sentinel also denotes the epoch loop day.
+	// Exercise it explicitly, along with full-width offsets/masks and the
+	// largest task fields whose multiplications are defined in old Timegm.
+	for (time_t now : {-86401, -86400, -1, 0, 1, 86399, 86400, 86401})
+	for (int gap : {-1, 0, 5400, 5401})
+	for (int offset : {0, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()})
+	for (int mask : {0, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()})
+	for (auto hm : {std::pair<int, int>{-1, 0}, {0, 0},
+		{std::numeric_limits<int>::max() / 3600, std::numeric_limits<int>::max() / 60},
+		{std::numeric_limits<int>::min() / 3600, std::numeric_limits<int>::min() / 60}})
+		boundary(now, now - gap, offset, hm.first, hm.second, mask, 0);
 	// Leap and non-leap centuries, year zero and negative years exercise the
 	// truncating division in nzbget's Timegm (not libc timegm). All arithmetic
 	// stays within the defined range of the original C++ int expressions.
@@ -275,6 +291,10 @@ int main()
 with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
     temp = Path(temp)
     env = dict(os.environ, CARGO_BUILD_JOBS="3")
+    # UBSan normally reports and continues, which could let a bad oracle or
+    # bridge pass this comparison. Make every sanitizer finding fail the run.
+    for option in ("ASAN_OPTIONS", "UBSAN_OPTIONS"):
+        env[option] = env.get(option, "") + ":halt_on_error=1"
     # A minimal TZif v1 fixture, independent of the host's optional right/*
     # zoneinfo package: one leap second at the end of June 1972. gmtime_r
     # honors this on libc implementations supporting leap-aware timezones.
@@ -282,6 +302,10 @@ with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
     leap_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 1, 0, 1, 4)
                           + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
                           + struct.pack(">li", 78796800, 1))
+    negative_leap_zone = temp / "negative-leap-utc"
+    negative_leap_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 1, 0, 1, 4)
+                                   + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
+                                   + struct.pack(">li", 78796800, -1))
     stress_zone = temp / "leap-stress"
     stress_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 15, 0, 1, 4)
                             + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
@@ -302,6 +326,8 @@ with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
                         *native, "-o", str(binary)], check=True, env=env)
         subprocess.run([str(binary)], check=True,
                        env=dict(env, TZ=f":{stress_zone}", NZBGET_SCHEDULER_LEAP_STRESS="1"))
+        subprocess.run([str(binary)], check=True,
+                       env=dict(env, TZ=f":{negative_leap_zone}", NZBGET_SCHEDULER_LEAP_BOUNDARIES="1"))
         for timezone in ("UTC0", f":{leap_zone}"):
             print(f"Checking {'Debug' if args.debug else 'Release'}, {flags}, TZ={timezone}", flush=True)
             subprocess.run([str(binary)], check=True, env=dict(env, TZ=timezone))
