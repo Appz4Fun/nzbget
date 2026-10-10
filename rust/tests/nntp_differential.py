@@ -246,11 +246,13 @@ template <class C> static std::string targeted(int kind, int length, int throwAt
 	c.m_throwAt = throwAt;
 	std::string input(length, 'g');
 	std::string out;
-	if (kind == 0 || kind == 1)
+	if (kind == 0 || kind == 1 || kind == 10 || kind == 11 || kind == 12)
 	{
 		// A caller can pass a previous answer back as a request or group.
 		strcpy(c.m_lineBuf, "previous server answer used as input");
 		c.m_answers = {"480 auth\r\n", "281 ok\r\n", "211 x\r\n"};
+		if (kind == 10) c.m_answers = {"480 auth\r\n", "502 denied\r\n"};
+		if (kind == 11) c.m_answers = {"411 no such group\r\n"};
 	}
 	else if (kind == 2)
 		c.m_answers = {"480 auth\r\n", "381 pass\r\n", "502%sn\rX\r\n"};
@@ -273,6 +275,17 @@ template <class C> static std::string targeted(int kind, int length, int throwAt
 		c.m_status = C::csDisconnected;
 		c.m_answers = {"500 " + std::string(length, 'x') + "\r\n", "205 bye\r\n"};
 	}
+	else if (kind == 13 || kind == 14)
+	{
+		// USER accepts only 281; PASS accepts every answer starting with 2.
+		// Include NUL and high bytes without imposing text/locale semantics.
+		std::string reply(1, static_cast<char>(length % 256));
+		reply += "81 raw\r\n";
+		c.m_answers = {"480 auth\r\n"};
+		if (kind == 14) c.m_answers.push_back("381 pass\r\n");
+		c.m_answers.push_back(reply);
+		c.m_answers.push_back("222 body\r\n");
+	}
 	else
 	{
 		strcpy(c.m_lineBuf, "x");
@@ -282,7 +295,8 @@ template <class C> static std::string targeted(int kind, int length, int throwAt
 	{
 		const char* a = nullptr;
 		if (kind == 0) a = c.Request(c.m_lineBuf);
-		else if (kind == 1 || kind == 9) a = c.JoinGroup(c.m_lineBuf);
+		else if (kind == 1 || kind == 9 || kind == 10 || kind == 11) a = c.JoinGroup(c.m_lineBuf);
+		else if (kind == 12) a = c.Request((char*)c.m_lineBuf + 4);
 		else if (kind == 7) out += std::to_string(c.Connect());
 		else if (kind == 8) a = c.JoinGroup(input.c_str());
 		else a = c.Request("BODY <x>\r\n");
@@ -298,8 +312,8 @@ template <class C> static std::string targeted(int kind, int length, int throwAt
 int main(int argc, char** argv)
 {
 	int targetedCases = 0;
-	for (int kind = 0; kind < 10; ++kind)
-	for (int len : {0, 1, 9, 10, 11, 12, 1007, 1008, 1009, 1010, 1011, 1012, 1015, 1016, 1017, 1018, 1023, 1024, 10232, 10233, 10234, 10239, 10240})
+	for (int kind = 0; kind < 15; ++kind)
+	for (int len : {0, 1, 9, 10, 11, 12, 49, 50, 51, 127, 128, 255, 256, 1007, 1008, 1009, 1010, 1011, 1012, 1015, 1016, 1017, 1018, 1023, 1024, 10232, 10233, 10234, 10239, 10240})
 	for (int at = -1; at < 32; ++at)
 	{
 		++targetedCases;
