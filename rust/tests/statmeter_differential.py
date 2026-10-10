@@ -6,9 +6,11 @@ both ways, local offset changes, loaded first days) and stats, comparing
 every slot, counter array and total after each call.
 
 Each version's CalcSlots and AddStats are compiled into a stand-in
-ServerVolume (in its own namespace) with a scripted clock. Times stay where
-the C++ int arithmetic is defined (0 .. 2038-01-19 as local times): outside
-it the C++ indexed the arrays with negative slots.
+ServerVolume (in its own namespace) with a scripted clock. Directed cases
+cover int truncation, ring/day boundaries and deltas in both directions.
+Where the original indexes negative slots, only Rust and the guarded fallback
+are run. Original abs(INT_MIN), backward secDelta overflow, and time_t
+subtraction overflow are excluded from the differential comparison.
 
 Usage: statmeter_differential.py BUILD_DIR [ROUNDS]
 """
@@ -111,6 +113,7 @@ main = r'''
 #include "nzbget_rs.h"
 #include <string>
 #include <vector>
+#include <limits>
 
 namespace oldimpl {
 ''' + STANDIN + bodies(old_src) + r'''
@@ -130,6 +133,80 @@ static long long below(long long n) { return (long long)(next() % (unsigned long
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]), calls = 0;
+	// CalcSlots itself is defined for negative int times; it must retain C's
+	// signed remainders and truncation toward zero, not Euclidean division.
+	const long long WRAP = 1LL << 32;
+	const long long times[] = {
+		std::numeric_limits<long long>::min(), std::numeric_limits<long long>::max(),
+		-2147483649LL, -2147483648LL, -86401, -86400, -86399, -3601, -3600,
+		-3599, -61, -60, -59, -1, 0, 1, 59, 60, 61, 3599, 3600, 3601,
+		86399, 86400, 86401, 2147483646, 2147483647, 2147483648LL,
+		WRAP - 1, WRAP, WRAP + 1, WRAP + 1791635696, -WRAP + 1791635696,
+		15705LL * 86400 - 1, 15705LL * 86400, 15706LL * 86400,
+		23025LL * 86400 - 1, 23025LL * 86400, 23025LL * 86400 + 1,
+	};
+	const long long deltas[] = {
+		-2 * WRAP - 61, -WRAP, -WRAP + 61, -2147483646LL, -86401, -86400,
+		-86399, -3601, -3600, -3599, -61, -60, -59, -1, 0, 1, 59, 60, 61,
+		3599, 3600, 3601, 86399, 86400, 86401, 2147483647, WRAP - 61,
+		WRAP, 2 * WRAP + 61,
+	};
+	for (long long t : times)
+	{
+		// This harness may also be used with a 32-bit time_t build.
+		if (t < std::numeric_limits<time_t>::min() || t > std::numeric_limits<time_t>::max()) continue;
+		for (int first : {-400, 0, 1, 15705, 20700, 23025, 30000})
+		{
+			oldimpl::ServerVolume a;
+			newimpl::ServerVolume b;
+			fallbackimpl::ServerVolume c;
+			a.m_firstDay = b.m_firstDay = c.m_firstDay = first;
+			// Day arrays grow independently and never shrink.
+			a.m_bytesPerDays.resize(7); b.m_bytesPerDays.resize(7); c.m_bytesPerDays.resize(7);
+			a.m_articlesPerDays.resize(13); b.m_articlesPerDays.resize(13); c.m_articlesPerDays.resize(13);
+			a.CalcSlots(t); b.CalcSlots(t); c.CalcSlots(t);
+			if (a.State() != b.State() || a.State() != c.State())
+			{
+				fprintf(stderr, "CalcSlots mismatch: t %lld first %d\n", t, first);
+				return 1;
+			}
+			calls++;
+		}
+		for (long long delta : deltas)
+		{
+			if (delta < std::numeric_limits<time_t>::min() || delta > std::numeric_limits<time_t>::max()) continue;
+			if (delta > 0 && t < std::numeric_limits<time_t>::min() + delta) continue;
+			if (delta < 0 && t > std::numeric_limits<time_t>::max() + delta) continue;
+			for (int previous : {0, 1, 23, 59})
+			{
+				oldimpl::ServerVolume a;
+				newimpl::ServerVolume b;
+				fallbackimpl::ServerVolume c;
+				a.m_dataTime = b.m_dataTime = c.m_dataTime = t - delta;
+				a.m_minSlot = b.m_minSlot = c.m_minSlot = previous;
+				a.m_hourSlot = b.m_hourSlot = c.m_hourSlot = previous;
+				for (auto* array : {&a.m_bytesPerSeconds, &a.m_bytesPerMinutes, &a.m_bytesPerHours,
+					&b.m_bytesPerSeconds, &b.m_bytesPerMinutes, &b.m_bytesPerHours,
+					&c.m_bytesPerSeconds, &c.m_bytesPerMinutes, &c.m_bytesPerHours})
+					for (size_t i = 0; i < array->size(); i++) (*array)[i] = (1LL << 40) + i;
+				oldimpl::g_now = newimpl::g_now = fallbackimpl::g_now = t;
+				oldimpl::g_offset = newimpl::g_offset = fallbackimpl::g_offset = 0;
+				a.CalcSlots(t);
+				// Restore the previous slots after checking whether the old writes are defined.
+				bool defined = a.m_secSlot >= 0 && a.m_minSlot >= 0 && a.m_hourSlot >= 0;
+				a.m_minSlot = a.m_hourSlot = previous;
+				if (defined) a.AddStats({0xffffffffu, {3, 5}});
+				b.AddStats({0xffffffffu, {3, 5}});
+				c.AddStats({0xffffffffu, {3, 5}});
+				if ((defined && a.State() != b.State()) || b.State() != c.State())
+				{
+					fprintf(stderr, "AddStats mismatch: t %lld delta %lld previous %d\n", t, delta, previous);
+					return 1;
+				}
+				calls++;
+			}
+		}
+	}
 	const long long LIMIT = 2147483647LL - 50400;  // local times stay within a C int
 	for (long round = 0; round < rounds; round++)
 	{

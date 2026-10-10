@@ -129,7 +129,8 @@ void ServerVolume::AddStats(Stats stats)
 			int nulSlot = m_secSlot - i * deltaSign;
 			if (nulSlot < 0) nulSlot += 60;
 			if (nulSlot >= 60) nulSlot -= 60;
-			m_bytesPerSeconds[nulSlot] = 0;
+			if (nulSlot >= 0 && static_cast<size_t>(nulSlot) < m_bytesPerSeconds.size())
+				m_bytesPerSeconds[nulSlot] = 0;
 		}
 
 		int minDelta = totalDelta / 60;
@@ -141,7 +142,8 @@ void ServerVolume::AddStats(Stats stats)
 			int nulSlot = m_minSlot - i * deltaSign;
 			if (nulSlot < 0) nulSlot += 60;
 			if (nulSlot >= 60) nulSlot -= 60;
-			m_bytesPerMinutes[nulSlot] = 0;
+			if (nulSlot >= 0 && static_cast<size_t>(nulSlot) < m_bytesPerMinutes.size())
+				m_bytesPerMinutes[nulSlot] = 0;
 		}
 
 		int hourDelta = totalDelta / (60 * 60);
@@ -153,14 +155,18 @@ void ServerVolume::AddStats(Stats stats)
 			int nulSlot = m_hourSlot - i * deltaSign;
 			if (nulSlot < 0) nulSlot += 24;
 			if (nulSlot >= 24) nulSlot -= 24;
-			m_bytesPerHours[nulSlot] = 0;
+			if (nulSlot >= 0 && static_cast<size_t>(nulSlot) < m_bytesPerHours.size())
+				m_bytesPerHours[nulSlot] = 0;
 		}
 	}
 
-	// add bytes to every slot
-	m_bytesPerSeconds[m_secSlot] += bytes;
-	m_bytesPerMinutes[m_minSlot] += bytes;
-	m_bytesPerHours[m_hourSlot] += bytes;
+	// A negative int time can produce negative slots. Match the Rust bounds checks.
+	if (m_secSlot >= 0 && static_cast<size_t>(m_secSlot) < m_bytesPerSeconds.size())
+		m_bytesPerSeconds[m_secSlot] += bytes;
+	if (m_minSlot >= 0 && static_cast<size_t>(m_minSlot) < m_bytesPerMinutes.size())
+		m_bytesPerMinutes[m_minSlot] += bytes;
+	if (m_hourSlot >= 0 && static_cast<size_t>(m_hourSlot) < m_bytesPerHours.size())
+		m_bytesPerHours[m_hourSlot] += bytes;
 #endif
 	if (m_daySlot >= 0)
 	{

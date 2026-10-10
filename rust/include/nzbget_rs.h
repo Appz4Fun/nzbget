@@ -379,6 +379,10 @@ long long nzbget_rs_parse_rfc822_date_time(const char* s);
 // volume_add: AddStats' clearing of the second/minute/hour slots passed since
 // locDataTime, then adding bytes at the slots; slots outside an array (a time
 // before 1970 or after 2038-01-19 as an int) are skipped.
+// Arrays stay caller-owned, must be disjoint and writable for their lengths
+// (in int64_t elements). NULL arrays are ignored; NULL slots makes add a no-op.
+// The slots descriptor is copied before accessing arrays and may overlap one.
+// calc_slots is a no-op if either output pointer is NULL.
 typedef struct NzbgetRsVolumeSlots
 {
 	int sec, min, hour, day, inRange;

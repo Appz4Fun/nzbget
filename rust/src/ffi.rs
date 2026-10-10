@@ -1554,8 +1554,11 @@ pub unsafe extern "C" fn nzbget_rs_volume_calc_slots(loc_cur_time: i64, first_da
 /// outside an array are skipped.
 ///
 /// # Safety
-/// Each array is null (with length 0) or writable for its length; the arrays
-/// are disjoint; `slots` is null (a no-op) or readable.
+/// Each array is null (ignored regardless of length) or aligned and writable
+/// for its length, with a byte size at most `isize::MAX`; the arrays are
+/// disjoint. `slots` is null (a no-op) or aligned and readable. It is copied
+/// before any array writes, so it may overlap an array. All storage remains
+/// caller-owned; no buffers are allocated or freed here.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_volume_add(
     seconds: *mut i64,
@@ -1574,9 +1577,9 @@ pub unsafe extern "C" fn nzbget_rs_volume_add(
     unsafe fn array<'a>(p: *mut i64, len: usize) -> &'a mut [i64] {
         if p.is_null() || len == 0 { &mut [] } else { std::slice::from_raw_parts_mut(p, len) }
     }
-    let Some(slots) = slots.as_ref() else { return };
+    let Some(slots) = slots.as_ref().copied() else { return };
     crate::statmeter::add_stats(
-        array(seconds, seconds_len), array(minutes, minutes_len), array(hours, hours_len), slots,
+        array(seconds, seconds_len), array(minutes, minutes_len), array(hours, hours_len), &slots,
         last_min_slot, last_hour_slot, loc_cur_time, loc_data_time, bytes,
     );
 }
@@ -1584,6 +1587,51 @@ pub unsafe extern "C" fn nzbget_rs_volume_add(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn volume_buffers_and_null_inputs() {
+        use crate::statmeter::Slots;
+        use std::ptr::{null, null_mut};
+        unsafe {
+            let mut first = 17;
+            let mut slots = Slots::default();
+            nzbget_rs_volume_calc_slots(0, &mut first, null_mut());
+            nzbget_rs_volume_calc_slots(0, null_mut(), &mut slots);
+            assert_eq!(first, 17);
+            assert_eq!(slots, Slots::default());
+            // Canaries around deliberately short output arrays, including
+            // counters above 32 bits, check both the ABI width and lengths.
+            let mut sec = [91, 1i64 << 40, 92];
+            let mut min = [93, 7, 94];
+            let mut hour = [95, 8, 96];
+            slots = Slots { sec: 0, min: -1, hour: 1, ..Slots::default() };
+            nzbget_rs_volume_add(sec.as_mut_ptr().add(1), 1, min.as_mut_ptr().add(1), 1,
+                hour.as_mut_ptr().add(1), 1, &slots, 0, 0, 0, 0, 5);
+            assert_eq!(sec, [91, (1i64 << 40) + 5, 92]);
+            assert_eq!(min, [93, 7, 94]);
+            assert_eq!(hour, [95, 8, 96]);
+            nzbget_rs_volume_add(sec.as_mut_ptr(), 3, null_mut(), 0,
+                null_mut(), 0, null(), 0, 0, 60, 0, 5);
+            assert_eq!(sec, [91, (1i64 << 40) + 5, 92]);
+            for t in [i64::MIN, i64::MAX, i64::from(i32::MIN), -2_147_483_647, -61] {
+                nzbget_rs_volume_calc_slots(t, &mut first, &mut slots);
+                nzbget_rs_volume_add(null_mut(), usize::MAX, sec.as_mut_ptr().add(1), 1,
+                    hour.as_mut_ptr().add(1), 0, &slots, 0, 0, t, 0, i64::MAX);
+            }
+            assert_eq!((sec[0], sec[2]), (91, 92));
+            assert_eq!(hour, [95, 8, 96]);
+
+            // The readable descriptor can occupy output storage. Read it
+            // before constructing exclusive array references.
+            let mut storage = [0i64; 3];
+            let buffer = storage.as_mut_ptr();
+            let descriptor = buffer.cast::<Slots>();
+            descriptor.write(Slots::default());
+            nzbget_rs_volume_add(buffer, 3, null_mut(), 0,
+                null_mut(), 0, descriptor, 0, 0, 0, 0, 9);
+            assert_eq!(storage, [9, 0, 0]);
+        }
+    }
 
     #[test]
     fn textutil_in_place_ranges_nulls_and_ownership() {
