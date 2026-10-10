@@ -108,6 +108,17 @@ void nzbget_rs_reduce_str(char* str, const char* from, const char* to);
 int nzbget_rs_match_file_ext(const char* filename, const char* extensionList, const char* listSeparator,
 	const int* table, int charSigned, int (*caseFold)(int), int (*maskFold)(int));
 
+// URL::ParseUrl (rust/src/url.rs): parts (protocol, user, password, host,
+// resource) as {start, length} in the address, start -1 when not set; a valid
+// URL without a resource has resource start -1 (meaning "/")
+typedef struct
+{
+	int valid;
+	int port;
+	ptrdiff_t parts[5][2];
+} NzbgetRsUrlParts;
+void nzbget_rs_parse_url(const char* address, NzbgetRsUrlParts* out);
+
 #ifdef __cplusplus
 }
 #endif

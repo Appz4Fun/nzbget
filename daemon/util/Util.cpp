@@ -2193,6 +2193,33 @@ URL::URL(const char* address) :
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+void URL::ParseUrl()
+{
+	// rust/src/url.rs
+	NzbgetRsUrlParts r;
+	nzbget_rs_parse_url(m_address, &r);
+	if (!r.valid)
+	{
+		return;
+	}
+	CString* fields[] = {&m_protocol, &m_user, &m_password, &m_host, &m_resource};
+	for (int i = 0; i < 5; i++)
+	{
+		if (r.parts[i][0] >= 0)
+		{
+			// a part of the address; an empty one (only the host can be) as ""
+			fields[i]->Set(r.parts[i][1] > 0 ? m_address + r.parts[i][0] : "", static_cast<int>(r.parts[i][1]));
+		}
+	}
+	if (r.parts[4][0] < 0)
+	{
+		m_resource = "/";
+	}
+	m_port = r.port;
+	m_valid = true;
+}
+#else
 void URL::ParseUrl()
 {
 	// Examples:
@@ -2279,6 +2306,7 @@ void URL::ParseUrl()
 
 	m_valid = true;
 }
+#endif
 
 
 RegEx::RegEx(const char *pattern, int matchBufSize) :

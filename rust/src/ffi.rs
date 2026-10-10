@@ -404,6 +404,40 @@ pub unsafe extern "C" fn nzbget_rs_match_file_ext(
     crate::util::match_file_ext(input(filename), input(list), input(separators), &case_lower, &mask_lower) as c_int
 }
 
+/// URL::ParseUrl's result: each part as a start and length in the address,
+/// start -1 for a part not set.
+#[repr(C)]
+pub struct UrlParts {
+    pub valid: c_int,
+    pub port: c_int,
+    /// protocol, user, password, host, resource: [start, length]
+    pub parts: [[isize; 2]; 5],
+}
+
+/// URL::ParseUrl (rust/src/url.rs). A valid URL without a resource has
+/// resource start -1: the caller uses "/".
+///
+/// # Safety
+/// `address` is null or NUL-terminated; `out` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_url(address: *const c_char, out: *mut UrlParts) {
+    if out.is_null() {
+        return;
+    }
+    let mut r = UrlParts { valid: 0, port: 0, parts: [[-1, 0]; 5] };
+    if !address.is_null() {
+        let u = crate::url::parse_url(CStr::from_ptr(address));
+        r.valid = u.valid as c_int;
+        r.port = u.port;
+        for (k, p) in [u.protocol, u.user, u.password, u.host, u.resource].into_iter().enumerate() {
+            if let Some((start, len)) = p {
+                r.parts[k] = [start as isize, len as isize];
+            }
+        }
+    }
+    *out = r;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
