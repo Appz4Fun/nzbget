@@ -347,6 +347,16 @@ uint32 DecodeByteQuartet(char* inputBuffer, char* outputBuffer)
 	return 0;
 }
 
+#ifdef NZBGET_USE_RUST
+CString Util::FormatSize(int64 fileSize)
+{
+	// rust/src/util.rs
+	NzbgetRsBuf buf = nzbget_rs_format_size(fileSize);
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString Util::FormatSize(int64 fileSize)
 {
 	CString result;
@@ -373,7 +383,18 @@ CString Util::FormatSize(int64 fileSize)
 	}
 	return result;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+CString Util::FormatSpeed(int64 bytesPerSecond)
+{
+	// rust/src/util.rs
+	NzbgetRsBuf buf = nzbget_rs_format_speed(bytesPerSecond);
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString Util::FormatSpeed(int64 bytesPerSecond)
 {
 	CString result;
@@ -409,6 +430,7 @@ CString Util::FormatSpeed(int64 bytesPerSecond)
 
 	return result;
 }
+#endif
 
 void Util::FormatTime(time_t timeSec, char* buffer, int bufsize)
 {
@@ -442,6 +464,39 @@ CString Util::FormatBuffer(const char* buf, int len)
 	return result;
 }
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// tolower as strcasecmp applies it (an unsigned byte), and as WildMask's
+	// C++ code did (a char, signed or not)
+	int FileExtCaseFold(int byte)
+	{
+		return tolower(byte);
+	}
+
+	int FileExtMaskFold(int byte)
+	{
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		return tolower(ch);
+#else
+		return ch < 0 ? ch : tolower(ch);
+#endif
+	}
+}
+
+bool Util::MatchFileExt(const char* filename, const char* extensionList, const char* listSeparator)
+{
+	// rust/src/util.rs
+#ifdef __GLIBC__
+	const int* table = reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#else
+	const int* table = nullptr;
+#endif
+	return nzbget_rs_match_file_ext(filename, extensionList, listSeparator, table, CHAR_MIN < 0,
+		FileExtCaseFold, FileExtMaskFold) != 0;
+}
+#else
 bool Util::MatchFileExt(const char* filename, const char* extensionList, const char* listSeparator)
 {
 	int filenameLen = strlen(filename);
@@ -466,6 +521,7 @@ bool Util::MatchFileExt(const char* filename, const char* extensionList, const c
 
 	return false;
 }
+#endif
 
 std::vector<CString> Util::SplitCommandLine(const char* commandLine)
 {
@@ -586,6 +642,14 @@ void Util::SanitizeLine(std::string& str)
 	Trim(str);
 }
 
+#ifdef NZBGET_USE_RUST
+char* Util::ReduceStr(char* str, const char* from, const char* to)
+{
+	// rust/src/util.rs
+	nzbget_rs_reduce_str(str, from, to);
+	return str;
+}
+#else
 char* Util::ReduceStr(char* str, const char* from, const char* to)
 {
 	int lenFrom = strlen(from);
@@ -603,6 +667,7 @@ char* Util::ReduceStr(char* str, const char* from, const char* to)
 
 	return str;
 }
+#endif
 
 std::vector<CString> Util::SplitStr(const char* str, const char* separators)
 {
@@ -645,6 +710,13 @@ bool Util::EndsWith(const char* str, const char* suffix, bool caseSensitive)
 	return EndsWith(std::string_view(str), std::string_view(suffix), caseSensitive);
 }
 
+#ifdef NZBGET_USE_RUST
+bool Util::AlphaNum(const char* str)
+{
+	// rust/src/util.rs
+	return nzbget_rs_alpha_num(str) != 0;
+}
+#else
 bool Util::AlphaNum(const char* str)
 {
 	for (const char* p = str; *p; p++)
@@ -657,6 +729,7 @@ bool Util::AlphaNum(const char* str)
 	}
 	return true;
 }
+#endif
 
 /* Calculate Hash using Bob Jenkins (1996) algorithm
  * http://burtleburtle.net/bob/c/lookup2.c
@@ -723,10 +796,18 @@ uint32 hash(uint8 *k, uint32 length, uint32 initval)
 	return c;
 }
 
+#ifdef NZBGET_USE_RUST
+uint32 Util::HashBJ96(const char* buffer, int bufSize, uint32 initValue)
+{
+	// rust/src/util.rs
+	return nzbget_rs_hash_bj96(buffer, bufSize, initValue);
+}
+#else
 uint32 Util::HashBJ96(const char* buffer, int bufSize, uint32 initValue)
 {
 	return (uint32)hash((uint8*)buffer, (uint32)bufSize, (uint32)initValue);
 }
+#endif
 
 std::unique_ptr<FILE, std::function<void(FILE*)>> Util::MakePipe(const std::string& cmd)
 {
