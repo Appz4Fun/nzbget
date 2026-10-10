@@ -173,10 +173,11 @@ NzbgetRsBuf nzbget_rs_deobfuscate(const char* str, size_t len);
 
 // FileTypes (rust/src/filetypes.rs): name checks by number, in FileTypes.h's
 // order (IsSevenZipExt 0 ... IsSampleFile 24); a sniffed extension is static
-// ("" for none), its length in outLen
+// ("" for none), its length in outLen. Inputs are borrowed byte spans; NULL
+// means empty regardless of len. outLen may be NULL. Returned strings have
+// static lifetime and must not be freed. Panics abort at the ABI boundary.
 int nzbget_rs_file_type(int which, const char* str, size_t len);
 const char* nzbget_rs_sniff_extension(const unsigned char* header, size_t len, size_t* outLen);
-const char* nzbget_rs_sniff_file(const char* path, size_t* outLen);
 
 #ifdef __cplusplus
 }

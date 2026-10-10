@@ -4,6 +4,7 @@ name checks on the lines of the given text files and generated names, in the
 C, C.UTF-8 and en_US.ISO8859-1 locales, and SniffExtension on the files of
 the given header directory (their first bytes), truncations and mutations of
 them, generated headers, and on files (the path overload).
+On Linux, also inject a short read followed by an I/O error.
 
 The pre-port code is compiled as OldFileTypes and linked with a built
 libnzbget.
@@ -50,10 +51,36 @@ harness = r'''
 #include <filesystem>
 #include <fstream>
 #include <random>
+#ifdef __linux__
+#include <cerrno>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+// Inject a short read followed by EIO on one regular file. Both sides must
+// preserve ifstream::read/gcount behavior when a read fails after some bytes.
+static bool injectReadError = false;
+static struct stat faultFile;
+static size_t remaining = 0;
+extern "C" ssize_t read(int fd, void* buf, size_t len) {
+    struct stat st;
+    if (injectReadError && fstat(fd, &st) == 0 &&
+        st.st_dev == faultFile.st_dev && st.st_ino == faultFile.st_ino) {
+        if (!remaining) { errno = EIO; return -1; }
+        len = std::min(len, remaining);
+        ssize_t n = syscall(SYS_read, fd, buf, len);
+        if (n > 0) remaining -= static_cast<size_t>(n);
+        return n;
+    }
+    return syscall(SYS_read, fd, buf, len);
+}
+#endif
 
 static long cases = 0;
 static void fail(const char* what, std::string_view s) {
-    printf("MISMATCH %s [%.*s]\n", what, (int)s.size(), s.data());
+    printf("MISMATCH %s hex [", what);
+    for (unsigned char c : s) printf("%02x", c);
+    printf("]\n");
     exit(1);
 }
 static void names(std::string_view s) {
@@ -70,10 +97,27 @@ static void sniff(std::span<const uint8_t> h) {
 }
 
 int main(int argc, char** argv) {
+#ifdef __linux__
+    const auto faultPath = std::filesystem::path(argv[2]) / "read-error";
+    { std::ofstream out(faultPath, std::ios::binary); out << "%PDF-0123456789"; }
+    if (stat(faultPath.c_str(), &faultFile) != 0) return 1;
+    injectReadError = true;
+    remaining = 5;
+    auto oldFault = OldFileTypes::SniffExtension(faultPath);
+    remaining = 5;
+    auto newFault = FileTypes::SniffExtension(faultPath);
+    injectReadError = false;
+    if (!oldFault.empty() || oldFault != newFault) {
+        printf("MISMATCH read error: [%s] vs [%s]\n",
+            std::string(oldFault).c_str(), std::string(newFault).c_str());
+        return 1;
+    }
+    printf("short read followed by EIO agrees\n");
+#endif
     std::mt19937 rng(11);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
     std::vector<std::string> lines;
-    for (int i = 2; i < argc; ++i) {
+    for (int i = 3; i < argc; ++i) {
         std::ifstream in(argv[i]);
         for (std::string l; std::getline(in, l);) lines.push_back(l);
     }
@@ -84,6 +128,23 @@ int main(int argc, char** argv) {
     for (const char* loc : {"C", "C.UTF-8", "en_US.ISO8859-1"}) {
         if (!setlocale(LC_CTYPE, loc)) { printf("locale %s unavailable\n", loc); exit(1); }
         for (auto& l : lines) names(l);
+        names({});
+        // Explicit lengths, embedded NULs, and every byte under each C locale.
+        for (const char* base : parts) {
+            std::string s(base);
+            for (size_t pos = 0; pos <= s.size(); ++pos) {
+                for (int byte = 0; byte < 256; ++byte) {
+                    auto t = s;
+                    t.insert(pos, 1, static_cast<char>(byte));
+                    names(t);
+                    if (pos < s.size()) {
+                        t = s;
+                        t[pos] = static_cast<char>(byte);
+                        names(t);
+                    }
+                }
+            }
+        }
         for (int i = 0; i < 300000; ++i) {
             std::string s;
             int n = pick(5) + 1;
@@ -147,4 +208,4 @@ with tempfile.TemporaryDirectory(prefix="nzbget-filetypes-") as temp:
     subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
                     "-w", f"-I{temp}", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "OldFileTypes.cpp"),
                     "-o", str(binary), *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
-    subprocess.run([str(binary), str(HEADERS), *TEXTS], check=True, env=env)
+    subprocess.run([str(binary), str(HEADERS), str(temp), *TEXTS], check=True, env=env)

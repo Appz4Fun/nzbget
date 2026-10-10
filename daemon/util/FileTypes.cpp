@@ -164,13 +164,6 @@ std::string_view SniffExtension(std::span<const uint8_t> header)
 	return std::string_view(ext, len);
 }
 
-std::string_view SniffExtension(const std::filesystem::path& filePath)
-{
-	size_t len = 0;
-	const char* ext = nzbget_rs_sniff_file(filePath.c_str(), &len);
-	return std::string_view(ext, len);
-}
-
 }
 #else
 namespace
@@ -666,6 +659,14 @@ std::string_view SniffExtension(std::span<const uint8_t> header)
 	return "";
 }
 
+}
+#endif
+
+namespace FileTypes
+{
+
+// Keep native path handling and ifstream read/error semantics on the C++ side.
+// Header classification above is implemented in Rust when enabled.
 std::string_view SniffExtension(const std::filesystem::path& filePath)
 {
 	std::error_code ec;
@@ -692,4 +693,3 @@ std::string_view SniffExtension(const std::filesystem::path& filePath)
 }
 
 }
-#endif

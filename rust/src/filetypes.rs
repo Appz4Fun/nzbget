@@ -299,30 +299,6 @@ pub fn sniff_extension(h: &[u8]) -> &'static CStr {
     c""
 }
 
-/// SniffExtension of a file: its first 512 bytes ("" for anything but a
-/// readable regular file, symbolic links followed).
-pub fn sniff_file(path: &std::path::Path) -> &'static CStr {
-    use std::io::Read;
-    if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
-        return c"";
-    }
-    let Ok(mut f) = std::fs::File::open(path) else { return c"" };
-    let mut buf = [0u8; 512];
-    let mut got = 0;
-    while got < buf.len() {
-        match f.read(&mut buf[got..]) {
-            Ok(0) => break,
-            Ok(k) => got += k,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => break,
-        }
-    }
-    if got == 0 {
-        return c"";
-    }
-    sniff_extension(&buf[..got])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

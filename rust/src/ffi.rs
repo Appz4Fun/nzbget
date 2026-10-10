@@ -683,28 +683,37 @@ pub unsafe extern "C" fn nzbget_rs_sniff_extension(header: *const u8, len: usize
     static_str(crate::filetypes::sniff_extension(h), out_len)
 }
 
-/// FileTypes::SniffExtension of a file (its first 512 bytes).
-///
-/// # Safety
-/// `path` is null or NUL-terminated; `out_len` null or writable.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_sniff_file(path: *const c_char, out_len: *mut usize) -> *const c_char {
-    if path.is_null() {
-        return static_str(c"", out_len);
-    }
-    #[cfg(unix)]
-    let p = {
-        use std::os::unix::ffi::OsStrExt;
-        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(CStr::from_ptr(path).to_bytes()))
-    };
-    #[cfg(not(unix))]
-    let p = std::path::PathBuf::from(CStr::from_ptr(path).to_string_lossy().into_owned());
-    static_str(crate::filetypes::sniff_file(&p), out_len)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filetypes_nulls_lengths_and_static_results() {
+        unsafe {
+            for len in [0, 42, usize::MAX] {
+                for which in -1..=25 {
+                    assert_eq!(nzbget_rs_file_type(which, std::ptr::null(), len), 0);
+                }
+                let mut out_len = usize::MAX;
+                let ext = nzbget_rs_sniff_extension(std::ptr::null(), len, &mut out_len);
+                assert!(!ext.is_null());
+                assert_eq!(out_len, 0);
+                assert_eq!(CStr::from_ptr(ext), c"");
+            }
+            let name = b".rar\0.mkv";
+            assert_eq!(nzbget_rs_file_type(1, name.as_ptr().cast(), 4), 1);
+            assert_eq!(nzbget_rs_file_type(1, name.as_ptr().cast(), name.len()), 0);
+            let header = b"%PDF-".to_vec();
+            let mut out_len = 0;
+            let ext = nzbget_rs_sniff_extension(header.as_ptr(), header.len(), &mut out_len);
+            assert_eq!(out_len, 4);
+            drop(header);
+            assert_eq!(CStr::from_ptr(ext), c".pdf");
+            assert_eq!(CStr::from_ptr(nzbget_rs_sniff_extension(b"ID3".as_ptr(), 3, std::ptr::null_mut())), c".mp3");
+            // Later calls and destruction of the input do not invalidate results.
+            assert_eq!(CStr::from_ptr(ext), c".pdf");
+        }
+    }
 
     #[test]
     fn deobfuscation_nulls_lengths_and_owned_buffers() {
