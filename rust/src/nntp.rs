@@ -42,23 +42,36 @@ pub struct Auth {
     pub rejected: bool,
 }
 
-/// BString<1024>: printf's output cut to 1023 bytes, as a C string.
+/// BString<1024>'s capacity: 1023 bytes and the NUL.
+const BSTRING_MAX: usize = 1023;
+
+/// Appends up to the BString capacity (never copying more of an input).
+fn push_capped(out: &mut Vec<u8>, part: &[u8]) {
+    let room = BSTRING_MAX.saturating_sub(out.len());
+    out.extend_from_slice(&part[..part.len().min(room)]);
+}
+
+/// BString<1024>: printf's output cut to 1023 bytes, as a C string. Built
+/// incrementally: an input (a group name from an NZB) is never copied whole.
 fn bstring(parts: &[&[u8]]) -> CString {
-    let mut v: Vec<u8> = parts.concat();
-    v.truncate(1023);
+    let mut v = Vec::with_capacity(BSTRING_MAX + 1);
+    for part in parts {
+        push_capped(&mut v, part);
+    }
     // the parts are C strings: no NUL inside
     CString::new(v).expect("no NUL")
 }
 
 /// A message format with "%s" fields, filled as printf would (a null
 /// argument printing as "(null)", extra arguments ignored).
+/// The output stops at the BString capacity (it is only used through one).
 fn format(fmt: &[u8], args: &[Option<&[u8]>]) -> Vec<u8> {
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(BSTRING_MAX + 1);
     let mut args = args.iter();
     let mut i = 0;
-    while i < fmt.len() {
+    while i < fmt.len() && out.len() < BSTRING_MAX {
         if fmt[i] == b'%' && fmt.get(i + 1) == Some(&b's') {
-            out.extend_from_slice(args.next().copied().flatten().unwrap_or(b"(null)"));
+            push_capped(&mut out, args.next().copied().flatten().unwrap_or(b"(null)"));
             i += 2;
         } else {
             out.push(fmt[i]);
@@ -292,6 +305,16 @@ mod tests {
 
     fn script(answers: &[Option<&[u8]>]) -> Script {
         Script { answers: answers.iter().map(|a| a.map(<[u8]>::to_vec)).collect(), buf: Vec::new(), written: Vec::new(), errors: Vec::new() }
+    }
+
+    #[test]
+    fn capped_strings() {
+        let long = vec![b'g'; 1 << 20];
+        let s = bstring(&[b"GROUP ", &long, b"\r\n"]);
+        assert_eq!(s.as_bytes().len(), BSTRING_MAX);
+        assert!(s.as_bytes().starts_with(b"GROUP ggg"));
+        assert_eq!(format(b"%s (%s)", &[Some(&long), None]).len(), BSTRING_MAX);
+        assert_eq!(format(b"%s (%s): %s", &[Some(b"a"), None, Some(b"c")]), b"a ((null)): c");
     }
 
     #[test]
