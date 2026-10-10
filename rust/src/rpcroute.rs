@@ -14,6 +14,13 @@ pub const RP_JSONP_RPC: i32 = 3;
 /// BString<100>
 const METHOD_SIZE: usize = 100;
 
+// WebUtil reports lengths through a C int, before Dispatch applies its caps.
+// Preserve that narrowing even for inputs larger than the HTTP body's limit:
+// the routing ABI can be called directly with any NUL-terminated string.
+fn value_length(len: usize) -> i64 {
+    i64::from(len as std::ffi::c_int)
+}
+
 /// Execute: the protocol of an RPC URL, or RP_UNDEFINED.
 pub fn protocol(url: &[u8]) -> i32 {
     let is = |p: &[u8]| url == p || (url.starts_with(p) && url.get(p.len()) == Some(&b'/'));
@@ -44,7 +51,7 @@ pub struct Route {
     pub method: Vec<u8>,
     /// GET: the parameters' offset in the URL (else they start at the request)
     pub params: Option<usize>,
-    /// JSON-RPC: the id's offset and length in the request, when <= 4096
+    /// JSON-RPC: the id's offset and legacy C-int length, when <= 4096
     pub id: Option<(usize, i64)>,
 }
 
@@ -72,20 +79,22 @@ pub fn route(url: &[u8], request: &[u8], get: bool, protocol: i32) -> Route {
     } else if protocol == RP_XML_RPC {
         // WebUtil::XmlParseTagValue into the 100-byte buffer
         if let Some((start, len)) = xml_find_tag(request, b"methodName") {
-            // never negative: "</methodName>" can't overlap "<methodName>"
-            let n = (len.max(0) as usize).min(METHOD_SIZE - 1);
+            // The fixed tags cannot overlap. A negative narrowed length made
+            // the old strncpy undefined; do not turn it into a huge copy.
+            let n = (value_length(len as usize).max(0) as usize).min(METHOD_SIZE - 1);
             let value = &request[start..];
             let value = &value[..value.len().min(n)];
             r.method = value[..value.iter().position(|&b| b == 0).unwrap_or(value.len())].to_vec();
         }
     } else if protocol == RP_JSON_RPC {
         if let Some((start, len)) = json_find_field(request, b"method") {
-            let len = (len as i64).min(METHOD_SIZE as i64 - 1);
+            let len = value_length(len).min(METHOD_SIZE as i64 - 1);
             r.method = bstring_set(&request[(start + 1).min(request.len())..], len - 2);
         }
         if let Some((start, len)) = json_find_field(request, b"id") {
+            let len = value_length(len);
             if len <= 4096 {
-                r.id = Some((start, len as i64));
+                r.id = Some((start, len));
             }
         }
     }
@@ -131,6 +140,15 @@ pub fn envelope(protocol: i32, fault: bool, callback: Option<&[u8]>, id: Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_lengths_narrow_before_dispatch_caps() {
+        assert_eq!(value_length(i32::MAX as usize), i64::from(i32::MAX));
+        assert_eq!(value_length(i32::MAX as usize + 3), i64::from(i32::MIN) + 2);
+        if usize::BITS > 32 {
+            assert_eq!(value_length((u64::from(u32::MAX) + 4) as usize), 3);
+        }
+    }
 
     #[test]
     fn protocols() {

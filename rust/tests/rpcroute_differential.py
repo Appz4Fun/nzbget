@@ -7,7 +7,9 @@ and the JSON request id (Dispatch's parsing), and the response envelope
 requests.
 
 Each version's code is compiled into a stand-in XmlRpcProcessor (in its own
-namespace), against the build's WebUtil.
+namespace). The reference and fallback use the original C++ WebUtil helpers,
+so a shared Rust helper cannot mask a mismatch. Includes deterministic boundary
+cases and checks the FFI's borrowed pointers and 100-byte output buffer.
 
 Usage: rpcroute_differential.py BUILD_DIR [ROUNDS]
 """
@@ -30,6 +32,19 @@ def between(src, start, end):
     return src[i:src.index(end, i)]
 
 
+def original_helpers(src):
+    declarations = []
+    definitions = []
+    for name in ("XmlFindTag", "XmlParseTagValue", "JsonFindField", "JsonNextValue"):
+        # The reference already has Rust-backed WebUtil wrappers; take the last
+        # definition, which is the actual C++ fallback, not that wrapper.
+        match = list(re.finditer(r"^(?:const char\*|bool) WebUtil::" + name + r"\([^\n]+\)", src, re.M))[-1]
+        signature = match.group()
+        declarations.append("static " + signature.replace("WebUtil::", "") + ";")
+        definitions.append(src[match.start():src.index("\n}\n", match.end()) + 3])
+    return "struct WebUtil {\n" + "\n".join(declarations) + "\n};\n" + "\n".join(definitions)
+
+
 def parts(src):
     protocol = between(src, "void XmlRpcProcessor::Execute()\n{", "\tDispatch();")
     route = between(src, "void XmlRpcProcessor::Dispatch()\n{", '\tdebug("MethodName=%s", *methodName);')
@@ -50,8 +65,11 @@ struct XmlRpcProcessor
 	{''' + protocol + r'''	}
 	std::string Route(const char* base)
 	{''' + route + r'''
-		std::string where = !request ? "null" : request >= base && request <= base + strlen(base) ?
-			"r" + std::to_string(request - base) : "u" + std::to_string(request - m_url);
+		// POST retains the request; GET points into the URL. Do not order or
+		// subtract pointers to unrelated allocations to guess their provenance.
+		const char* origin = m_httpMethod == hmGet ? *m_url : base;
+		std::string where = !request ? "null" :
+			std::string(m_httpMethod == hmGet ? "u" : "r") + std::to_string(request - origin);
 		return std::string(methodName) + "|" + where + "|" + (requestId ? std::string("id:") + *requestId : "-");
 	}
 	void BuildResponse(const char* response, const char* callbackFunc, bool fault, const char* requestId);
@@ -60,6 +78,8 @@ struct XmlRpcProcessor
 
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/remote/XmlRpc.cpp"], cwd=ROOT, text=True)
+helpers = original_helpers(subprocess.check_output(
+    ["git", "show", f"{REFERENCE}:daemon/util/Util.cpp"], cwd=ROOT, text=True))
 new_src = (ROOT / "daemon/remote/XmlRpc.cpp").read_text()
 
 flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
@@ -75,20 +95,26 @@ main = r'''
 #include "nzbget_rs.h"
 #include <string>
 #include <vector>
+#include <array>
+#include <clocale>
+#include <climits>
+#ifdef __linux__
+#include <sys/mman.h>
+#endif
 #undef debug
 #define debug(...)
 #undef error
 #define error(...)
 
 namespace oldimpl {
-''' + parts(old_src) + r'''
+''' + helpers + parts(old_src) + r'''
 }
 namespace newimpl {
 ''' + parts(new_src) + r'''
 }
 #undef NZBGET_USE_RUST
 namespace fallbackimpl {
-''' + parts(new_src) + r'''
+''' + helpers + parts(new_src) + r'''
 }
 
 static unsigned long long state = 0x9e3779b97f4a7c15ull;
@@ -173,27 +199,170 @@ template <class P> static std::string run(const std::string& u, const std::strin
 	return log + "|" + (const char*)p.m_response + "|" + p.m_contentType;
 }
 
+static void check(const std::string& u, const std::string& req, bool get)
+{
+	unsigned long long seed = state;
+	std::string a = run<oldimpl::XmlRpcProcessor>(u, req, get);
+	state = seed;
+	std::string b = run<newimpl::XmlRpcProcessor>(u, req, get);
+	state = seed;
+	std::string c = run<fallbackimpl::XmlRpcProcessor>(u, req, get);
+	if (a != b || a != c)
+	{
+		fprintf(stderr, "mismatch: get %d url [%s] request [%s]\nold:      %s\nrust:     %s\nfallback: %s\n",
+			get, u.c_str(), req.c_str(), a.c_str(), b.c_str(), c.c_str());
+		exit(1);
+	}
+	// Independently verify the raw FFI outputs, before CString::Set can
+	// obscure a wrong id length (zero means 'copy the whole suffix').
+	const char* params = nullptr;
+	const char* id = nullptr;
+	int idLen = -1;
+	std::array<unsigned char, 102> method;
+	method.fill(0xa5);
+	int protocol = nzbget_rs_rpc_protocol(u.c_str());
+	nzbget_rs_rpc_route(u.c_str(), req.c_str(), get, protocol,
+		reinterpret_cast<char*>(method.data() + 1), &params, &id, &idLen);
+	if (method.front() != 0xa5 || method.back() != 0xa5 ||
+		!memchr(method.data() + 1, 0, 100)) abort();
+	int expectedLen = 0;
+	const char* expectedId = !get && protocol == 2 ?
+		oldimpl::WebUtil::JsonFindField(req.c_str(), "id", &expectedLen) : nullptr;
+	if (!expectedId || expectedLen > 4096) { expectedId = nullptr; expectedLen = 0; }
+	if (id != expectedId || idLen != expectedLen) abort();
+	const char* expectedParams = req.c_str();
+	if (get)
+	{
+		expectedParams = u.c_str() + 1;
+		if (const char* slash = strchr(expectedParams, '/'))
+		{
+			const char* query = strchr(slash + 1, '?');
+			expectedParams = query ? query + 1 : u.c_str() + strlen(u.c_str());
+		}
+	}
+	if (params != expectedParams) abort();
+}
+
+static void boundaries()
+{
+	for (int n : {0, 1, 2, 3, 96, 97, 98, 99, 100, 101, 4095, 4096, 4097})
+	{
+		std::string s(n, 'x');
+		for (const char* prefix : {"/xmlrpc", "/jsonrpc", "/jsonprpc"})
+		{
+			check(std::string(prefix) + "/" + s, "", true);
+			check(std::string(prefix) + "/" + s + "?a=1", "", true);
+		}
+		check("/xmlrpc", "<methodName>" + s + "</methodName>", false);
+		for (const auto& token : {s, "\"" + s + "\"", "\"" + s})
+		{
+			check("/jsonrpc", "{\"method\":" + token + ",\"id\":" + token + "}", false);
+			check("/jsonrpc", "\"method\":" + token, false);
+		}
+	}
+	for (const char* token : {"", "}", "]", ",", "7", "-", "null", "\"", "\"\"", "\"x\\", "\"x\\a",
+		"\"x\\\"y\"", "\"x\\\\\"", "\v", "\r\n\t\f", "[[1]]", "{\"id\":2}"})
+	{
+		check("/jsonrpc", std::string("\"method\":") + token + ",\"id\":" + token, false);
+		check("/jsonrpc", std::string("\"id\":") + token + ",\"method\":" + token, false);
+	}
+	for (int byte = 1; byte < 256; ++byte)
+	{
+		std::string s(1, static_cast<char>(byte));
+		check("/jsonrpc/" + s + "?x=1", "", true);
+		check("/jsonrpc", "\"method\":" + s + "\"a\",\"id\":" + s + "7", false);
+		check("/xmlrpc", "<methodName>" + s + "</methodName>", false);
+	}
+	for (const char* xml : {"<methodName/>", "<methodName/><methodName>x</methodName>",
+		"<methodName>x</methodName><methodName/>", "<methodName><methodName/>",
+		"</methodName><methodName>x", "<methodName></methodName>", "<methodName >x</methodName>"})
+		check("/xmlrpc", xml, false);
+	const char nulBody[] = "\"method\":\"a\"\0,\"id\":7";
+	check("/jsonrpc", std::string(nulBody, sizeof(nulBody) - 1), false);
+	for (int protocol : {0, 1, 2, 3})
+		for (bool fault : {false, true})
+			for (const char* callback : {static_cast<const char*>(nullptr), "", "cb", "\xff("})
+				for (const char* id : {static_cast<const char*>(nullptr), "", "0", "\"x\"", "}malformed"})
+				{
+					oldimpl::XmlRpcProcessor old;
+					newimpl::XmlRpcProcessor rust;
+					fallbackimpl::XmlRpcProcessor fallback;
+					old.m_protocol = static_cast<oldimpl::XmlRpcProcessor::ERpcProtocol>(protocol);
+					rust.m_protocol = static_cast<newimpl::XmlRpcProcessor::ERpcProtocol>(protocol);
+					fallback.m_protocol = static_cast<fallbackimpl::XmlRpcProcessor::ERpcProtocol>(protocol);
+					old.m_response.Append("prefix"); rust.m_response.Append("prefix"); fallback.m_response.Append("prefix");
+					old.BuildResponse("body", callback, fault, id);
+					rust.BuildResponse("body", callback, fault, id);
+					fallback.BuildResponse("body", callback, fault, id);
+					if (strcmp(old.m_response, rust.m_response) || strcmp(old.m_response, fallback.m_response) ||
+						strcmp(old.m_contentType, rust.m_contentType) || strcmp(old.m_contentType, fallback.m_contentType)) abort();
+				}
+}
+
+static void wide_length()
+{
+#ifdef __linux__
+	if (sizeof(size_t) < 8) return;
+	// A >INT_MAX token without committing gigabytes of RAM: repeat the same
+	// 1 MiB file mapping, with private first/last pages for the delimiters.
+	// The HTTP layer caps bodies below this size, but the C ABI does not.
+	const size_t chunk = 1024 * 1024;
+	const size_t tokenLen = static_cast<size_t>(INT_MAX) + 3;
+	const char prefix[] = "\"method\":";
+	const size_t start = strlen(prefix);
+	const size_t size = ((start + tokenLen + 1 + chunk - 1) / chunk) * chunk;
+	FILE* file = tmpfile();
+	if (!file) abort();
+	std::string page(chunk, 'x');
+	if (fwrite(page.data(), 1, chunk, file) != chunk || fflush(file)) abort();
+	char* data = static_cast<char*>(mmap(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+	if (data == MAP_FAILED) abort();
+	for (size_t at = 0; at < size; at += chunk)
+		if (mmap(data + at, chunk, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FIXED, fileno(file), 0) == MAP_FAILED) abort();
+	memcpy(data, prefix, start);
+	data[start] = '"';
+	data[start + tokenLen - 1] = '"';
+	data[start + tokenLen] = 0;
+	oldimpl::XmlRpcProcessor old;
+	newimpl::XmlRpcProcessor rust;
+	fallbackimpl::XmlRpcProcessor fallback;
+	old.m_url = "/jsonrpc"; rust.m_url = "/jsonrpc"; fallback.m_url = "/jsonrpc";
+	old.m_request = rust.m_request = fallback.m_request = data;
+	old.Protocol(); rust.Protocol(); fallback.Protocol();
+	std::string a = old.Route(data), b = rust.Route(data), c = fallback.Route(data);
+	if (a != b || a != c)
+	{
+		fprintf(stderr, "wide length mismatch: old [%s], Rust [%s], fallback [%s]\n", a.c_str(), b.c_str(), c.c_str());
+		exit(1);
+	}
+	// The id length uses the same narrowing. Check the borrowed range directly:
+	// passing a negative length to the old CString can request a huge allocation.
+	memcpy(data, "\"id\"    :", start);
+	int expectedLen = 0, idLen = 0;
+	const char* expected = oldimpl::WebUtil::JsonFindField(data, "id", &expectedLen);
+	const char* id = nullptr;
+	const char* params = nullptr;
+	char method[100];
+	nzbget_rs_rpc_route("/jsonrpc", data, 0, 2, method, &params, &id, &idLen);
+	if (id != expected || idLen != expectedLen || params != data || method[0]) abort();
+	munmap(data, size);
+	fclose(file);
+#endif
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
+	if (!setlocale(LC_CTYPE, "")) abort();
+	boundaries();
+	if (argc > 2) wide_length();
 	for (long round = 0; round < rounds; round++)
 	{
 		std::string u = url();
 		int protocol = 1 + below(3);
 		std::string req = request(protocol);
 		bool get = below(3) == 0;
-		unsigned long long seed = state;
-		std::string a = run<oldimpl::XmlRpcProcessor>(u, req, get);
-		state = seed;
-		std::string b = run<newimpl::XmlRpcProcessor>(u, req, get);
-		state = seed;
-		std::string c = run<fallbackimpl::XmlRpcProcessor>(u, req, get);
-		if (a != b || a != c)
-		{
-			fprintf(stderr, "mismatch: get %d url [%s] request [%s]\nold:      %s\nrust:     %s\nfallback: %s\n",
-				get, u.c_str(), req.c_str(), a.c_str(), b.c_str(), c.c_str());
-			return 1;
-		}
+		check(u, req, get);
 	}
 	printf("%ld requests agree (reference %s)\n", rounds, "''' + REFERENCE + r'''");
 }
@@ -207,4 +376,4 @@ with tempfile.TemporaryDirectory(prefix="nzbget-rpcroute-") as temp:
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
                         *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
-        subprocess.run([str(binary), ROUNDS], check=True)
+        subprocess.run([str(binary), ROUNDS, *([] if extra else ["wide"])], check=True)
