@@ -672,7 +672,7 @@ var HistoryUI = (new function($)
 				{
 					// a twin or an alt of the primary of its dupe key (TwinCheck)
 					var kind = hist.Kind === 'NZB' ? DownloadsUI.parameterValue(hist.Parameters, 'DupeKind') : '';
-					return kind === 'twin' ? I18n.translate('status_twin') :
+					return kind.indexOf('twin') === 0 ? I18n.translate('status_twin') :
 						kind === 'alt' ? I18n.translate('status_alt') : I18n.translate('status_dupe');
 				}
 				if (detail === 'GOOD') return I18n.translate('status_good');

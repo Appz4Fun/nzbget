@@ -90,6 +90,15 @@ public:
 	 * their names; "" for none */
 	static std::string Fingerprint(const std::vector<FileSig>& sigs);
 
+	/* the files of a posting's par2 set, as fetched for its fingerprint (kept in the
+	 * queue directory, file "twincheck"); empty if not known */
+	static std::vector<FileSig> SigsOf(int nzbId);
+	/* how many of <primary>'s files <dupe> holds (by MD5 and length) */
+	static int SharedFiles(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe);
+	/* the label of <dupe> against <primary>: "twin" (every file), "twin:N/M" (N of
+	 * the primary's M files: a near-twin, re-packed archive headers), "alt" (none) */
+	static std::string Kind(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe);
+
 	/* shutdown: cancels running checks and refuses new ones; WaitAll() returns when they ended */
 	static void StopAll();
 	static void WaitAll();

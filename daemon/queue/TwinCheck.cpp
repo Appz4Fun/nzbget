@@ -64,6 +64,64 @@ std::set<TwinCheckJob*> g_jobs;
 std::set<int> g_checking;		// downloads whose fingerprint is being fetched
 std::atomic<int> g_jobCount{0};
 bool g_stopping = false;
+// the par2 file lists fetched, by download id (also in the queue directory)
+std::map<int, std::vector<TwinCheck::FileSig>> g_sigs;
+bool g_sigsLoaded = false;
+
+std::string SigsPath()
+{
+	return std::string(g_Options->GetQueueDir()) + PATH_SEPARATOR + "twincheck";
+}
+
+// called with g_mutex held
+void LoadSigs()
+{
+	if (g_sigsLoaded)
+	{
+		return;
+	}
+	g_sigsLoaded = true;
+	std::ifstream in(fs::u8path(SigsPath()));
+	std::string line;
+	std::map<int, std::vector<TwinCheck::FileSig>> sigs;
+	std::set<int> started;
+	while (std::getline(in, line))
+	{
+		// id, length, md5, name (a later list of an id replaces the earlier one)
+		size_t a = line.find('\t'), b = line.find('\t', a + 1), c = line.find('\t', b + 1);
+		if (a == std::string::npos || b == std::string::npos || c == std::string::npos)
+		{
+			continue;
+		}
+		int id = atoi(line.c_str());
+		if (started.insert(id).second)
+		{
+			sigs[id].clear();
+		}
+		TwinCheck::FileSig sig;
+		sig.length = strtoull(line.c_str() + a + 1, nullptr, 10);
+		sig.md5 = line.substr(b + 1, c - b - 1);
+		sig.name = line.substr(c + 1);
+		sigs[id].push_back(std::move(sig));
+	}
+	g_sigs = std::move(sigs);
+}
+
+// called with g_mutex held
+void StoreSigs(int nzbId, const std::vector<TwinCheck::FileSig>& sigs)
+{
+	LoadSigs();
+	g_sigs[nzbId] = sigs;
+	std::ofstream out(fs::u8path(SigsPath()), std::ios::app);
+	for (const TwinCheck::FileSig& sig : sigs)
+	{
+		std::string name = sig.name;
+		std::replace(name.begin(), name.end(), '\n', '_');
+		std::replace(name.begin(), name.end(), '\t', '_');
+		out << nzbId << '\t' << sig.length << '\t' << sig.md5 << '\t' << name << '\n';
+	}
+}
+
 // fetches of a posting's par2-file that came to nothing (its articles gone, or
 // the servers busy): after MaxAttempts it's given up, not tried first forever
 std::map<int, int> g_failedAttempts;
@@ -169,6 +227,11 @@ void TwinCheckJob::Run()
 	}
 
 	std::string fingerprint = known ? TwinCheck::Fingerprint(sigs) : fetched ? "lost" : "none";
+	if (known)
+	{
+		Guard guard(g_mutex);
+		StoreSigs(m_nzbId, sigs);
+	}
 	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 	NzbInfo* nzbInfo = nullptr;
 	for (NzbInfo* queued : downloadQueue->GetQueue())
@@ -489,6 +552,43 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 	return sigs;
 }
 
+std::vector<TwinCheck::FileSig> TwinCheck::SigsOf(int nzbId)
+{
+	Guard guard(g_mutex);
+	LoadSigs();
+	auto it = g_sigs.find(nzbId);
+	return it != g_sigs.end() ? it->second : std::vector<FileSig>();
+}
+
+int TwinCheck::SharedFiles(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe)
+{
+	std::set<std::pair<std::string, uint64>> dupeFiles;
+	for (const FileSig& sig : dupe)
+	{
+		dupeFiles.emplace(sig.md5, sig.length);
+	}
+	int shared = 0;
+	for (const FileSig& sig : primary)
+	{
+		shared += dupeFiles.count({sig.md5, sig.length}) ? 1 : 0;
+	}
+	return shared;
+}
+
+std::string TwinCheck::Kind(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe)
+{
+	int shared = SharedFiles(primary, dupe);
+	if (shared == 0)
+	{
+		return "alt";
+	}
+	if (shared == (int)primary.size() && primary.size() == dupe.size())
+	{
+		return "twin";
+	}
+	return "twin:" + std::to_string(shared) + "/" + std::to_string(primary.size());
+}
+
 std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
 {
 	// by content only: names may differ between postings
@@ -647,8 +747,18 @@ void TwinCheck::ServiceWork()
 					jobs.push_back({nzbInfo->GetId(), nzbInfo->GetQueuedFilename(), false,
 						primary->GetId(), primary->GetQueuedFilename()});
 				}
+				// by the files of both par2 sets: a re-packed archive header (7z, rar) makes a
+				// near-twin, most files the same; else by their fingerprints
+				std::string kindText;
+				if (nzbInfo != primary && isDupe(item) && byPar2)
+				{
+					std::vector<FileSig> primarySigs = SigsOf(primary->GetId());
+					std::vector<FileSig> dupeSigs = SigsOf(nzbInfo->GetId());
+					kindText = !primarySigs.empty() && !dupeSigs.empty() ? Kind(primarySigs, dupeSigs) :
+						print == primaryPrint ? "twin" : "alt";
+				}
 				const char* kind = nzbInfo == primary || !isDupe(item) ? "" :
-					byPar2 ? (print == primaryPrint ? "twin" : "alt") :
+					byPar2 ? kindText.c_str() :
 					sampleable && sampledNow && !strcmp(sampled->GetValue(), "twin") ? "twin" :
 					sampleable && sampledNow && !strcmp(sampled->GetValue(), "alt") ? "alt" : "";
 				NzbParameter* old = nzbInfo->GetParameters()->Find(KindParam);
@@ -658,8 +768,9 @@ void TwinCheck::ServiceWork()
 					changed = true;
 					if (*kind)
 					{
-						nzbInfo->PrintMessage(Message::mkInfo, "%s is %s of %s (%s)", nzbInfo->GetName(),
-							*kind == 't' ? "a twin" : "an alt", primary->GetName(),
+						nzbInfo->PrintMessage(Message::mkInfo, "%s is %s%s of %s (%s)", nzbInfo->GetName(),
+							*kind == 't' ? (strchr(kind, ':') ? "a near-twin (files the same: " : "a twin") : "an alt",
+							strchr(kind, ':') ? (std::string(strchr(kind, ':') + 1) + ")").c_str() : "", primary->GetName(),
 							!byPar2 ? (*kind == 't' ? "the articles sampled are identical" :
 								"another encode: the articles sampled differ") :
 							*kind == 't' ? "byte-identical files by their par2 checksums" :
