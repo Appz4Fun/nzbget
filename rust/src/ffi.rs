@@ -1584,9 +1584,154 @@ pub unsafe extern "C" fn nzbget_rs_volume_add(
     );
 }
 
+/// Options::ParseTime (0 for null input); the outputs are written as the
+/// C++ wrote them, also on failure.
+///
+/// # Safety
+/// `time` is null or NUL-terminated; nonnull outputs are writable and disjoint
+/// from `time`, but may alias each other. Null arguments return 0 without writes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_time(time: *const c_char, hours: *mut c_int, minutes: *mut c_int) -> c_int {
+    if time.is_null() || hours.is_null() || minutes.is_null() {
+        return 0;
+    }
+    crate::options::parse_time_with(CStr::from_ptr(time), |h| hours.write(h), |m| minutes.write(m)) as c_int
+}
+
+/// Options::ParseWeekDays; `*bits` is written as the C++ wrote it.
+///
+/// # Safety
+/// `week_days` is null or NUL-terminated; nonnull `bits` is writable and disjoint
+/// from the input. Null input means empty; a null output returns 0.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_week_days(week_days: *const c_char, bits: *mut c_int) -> c_int {
+    if bits.is_null() {
+        return 0;
+    }
+    let mut result = 0;
+    let valid = crate::options::parse_week_days(input(week_days), &mut result);
+    bits.write(result);
+    valid as c_int
+}
+
+/// Options::ValidateOptionName: 0 invalid, 1 valid, 2 obsolete (warn), 3 an
+/// obsolete script option (an error with a value), 4 an obsolete log option.
+/// `predefined(ctx, name)` is GetOption's answer, asked after the read-only check.
+///
+/// # Safety
+/// `name` is null (invalid) or NUL-terminated; `predefined` must not unwind or
+/// mutate/invalidate `name`. `ctx` must satisfy the callback's requirements.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_validate_option_name(
+    name: *const c_char,
+    predefined: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    ctx: *mut std::ffi::c_void,
+) -> c_int {
+    if name.is_null() {
+        return 0;
+    }
+    let mut ask = || predefined.is_some_and(|f| f(ctx, name) != 0);
+    crate::options::validate_option_name(CStr::from_ptr(name), &mut ask) as c_int
+}
+
+/// Options::ConvertOldOption: the current name and value; free both with
+/// nzbget_rs_free. Null inputs read as empty. Null outputs discard that result;
+/// identical output pointers retain only the new value.
+///
+/// # Safety
+/// `option` and `value` are null or NUL-terminated; nonnull outputs are writable
+/// and disjoint from the inputs and either equal or disjoint from each other.
+/// Their previous contents are not freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_convert_old_option(option: *const c_char, value: *const c_char, new_option: *mut RsBuf, new_value: *mut RsBuf) {
+    let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
+    let (o, v) = crate::options::convert_old_option(as_c(option), as_c(value));
+    if !new_option.is_null() && new_option != new_value {
+        new_option.write(into_buf(o.into_bytes()));
+    }
+    if !new_value.is_null() {
+        new_value.write(into_buf(v.into_bytes()));
+    }
+}
+
+/// Options::HasScript.
+///
+/// # Safety
+/// `list` and `name` are null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_has_script(list: *const c_char, name: *const c_char) -> c_int {
+    let name = if name.is_null() { c"" } else { CStr::from_ptr(name) };
+    crate::options::has_script(input(list), name) as c_int
+}
+
+/// Options::ParseCategorySource: 0 Auto, 1 NZBFile, 2 FeedFile.
+///
+/// # Safety
+/// `value` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_category_source(value: *const c_char) -> c_int {
+    crate::options::parse_category_source((!value.is_null()).then(|| CStr::from_ptr(value)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn options_ffi_outputs() {
+        use std::{mem::MaybeUninit, ptr::null_mut};
+        unsafe {
+            let mut out = 77;
+            let p = &mut out as *mut c_int;
+            assert_eq!(nzbget_rs_parse_time(c"23:59".as_ptr(), p, p), 1);
+            assert_eq!(out, 59);
+            assert_eq!(nzbget_rs_parse_time(c"24:00".as_ptr(), p, p), 0);
+            assert_eq!(out, 24);
+            assert_eq!(nzbget_rs_parse_time(c"*".as_ptr(), p, p), 1);
+            assert_eq!(out, 0);
+            assert_eq!(nzbget_rs_parse_time(c"1:*".as_ptr(), p, p), 0);
+            assert_eq!(out, 1);
+            assert_eq!(nzbget_rs_parse_time(c"bad".as_ptr(), p, p), 0);
+            assert_eq!(out, 1);
+            assert_eq!(nzbget_rs_parse_time(std::ptr::null(), p, p), 0);
+            assert_eq!(nzbget_rs_parse_time(c"*".as_ptr(), p, null_mut()), 0);
+            assert_eq!(nzbget_rs_parse_time(c"*".as_ptr(), null_mut(), p), 0);
+            assert_eq!(out, 1);
+            let (mut h, mut m) = (MaybeUninit::uninit(), MaybeUninit::uninit());
+            assert_eq!(nzbget_rs_parse_time(c"*:12".as_ptr(), h.as_mut_ptr(), m.as_mut_ptr()), 1);
+            assert_eq!((h.assume_init(), m.assume_init()), (-2, 12));
+            assert_eq!(nzbget_rs_parse_week_days(std::ptr::null(), p), 1);
+            assert_eq!(out, 0);
+            assert_eq!(nzbget_rs_parse_week_days(c"1".as_ptr(), null_mut()), 0);
+
+            let (mut o, mut v) = (MaybeUninit::<RsBuf>::uninit(), MaybeUninit::<RsBuf>::uninit());
+            let option = std::ffi::CString::new("WriteBufferSize").unwrap();
+            let value = std::ffi::CString::new("-1").unwrap();
+            nzbget_rs_convert_old_option(option.as_ptr(), value.as_ptr(), o.as_mut_ptr(), v.as_mut_ptr());
+            drop((option, value));
+            let (o, v) = (o.assume_init(), v.assume_init());
+            assert_eq!(CStr::from_ptr(o.data), c"WriteBuffer");
+            assert_eq!(CStr::from_ptr(v.data), c"1024");
+            nzbget_rs_free(o);
+            nzbget_rs_free(v);
+            for which in 0..3 {
+                let mut out = MaybeUninit::<RsBuf>::uninit();
+                let p = out.as_mut_ptr();
+                nzbget_rs_convert_old_option(std::ptr::null(), std::ptr::null(),
+                    if which == 0 { null_mut() } else { p },
+                    if which == 1 { null_mut() } else { p });
+                let out = out.assume_init();
+                assert_eq!(CStr::from_ptr(out.data), c"");
+                nzbget_rs_free(out);
+            }
+            nzbget_rs_convert_old_option(std::ptr::null(), std::ptr::null(), null_mut(), null_mut());
+            assert_eq!(nzbget_rs_validate_option_name(std::ptr::null(), None, null_mut()), 0);
+            assert_eq!(nzbget_rs_validate_option_name(c"Server1.Host".as_ptr(), None, null_mut()), 1);
+            assert_eq!(nzbget_rs_has_script(std::ptr::null(), std::ptr::null()), 0);
+            assert_eq!(nzbget_rs_has_script(c"a.py".as_ptr(), std::ptr::null()), 0);
+            assert_eq!(nzbget_rs_parse_category_source(std::ptr::null()), 1);
+        }
+    }
 
     #[test]
     fn volume_buffers_and_null_inputs() {

@@ -392,6 +392,28 @@ void nzbget_rs_volume_add(int64_t* seconds, size_t secondsLen, int64_t* minutes,
 	int64_t* hours, size_t hoursLen, const NzbgetRsVolumeSlots* slots, int lastMinSlot, int lastHourSlot,
 	long long locCurTime, long long locDataTime, int64_t bytes);
 
+// Options' value parsers (rust/src/options.rs). parse_time/parse_week_days
+// write their outputs as the C++ did, also on failure. validate_option_name:
+// 0 invalid, 1 valid, 2 obsolete (warn), 3 obsolete script option (error with
+// a value), 4 obsolete log option; predefined(ctx, name) is GetOption's answer.
+// convert_old_option: the current name and value (free with nzbget_rs_free).
+// NULL inputs mean empty strings; NULL outputs discard the corresponding result.
+// Identical output pointers retain only the new value. Previous output buffers
+// are not freed. Non-NULL outputs must be writable and disjoint from inputs;
+// they must be either identical or disjoint from each other.
+// parse_time: NULL arguments return 0 without writes; outputs may alias each other.
+// parse_week_days: NULL input means empty; NULL output returns 0.
+// validate_option_name: NULL name is invalid; NULL callback means not predefined.
+// The callback must not unwind or modify/invalidate name; ctx is caller-owned.
+// has_script: NULL inputs mean empty. parse_category_source: NULL means NZBFile.
+// parse_category_source: FeedInfo::CategorySource (0 Auto, 1 NZBFile, 2 FeedFile).
+int nzbget_rs_parse_time(const char* time, int* hours, int* minutes);
+int nzbget_rs_parse_week_days(const char* weekDays, int* bits);
+int nzbget_rs_validate_option_name(const char* name, int (*predefined)(void* ctx, const char* name), void* ctx);
+void nzbget_rs_convert_old_option(const char* option, const char* value, NzbgetRsBuf* newOption, NzbgetRsBuf* newValue);
+int nzbget_rs_has_script(const char* list, const char* name);
+int nzbget_rs_parse_category_source(const char* value);
+
 #ifdef __cplusplus
 }
 #endif
