@@ -9523,6 +9523,41 @@ def scenario_twinparrepair(daemon, t):
             % (hp['Status'], tried, alt_used, intact, len(leftovers)))
 
 
+def scenario_twinaltsampled(daemon, t):
+    """Postings without par2 can't be fingerprinted: a duplicate with the
+    primary's article layout is compared by 6 articles at the same places.
+    The same bytes make a twin, other bytes an alt; another layout (other
+    article sizes) can't be told and stays a plain duplicate."""
+    size, seg = 3_000_000, 100_000
+    data = _payload(size, 13000)
+    members = {}
+    for tag, payload, segment in (('Primary', data, seg), ('Twin', data, seg),
+                                  ('Alt', _payload(size, 13001), seg), ('Other', data, 150_000)):
+        path = _place_copy(t, 'ts' + tag, payload, 'movie.mkv')
+        members[tag] = build_nzb(path, 'movie.mkv', size, segment, set())
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', members['Primary'], True, 'ts-key', 100)
+    for i, tag in enumerate(('Twin', 'Alt', 'Other')):
+        daemon.append(api, tag, members[tag], False, 'ts-key', 90 - i)
+    daemon.wait_history(api, 'Other', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    daemon.wait_history(api, 'Primary', timeout=180)
+
+    def param(h, name):
+        return next((p['Value'] for p in h.get('Parameters', []) if p['Name'] == name), '')
+    deadline = time.time() + 120
+    kinds = {}
+    while time.time() < deadline:
+        hist = {h['Name']: h for h in api.history()}
+        kinds = {n: param(hist.get(n, {}), 'DupeKind') for n in ('Twin', 'Alt', 'Other')}
+        sampled = {n: param(hist.get(n, {}), 'DupeSampled') for n in ('Twin', 'Alt', 'Other')}
+        if all(sampled.values()) and kinds['Twin'] and kinds['Alt']:
+            break
+        time.sleep(2)
+    ok = kinds == {'Twin': 'twin', 'Alt': 'alt', 'Other': ''} and sampled.get('Other') == 'none'
+    return ('twinaltsampled', ok, 'kinds=%s sampled=%s' % (kinds, sampled))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -10032,6 +10067,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'twinaltsampled': scenario_twinaltsampled,
     'twinparrepair': scenario_twinparrepair,
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
@@ -10353,6 +10389,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'twinaltsampled': ['HealthCheck=dupe'],
     'twinparrepair': ['HealthCheck=none', 'DupeArticleFallback=no', 'ParCheck=force', 'Unpack=no'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],

@@ -69,6 +69,10 @@ class TwinCheckJob : public Thread
 public:
 	TwinCheckJob(int nzbId, std::string nzbFilename) :
 		m_nzbId(nzbId), m_nzbFilename(std::move(nzbFilename)) {}
+	/* sampling mode: the posting against the primary's */
+	TwinCheckJob(int nzbId, std::string nzbFilename, int primaryId, std::string primaryNzbFilename) :
+		m_nzbId(nzbId), m_nzbFilename(std::move(nzbFilename)), m_primaryId(primaryId),
+		m_primaryNzbFilename(std::move(primaryNzbFilename)) {}
 
 	void Cancel() { m_fetcher.Stop(); }
 	int GetNzbId() const { return m_nzbId; }
@@ -79,7 +83,12 @@ protected:
 private:
 	int m_nzbId;
 	std::string m_nzbFilename;
+	int m_primaryId = 0;
+	std::string m_primaryNzbFilename;
 	ArticleFetcher m_fetcher;
+
+	void Sample();
+	void Store(const char* name, const char* value, const char* name2 = nullptr, const char* value2 = nullptr);
 
 	/* the files of the posting's smallest par2-file; false: it has none, or
 	 * none could be read (<fetched>: its articles were asked for) */
@@ -130,6 +139,12 @@ void TwinCheckJob::Run()
 		}
 	} unregister{this};
 
+	if (m_primaryId)
+	{
+		Sample();
+		return;
+	}
+
 	std::vector<TwinCheck::FileSig> sigs;
 	bool fetched = false;
 	bool known = IndexSigs(sigs, fetched);
@@ -165,6 +180,97 @@ void TwinCheckJob::Run()
 		downloadQueue->HistoryChanged();
 		downloadQueue->Save();
 	}
+}
+
+void TwinCheckJob::Store(const char* name, const char* value, const char* name2, const char* value2)
+{
+	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+	NzbInfo* nzbInfo = nullptr;
+	for (NzbInfo* queued : downloadQueue->GetQueue())
+	{
+		if (queued->GetId() == m_nzbId)
+		{
+			nzbInfo = queued;
+		}
+	}
+	for (std::unique_ptr<HistoryInfo>& historyInfo : *downloadQueue->GetHistory())
+	{
+		if (!nzbInfo && historyInfo->GetKind() == HistoryInfo::hkNzb && historyInfo->GetNzbInfo()->GetId() == m_nzbId)
+		{
+			nzbInfo = historyInfo->GetNzbInfo();
+		}
+	}
+	if (nzbInfo)
+	{
+		nzbInfo->GetParameters()->SetParameter(name, value);
+		if (name2)
+		{
+			nzbInfo->GetParameters()->SetParameter(name2, value2);
+		}
+		downloadQueue->HistoryChanged();
+		downloadQueue->Save();
+	}
+}
+
+void TwinCheckJob::Sample()
+{
+	// the data files of both, by name: the same count, and article by article
+	// the same sizes, or there's no telling by samples
+	auto dataFiles = [](const std::string& nzbFilename)
+		{
+			std::vector<TwinCheck::NzbEntry> files;
+			for (TwinCheck::NzbEntry& entry : TwinCheck::ReadNzbEntries(nzbFilename.c_str()))
+			{
+				if (!entry.IsPar2())
+				{
+					files.push_back(std::move(entry));
+				}
+			}
+			std::sort(files.begin(), files.end(), [](const TwinCheck::NzbEntry& a, const TwinCheck::NzbEntry& b)
+				{ return (a.filename.empty() ? a.subject : a.filename) < (b.filename.empty() ? b.subject : b.filename); });
+			return files;
+		};
+	std::vector<TwinCheck::NzbEntry> primary = dataFiles(m_primaryNzbFilename);
+	std::vector<TwinCheck::NzbEntry> dupe = dataFiles(m_nzbFilename);
+	std::string primaryId = std::to_string(m_primaryId);
+
+	std::vector<std::pair<size_t, size_t>> places;	// file, segment
+	bool sameLayout = !primary.empty() && primary.size() == dupe.size();
+	for (size_t i = 0; sameLayout && i < primary.size(); i++)
+	{
+		sameLayout = primary[i].segments.size() == dupe[i].segments.size();
+		for (size_t k = 0; sameLayout && k < primary[i].segments.size(); k++)
+		{
+			sameLayout = primary[i].segments[k].first == dupe[i].segments[k].first;
+			places.emplace_back(i, k);
+		}
+	}
+	if (!sameLayout || places.empty())
+	{
+		Store(TwinCheck::SampledParam, "none", TwinCheck::SampledOfParam, primaryId.c_str());
+		return;
+	}
+
+	int compared = 0;
+	int differ = 0;
+	for (int n = 0; n < TwinCheck::SampleCount && !IsStopped(); n++)
+	{
+		const auto& place = places[((2 * n + 1) * places.size()) / (2 * TwinCheck::SampleCount)];
+		const TwinCheck::NzbEntry& a = primary[place.first];
+		const TwinCheck::NzbEntry& b = dupe[place.first];
+		ArticleFetcher::FetchedArticle partA = m_fetcher.Fetch(a.segments[place.second].second.c_str(), a.groups);
+		ArticleFetcher::FetchedArticle partB = m_fetcher.Fetch(b.segments[place.second].second.c_str(), b.groups);
+		if (partA.Success && partB.Success)
+		{
+			compared++;
+			differ += partA.Offset != partB.Offset || partA.Data != partB.Data;
+		}
+	}
+	if (IsStopped() || (compared < TwinCheck::SampleCount / 2 && !differ))
+	{
+		return;	// too few arrived: asked again at a later round
+	}
+	Store(TwinCheck::SampledParam, differ ? "alt" : "twin", TwinCheck::SampledOfParam, primaryId.c_str());
 }
 
 struct Item
@@ -410,6 +516,8 @@ void TwinCheck::ServiceWork()
 		int nzbId;
 		std::string nzbFilename;
 		bool hinted;
+		int primaryId = 0;			// sampling against this one
+		std::string primaryNzbFilename;
 	};
 	std::vector<Job> jobs;
 	{
@@ -493,15 +601,32 @@ void TwinCheck::ServiceWork()
 				}
 			}
 
-			// the labels: of the primary's twins and alts (none without fingerprints)
+			// the labels: of the primary's twins and alts, by their par2 fingerprints,
+			// else by articles sampled at the same places (none without either)
 			std::string primaryPrint = primary ? fingerprintOf(primary) : "";
-			bool comparable = !primaryPrint.empty() && primaryPrint != "none";
+			bool primaryOk = primary && !strchr(primary->GetQueuedFilename(), '|') &&
+				FileSystem::FileExists(primary->GetQueuedFilename());
+			std::string primaryId = primary ? std::to_string(primary->GetId()) : "";
 			for (Item& item : items)
 			{
 				NzbInfo* nzbInfo = item.nzbInfo;
 				std::string print = fingerprintOf(nzbInfo);
-				const char* kind = nzbInfo == primary || !isDupe(item) || !comparable ||
-					print.empty() || print == "none" ? "" : print == primaryPrint ? "twin" : "alt";
+				bool byPar2 = !primaryPrint.empty() && primaryPrint != "none" && !print.empty() && print != "none";
+				bool sampleable = primaryOk && nzbInfo != primary && isDupe(item) && !print.empty() &&
+					!primaryPrint.empty() && !byPar2;
+				NzbParameter* sampled = nzbInfo->GetParameters()->Find(SampledParam);
+				NzbParameter* sampledOf = nzbInfo->GetParameters()->Find(SampledOfParam);
+				bool sampledNow = sampled && sampledOf && primaryId == sampledOf->GetValue();
+				if (sampleable && !sampledNow && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
+					FileSystem::FileExists(nzbInfo->GetQueuedFilename()))
+				{
+					jobs.push_back({nzbInfo->GetId(), nzbInfo->GetQueuedFilename(), false,
+						primary->GetId(), primary->GetQueuedFilename()});
+				}
+				const char* kind = nzbInfo == primary || !isDupe(item) ? "" :
+					byPar2 ? (print == primaryPrint ? "twin" : "alt") :
+					sampleable && sampledNow && !strcmp(sampled->GetValue(), "twin") ? "twin" :
+					sampleable && sampledNow && !strcmp(sampled->GetValue(), "alt") ? "alt" : "";
 				NzbParameter* old = nzbInfo->GetParameters()->Find(KindParam);
 				if (strcmp(old ? old->GetValue() : "", kind))
 				{
@@ -511,6 +636,8 @@ void TwinCheck::ServiceWork()
 					{
 						nzbInfo->PrintMessage(Message::mkInfo, "%s is %s of %s (%s)", nzbInfo->GetName(),
 							*kind == 't' ? "a twin" : "an alt", primary->GetName(),
+							!byPar2 ? (*kind == 't' ? "the articles sampled are identical" :
+								"another encode: the articles sampled differ") :
 							*kind == 't' ? "byte-identical files by their par2 checksums" :
 							"another encode: its files' par2 checksums differ");
 					}
@@ -538,7 +665,9 @@ void TwinCheck::ServiceWork()
 		{
 			continue;
 		}
-		TwinCheckJob* thread = new TwinCheckJob(job.nzbId, job.nzbFilename);
+		TwinCheckJob* thread = job.primaryId ?
+			new TwinCheckJob(job.nzbId, job.nzbFilename, job.primaryId, job.primaryNzbFilename) :
+			new TwinCheckJob(job.nzbId, job.nzbFilename);
 		g_jobs.insert(thread);
 		g_checking.insert(job.nzbId);
 		g_jobCount++;

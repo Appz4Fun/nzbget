@@ -45,6 +45,10 @@ class TwinCheck : public Service
 public:
 	static constexpr const char* FilesParam = "DupeFiles";	// fingerprint, or "none"
 	static constexpr const char* KindParam = "DupeKind";	// "twin" or "alt" (of the primary)
+	// postings without par2: articles at the same places compared with the primary's
+	static constexpr const char* SampledParam = "DupeSampled";		// "twin", "alt" or "none"
+	static constexpr const char* SampledOfParam = "DupeSampledOf";	// the primary's id
+	static constexpr int SampleCount = 6;
 	// the smallest par2-file of a posting is fetched only up to this size
 	static constexpr int64 MaxIndexSize = 16LL * 1024 * 1024;
 	// fingerprints fetched at once
