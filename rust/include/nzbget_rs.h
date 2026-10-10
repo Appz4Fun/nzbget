@@ -57,6 +57,10 @@ void nzbget_rs_json_decode(char* raw);
 // argument). Leaves valueLength unchanged on failure.
 const char* nzbget_rs_json_next_value(const char* text, int* valueLength);
 
+// CRC-32 of A followed by B from CRC(A), CRC(B) and B's length
+// (rust/src/crc.rs); a length of 0 returns crc1
+unsigned int nzbget_rs_crc32_combine(unsigned int crc1, unsigned int crc2, unsigned int len2);
+
 #ifdef __cplusplus
 }
 #endif

@@ -2493,6 +2493,13 @@ uint32 Crc32::Finish()
 	return *currentCrc;
 }
 
+#ifdef NZBGET_USE_RUST
+uint32 Crc32::Combine(uint32 crc1, uint32 crc2, uint32 len2)
+{
+	// rust/src/crc.rs
+	return nzbget_rs_crc32_combine(crc1, crc2, len2);
+}
+#else
 /* From zlib/crc32.c (http://www.zlib.net/)
  * Copyright (C) 1995-2006, 2010, 2011, 2012 Mark Adler
  */
@@ -2573,3 +2580,4 @@ uint32 Crc32::Combine(uint32 crc1, uint32 crc2, uint32 len2)
 
 	return crc1;
 }
+#endif
