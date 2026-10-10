@@ -1937,7 +1937,7 @@ struct FfiNntp<'a> {
 }
 
 impl FfiNntp<'_> {
-    fn text(p: *const c_char) -> &'static CStr {
+    unsafe fn text<'a>(p: *const c_char) -> &'a CStr {
         // the C++ strings outlive the exchange
         if p.is_null() { c"" } else { unsafe { CStr::from_ptr(p) } }
     }
@@ -1947,7 +1947,8 @@ fn nntp_status(r: c_int) -> Result<(), crate::nntp::Abort> {
     if r == 0 { Ok(()) } else { Err(crate::nntp::Abort) }
 }
 
-impl crate::nntp::Io for FfiNntp<'_> {
+// The caller of the NNTP exports guarantees the Io buffer/callback contract.
+unsafe impl crate::nntp::Io for FfiNntp<'_> {
     fn write_line(&mut self, line: &CStr) -> Result<(), crate::nntp::Abort> {
         let f = self.io.write_line.ok_or(crate::nntp::Abort)?;
         nntp_status(unsafe { f(self.io.ctx, line.as_ptr()) })
@@ -1975,19 +1976,19 @@ impl crate::nntp::Io for FfiNntp<'_> {
         Ok(c != 0)
     }
     fn user(&self) -> &CStr {
-        Self::text(self.io.user)
+        unsafe { Self::text(self.io.user) }
     }
     fn password(&self) -> &CStr {
-        Self::text(self.io.password)
+        unsafe { Self::text(self.io.password) }
     }
     fn name(&self) -> &CStr {
-        Self::text(self.io.name)
+        unsafe { Self::text(self.io.name) }
     }
     fn host(&self) -> &CStr {
-        Self::text(self.io.host)
+        unsafe { Self::text(self.io.host) }
     }
     fn conn_host(&self) -> &CStr {
-        Self::text(self.io.conn_host)
+        unsafe { Self::text(self.io.conn_host) }
     }
 }
 
@@ -2020,8 +2021,11 @@ unsafe fn nntp_run<T>(
 /// NntpConnection::Request: `*answer` is the C++ line buffer or null.
 ///
 /// # Safety
-/// `io` is null or valid with callbacks that don't unwind; `req` is
-/// NUL-terminated; the outputs are writable.
+/// `io` is null or valid for the exchange, with callbacks that don't unwind
+/// and satisfy `nntp::Io`'s safety contract. Its configuration strings are null
+/// or NUL-terminated and immutable for the exchange. `req` is null or remains
+/// NUL-terminated (it may alias the line buffer). Non-null outputs are writable,
+/// mutually disjoint and do not overlap `io` or strings. No pointers are retained.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_nntp_request(
     io: *const NntpIo,
@@ -2033,7 +2037,6 @@ pub unsafe extern "C" fn nzbget_rs_nntp_request(
     if req.is_null() || answer.is_null() {
         return -1;
     }
-    let req = CStr::from_ptr(req);
     nntp_run(io, auth_error, auth_rejected, |io, auth| crate::nntp::request(io, auth, req), |a| *answer = a)
 }
 
@@ -2072,7 +2075,6 @@ pub unsafe extern "C" fn nzbget_rs_nntp_join_group(
     if group.is_null() || answer.is_null() || joined.is_null() {
         return -1;
     }
-    let group = CStr::from_ptr(group);
     nntp_run(io, auth_error, auth_rejected, |io, auth| crate::nntp::join_group(io, auth, group), |(a, j)| {
         *answer = a;
         *joined = j as c_int;
@@ -2082,6 +2084,47 @@ pub unsafe extern "C" fn nzbget_rs_nntp_join_group(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nntp_nulls_and_missing_callbacks() {
+        use std::ptr::{null, null_mut};
+
+        unsafe extern "C" fn greeting(ctx: *mut std::ffi::c_void, line: *mut *mut c_char) -> c_int {
+            *line = ctx.cast();
+            0
+        }
+        let mut buffer = *b"200 ready\r\n\0";
+        let mut io = NntpIo {
+            ctx: buffer.as_mut_ptr().cast(), write_line: None, read_line: Some(greeting),
+            report_error: None, debug: None, cancelled: None,
+            user: null(), password: null(), name: null(), host: null(), conn_host: null(),
+        };
+        unsafe {
+            let (mut error, mut rejected, mut result, mut joined) = (1, 1, -9, -9);
+            let mut answer = null_mut();
+            assert_eq!(nzbget_rs_nntp_request(null(), null(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_handshake(null(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_join_group(null(), null(), null_mut(), null_mut(), null_mut(), null_mut()), -1);
+            assert_eq!(nzbget_rs_nntp_request(&io, null(), &mut error, &mut rejected, &mut answer), -1);
+            assert_eq!(nzbget_rs_nntp_join_group(&io, null(), &mut error, &mut rejected, &mut answer, &mut joined), -1);
+            assert_eq!(nzbget_rs_nntp_handshake(null(), &mut error, &mut rejected, &mut result), -1);
+            assert_eq!((error, rejected, result, joined), (1, 1, -9, -9));
+
+            // NULL configuration strings are empty; optional debug is absent.
+            assert_eq!(nzbget_rs_nntp_handshake(&io, &mut error, &mut rejected, &mut result), 0);
+            assert_eq!((error, rejected, result), (1, 1, 0));
+
+            // Missing required write/read callbacks stop the exchange and leave
+            // result outputs untouched, while writing back reached auth state.
+            assert_eq!(nzbget_rs_nntp_request(&io, c"BODY x\r\n".as_ptr(), &mut error, &mut rejected, &mut answer), -1);
+            assert_eq!((error, rejected), (0, 0));
+            assert!(answer.is_null());
+            io.read_line = None;
+            result = -9;
+            assert_eq!(nzbget_rs_nntp_handshake(&io, &mut error, &mut rejected, &mut result), -1);
+            assert_eq!(result, -9);
+        }
+    }
 
     #[test]
     fn webdownload_nulls_offsets_and_owned_redirects() {

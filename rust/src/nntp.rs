@@ -12,7 +12,13 @@ use std::ffi::{c_char, CStr, CString};
 pub struct Abort;
 
 /// The connection, as the exchange uses it.
-pub trait Io {
+///
+/// # Safety
+/// A non-null `read_line` result must point to writable, NUL-terminated storage
+/// valid until the next read and through the return to the caller. Only
+/// `read_line` may overwrite it; callbacks must not reenter the exchange or
+/// retain borrowed strings. A connection must have only one exchange at a time.
+pub unsafe trait Io {
     fn write_line(&mut self, line: &CStr) -> Result<(), Abort>;
     /// The next line in the C++ line buffer (NUL-terminated), or null.
     fn read_line(&mut self) -> Result<*mut c_char, Abort>;
@@ -62,7 +68,7 @@ fn format(fmt: &[u8], args: &[Option<&[u8]>]) -> Vec<u8> {
     out
 }
 
-fn answer_bytes<'a>(answer: *mut c_char) -> &'a [u8] {
+unsafe fn answer_bytes<'a>(answer: *mut c_char) -> &'a [u8] {
     // the C++ line buffer: NUL-terminated
     unsafe { CStr::from_ptr(answer) }.to_bytes()
 }
@@ -77,12 +83,12 @@ fn report_answer(io: &mut dyn Io, prefix: &[u8], answer: Option<&[u8]>) -> Resul
 /// Cuts the answer at its last CR (for the message), notes a 502 refusal
 /// and reports it unless the connection was cancelled.
 fn failed_answer(io: &mut dyn Io, auth: &mut Auth, answer: *mut c_char) -> Result<bool, Abort> {
-    let bytes = answer_bytes(answer);
+    let bytes = unsafe { answer_bytes(answer) };
     if let Some(cr) = bytes.iter().rposition(|&b| b == b'\r') {
         // inside the C++ buffer, before its NUL
         unsafe { *answer.add(cr) = 0 };
     }
-    let bytes = answer_bytes(answer);
+    let bytes = unsafe { answer_bytes(answer) };
     auth.rejected = bytes.starts_with(b"502");
     if !io.cancelled()? {
         report_answer(io, b"Authorization for %s (%s) failed: %s", Some(bytes))?;
@@ -102,12 +108,10 @@ fn auth_info_pass(io: &mut dyn Io, auth: &mut Auth, mut recur: i32) -> Result<bo
             report_answer(io, b"Authorization failed for %s (%s): Connection closed by remote host", None)?;
             return Ok(false);
         }
-        let bytes = answer_bytes(answer);
+        let bytes = unsafe { answer_bytes(answer) };
         if bytes.starts_with(b"2") {
-            {
             let msg = bstring(&[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
             io.debug(&msg)?;
-        }
             return Ok(true);
         }
         if bytes.starts_with(b"381") {
@@ -130,12 +134,10 @@ fn auth_info_user(io: &mut dyn Io, auth: &mut Auth, mut recur: i32) -> Result<bo
             report_answer(io, b"Authorization for %s (%s) failed: Connection closed by remote host", None)?;
             return Ok(false);
         }
-        let bytes = answer_bytes(answer);
+        let bytes = unsafe { answer_bytes(answer) };
         if bytes.starts_with(b"281") {
-            {
             let msg = bstring(&[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
             io.debug(&msg)?;
-        }
             return Ok(true);
         }
         if bytes.starts_with(b"381") {
@@ -166,14 +168,19 @@ pub fn authenticate(io: &mut dyn Io, auth: &mut Auth) -> Result<bool, Abort> {
 }
 
 /// NntpConnection::Request: the answer (the C++ line buffer) or null.
-pub fn request(io: &mut dyn Io, auth: &mut Auth, req: &CStr) -> Result<*mut c_char, Abort> {
+///
+/// # Safety
+/// `req` must remain a valid NUL-terminated string throughout the exchange.
+/// It may point into the line buffer, which reads can overwrite.
+pub unsafe fn request(io: &mut dyn Io, auth: &mut Auth, req: *const c_char) -> Result<*mut c_char, Abort> {
     *auth = Auth::default();
-    io.write_line(req)?;
+    // Borrow only during the write: a read may change both contents and length.
+    io.write_line(unsafe { CStr::from_ptr(req) })?;
     let answer = io.read_line()?;
     if answer.is_null() {
         return Ok(answer);
     }
-    if answer_bytes(answer).starts_with(b"480") {
+    if unsafe { answer_bytes(answer) }.starts_with(b"480") {
         {
             let msg = bstring(&[io.conn_host().to_bytes(), b" requested authorization"]);
             io.debug(&msg)?;
@@ -182,7 +189,8 @@ pub fn request(io: &mut dyn Io, auth: &mut Auth, req: &CStr) -> Result<*mut c_ch
             return Ok(std::ptr::null_mut());
         }
         // try again
-        io.write_line(req)?;
+        // Borrow only during the write: a read may change both contents and length.
+        io.write_line(unsafe { CStr::from_ptr(req) })?;
         return io.read_line();
     }
     Ok(answer)
@@ -196,7 +204,7 @@ pub fn handshake(io: &mut dyn Io, auth: &mut Auth) -> Result<i32, Abort> {
         report_answer(io, b"Connection to %s (%s) failed: Connection closed by remote host", None)?;
         return Ok(1);
     }
-    let bytes = answer_bytes(answer);
+    let bytes = unsafe { answer_bytes(answer) };
     if !bytes.starts_with(b"2") {
         report_answer(io, b"Connection to %s (%s) failed: %s", Some(bytes))?;
         return Ok(1);
@@ -204,30 +212,28 @@ pub fn handshake(io: &mut dyn Io, auth: &mut Auth) -> Result<i32, Abort> {
     if !io.user().is_empty() && !io.password().is_empty() && !authenticate(io, auth)? {
         return Ok(2);
     }
-    {
-            let msg = bstring(&[b"Connection to ", io.conn_host().to_bytes(), b" established"]);
-            io.debug(&msg)?;
-        }
+    let msg = bstring(&[b"Connection to ", io.conn_host().to_bytes(), b" established"]);
+    io.debug(&msg)?;
     Ok(0)
 }
 
 /// NntpConnection::JoinGroup when not in `group` yet: the answer, and
 /// whether the group changed.
-pub fn join_group(io: &mut dyn Io, auth: &mut Auth, group: &CStr) -> Result<(*mut c_char, bool), Abort> {
-    let req = bstring(&[b"GROUP ", group.to_bytes(), b"\r\n"]);
-    let answer = request(io, auth, &req)?;
-    if !answer.is_null() && answer_bytes(answer).starts_with(b"2") {
-        {
-            let msg = bstring(&[b"Changed group to ", group.to_bytes(), b" on ", io.conn_host().to_bytes()]);
-            io.debug(&msg)?;
-        }
+///
+/// # Safety
+/// `group` must remain a valid NUL-terminated string throughout the exchange.
+/// As in C++, it may point into the line buffer and change during the request.
+pub unsafe fn join_group(io: &mut dyn Io, auth: &mut Auth, group: *const c_char) -> Result<(*mut c_char, bool), Abort> {
+    let req = bstring(&[b"GROUP ", unsafe { CStr::from_ptr(group) }.to_bytes(), b"\r\n"]);
+    let answer = unsafe { request(io, auth, req.as_ptr()) }?;
+    if !answer.is_null() && unsafe { answer_bytes(answer) }.starts_with(b"2") {
+        let msg = bstring(&[b"Changed group to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b" on ", io.conn_host().to_bytes()]);
+        io.debug(&msg)?;
         return Ok((answer, true));
     }
-    let text = if answer.is_null() { &b"(null)"[..] } else { answer_bytes(answer) };
-    {
-            let msg = bstring(&[b"Error changing group on ", io.conn_host().to_bytes(), b" to ", group.to_bytes(), b": ", text, b"."]);
-            io.debug(&msg)?;
-        }
+    let text = if answer.is_null() { &b"(null)"[..] } else { unsafe { answer_bytes(answer) } };
+    let msg = bstring(&[b"Error changing group on ", io.conn_host().to_bytes(), b" to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b": ", text, b"."]);
+    io.debug(&msg)?;
     Ok((answer, false))
 }
 
@@ -242,7 +248,7 @@ mod tests {
         errors: Vec<Vec<u8>>,
     }
 
-    impl Io for Script {
+    unsafe impl Io for Script {
         fn write_line(&mut self, line: &CStr) -> Result<(), Abort> {
             self.written.push(line.to_bytes().to_vec());
             Ok(())
@@ -292,8 +298,8 @@ mod tests {
     fn relogin() {
         let mut io = script(&[Some(b"480 auth"), Some(b"381 pass"), Some(b"281 ok"), Some(b"222 body")]);
         let mut auth = Auth::default();
-        let a = request(&mut io, &mut auth, c"BODY <x>\r\n").unwrap();
-        assert_eq!(answer_bytes(a), b"222 body");
+        let a = unsafe { request(&mut io, &mut auth, c"BODY <x>\r\n".as_ptr()) }.unwrap();
+        assert_eq!(unsafe { answer_bytes(a) }, b"222 body");
         assert_eq!(io.written, [b"BODY <x>\r\n".to_vec(), b"AUTHINFO USER me\r\n".to_vec(), b"AUTHINFO PASS pw\r\n".to_vec(), b"BODY <x>\r\n".to_vec()]);
     }
 
