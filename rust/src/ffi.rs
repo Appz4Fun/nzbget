@@ -1374,9 +1374,144 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     ok as c_int
 }
 
+/// XmlRpcProcessor::Execute: the protocol of an RPC URL (0 if none).
+///
+/// # Safety
+/// `url` is null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_protocol(url: *const c_char) -> c_int {
+    crate::rpcroute::protocol(input(url))
+}
+
+/// XmlRpcProcessor::Dispatch's parsing: writes the method name (NUL-terminated,
+/// at most 99 bytes) to `method_name` (100 bytes), where the parameters start to
+/// `*params` (into `url` for GET, else `request`) and the JSON-RPC id to
+/// `*id`/`*id_len` (null if none).
+///
+/// # Safety
+/// `url` and `request` are null or NUL-terminated; the outputs are non-null,
+/// writable and disjoint, with 100 bytes at `method_name`. Returned pointers
+/// borrow the inputs. Panics abort rather than unwinding across the ABI.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_route(
+    url: *const c_char,
+    request: *const c_char,
+    get: c_int,
+    protocol: c_int,
+    method_name: *mut c_char,
+    params: *mut *const c_char,
+    id: *mut *const c_char,
+    id_len: *mut c_int,
+) {
+    let r = crate::rpcroute::route(input(url), input(request), get != 0, protocol);
+    std::ptr::copy_nonoverlapping(r.method.as_ptr().cast::<c_char>(), method_name, r.method.len());
+    *method_name.add(r.method.len()) = 0;
+    *params = match r.params {
+        // a null URL has no parameters to point into (and no arithmetic on null)
+        Some(_) if url.is_null() => std::ptr::null(),
+        Some(at) => url.add(at),
+        None => request,
+    };
+    match r.id {
+        Some((at, len)) => {
+            *id = request.add(at);
+            *id_len = len as c_int;
+        }
+        None => {
+            *id = std::ptr::null();
+            *id_len = 0;
+        }
+    }
+}
+
+/// XmlRpcProcessor::BuildResponse: the text before and after a response; free
+/// both with nzbget_rs_free.
+///
+/// # Safety
+/// `callback` and `id` are null or NUL-terminated; `head` and `tail` are non-null,
+/// writable and disjoint. Each returned buffer is independently Rust-owned.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_envelope(
+    protocol: c_int,
+    fault: c_int,
+    callback: *const c_char,
+    id: *const c_char,
+    head: *mut RsBuf,
+    tail: *mut RsBuf,
+) {
+    let callback = (!callback.is_null()).then(|| input(callback));
+    let id = (!id.is_null()).then(|| input(id));
+    let (h, t) = crate::rpcroute::envelope(protocol, fault != 0, callback, id);
+    *head = into_buf(h);
+    *tail = into_buf(t);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rpc_route_null_inputs_borrowing_and_method_capacity() {
+        unsafe {
+            let null = std::ptr::null();
+            assert_eq!(nzbget_rs_rpc_protocol(null), 0);
+            for get in [0, 1] {
+                for protocol in [0, 1, 2, 3] {
+                    let mut method = [0x55_u8; 102];
+                    let mut params = c"sentinel".as_ptr();
+                    let mut id = params;
+                    let mut len = -1;
+                    nzbget_rs_rpc_route(null, null, get, protocol,
+                        method.as_mut_ptr().add(1).cast(), &mut params, &mut id, &mut len);
+                    assert_eq!((method[0], method[1], method[101]), (0x55, 0, 0x55));
+                    assert!(params.is_null() && id.is_null());
+                    assert_eq!(len, 0);
+                }
+            }
+            let mut url = b"/jsonrpc/".to_vec();
+            url.extend_from_slice(&[b'x'; 200]);
+            url.extend_from_slice(b"?a=1\0");
+            let mut method = [0x55_u8; 102];
+            let mut params = null;
+            let mut id = null;
+            let mut len = -1;
+            nzbget_rs_rpc_route(url.as_ptr().cast(), null, 1, 2,
+                method.as_mut_ptr().add(1).cast(), &mut params, &mut id, &mut len);
+            assert_eq!(&method[1..100], &[b'x'; 99]);
+            assert_eq!((method[0], method[100], method[101]), (0x55, 0, 0x55));
+            assert_eq!(params, url.as_ptr().add(210).cast());
+            assert!(id.is_null());
+            let request = c"\"id\":},\"method\":\"\"";
+            nzbget_rs_rpc_route(null, request.as_ptr(), 0, 2,
+                method.as_mut_ptr().add(1).cast(), &mut params, &mut id, &mut len);
+            assert_eq!(params, request.as_ptr());
+            assert_eq!(id, request.as_ptr().add(5));
+            assert_eq!(len, 0); // CString::Set will echo the suffix for length zero.
+            assert_eq!(&method[..3], &[0x55, b'"', 0]);
+        }
+    }
+
+    #[test]
+    fn rpc_envelope_owns_both_outputs() {
+        unsafe {
+            let mut cb = b"callback\0ignored".to_vec();
+            let mut id = b"7\0ignored".to_vec();
+            let mut head = std::mem::MaybeUninit::uninit();
+            let mut tail = std::mem::MaybeUninit::uninit();
+            nzbget_rs_rpc_envelope(3, 0, cb.as_ptr().cast(), id.as_ptr().cast(),
+                head.as_mut_ptr(), tail.as_mut_ptr());
+            let head = head.assume_init();
+            let tail = tail.assume_init();
+            cb.fill(b'x');
+            id.fill(b'x');
+            assert_eq!(input(head.data), b"callback({\n\"version\" : \"1.1\",\n\"id\" : 7,\n\"result\" : ");
+            assert_eq!(input(head.data).len(), head.len);
+            nzbget_rs_free(head);
+            assert_eq!(input(tail.data), b"\n})");
+            assert_eq!(tail.len, 3);
+            nzbget_rs_free(tail);
+        }
+    }
 
     #[test]
     fn rpc_null_arguments_and_unknown_kind() {
