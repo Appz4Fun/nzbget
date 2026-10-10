@@ -243,6 +243,7 @@ var History = (new function($)
 			(hist.Category !== '' ? Util.textToHtml(hist.Category) : '<span class="none-category">' + I18n.translate('label_none') + '</span>')
 			: '';
 		var backup = hist.Kind === 'NZB' ? DownloadsUI.buildBackupLabel(hist) : '';
+		var dupeScore = hist.Kind === 'NZB' ? DownloadsUI.buildDupeScoreLabel(hist.DupeScore, hist.Health) : '';
 
 		if (hist.Kind === 'URL')
 		{
@@ -257,11 +258,11 @@ var History = (new function($)
 		{
 			status = '<div data-nzbid="' + hist.NZBID + '">' + status + '</div>';
 			category = '<div data-nzbid="' + hist.NZBID + '"' +  (hist.Kind === 'DUP' ? ' class="dropdown-disabled"' : '') + '>' + category + '</div>';
-			item.fields = ['<div class="check img-check"></div>', status, item.data.time, name + dupe + backup, category, item.data.age, item.data.size];
+			item.fields = ['<div class="check img-check"></div>', status, item.data.time, name + dupe + dupeScore + backup, category, item.data.age, item.data.size];
 		}
 		else
 		{
-			var info = '<div class="check img-check"></div><span class="row-title">' + name + '</span>' + dupe +
+			var info = '<div class="check img-check"></div><span class="row-title">' + name + '</span>' + dupe + dupeScore +
 				' ' + status + backup + ' <span class="label">' + item.data.time + '</span>';
 			if (category)
 			{

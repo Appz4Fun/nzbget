@@ -283,20 +283,21 @@ var Downloads = (new function($)
 
 		var category = group.Category !== '' ? Util.textToHtml(group.Category) : '<span class="none-category">' + I18n.translate('label_none') + '</span>';
 		var backup = DownloadsUI.buildBackupLabel(group);
+		var dupeScore = DownloadsUI.buildDupeScoreLabel(group.DupeScore, group.Health);
 
 		if (!UISettings.miniTheme)
 		{
 			priority = '<div data-nzbid="' + group.NZBID + '"' +  (group.postprocess ? ' class="dropdown-disabled"' : '') + '>' + priority + '</div>';
 			status = '<div data-nzbid="' + group.NZBID + '">' + status + '</div>';
 			category = '<div data-nzbid="' + group.NZBID + '"' +  (group.postprocess ? ' class="dropdown-disabled"' : '') + '>' + category + '</div>';
-			var info = name + ' ' + url + dupe + health + backup + propagation + progresslabel;
+			var info = name + ' ' + url + dupe + dupeScore + health + backup + propagation + progresslabel;
 			item.fields = ['<div class="check img-check"></div>', priority, status, info, category, item.data.age, progress, item.data.estimated];
 		}
 		else
 		{
 			var info = '<div class="check img-check"></div><span class="row-title">' +
 				name + '</span>' + url + ' ' + (group.MaxPriority == 0 ? '' : priority) +
-				' ' + (group.Status === 'QUEUED' ? '' : status) + dupe + health + backup + propagation;
+				' ' + (group.Status === 'QUEUED' ? '' : status) + dupe + dupeScore + health + backup + propagation;
 			if (group.Category !== '')
 			{
 				info += ' <span class="label label-status">' + category + '</span>';
@@ -971,6 +972,19 @@ var DownloadsUI = (new function($)
 		}
 		return encryptedPassword != '' ?
 			' <span class="label label-info" title="'+ Util.textToAttr(encryptedPassword) +'">' + I18n.translate('label_encrypted') + '</span>' : '';
+	}
+
+	// "dupe score: N | H%", coloured by the health: green 95-100%, yellow 85-95%, red below
+	this.buildDupeScoreLabel = function(dupeScore, health)
+	{
+		if (!dupeScore)
+		{
+			return '';
+		}
+		var percent = Math.floor(health) / 10;
+		var cls = percent >= 95 ? 'label-success' : percent >= 85 ? 'label-warning' : 'label-important';
+		return ' <span class="label ' + cls + '" title="' + Util.textToAttr(I18n.translate('desc_dupe_score')) + '">' +
+			Util.textToHtml(I18n.translate('label_dupe_score', String(dupeScore), percent.toFixed(1))) + '</span>';
 	}
 
 	this.buildBackupLabel = function(group)

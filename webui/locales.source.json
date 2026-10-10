@@ -3378,6 +3378,14 @@
     "message": "encrypted",
     "description": "Status label indicating that a download contains encrypted files. Used in UI labels."
   },
+  "label_dupe_score": {
+    "message": "dupe score: $1 | $2%",
+    "description": "Badge next to a download's name: $1 is its duplicate score, $2 its health in percent."
+  },
+  "desc_dupe_score": {
+    "message": "Duplicate score and health: green from 95%, yellow from 85%, red below",
+    "description": "Tooltip of the dupe score badge."
+  },
   "label_backup_percent": {
     "message": "backup: $1%",
     "description": "Status label showing the progress percentage of downloading from backup servers. $1 is a dynamic value/HTML tag representing the percentage."
