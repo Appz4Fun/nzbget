@@ -78,6 +78,8 @@ public:
 	/* PAR2 identity is not established by filenames, sizes, or partial byte
 	 * matches. Recognized parity must never be a duplicate target or donor. */
 	static bool IsParFile(FileInfo* fileInfo);
+	/* what the file's first article holds, read from disk if not known yet */
+	static FileInfo::EFirstContent FirstContent(FileInfo* fileInfo);
 	/* does the collection have par2 files (the only check a borrowed article's bytes get) */
 	static bool HasPar2(NzbInfo* nzbInfo);
 	/* the files the par2-files in <dir> describe: name, length and their set's block size */

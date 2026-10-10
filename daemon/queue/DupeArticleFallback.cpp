@@ -40,7 +40,7 @@
 
 bool DupeArticleFallback::IsParFile(FileInfo* fileInfo)
 {
-	return fileInfo->GetParFile() ||
+	return fileInfo->GetParFile() || fileInfo->GetFirstContent() == FileInfo::fcPar2 ||
 		(fileInfo->GetFilenameConfirmed() &&
 		 Util::EndsWith(fileInfo->GetFilename(), ".par2", false));
 }
@@ -140,6 +140,13 @@ bool DupeArticleFallback::TryFallback(DownloadQueue* downloadQueue, FileInfo* fi
 {
 	if (g_Options->GetDupeArticleFallback() == Options::dafNone || g_Options->GetRawArticle() ||
 		IsParFile(fileInfo))
+	{
+		return false;
+	}
+
+	// a par2-file with a random name looks like any data file: what its first
+	// article holds tells (that article itself may be borrowed: it's analyzed)
+	if (articleInfo->GetPartNumber() != 1 && FirstContent(fileInfo) != FileInfo::fcOther)
 	{
 		return false;
 	}
@@ -1433,4 +1440,28 @@ std::vector<DupeArticleFallback::Par2Desc> DupeArticleFallback::ListPar2Files(co
 		list.push_back(std::move(desc));
 	}
 	return list;
+}
+
+FileInfo::EFirstContent DupeArticleFallback::FirstContent(FileInfo* fileInfo)
+{
+	if (fileInfo->GetFirstContent() != FileInfo::fcUnknown)
+	{
+		return fileInfo->GetFirstContent();
+	}
+
+	// after a restart: the first article was written already, its bytes tell
+	ArticleList* articles = fileInfo->GetArticles();
+	if (articles->empty() || articles->front()->GetPartNumber() != 1 ||
+		articles->front()->GetStatus() != ArticleInfo::aiFinished || fileInfo->GetOutputFilename().empty())
+	{
+		return FileInfo::fcUnknown;
+	}
+	char head[8] = {0};
+	std::ifstream in(fs::u8path(fileInfo->GetOutputFilename()), std::ios::binary);
+	if (!in.read(head, sizeof(head)) || std::all_of(head, head + sizeof(head), [](char c) { return c == 0; }))
+	{
+		return FileInfo::fcUnknown;	// not on disk yet (the article cache)
+	}
+	fileInfo->SetFirstContent(memcmp(head, "PAR2\0PKT", 8) ? FileInfo::fcOther : FileInfo::fcPar2);
+	return fileInfo->GetFirstContent();
 }

@@ -9558,6 +9558,46 @@ def scenario_twinaltsampled(daemon, t):
     return ('twinaltsampled', ok, 'kinds=%s sampled=%s' % (kinds, sampled))
 
 
+def scenario_obfuscatedparnoborrow(daemon, t):
+    """A par2-file with a random name (no .par2 anywhere) loses articles, and a
+    duplicate posts a file of the same layout under another random name holding
+    other par2 bytes. Nothing names either as par2: before, its articles could
+    be borrowed into the par2 data. Its first article starts with a par2
+    packet, so nothing is borrowed into it; a data file still borrows."""
+    import subprocess as _sp
+    work = t.path('data', 'opP')
+    os.makedirs(work, exist_ok=True)
+    data = _payload(1_200_000, 13100)
+    t.write_file(os.path.join('data', 'opP', 'movie.mkv'), data)
+    _sp.run(['par2', 'create', '-q', '-q', '-s65536', '-c12', '-n1', '-a', 'm', 'm.par2', 'movie.mkv'],
+            cwd=work, check=True, capture_output=True)
+    vol = next(n for n in os.listdir(work) if 'vol' in n)
+    par = open(os.path.join(work, vol), 'rb').read()
+    other = bytearray(par)
+    other[200:] = _payload(len(par) - 200, 13101)	# par2 magic kept, other bytes
+    seg = 50_000
+    pp = _place_copy(t, 'opP2', par, 'a8f3k2q9z')
+    pd = _place_copy(t, 'opP2', data, 'b7d1x0w4m')
+    dp = _place_copy(t, 'opD', bytes(other), 'c2v9n4t6r')
+    dd = _place_copy(t, 'opD', data, 'e5h8j1l3p')
+    lost = {3, 6}
+    primary = build_multi_nzb([(pd, 'b7d1x0w4m', len(data), seg, {5}),
+                               (pp, 'a8f3k2q9z', len(par), seg, lost)])
+    donor = build_multi_nzb([(dd, 'e5h8j1l3p', len(data), seg, set()),
+                             (dp, 'c2v9n4t6r', len(par), seg, set())])
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', primary, True, 'op-key', 100)
+    daemon.append(api, 'Donor', donor, True, 'op-key', 90)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=180)
+    log = t.read_file('nzbget.log').decode(errors='replace')
+    par_borrowed = sum(1 for line in log.splitlines() if 'a8f3k2q9z' in line and 'from duplicate' in line.lower())
+    data_borrowed = sum(1 for line in log.splitlines() if 'b7d1x0w4m' in line and 'from duplicate' in line.lower())
+    ok = par_borrowed == 0 and data_borrowed >= 1
+    return ('obfuscatedparnoborrow', ok, 'status=%s par_borrowed=%d data_borrowed=%d'
+            % (hp['Status'], par_borrowed, data_borrowed))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -10067,6 +10107,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'obfuscatedparnoborrow': scenario_obfuscatedparnoborrow,
     'twinaltsampled': scenario_twinaltsampled,
     'twinparrepair': scenario_twinparrepair,
     'pardamagerepairable': scenario_pardamagerepairable,
@@ -10389,6 +10430,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'obfuscatedparnoborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'DirectRename=no', 'ParCheck=force'],
     'twinaltsampled': ['HealthCheck=dupe'],
     'twinparrepair': ['HealthCheck=none', 'DupeArticleFallback=no', 'ParCheck=force', 'Unpack=no'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],

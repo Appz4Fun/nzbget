@@ -684,7 +684,10 @@ void QueueCoordinator::StartArticleDownload(FileInfo* fileInfo, ArticleInfo* art
 	articleDownloader->SetArticleInfo(articleInfo);
 	articleDownloader->SetConnection(connection);
 
-	if (articleInfo->GetPartNumber() == 1 && g_Options->GetDirectRename() && !g_Options->GetRawArticle())
+	// the first article is analyzed for direct-rename, and for duplicate recovery
+	// (which never writes into par2 data, see DupeArticleFallback::TryFallback)
+	if (articleInfo->GetPartNumber() == 1 && !g_Options->GetRawArticle() &&
+		(g_Options->GetDirectRename() || g_Options->GetDupeArticleFallback() != Options::dafNone))
 	{
 		articleDownloader->SetContentAnalyzer(m_directRenamer.MakeArticleContentAnalyzer());
 	}
@@ -918,7 +921,12 @@ void QueueCoordinator::ArticleCompleted(ArticleDownloader* articleDownloader)
 		if (articleDownloader->GetContentAnalyzer() && !misplaced &&
 			articleDownloader->GetStatus() == ArticleDownloader::adFinished)
 		{
-			m_directRenamer.ArticleDownloaded(downloadQueue, fileInfo, articleInfo, articleDownloader->GetContentAnalyzer());
+			fileInfo->SetFirstContent(DirectRenamer::AnalyzedParFile(articleDownloader->GetContentAnalyzer()) ?
+				FileInfo::fcPar2 : FileInfo::fcOther);
+			if (g_Options->GetDirectRename())
+			{
+				m_directRenamer.ArticleDownloaded(downloadQueue, fileInfo, articleInfo, articleDownloader->GetContentAnalyzer());
+			}
 		}
 
 		nzbInfo->SetDownloadedSize(nzbInfo->GetDownloadedSize() + articleDownloader->GetDownloadedSize());

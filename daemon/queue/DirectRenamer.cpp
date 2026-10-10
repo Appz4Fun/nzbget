@@ -197,6 +197,11 @@ std::unique_ptr<ArticleContentAnalyzer> DirectRenamer::MakeArticleContentAnalyze
 	return std::make_unique<RenameContentAnalyzer>();
 }
 
+bool DirectRenamer::AnalyzedParFile(ArticleContentAnalyzer* articleContentAnalyzer)
+{
+	return ((RenameContentAnalyzer*)articleContentAnalyzer)->GetParFile();
+}
+
 void DirectRenamer::ArticleDownloaded(DownloadQueue* downloadQueue, FileInfo* fileInfo,
 	ArticleInfo* articleInfo, ArticleContentAnalyzer* articleContentAnalyzer)
 {

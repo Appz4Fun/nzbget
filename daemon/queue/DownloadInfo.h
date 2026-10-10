@@ -227,6 +227,16 @@ public:
 	void SetDupeAttemptedArticles(int dupeAttemptedArticles) { m_dupeAttemptedArticles = dupeAttemptedArticles; }
 	bool GetDupeCutover() { return m_dupeCutover; }
 	void SetDupeCutover(bool dupeCutover) { m_dupeCutover = dupeCutover; }
+	// what the file's first article holds: borrowing from duplicates never writes
+	// into par2 data, whatever the file is called
+	enum EFirstContent
+	{
+		fcUnknown,
+		fcPar2,
+		fcOther
+	};
+	EFirstContent GetFirstContent() { return m_firstContent; }
+	void SetFirstContent(EFirstContent firstContent) { m_firstContent = firstContent; }
 	bool GetDupeNoSourceLogged() { return m_dupeNoSourceLogged; }
 	void SetDupeNoSourceLogged(bool logged) { m_dupeNoSourceLogged = logged; }
 	int GetDupeLeadDonorId() { return m_dupeLeadDonorId; }
@@ -309,6 +319,7 @@ private:
 	// primary first (not persisted)
 	bool m_dupeCutover = false;
 	bool m_dupeNoSourceLogged = false;	// in memory only: said once per file
+	EFirstContent m_firstContent = fcUnknown;	// in memory only: read from the file after a restart
 	// nzb-id of the duplicate this file's fresh articles try first; rotated to
 	// the next duplicate when the lead keeps missing articles, so fresh
 	// articles do not re-fail on a holed posting; 0 = not decided yet, the

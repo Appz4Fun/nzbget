@@ -63,6 +63,8 @@ public:
 	typedef std::deque<ParFile> ParFileList;
 
 	std::unique_ptr<ArticleContentAnalyzer> MakeArticleContentAnalyzer();
+	/* does the article the analyzer read start with a par2 packet */
+	static bool AnalyzedParFile(ArticleContentAnalyzer* articleContentAnalyzer);
 	void ArticleDownloaded(DownloadQueue* downloadQueue, FileInfo* fileInfo,
 		ArticleInfo* articleInfo, ArticleContentAnalyzer* articleContentAnalyzer);
 	void FileDownloaded(DownloadQueue* downloadQueue, FileInfo* fileInfo);
