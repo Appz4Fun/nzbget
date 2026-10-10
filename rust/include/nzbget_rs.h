@@ -20,6 +20,20 @@ typedef struct
 // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.
 NzbgetRsBuf nzbget_rs_json_encode(const char* raw);
 NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
+// Twins and alts (rust/src/twin.rs). Lists are text lines: a file list is
+// "length\tmd5\tname" per file. Ids are download ids.
+void nzbget_rs_twin_open(const char* path);
+NzbgetRsBuf nzbget_rs_twin_put_par2(int id, const unsigned char* data, size_t len);
+NzbgetRsBuf nzbget_rs_twin_sigs(int id);
+NzbgetRsBuf nzbget_rs_twin_par2_sigs(const unsigned char* data, size_t len);
+NzbgetRsBuf nzbget_rs_twin_fingerprint(const char* lines);
+NzbgetRsBuf nzbget_rs_twin_par2_fingerprint(const unsigned char* data, size_t len);
+unsigned long long nzbget_rs_par2_block_size(const unsigned char* data, size_t len);
+int nzbget_rs_par2_volume_blocks(const char* filename);
+NzbgetRsBuf nzbget_rs_twin_kind(int primary, int dupe);
+NzbgetRsBuf nzbget_rs_twin_match(int own, const char* target, const char* targetAlt, int donor);
+// "F\tsize\tpar2\tfilename\tsubject" per <file>, then "G\tgroup" and "S\tbytes\tmessage-id"
+NzbgetRsBuf nzbget_rs_nzb_entries(const char* path);
 // Release each result exactly once, with all fields unchanged. A zero buffer
 // is also accepted. Copy the bytes before freeing if they must outlive the result.
 void nzbget_rs_free(NzbgetRsBuf buf);

@@ -25,6 +25,7 @@
 #include <set>
 #include "DupeArticleFallback.h"
 #include "ParDamage.h"
+#include "TwinCheck.h"
 #include "DupeCoordinator.h"
 #include "NzbFile.h"
 #include "Options.h"
@@ -861,7 +862,7 @@ void DupeArticleFallback::AppendDonorCandidate(std::vector<CString>& candidates,
 	std::vector<int>& contributors, int donorNzbId,
 	NzbInfo* parsedDonor, FileInfo* targetFile, int partNumber, const char* targetNzbFilename)
 {
-	FileInfo* donorFile = MatchDonorFile(targetFile, parsedDonor, targetNzbFilename);
+	FileInfo* donorFile = MatchDonorFile(targetFile, parsedDonor, targetNzbFilename, donorNzbId);
 	if (!donorFile)
 	{
 		return;
@@ -978,11 +979,33 @@ NzbInfo* DupeArticleFallback::GetParsedDonor(NzbInfo* donorNzbInfo)
 }
 
 FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* donorNzb,
-	const char* targetNzbFilename)
+	const char* targetNzbFilename, int donorNzbId)
 {
 	if (IsParFile(targetFile))
 	{
 		return nullptr;
+	}
+
+	// by content first, when the par2 file lists of both postings are known
+	// (twin.rs): a donor file with the target's MD5 and length is the same bytes
+	// under any name, one named alike with another MD5 is not
+	std::string byContent = donorNzbId ? TwinCheck::MatchByContent(targetFile->GetNzbInfo()->GetId(),
+		targetFile->GetFilename(), targetNzbFilename, donorNzbId) : "";
+	if (byContent == "-")
+	{
+		return nullptr;
+	}
+	if (!byContent.empty())
+	{
+		for (FileInfo* donorFile : donorNzb->GetFileList())
+		{
+			if (!strcasecmp(donorFile->GetFilename(), byContent.c_str()) && !IsParFile(donorFile) &&
+				StructureMatches(targetFile, donorFile))
+			{
+				return donorFile;
+			}
+		}
+		return nullptr;	// the same bytes, but not in articles that fit ours
 	}
 
 	std::vector<FileInfo*> structuralMatches;

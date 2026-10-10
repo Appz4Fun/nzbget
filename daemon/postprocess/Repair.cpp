@@ -306,7 +306,7 @@ std::string RepairController::PostParChecker::RequestTwinIndex()
 		const TwinCheck::NzbEntry* index = nullptr;
 		for (const TwinCheck::NzbEntry& entry : entries)
 		{
-			if (entry.IsPar2() && (!index || entry.size < index->size))
+			if (entry.par2 && (!index || entry.size < index->size))
 			{
 				index = &entry;
 			}
@@ -362,7 +362,7 @@ std::vector<std::string> RepairController::PostParChecker::RequestTwinVolumes(in
 	std::vector<Volume> volumes;
 	for (const TwinCheck::NzbEntry& entry : m_twinEntries)
 	{
-		if (!entry.IsPar2() || entry.filename == m_twinIndex)
+		if (!entry.par2 || entry.filename == m_twinIndex)
 		{
 			continue;
 		}
