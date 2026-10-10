@@ -274,6 +274,29 @@ typedef struct
 void nzbget_rs_web_check_credentials(const NzbgetRsWebCredentials* input, NzbgetRsWebCheck* out);
 int nzbget_rs_web_authorized_ip(const char* option, const char* remote, const int* table, int charSigned, int (*fold)(int));
 
+// Decoder (rust/src/decoder.rs), with rapidyenc's incremental decoder (its
+// state as an int) and CRC. Get: 0 format, 1 begin, 2 end, 3 size,
+// 4 expected CRC, 5 calculated CRC, 6 EOF. Set: 0 CRC check, 1 raw mode.
+// Handles are Rust-owned, freed once with decoder_free, never used concurrently.
+// NULL callbacks make new return NULL; NULL handles/inputs are accepted as no-ops
+// (check returns UnknownError, getters return zero/an empty borrowed string).
+// decode: buffer is caller-owned and disjoint from the decoder. It must fit the
+// input AND output (up to input length + 63 for a buffered UU line; Connection
+// reserves 128). In line mode len==0 means strlen(buffer), as in StringBuilder.
+// Negative lengths are ignored. Callbacks must not unwind; Rust panics abort.
+// filename is borrowed until the decoder changes; do not free it.
+typedef struct NzbgetRsDecoder NzbgetRsDecoder;
+typedef int (*NzbgetRsYencDecode)(const void** src, void** dst, size_t len, int* state);
+typedef unsigned int (*NzbgetRsCrc)(const void* src, size_t len, unsigned int init);
+NzbgetRsDecoder* nzbget_rs_decoder_new(NzbgetRsYencDecode decode, NzbgetRsCrc crc);
+void nzbget_rs_decoder_free(NzbgetRsDecoder* decoder);
+void nzbget_rs_decoder_clear(NzbgetRsDecoder* decoder);
+int nzbget_rs_decoder_decode(NzbgetRsDecoder* decoder, char* buffer, int len);
+int nzbget_rs_decoder_check(NzbgetRsDecoder* decoder);
+void nzbget_rs_decoder_set(NzbgetRsDecoder* decoder, int which, int value);
+long long nzbget_rs_decoder_get(NzbgetRsDecoder* decoder, int which);
+const char* nzbget_rs_decoder_filename(NzbgetRsDecoder* decoder);
+
 #ifdef __cplusplus
 }
 #endif

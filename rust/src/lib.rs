@@ -4,6 +4,7 @@
 pub mod collection;
 pub mod crc;
 pub mod decode;
+pub mod decoder;
 pub mod deobfuscation;
 pub mod escape;
 pub mod feedfilter;

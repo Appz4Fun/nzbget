@@ -46,6 +46,30 @@ public:
 		efUx,
 	};
 
+#ifdef NZBGET_USE_RUST
+	// rust/src/decoder.rs
+	Decoder();
+	~Decoder();
+	Decoder(const Decoder&) = delete;
+	Decoder& operator=(const Decoder&) = delete;
+	EStatus Check();
+	void Clear();
+	int DecodeBuffer(char* buffer, int len);
+	void SetCrcCheck(bool crcCheck);
+	void SetRawMode(bool rawMode);
+	EFormat GetFormat();
+	int64 GetBeginPos();
+	int64 GetEndPos();
+	int64 GetSize();
+	uint32 GetExpectedCrc();
+	uint32 GetCalculatedCrc();
+	bool GetEof();
+	const char* GetArticleFilename();
+
+private:
+	struct NzbgetRsDecoder* m_decoder;
+};
+#else
 	Decoder();
 	EStatus Check();
 	void Clear();
@@ -119,5 +143,6 @@ private:
 	EStatus CheckUx();
 	void ProcessRaw(char* buffer, int len);
 };
+#endif
 
 #endif
