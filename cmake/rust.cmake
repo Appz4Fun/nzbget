@@ -66,6 +66,16 @@ if(NOT CARGO_STATUS EQUAL 0 OR NOT CARGO_VERSION_OUTPUT MATCHES "^cargo ([0-9]+\
 	return()
 endif()
 
+# Ninja Multi-Config before CMake 3.20 can't declare the per-configuration
+# archive as an output, so Ninja would stop on a missing input.
+if(CMAKE_CONFIGURATION_TYPES AND CMAKE_GENERATOR MATCHES "Ninja" AND CMAKE_VERSION VERSION_LESS 3.20)
+	if(RUST_TARGET_EXPLICIT)
+		message(FATAL_ERROR "Building the Rust encoders with ${CMAKE_GENERATOR} requires CMake 3.20 or later")
+	endif()
+	message(STATUS "${CMAKE_GENERATOR} with CMake older than 3.20: using C++ web encoders")
+	return()
+endif()
+
 # Match the CRT selection to the final C++ link. Without this, GNU targets
 # report -lgcc_s even for ENABLE_STATIC, which cannot be linked with -static.
 # Pass the same option to the probe and the crate's final staticlib compilation.
@@ -114,8 +124,8 @@ set(RUST_PROFILE_DIR "$<IF:${RUST_IS_DEBUG},debug,release>")
 set(RUST_LIB_NAME "${CMAKE_STATIC_LIBRARY_PREFIX}nzbget_rs${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(RUST_LIB "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG_DIR}/${NZBGET_RUST_TARGET}/${RUST_PROFILE_DIR}/${RUST_LIB_NAME}")
 
-# Ninja needs the archive as a known output; generator expressions in
-# BYPRODUCTS need CMake 3.20 (multi-config Ninja itself needs 3.17).
+# Ninja needs the archive as a known output, and a per-configuration one in
+# BYPRODUCTS needs CMake 3.20. Visual Studio and Xcode don't need it.
 set(RUST_BYPRODUCTS)
 if(NOT CMAKE_CONFIGURATION_TYPES OR NOT CMAKE_VERSION VERSION_LESS 3.20)
 	set(RUST_BYPRODUCTS BYPRODUCTS "${RUST_LIB}")
