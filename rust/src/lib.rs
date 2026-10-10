@@ -9,6 +9,7 @@ pub mod deobfuscation;
 pub mod escape;
 pub mod feedfilter;
 pub mod filetypes;
+pub mod options;
 pub mod paths;
 pub mod rpcparams;
 pub mod rpcroute;

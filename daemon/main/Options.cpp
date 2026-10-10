@@ -24,6 +24,9 @@
 
 #include "Util.h"
 #include "Options.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "Log.h"
 #include "FileSystem.h"
 
@@ -1398,6 +1401,13 @@ void Options::CreateSchedulerTask(int id, const char* time, const char* weekDays
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+bool Options::ParseTime(const char* time, int* hours, int* minutes)
+{
+	// rust/src/options.rs
+	return nzbget_rs_parse_time(time, hours, minutes) != 0;
+}
+#else
 bool Options::ParseTime(const char* time, int* hours, int* minutes)
 {
 	if (!strcmp(time, "*"))
@@ -1458,7 +1468,15 @@ bool Options::ParseTime(const char* time, int* hours, int* minutes)
 
 	return true;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+bool Options::ParseWeekDays(const char* weekDays, int* weekDaysBits)
+{
+	// rust/src/options.rs
+	return nzbget_rs_parse_week_days(weekDays, weekDaysBits) != 0;
+}
+#else
 bool Options::ParseWeekDays(const char* weekDays, int* weekDaysBits)
 {
 	*weekDaysBits = 0;
@@ -1509,6 +1527,7 @@ bool Options::ParseWeekDays(const char* weekDays, int* weekDaysBits)
 	}
 	return true;
 }
+#endif
 
 void Options::LoadConfigFile()
 {
@@ -1607,6 +1626,40 @@ bool Options::SplitOptionString(const char* option, CString& optName, CString& o
 	return true;
 }
 
+#ifdef NZBGET_USE_RUST
+bool Options::ValidateOptionName(const char* optname, const char* optvalue)
+{
+	// rust/src/options.rs: the name's class; the messages are logged here
+	auto predefined = [](void* ctx, const char* name) -> int
+	{
+		return static_cast<Options*>(ctx)->GetOption(name) != nullptr;
+	};
+	switch (nzbget_rs_validate_option_name(optname, predefined, this))
+	{
+		case 1:
+			return true;
+
+		case 2:
+			ConfigWarn("Option \"%s\" is obsolete, ignored", optname);
+			return true;
+
+		case 3:
+			if (optvalue && strlen(optvalue) > 0)
+			{
+				ConfigError("Option \"%s\" is obsolete, ignored, use \"%s\" and \"%s\" instead",
+					optname, SCRIPTDIR.data(), EXTENSIONS.data());
+			}
+			return true;
+
+		case 4:
+			ConfigWarn("Option \"%s\" is obsolete, ignored, use \"%s\" instead", optname, WRITELOG.data());
+			return true;
+
+		default:
+			return false;
+	}
+}
+#else
 bool Options::ValidateOptionName(const char* optname, const char* optvalue)
 {
 	if (!strcasecmp(optname, CONFIGFILE.data()) || !strcasecmp(optname, APPBIN.data()) ||
@@ -1739,7 +1792,26 @@ bool Options::ValidateOptionName(const char* optname, const char* optvalue)
 
 	return false;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+void Options::ConvertOldOption(CString& option, CString& value)
+{
+	// rust/src/options.rs
+	NzbgetRsBuf newOption, newValue;
+	nzbget_rs_convert_old_option(option, value, &newOption, &newValue);
+	if (!option || strcmp(option, newOption.data))
+	{
+		option = newOption.data;
+	}
+	if (!value || strcmp(value, newValue.data))
+	{
+		value = newValue.data;
+	}
+	nzbget_rs_free(newOption);
+	nzbget_rs_free(newValue);
+}
+#else
 void Options::ConvertOldOption(CString& option, CString& value)
 {
 	// for compatibility with older versions accept old option names
@@ -1841,6 +1913,7 @@ void Options::ConvertOldOption(CString& option, CString& value)
 		option = LOGBUFFER.data();
 	}
 }
+#endif
 
 void Options::CheckOptions()
 {
@@ -2012,6 +2085,13 @@ void Options::MergeOldScriptOption(OptEntries* optEntries, const char* optname, 
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+bool Options::HasScript(const char* scriptList, const char* scriptName)
+{
+	// rust/src/options.rs
+	return nzbget_rs_has_script(scriptList, scriptName) != 0;
+}
+#else
 bool Options::HasScript(const char* scriptList, const char* scriptName)
 {
 	Tokenizer tok(scriptList, ",;");
@@ -2024,7 +2104,15 @@ bool Options::HasScript(const char* scriptList, const char* scriptName)
 	}
 	return false;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+FeedInfo::CategorySource Options::ParseCategorySource(const char* value)
+{
+	// rust/src/options.rs
+	return static_cast<FeedInfo::CategorySource>(nzbget_rs_parse_category_source(value));
+}
+#else
 FeedInfo::CategorySource Options::ParseCategorySource(const char* value)
 {
 	if (!value)
@@ -2049,3 +2137,4 @@ FeedInfo::CategorySource Options::ParseCategorySource(const char* value)
 		return FeedInfo::CategorySource::NZBFile;
 	}
 }
+#endif
