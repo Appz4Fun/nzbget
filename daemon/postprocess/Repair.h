@@ -28,6 +28,8 @@
 
 #ifndef DISABLE_PARCHECK
 #include "ParChecker.h"
+#include "TwinCheck.h"
+#include "ArticleFetcher.h"
 #include "DupeMatcher.h"
 #endif
 
@@ -73,7 +75,19 @@ private:
 		virtual const char* FindFileOrigname(const char* filename);
 		virtual void RequestDupeSources(DupeSourceList* dupeSourceList);
 		virtual void StatDupeSources(DupeSourceList* dupeSourceList);
+		std::string RequestTwinIndex() override;
+		std::vector<std::string> RequestTwinVolumes(int blockNeeded) override;
+	public:
+		/* removes the twin's par2-files fetched for the par-check */
+		void DeleteTwinFiles();
 	private:
+		std::vector<TwinCheck::NzbEntry> m_twinEntries;
+		std::string m_twinName;
+		std::string m_twinIndex;	// the entry fetched first (its filename)
+		uint64 m_twinBlockSize = 0;
+		std::vector<std::string> m_twinFiles;
+		ArticleFetcher m_twinFetcher;
+		std::string FetchTwinFile(const TwinCheck::NzbEntry& entry, std::vector<char>* keep = nullptr);
 		RepairController* m_owner;
 		PostInfo* m_postInfo;
 		time_t m_parTime;

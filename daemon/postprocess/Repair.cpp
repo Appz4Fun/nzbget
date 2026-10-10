@@ -27,6 +27,9 @@
 #include "DiskState.h"
 #include "Log.h"
 #include "FileSystem.h"
+#include <fstream>
+#include <set>
+#include <iterator>
 
 #ifndef DISABLE_PARCHECK
 bool RepairController::PostParChecker::RequestMorePars(int blockNeeded, int* blockFound)
@@ -204,6 +207,226 @@ void RepairController::PostParChecker::RequestDupeSources(DupeSourceList* dupeSo
 	}
 }
 
+std::string RepairController::PostParChecker::FetchTwinFile(const TwinCheck::NzbEntry& entry, std::vector<char>* keep)
+{
+	std::vector<char> data;
+	if (!TwinCheck::FetchEntry(m_twinFetcher, entry, 1024LL * 1024 * 1024, [this]() { return IsStopped(); }, data))
+	{
+		return "";
+	}
+	// a name of its own: the twin's par2-files may be named like ours
+	std::string name = "_twin." + (entry.filename.empty() ? std::to_string(m_twinFiles.size()) + ".par2" : entry.filename);
+	BString<1024> path("%s%c%s", GetDestDir(), PATH_SEPARATOR, name.c_str());
+	{
+		std::ofstream out(fs::u8path(*path), std::ios::binary | std::ios::trunc);
+		out.write(data.data(), (std::streamsize)data.size());
+		if (!out)
+		{
+			return "";
+		}
+	}
+	m_twinFiles.push_back(*path);
+	if (keep)
+	{
+		*keep = std::move(data);
+	}
+	return *path;
+}
+
+std::string RepairController::PostParChecker::RequestTwinIndex()
+{
+	// the files of our set, by the par2-file the check runs on
+	std::vector<TwinCheck::FileSig> own;
+	{
+		std::ifstream in(fs::u8path(GetParFilename()), std::ios::binary);
+		std::vector<char> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		own = TwinCheck::ParsePar2(data.data(), data.size());
+	}
+	std::string ownPrint = TwinCheck::Fingerprint(own);
+	if (ownPrint.empty())
+	{
+		return "";
+	}
+
+	// duplicates of its key whose fingerprint is ours, then those not fingerprinted yet
+	struct Candidate
+	{
+		std::string name;
+		std::string nzbFilename;
+		bool known;
+	};
+	std::vector<Candidate> candidates;
+	{
+		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+		NzbInfo* nzbInfo = m_postInfo->GetNzbInfo();
+		auto consider = [&](NzbInfo* other)
+			{
+				if (other == nzbInfo || other->GetKind() != NzbInfo::nkNzb ||
+					!DupeCoordinator::SameNameOrKey(other->GetName(), other->GetDupeKey(),
+						nzbInfo->GetName(), nzbInfo->GetDupeKey()) ||
+					strchr(other->GetQueuedFilename(), '|') || !FileSystem::FileExists(other->GetQueuedFilename()))
+				{
+					return;
+				}
+				NzbParameter* print = other->GetParameters()->Find(TwinCheck::FilesParam);
+				if (print && ownPrint != print->GetValue())
+				{
+					return;	// an alt, or no par2
+				}
+				candidates.push_back({other->GetName(), other->GetQueuedFilename(), print != nullptr});
+			};
+		for (NzbInfo* queued : downloadQueue->GetQueue())
+		{
+			consider(queued);
+		}
+		for (std::unique_ptr<HistoryInfo>& historyInfo : *downloadQueue->GetHistory())
+		{
+			if (historyInfo->GetKind() == HistoryInfo::hkNzb)
+			{
+				consider(historyInfo->GetNzbInfo());
+			}
+		}
+	}
+	std::stable_sort(candidates.begin(), candidates.end(),
+		[](const Candidate& a, const Candidate& b) { return a.known > b.known; });
+
+	std::set<std::string> ownFiles;
+	for (const TwinCheck::FileSig& sig : own)
+	{
+		ownFiles.insert(sig.name + "/" + sig.md5);
+	}
+
+	for (const Candidate& candidate : candidates)
+	{
+		if (IsStopped())
+		{
+			break;
+		}
+		std::vector<TwinCheck::NzbEntry> entries = TwinCheck::ReadNzbEntries(candidate.nzbFilename.c_str());
+		const TwinCheck::NzbEntry* index = nullptr;
+		for (const TwinCheck::NzbEntry& entry : entries)
+		{
+			if (entry.IsPar2() && (!index || entry.size < index->size))
+			{
+				index = &entry;
+			}
+		}
+		if (!index || index->size > TwinCheck::MaxIndexSize)
+		{
+			continue;
+		}
+
+		std::vector<char> data;
+		std::string path = FetchTwinFile(*index, &data);
+		if (path.empty())
+		{
+			continue;
+		}
+		std::vector<TwinCheck::FileSig> sigs = TwinCheck::ParsePar2(data.data(), data.size());
+		std::set<std::string> twinFiles;
+		for (const TwinCheck::FileSig& sig : sigs)
+		{
+			twinFiles.insert(sig.name + "/" + sig.md5);
+		}
+		if (TwinCheck::Fingerprint(sigs) != ownPrint || twinFiles != ownFiles)
+		{
+			// another encode, or the same files under other names (par2 would rename
+			// ours to them): not used
+			PrintMessage(Message::mkDetail, "%s: its par2 set %s", candidate.name.c_str(),
+				TwinCheck::Fingerprint(sigs) != ownPrint ? "describes other files" : "names the files otherwise");
+			FileSystem::DeleteFile(path.c_str());
+			m_twinFiles.pop_back();
+			continue;
+		}
+
+		m_twinName = candidate.name;
+		m_twinEntries = std::move(entries);
+		m_twinIndex = index->filename;
+		m_twinBlockSize = TwinCheck::BlockSize(data.data(), data.size());
+		PrintMessage(Message::mkInfo, "Trying the par2 set of twin %s (blocks of %.1f MB)",
+			m_twinName.c_str(), m_twinBlockSize / 1024.0 / 1024.0);
+		return path;
+	}
+	return "";
+}
+
+std::vector<std::string> RepairController::PostParChecker::RequestTwinVolumes(int blockNeeded)
+{
+	// the smallest volumes that hold enough blocks: by their names, or by their sizes
+	// (a recovery packet is a block and 68 bytes; nzb sizes are encoded)
+	struct Volume
+	{
+		const TwinCheck::NzbEntry* entry;
+		int blocks;
+	};
+	std::vector<Volume> volumes;
+	for (const TwinCheck::NzbEntry& entry : m_twinEntries)
+	{
+		if (!entry.IsPar2() || entry.filename == m_twinIndex)
+		{
+			continue;
+		}
+		int blocks = TwinCheck::VolumeBlocks(entry.filename);
+		if (blocks < 0 && m_twinBlockSize > 0)
+		{
+			blocks = (int)(entry.size * 100 / 102 / (int64)(m_twinBlockSize + 68));
+		}
+		if (blocks > 0)
+		{
+			volumes.push_back({&entry, blocks});
+		}
+	}
+	std::sort(volumes.begin(), volumes.end(), [](const Volume& a, const Volume& b) { return a.blocks < b.blocks; });
+
+	int available = 0;
+	for (const Volume& volume : volumes)
+	{
+		available += volume.blocks;
+	}
+	std::vector<std::string> paths;
+	if (available < blockNeeded)
+	{
+		PrintMessage(Message::mkInfo, "Twin %s holds %i par-block(s), %i needed: not fetched",
+			m_twinName.c_str(), available, blockNeeded);
+		return paths;
+	}
+
+	// the fewest bytes: the smallest volume that covers what's left, else the
+	// biggest one and go on
+	int left = blockNeeded;
+	while (left > 0 && !volumes.empty() && !IsStopped())
+	{
+		auto it = std::find_if(volumes.begin(), volumes.end(), [left](const Volume& v) { return v.blocks >= left; });
+		if (it == volumes.end())
+		{
+			it = volumes.end() - 1;
+		}
+		PrintMessage(Message::mkInfo, "Fetching %s of twin %s for par-repair (%i block(s))",
+			it->entry->filename.c_str(), m_twinName.c_str(), it->blocks);
+		std::string path = FetchTwinFile(*it->entry);
+		if (!path.empty())
+		{
+			paths.push_back(path);
+			left -= it->blocks;
+		}
+		volumes.erase(it);
+	}
+	return paths;
+}
+
+void RepairController::PostParChecker::DeleteTwinFiles()
+{
+	for (const std::string& path : m_twinFiles)
+	{
+		FileSystem::DeleteFile(path.c_str());
+	}
+	m_twinFiles.clear();
+	m_twinEntries.clear();
+	m_twinName.clear();
+	m_twinIndex.clear();
+	m_twinBlockSize = 0;
+}
+
 void RepairController::PostParChecker::StatDupeSources(DupeSourceList* dupeSourceList)
 {
 	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
@@ -324,6 +547,7 @@ bool RepairController::AddPar(FileInfo* fileInfo, bool deleted)
 
 void RepairController::ParCheckCompleted()
 {
+	m_parChecker.DeleteTwinFiles();
 	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 
 	PostInfo* postInfo = m_parChecker.GetPostInfo();

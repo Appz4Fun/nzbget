@@ -20,9 +20,12 @@
 #define TWINCHECK_H
 
 #include <string>
+#include <functional>
 #include <vector>
 #include "Service.h"
 #include "DownloadInfo.h"
+
+class ArticleFetcher;
 
 /*
  * Tells the duplicates of a download apart: a twin holds files byte-identical to
@@ -54,6 +57,28 @@ public:
 		std::string md5;		// hex, the whole file
 		std::string hash16k;	// hex, its first 16 KB
 	};
+
+	// one <file> of an nzb-file: what fetching it needs
+	struct NzbEntry
+	{
+		std::string subject;
+		std::string filename;	// the quoted name in the subject, or ""
+		std::vector<CString> groups;
+		std::vector<std::pair<int64, std::string>> segments;	// bytes, message-id with brackets
+		int64 size = 0;
+		bool IsPar2() const;
+	};
+	/* the <file> entries of an nzb-file, read without the queue's parser (that one
+	 * writes the article lists to the queue directory in server mode) */
+	static std::vector<NzbEntry> ReadNzbEntries(const char* filename);
+	/* downloads and decodes all of <entry> (up to <maxSize>); articles lost leave
+	 * zeros. False if stopped or nothing arrived */
+	static bool FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64 maxSize,
+		const std::function<bool()>& stopped, std::vector<char>& data);
+	/* the block size in a par2 set's Main packet in <data>, 0 if none */
+	static uint64 BlockSize(const char* data, size_t size);
+	/* the recovery blocks a par2-volume's name gives ("x.vol03+04.par2": 4), -1 if none */
+	static int VolumeBlocks(const std::string& filename);
 
 	/* the files the FileDesc packets in <data> describe (recovery packets are skipped) */
 	static std::vector<FileSig> ParsePar2(const char* data, size_t size);

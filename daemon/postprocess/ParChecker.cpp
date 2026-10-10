@@ -416,6 +416,13 @@ ParChecker::EStatus ParChecker::RunParCheck(std::string parFilename)
 		}
 	}
 
+	// a twin's par2 set (other block size, other parity level, same files) may hold
+	// the recovery blocks its own lacks
+	if (m_hasDamagedFiles && !IsStopped() && res == Par2::eRepairNotPossible)
+	{
+		res = static_cast<Par2::Result>(ProcessTwinSet());
+	}
+
 	if (IsStopped())
 	{
 		Cleanup();
@@ -703,6 +710,55 @@ int ParChecker::ProcessMorePars()
 		}
 	}
 
+	return res;
+}
+
+int ParChecker::ProcessTwinSet()
+{
+	std::string index = RequestTwinIndex();
+	if (index.empty() || IsStopped())
+	{
+		return Par2::eRepairNotPossible;
+	}
+
+	// a set of its own (its packets carry another set id): verified anew, with
+	// the files on disk found by the names in its FileDesc packets
+	std::string ownParFilename = m_parFilename;
+	std::string ownErrMsg = m_errMsg;
+	m_parFilename = index;
+	m_errMsg.clear();
+	Par2::Result res = static_cast<Par2::Result>(PreProcessPar());
+	if (res != Par2::eSuccess || IsStopped())
+	{
+		m_parFilename = ownParFilename;
+		m_errMsg = ownErrMsg;
+		return Par2::eRepairNotPossible;
+	}
+
+	res = GetRepairer()->Process(false);
+	if (res == Par2::eRepairNotPossible && !IsStopped())
+	{
+		int blockNeeded = static_cast<int>(GetRepairer()->missingblockcount - GetRepairer()->recoverypacketmap.size());
+		PrintMessage(Message::mkInfo, "Need %i par-block(s) of the twin's set for %s", blockNeeded, m_infoName.c_str());
+		std::vector<std::string> volumes = RequestTwinVolumes(blockNeeded);
+		for (const std::string& volume : volumes)
+		{
+			if (GetRepairer()->LoadPacketsFromFile(volume.c_str()))
+			{
+				PrintMessage(Message::mkInfo, "File %s of the twin loaded for par-check", FileSystem::BaseFileName(volume.c_str()));
+			}
+		}
+		if (!volumes.empty() && !IsStopped())
+		{
+			GetRepairer()->UpdateVerificationResults();
+			res = GetRepairer()->Process(false);
+		}
+	}
+
+	if (res == Par2::eRepairNotPossible)
+	{
+		m_errMsg = ownErrMsg.empty() ? "not enough par-blocks, the twin's included" : ownErrMsg + "; the twin's didn't do either";
+	}
 	return res;
 }
 

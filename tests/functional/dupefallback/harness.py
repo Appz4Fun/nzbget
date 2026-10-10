@@ -9493,6 +9493,36 @@ def scenario_twinalt(daemon, t):
     return ('twinalt', ok, 'kinds=%s prints=%s' % (kinds, prints))
 
 
+def scenario_twinparrepair(daemon, t):
+    """The primary loses 4 articles of part01 (about 6 blocks of 64 KB) and its own
+    par2 set holds 2: par-repair can't do it alone. A twin in history (the same
+    files in other article sizes, with a par2 set of 128 KB blocks and 20 of
+    them) lends its par2-files: the smallest one first, then volumes enough for
+    the blocks missing. An alt (other bytes) is never used. The primary is
+    repaired, and the twin's files are gone afterwards."""
+    primary = _twin_release(t, 'tpP', 12900, 50_000, 65536, 2)
+    primary = [m[:4] + ({3, 9, 15, 21},) if m[1] == 'rel.part01.rar' else m for m in primary]
+    twin = _twin_release(t, 'tpT', 12900, 70_000, 131072, 20)
+    alt = _twin_release(t, 'tpA', 12950, 50_000, 65536, 20)
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'tp-key', 100)
+    daemon.append(api, 'Alt', build_multi_nzb(alt), False, 'tp-key', 90)
+    daemon.append(api, 'Twin', build_multi_nzb(twin), False, 'tp-key', 80)
+    daemon.wait_history(api, 'Twin', timeout=60)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=240)
+    tried = _grep_log(t, 'Trying the par2 set of twin Twin')
+    alt_used = _grep_log(t, 'twin Alt')
+    data = open(t.path('data', 'tpT', 'rel.part01.rar'), 'rb').read()
+    out = [os.path.join(r, f) for d in (t.path('main', 'dst'), t.path('main', 'inter')) for r, _, fs in os.walk(d) for f in fs]
+    part01 = [f for f in out if f.endswith('rel.part01.rar')]
+    intact = bool(part01) and open(part01[0], 'rb').read() == data
+    leftovers = [f for f in out if os.path.basename(f).startswith('_twin.')]
+    ok = hp['Status'].startswith('SUCCESS') and tried == 1 and alt_used == 0 and intact and not leftovers
+    return ('twinparrepair', ok, 'status=%s tried=%d alt_used=%d intact=%s leftovers=%d'
+            % (hp['Status'], tried, alt_used, intact, len(leftovers)))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -10002,6 +10032,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'twinparrepair': scenario_twinparrepair,
     'pardamagerepairable': scenario_pardamagerepairable,
     'parlesscritical': scenario_parlesscritical,
     'parlesstwin': scenario_parlesstwin,
@@ -10322,6 +10353,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'twinparrepair': ['HealthCheck=none', 'DupeArticleFallback=no', 'ParCheck=force', 'Unpack=no'],
     'pardamagerepairable': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesscritical': ['HealthCheck=dupe', 'DupeArticleFallback=no'],
     'parlesstwin': ['HealthCheck=dupe', 'DupeArticleFallback=no'],

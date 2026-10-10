@@ -65,6 +65,7 @@ public:
 
 	void Execute();
 	void SetDestDir(const char* destDir) { m_destDir = destDir ? destDir : ""; }
+	const char* GetDestDir() { return m_destDir.c_str(); }
 	const char* GetParFilename() { return m_parFilename.c_str(); }
 	const char* GetInfoName() { return m_infoName.c_str(); }
 	void SetInfoName(const char* infoName) { m_infoName = infoName ? infoName : ""; }
@@ -151,6 +152,13 @@ protected:
 	virtual const char* FindFileOrigname([[maybe_unused]] const char* filename) { return nullptr; }
 	virtual void RequestDupeSources([[maybe_unused]] DupeSourceList* dupeSourceList) {}
 	virtual void StatDupeSources([[maybe_unused]] DupeSourceList* dupeSourceList) {}
+	/* when its own par2-files can't repair the set: the smallest par2-file of a twin
+	 * (a duplicate of byte-identical files, with its own par2 set) fetched into the
+	 * destination; its path, or "" for none */
+	virtual std::string RequestTwinIndex() { return ""; }
+	/* par2-volumes of that twin holding at least <blockNeeded> blocks of its set,
+	 * fetched into the destination; their paths */
+	virtual std::vector<std::string> RequestTwinVolumes([[maybe_unused]] int blockNeeded) { return {}; }
 	EStage GetStage() { return m_stage; }
 	const char* GetProgressLabel() { return m_progressLabel.c_str(); }
 	int GetFileProgress() { return m_fileProgress; }
@@ -229,6 +237,7 @@ private:
 	int PreProcessPar();
 	bool LoadMainParBak();
 	int ProcessMorePars();
+	int ProcessTwinSet();
 	bool LoadMorePars();
 	bool AddSplittedFragments();
 	bool AddMissingFiles();

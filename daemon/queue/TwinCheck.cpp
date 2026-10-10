@@ -86,111 +86,16 @@ private:
 	bool IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetched);
 };
 
-namespace
-{
-
-// one <file> of an nzb-file: what fetching it needs
-struct NzbEntry
-{
-	std::string subject;
-	std::vector<CString> groups;
-	std::vector<std::pair<int64, std::string>> segments;	// bytes, message-id
-	int64 size = 0;
-};
-
-std::string XmlText(std::string text)
-{
-	static const std::pair<const char*, const char*> entities[] =
-		{ {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"} };
-	for (const auto& entity : entities)
-	{
-		for (size_t at = text.find(entity.first); at != std::string::npos; at = text.find(entity.first, at + 1))
-		{
-			text.replace(at, strlen(entity.first), entity.second);
-		}
-	}
-	return text;
-}
-
-/* the <file> entries of an nzb-file, read without the queue's parser: that one
- * writes the article lists to the queue directory (server mode) */
-std::vector<NzbEntry> ReadNzbEntries(const char* filename)
-{
-	std::vector<NzbEntry> entries;
-	std::ifstream in(fs::u8path(filename), std::ios::binary);
-	std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-	size_t pos = 0;
-	while ((pos = xml.find("<file", pos)) != std::string::npos)
-	{
-		size_t end = xml.find("</file>", pos);
-		if (end == std::string::npos)
-		{
-			break;
-		}
-		std::string file = xml.substr(pos, end - pos);
-		pos = end + 7;
-
-		NzbEntry entry;
-		size_t at = file.find("subject=\"");
-		if (at != std::string::npos)
-		{
-			size_t close = file.find('"', at + 9);
-			entry.subject = XmlText(file.substr(at + 9, close == std::string::npos ? 0 : close - at - 9));
-		}
-		for (at = file.find("<group>"); at != std::string::npos; at = file.find("<group>", at + 1))
-		{
-			size_t close = file.find("</group>", at);
-			if (close != std::string::npos)
-			{
-				entry.groups.emplace_back(XmlText(file.substr(at + 7, close - at - 7)).c_str());
-			}
-		}
-		for (at = file.find("<segment"); at != std::string::npos; at = file.find("<segment", at + 1))
-		{
-			size_t bodyStart = file.find('>', at);
-			size_t close = file.find("</segment>", at);
-			if (bodyStart == std::string::npos || close == std::string::npos || bodyStart > close)
-			{
-				continue;
-			}
-			std::string tag = file.substr(at, bodyStart - at);
-			size_t bytesAt = tag.find("bytes=\"");
-			int64 bytes = bytesAt != std::string::npos ? atoll(tag.c_str() + bytesAt + 7) : 0;
-			std::string id = XmlText(file.substr(bodyStart + 1, close - bodyStart - 1)).substr(0, 1000);
-			// it goes into NNTP commands as is (see NzbFile): no line breaks, spaces
-			// or control characters
-			for (char& c : id)
-			{
-				if ((unsigned char)c <= ' ' || c == 0x7f)
-				{
-					c = '_';
-				}
-			}
-			entry.segments.emplace_back(bytes, "<" + id + ">");
-			entry.size += bytes;
-		}
-		if (!entry.segments.empty())
-		{
-			entries.push_back(std::move(entry));
-		}
-	}
-	return entries;
-}
-
-}
-
 bool TwinCheckJob::IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetched)
 {
 	fetched = false;
-	std::vector<NzbEntry> entries = ReadNzbEntries(m_nzbFilename.c_str());
+	std::vector<TwinCheck::NzbEntry> entries = TwinCheck::ReadNzbEntries(m_nzbFilename.c_str());
 
 	// its smallest par2-file: every par2-file of a set holds the FileDesc packets
-	const NzbEntry* index = nullptr;
-	for (const NzbEntry& entry : entries)
+	const TwinCheck::NzbEntry* index = nullptr;
+	for (const TwinCheck::NzbEntry& entry : entries)
 	{
-		std::string subject = entry.subject;
-		std::transform(subject.begin(), subject.end(), subject.begin(), ::tolower);
-		if (subject.find(".par2") != std::string::npos && (!index || entry.size < index->size))
+		if (entry.IsPar2() && (!index || entry.size < index->size))
 		{
 			index = &entry;
 		}
@@ -202,26 +107,10 @@ bool TwinCheckJob::IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetche
 
 	fetched = true;
 	std::vector<char> data;
-	for (const auto& segment : index->segments)
+	if (!TwinCheck::FetchEntry(m_fetcher, *index, TwinCheck::MaxIndexSize, [this]() { return IsStopped(); }, data))
 	{
-		if (IsStopped())
-		{
-			return false;
-		}
-		ArticleFetcher::FetchedArticle part = m_fetcher.Fetch(segment.second.c_str(), index->groups);
-		if (!part.Success || part.Offset < 0 ||
-			part.Offset + (int64)part.Data.size() > TwinCheck::MaxIndexSize)
-		{
-			// a lost article of the par2-file: what the others hold may still do
-			continue;
-		}
-		if ((size_t)(part.Offset + part.Data.size()) > data.size())
-		{
-			data.resize((size_t)(part.Offset + part.Data.size()));
-		}
-		std::copy(part.Data.begin(), part.Data.end(), data.begin() + (size_t)part.Offset);
+		return false;
 	}
-
 	sigs = TwinCheck::ParsePar2(data.data(), data.size());
 	return !sigs.empty();
 }
@@ -284,6 +173,159 @@ struct Item
 	bool queued;
 };
 
+}
+
+namespace
+{
+
+std::string XmlText(std::string text)
+{
+	static const std::pair<const char*, const char*> entities[] =
+		{ {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"} };
+	for (const auto& entity : entities)
+	{
+		for (size_t at = text.find(entity.first); at != std::string::npos; at = text.find(entity.first, at + 1))
+		{
+			text.replace(at, strlen(entity.first), entity.second);
+		}
+	}
+	return text;
+}
+
+}
+
+bool TwinCheck::NzbEntry::IsPar2() const
+{
+	std::string name = filename.empty() ? subject : filename;
+	std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+	return name.find(".par2") != std::string::npos;
+}
+
+std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char* filename)
+{
+	std::vector<NzbEntry> entries;
+	std::ifstream in(fs::u8path(filename), std::ios::binary);
+	std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	size_t pos = 0;
+	while ((pos = xml.find("<file", pos)) != std::string::npos)
+	{
+		size_t end = xml.find("</file>", pos);
+		if (end == std::string::npos)
+		{
+			break;
+		}
+		std::string file = xml.substr(pos, end - pos);
+		pos = end + 7;
+
+		NzbEntry entry;
+		size_t at = file.find("subject=\"");
+		if (at != std::string::npos)
+		{
+			size_t close = file.find('"', at + 9);
+			entry.subject = XmlText(file.substr(at + 9, close == std::string::npos ? 0 : close - at - 9));
+		}
+		size_t open = entry.subject.find('"');
+		size_t close = open == std::string::npos ? std::string::npos : entry.subject.find('"', open + 1);
+		if (close != std::string::npos)
+		{
+			entry.filename = entry.subject.substr(open + 1, close - open - 1);
+			// a name, not a path
+			std::replace(entry.filename.begin(), entry.filename.end(), '/', '_');
+			std::replace(entry.filename.begin(), entry.filename.end(), '\\', '_');
+		}
+		for (at = file.find("<group>"); at != std::string::npos; at = file.find("<group>", at + 1))
+		{
+			size_t groupEnd = file.find("</group>", at);
+			if (groupEnd != std::string::npos)
+			{
+				entry.groups.emplace_back(XmlText(file.substr(at + 7, groupEnd - at - 7)).c_str());
+			}
+		}
+		for (at = file.find("<segment"); at != std::string::npos; at = file.find("<segment", at + 1))
+		{
+			size_t bodyStart = file.find('>', at);
+			size_t segmentEnd = file.find("</segment>", at);
+			if (bodyStart == std::string::npos || segmentEnd == std::string::npos || bodyStart > segmentEnd)
+			{
+				continue;
+			}
+			std::string tag = file.substr(at, bodyStart - at);
+			size_t bytesAt = tag.find("bytes=\"");
+			int64 bytes = bytesAt != std::string::npos ? atoll(tag.c_str() + bytesAt + 7) : 0;
+			std::string id = XmlText(file.substr(bodyStart + 1, segmentEnd - bodyStart - 1)).substr(0, 1000);
+			// it goes into NNTP commands as is (see NzbFile): no line breaks, spaces
+			// or control characters
+			for (char& c : id)
+			{
+				if ((unsigned char)c <= ' ' || c == 0x7f)
+				{
+					c = '_';
+				}
+			}
+			entry.segments.emplace_back(bytes, "<" + id + ">");
+			entry.size += bytes;
+		}
+		if (!entry.segments.empty())
+		{
+			entries.push_back(std::move(entry));
+		}
+	}
+	return entries;
+}
+
+bool TwinCheck::FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64 maxSize,
+	const std::function<bool()>& stopped, std::vector<char>& data)
+{
+	data.clear();
+	for (const auto& segment : entry.segments)
+	{
+		if (stopped())
+		{
+			return false;
+		}
+		ArticleFetcher::FetchedArticle part = fetcher.Fetch(segment.second.c_str(), entry.groups);
+		if (!part.Success || part.Offset < 0 || part.Offset + (int64)part.Data.size() > maxSize)
+		{
+			// a lost article: what the others hold may still do
+			continue;
+		}
+		if ((size_t)(part.Offset + part.Data.size()) > data.size())
+		{
+			data.resize((size_t)(part.Offset + part.Data.size()));
+		}
+		std::copy(part.Data.begin(), part.Data.end(), data.begin() + (size_t)part.Offset);
+	}
+	return !data.empty();
+}
+
+uint64 TwinCheck::BlockSize(const char* data, size_t size)
+{
+	const uchar* p = (const uchar*)data;
+	for (size_t pos = 0; pos + 64 + 8 <= size; pos += 4)
+	{
+		if (!memcmp(p + pos, "PAR2\0PKT", 8) && !memcmp(p + pos + 48, "PAR 2.0\0Main\0\0\0\0", 16))
+		{
+			return ReadLe64(p + pos + 64);
+		}
+	}
+	return 0;
+}
+
+int TwinCheck::VolumeBlocks(const std::string& filename)
+{
+	std::string name = filename;
+	std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+	size_t at = name.rfind(".vol");
+	if (at == std::string::npos)
+	{
+		return -1;
+	}
+	size_t plus = name.find('+', at);
+	if (plus == std::string::npos || !isdigit((uchar)name[plus + 1]))
+	{
+		return -1;
+	}
+	return atoi(name.c_str() + plus + 1);
 }
 
 std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t size)
