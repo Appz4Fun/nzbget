@@ -14,18 +14,35 @@ in `rust/include/nzbget_rs.h`.
 
 ## Done
 
-| C++                      | Rust                 | Speed-up |
-|--------------------------|----------------------|----------|
-| `WebUtil::JsonEncode`    | `escape::json_encode`| 1.9x     |
-| `WebUtil::XmlEncode`     | `escape::xml_encode` | 1.6x     |
+| C++                                   | Rust                       | Speed-up |
+|---------------------------------------|----------------------------|----------|
+| `WebUtil::JsonEncode`                 | `escape::json_encode`      | 1.9x     |
+| `WebUtil::XmlEncode`                  | `escape::xml_encode`       | 1.6x     |
+| `WildMask::Match`                     | `wildmask::wild_match`     | 1.4x     |
+| `WebUtil::DecodeBase64`               | `decode::base64_in_place`  | 3.2x     |
+| `WebUtil::JsonNextValue`              | `decode::json_next_value`  | 4.5x     |
+| `WebUtil::JsonDecode`                 | `decode::json_decode`      | 2.3x     |
+| `Crc32::Combine`                      | `crc::combine`             | 135x     |
+| `WebUtil::XmlDecode`, `XmlStripTags`, `XmlRemoveEntities`, `HttpUnquote`, `UrlDecode`, `UrlEncode`, `Latin1ToUtf8` | `text` | port only |
+
+Each port has a differential test in `rust/tests/` that compares it with the
+pre-port C++ under ASan and UBSan.
+
+## Parked
+
+- NZB parsing (`NzbFile::Parse`, libxml2 SAX1): a Rust parser that matches
+  libxml2's callbacks exactly. All 5,929 NZBs on the test server plus 9,000
+  mutated documents match or are left to libxml2. It is still about 25%
+  slower than libxml2 on a 17.6 MB NZB, so it is not merged.
 
 ## Next
 
-1. Remaining `WebUtil` text routines (decoders, URL, base64, RFC 822 dates).
-2. `WildMask`, `Util::MatchFileExt`, and the `Tokenizer` used by filters.
-3. NZB parsing (`NzbFile`): a Rust parser behind the existing interface.
-4. JSON/XML-RPC response building (`XmlRpc.cpp`), then the RPC server.
-5. The download path (NNTP connection, article writer), then queue and
+1. The rest of `WebUtil` and `Util`: RFC 822 dates, URL parsing,
+   `Util::MatchFileExt`, `SplitCommandLine`, `Tokenizer`, size and speed
+   formatting.
+2. JSON/XML-RPC response building (`XmlRpc.cpp`), then the RPC server.
+3. Queue state files (`DiskState`).
+4. The download path (NNTP connection, article writer), then queue and
    post-processing. Each step leaves nzbget a working program.
 
 ## Build and verification

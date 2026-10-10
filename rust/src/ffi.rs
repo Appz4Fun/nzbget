@@ -168,6 +168,88 @@ pub extern "C" fn nzbget_rs_crc32_combine(crc1: u32, crc2: u32, len2: u32) -> u3
     crate::crc::combine(crc1, crc2, len2)
 }
 
+/// Runs an in-place text helper on the NUL-terminated `raw` and puts the NUL
+/// at the new end.
+unsafe fn in_place(raw: *mut c_char, f: impl FnOnce(&mut [u8]) -> usize) {
+    if raw.is_null() {
+        return;
+    }
+    let len = CStr::from_ptr(raw).to_bytes().len();
+    let n = f(std::slice::from_raw_parts_mut(raw.cast::<u8>(), len));
+    *raw.add(n) = 0;
+}
+
+/// WebUtil::XmlDecode, in place (rust/src/text.rs).
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_decode(raw: *mut c_char) {
+    in_place(raw, crate::text::xml_decode)
+}
+
+/// WebUtil::XmlStripTags, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_strip_tags(raw: *mut c_char) {
+    in_place(raw, |b| {
+        crate::text::xml_strip_tags(b);
+        b.len()
+    })
+}
+
+/// WebUtil::XmlRemoveEntities, in place; `is_alpha` is isalpha of the
+/// current locale for a byte from 0x80, given as the C++ char would be.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string; `is_alpha` doesn't unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_remove_entities(raw: *mut c_char, is_alpha: extern "C" fn(c_int) -> c_int) {
+    in_place(raw, |b| crate::text::xml_remove_entities(b, &|c| is_alpha(c as c_int) != 0))
+}
+
+/// WebUtil::HttpUnquote, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_unquote(raw: *mut c_char) {
+    in_place(raw, crate::text::http_unquote)
+}
+
+/// WebUtil::UrlDecode, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_decode(raw: *mut c_char) {
+    in_place(raw, crate::text::url_decode)
+}
+
+/// WebUtil::UrlEncode; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `raw` is null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_encode(raw: *const c_char) -> RsBuf {
+    let mut v = Vec::new();
+    crate::text::url_encode(input(raw), &mut v);
+    into_buf(v)
+}
+
+/// WebUtil::Latin1ToUtf8; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `raw` is null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8(raw: *const c_char) -> RsBuf {
+    let mut v = Vec::new();
+    crate::text::latin1_to_utf8(input(raw), &mut v);
+    into_buf(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

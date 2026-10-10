@@ -61,6 +61,17 @@ const char* nzbget_rs_json_next_value(const char* text, int* valueLength);
 // (rust/src/crc.rs); a length of 0 returns crc1
 unsigned int nzbget_rs_crc32_combine(unsigned int crc1, unsigned int crc2, unsigned int len2);
 
+// WebUtil's text helpers (rust/src/text.rs): the in-place ones take NULL or a
+// writable NUL-terminated string; isAlpha gets a byte from 0x80 as the C++
+// char (int)(char)byte and returns isalpha of the current locale.
+void nzbget_rs_xml_decode(char* raw);
+void nzbget_rs_xml_strip_tags(char* raw);
+void nzbget_rs_xml_remove_entities(char* raw, int (*isAlpha)(int));
+void nzbget_rs_http_unquote(char* raw);
+void nzbget_rs_url_decode(char* raw);
+NzbgetRsBuf nzbget_rs_url_encode(const char* raw);
+NzbgetRsBuf nzbget_rs_latin1_to_utf8(const char* raw);
+
 #ifdef __cplusplus
 }
 #endif
