@@ -48,6 +48,13 @@ harness = r'''
 #include <string>
 #include <vector>
 
+// Debug's legacy matcher pulls in Log.cpp. The application normally owns
+// these globals; a null logger makes its debug calls harmless in this harness.
+class Log;
+class Options;
+Log* g_Log = nullptr;
+Options* g_Options = nullptr;
+
 static std::mt19937 rng(20261010);
 static int pick(int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); }
 template <class T, size_t N> static const T& any(const T (&a)[N]) { return a[pick(N)]; }
@@ -64,7 +71,8 @@ static const char* options[] = {"category:my series", "c:TV-${1}", "pause:yes", 
     "r:abc", "pr+:10", "s:1000", "ds+:-50", "k:1080p", "k:series=GOT-${1}-${2}", "dk+:-x${season}E${episode}", "m:force",
     "dm:all", "dupemode:bogus", "rageid:123", "tvdbid:77", "tvmazeid:9", "series:Show", "paused", "unpaused", "100",
     "my category", "cat : spaced", ":x", "k:${}", "k:${3", "c:${season}", "c:${episode}", "c:", "k:",
-    "c:${1}${2}${3}", "c:${100}", "c:${0}", "c:${1x}", "c:${episode}-${season}", "priority:", "ds:", "r:+5junk"};
+    "c:${1}${2}${3}", "c:${100}", "c:${0}", "c:${1x}", "c:${episode}-${season}", "priority:", "ds:", "r:+5junk",
+    "c:${EPISODE}", "c:${SEASON}", "PRIORITY:6", "RAGEID:7", "TVDBID:8", "SERIES:Upper", "PAUSE:YES"};
 static const char* commands[] = {"", "", "A:", "Accept:", "R:", "Reject:", "Q:", "Require:", "#", "a:", "O:"};
 
 static std::string term() {
@@ -84,6 +92,15 @@ static std::string term() {
 }
 
 static std::string rule() {
+    // Valid terms with longer, possibly malformed boolean expressions. Uniform
+    // random fields/operators otherwise invalidate most rules at compile time.
+    if (pick(5) == 0) {
+        static const char* terms[] = {"**", "missing", "-missing", "|", "(", ")", "-(", "+)",
+            "priority:>=0", "season:>=0", "episode:>=0", "dupestatus:**", "attr-genre:**"};
+        std::string r = any(commands);
+        for (int n = pick(30) + 1; n; --n) r += std::string(" ") + any(terms);
+        return r;
+    }
     // Exercise valid option rules frequently; arbitrary terms otherwise make
     // most randomly generated option/reference rules invalid or nonmatching.
     if (pick(4) == 0) {
@@ -126,7 +143,8 @@ static void setup(FeedItemInfo& item, int seed) {
     std::mt19937 r(seed);
     auto p = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(r); };
     const char* titles[] = {"Game.of.Clowns.S02E06.REAL.1080p.HDTV.X264-Group.WEB-DL", "Kings.S01E01.720p.x265",
-        "\xc3\xa9t\xc3\xa9 2020", "", "Show Name - 1x02 - Title [1080p]", "\tgame\r", "1.5", "nan", "inf", "-inf", "\xddDE \xfdde IDE"};
+        "\xc3\xa9t\xc3\xa9 2020", "", "Show Name - 1x02 - Title [1080p]", "\tgame\r", "1.5", "nan", "inf", "-inf", "\xdd" "DE \xfd" "de IDE",
+        "${1}", "${season}", "${episode}", "${2}${1}", "1,5", "-9223372036854775808", "9223372036854775808", "\xff\xfe\x80"};
     if (p(6)) item.SetTitle(titles[p(sizeof(titles) / sizeof(*titles))]);
     if (p(2)) item.SetFilename(titles[p(sizeof(titles) / sizeof(*titles))]);
     if (p(2)) item.SetCategory(p(2) ? "TV > HD" : "Movies");
@@ -163,17 +181,36 @@ int main(int argc, char** argv) {
             exit(2);
         }
     };
-    const char* regressions[] = {
+    std::vector<std::string> regressions = {
         "", "%", "%%A:**%", "A(c:${1}): $(a*)", "A(c:${1}): $^(.*)$",
         "A(c:${1},legacy): **", "A(c:${1},c:literal): **", "A(c:${season},k:${episode},dk+:${1}): **",
         "O(r:4,pr+:3,ds:6,s+:2,k:x,dk+:y,m:all): **%A: priority:=7 dupescore:=8 dupekey:x-y",
         "O(k:new): **%Q: dupestatus:QUEUED%A: **",
         "A(r:2147483647,r+:1,ds:-2147483648,ds+:-1): **",
-        "TITLE:**", "-TITLE:**", "PRIORITY:=0", "SIZE:>=0", "title:**"
+        "TITLE:**", "-TITLE:**", "PRIORITY:=0", "SIZE:>=0", "title:**",
+        "A(c:${1}-${2}-${3}): $(a*)(.*)", "A(c:${1}-${2}): $(x)?(.*)",
+        "A(c:${1}-${2}): ** | $^(.*)$", "A(c:${1},k:${2},dk+:${3}): -missing ** ** **",
+        "A(c:${1}): $", "A(c:${1}): @", "A(c:${1}): *?*?*",
+        "A(c:${season},k:${episode}): season:>=0 episode:>=0 dupestatus:**",
+        "A(c:${1},legacy:${episode}): **", "A(, \t ,c: x\t\r\n,): **",
+        "A(c:${-2147483648}): **", "A(c:${4294967297}): **", "A(c:${+1}): **",
+        "A(c:${1}): title:=9223372036854775808", "A: title:=-9223372036854775808",
+        "A: title:=1.5", "A: title:=", "A: size:>=.5KB", "A: age:>=.001h",
+        "A: ** \t **", "A: **\t**", "A: ** \r\n **", "A: ( ** | missing ) **"
     };
+    // BString<100>'s variable truncation, RegEx's 100-entry capture buffer,
+    // and the 100-substitution limit are independent boundaries.
+    for (int n : {98, 99, 100, 101, 120}) {
+        regressions.push_back("A(c:${1" + std::string(n, 'x') + "}): **");
+        std::string regex = "A(c:${1}-${98}-${99}-${100}): $";
+        std::string substitutions = "A(c:";
+        for (int j = 0; j < n; ++j) { regex += "()"; substitutions += "${season}"; }
+        regressions.push_back(regex);
+        regressions.push_back(substitutions + "): **");
+    }
     long cases = 0;
     int filters = argc > 1 ? atoi(argv[1]) : 20000;
-    for (int f = -int(sizeof(regressions) / sizeof(*regressions)); f < filters; ++f) {
+    for (int f = -int(regressions.size()); f < filters; ++f) {
         std::string filter;
         if (f < 0) filter = regressions[-f - 1];
         else {
