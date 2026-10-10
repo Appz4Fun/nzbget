@@ -210,7 +210,8 @@ namespace CollectionAnalyzer
 		callbacks.exists = [](void*, const char* path, size_t len) noexcept -> int
 		{
 			fs::error_code ec;
-			return fs::exists(fs::u8path(std::string_view(path, len)), ec);
+			// a NUL-terminated copy: u8path's conversion on Windows reads to a NUL
+			return fs::exists(fs::u8path(std::string(path, len)), ec);
 		};
 		callbacks.ignored = [](void* user, const char* path, size_t len) noexcept -> int
 		{
@@ -221,7 +222,13 @@ namespace CollectionAnalyzer
 		{
 			PlanContext* c = static_cast<PlanContext*>(user);
 			const FileEntry& entry = c->files[file];
-			c->plan.actions.push_back({entry.path, fs::u8path(std::string_view(dst, dstLen)), entry.filename, std::string(name, nameLen)});
+			// the name as the converted path has it (on Windows the UTF-8
+			// conversion may change bytes), as the C++ planner reported it
+			fs::path dstPath = fs::u8path(std::string(dst, dstLen));
+			std::string newFilename = fs::u8string(dstPath.filename());
+			(void)name;
+			(void)nameLen;
+			c->plan.actions.push_back({entry.path, std::move(dstPath), entry.filename, std::move(newFilename)});
 		};
 		NzbgetRsPlanFlags flags{};
 		plan.effectiveBaseName = TakeString(nzbget_rs_collection_plan(entries.data(), entries.size(), discFound,
