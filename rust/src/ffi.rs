@@ -168,9 +168,163 @@ pub extern "C" fn nzbget_rs_crc32_combine(crc1: u32, crc2: u32, len2: u32) -> u3
     crate::crc::combine(crc1, crc2, len2)
 }
 
+/// Runs an in-place text helper on the NUL-terminated `raw` and puts the NUL
+/// at the new end.
+unsafe fn in_place(raw: *mut c_char, f: impl FnOnce(&mut [u8]) -> usize) {
+    if raw.is_null() {
+        return;
+    }
+    let len = CStr::from_ptr(raw).to_bytes().len();
+    let n = f(std::slice::from_raw_parts_mut(raw.cast::<u8>(), len));
+    *raw.add(n) = 0;
+}
+
+/// WebUtil::XmlDecode, in place (rust/src/text.rs).
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string. `lower`, if supplied,
+/// takes an ASCII hex letter and returns the caller's tolower result; it must
+/// not unwind or access `raw`. A null callback leaves the buffer unchanged.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_decode(raw: *mut c_char, lower: Option<extern "C" fn(c_int) -> c_int>) {
+    let Some(lower) = lower else { return };
+    in_place(raw, |b| crate::text::xml_decode(b, &|c| lower(c as c_int)))
+}
+
+/// WebUtil::XmlStripTags, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_strip_tags(raw: *mut c_char) {
+    in_place(raw, |b| {
+        crate::text::xml_strip_tags(b);
+        b.len()
+    })
+}
+
+/// WebUtil::XmlRemoveEntities, in place; `is_alpha` takes a byte in 0..=255
+/// and classifies it in the caller's locale and char signedness.
+/// A null callback leaves the buffer unchanged.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string; `is_alpha`, if supplied,
+/// doesn't unwind or access `raw`.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_xml_remove_entities(raw: *mut c_char, is_alpha: Option<extern "C" fn(c_int) -> c_int>) {
+    let Some(is_alpha) = is_alpha else { return };
+    in_place(raw, |b| crate::text::xml_remove_entities(b, &|c| is_alpha(c as c_int) != 0))
+}
+
+/// WebUtil::HttpUnquote, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_http_unquote(raw: *mut c_char) {
+    in_place(raw, crate::text::http_unquote)
+}
+
+/// WebUtil::UrlDecode, in place.
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_decode(raw: *mut c_char) {
+    in_place(raw, crate::text::url_decode)
+}
+
+/// WebUtil::UrlEncode; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `raw` is null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_encode(raw: *const c_char) -> RsBuf {
+    let mut v = Vec::new();
+    crate::text::url_encode(input(raw), &mut v);
+    into_buf(v)
+}
+
+/// WebUtil::Latin1ToUtf8; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `raw` is null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8(raw: *const c_char) -> RsBuf {
+    let mut v = Vec::new();
+    crate::text::latin1_to_utf8(input(raw), &mut v);
+    into_buf(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    extern "C" fn entity_alpha(byte: c_int) -> c_int {
+        assert!((0..=255).contains(&byte));
+        (byte == b'@' as c_int || byte == 0xe9 || (byte as u8).is_ascii_alphabetic()) as c_int
+    }
+
+    extern "C" fn digit_lower(byte: c_int) -> c_int {
+        (byte as u8).to_ascii_lowercase() as c_int
+    }
+
+    #[test]
+    fn text_null_inputs_and_callback() {
+        unsafe {
+            for f in [nzbget_rs_xml_strip_tags,
+                      nzbget_rs_http_unquote, nzbget_rs_url_decode] {
+                f(std::ptr::null_mut());
+            }
+            nzbget_rs_xml_decode(std::ptr::null_mut(), Some(digit_lower));
+            nzbget_rs_xml_decode(std::ptr::null_mut(), None);
+            let mut xml = *b"&#xA;\0tail";
+            nzbget_rs_xml_decode(xml.as_mut_ptr().cast(), None);
+            assert_eq!(&xml, b"&#xA;\0tail");
+            nzbget_rs_xml_remove_entities(std::ptr::null_mut(), Some(entity_alpha));
+            nzbget_rs_xml_remove_entities(std::ptr::null_mut(), None);
+            let mut raw = *b"&amp;\0tail";
+            nzbget_rs_xml_remove_entities(raw.as_mut_ptr().cast(), None);
+            assert_eq!(&raw, b"&amp;\0tail");
+            for f in [nzbget_rs_url_encode, nzbget_rs_latin1_to_utf8] {
+                let result = f(std::ptr::null());
+                assert_eq!(result.len, 0);
+                assert!(!result.data.is_null());
+                assert_eq!(*result.data, 0);
+                nzbget_rs_free(result);
+            }
+        }
+    }
+
+    #[test]
+    fn text_locale_callback_and_embedded_nuls() {
+        unsafe {
+            let mut raw = *b"&@;&\xe9;&#12;\0tail";
+            nzbget_rs_xml_remove_entities(raw.as_mut_ptr().cast(), Some(entity_alpha));
+            assert_eq!(&raw[..4], b"   \0");
+            assert_eq!(&raw[11..], b"\0tail");
+            let mut url = *b"%00a%41\0tail";
+            nzbget_rs_url_decode(url.as_mut_ptr().cast());
+            assert_eq!(&url, b"\0aA\0%41\0tail");
+        }
+    }
+
+    #[test]
+    fn text_encoders_return_independently_owned_buffers() {
+        unsafe {
+            for (f, expected) in [
+                (nzbget_rs_url_encode as unsafe extern "C" fn(*const c_char) -> RsBuf, &b"\xe9%20x\0"[..]),
+                (nzbget_rs_latin1_to_utf8, &b"\xc3\xa9 x\0"[..]),
+            ] {
+                let mut raw = *b"\xe9 x\0ignored";
+                let result = f(raw.as_ptr().cast());
+                raw.fill(b'!');
+                assert_eq!(result.len, expected.len() - 1);
+                assert_eq!(std::slice::from_raw_parts(result.data.cast::<u8>(), result.len + 1), expected);
+                nzbget_rs_free(result);
+            }
+        }
+    }
 
     #[test]
     fn decoder_null_arguments_and_failed_value_preserve_length() {

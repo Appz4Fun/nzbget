@@ -1129,6 +1129,22 @@ namespace
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// Numeric XML references use the caller's locale-specific case mapping.
+	int XmlDigitLower(int byte)
+	{
+		return tolower(byte);
+	}
+}
+
+void WebUtil::XmlDecode(char* raw)
+{
+	// rust/src/text.rs
+	nzbget_rs_xml_decode(raw, XmlDigitLower);
+}
+#else
 void WebUtil::XmlDecode(char* raw)
 {
 	char* output = raw;
@@ -1232,6 +1248,7 @@ BreakLoop:
 
 	*output = '\0';
 }
+#endif
 
 const char* WebUtil::XmlFindTag(const char* xml, const char* tag, int* valueLength)
 {
@@ -1276,6 +1293,13 @@ bool WebUtil::XmlParseTagValue(const char* xml, const char* tag, char* valueBuf,
 	return true;
 }
 
+#ifdef NZBGET_USE_RUST
+void WebUtil::XmlStripTags(char* xml)
+{
+	// rust/src/text.rs
+	nzbget_rs_xml_strip_tags(xml);
+}
+#else
 void WebUtil::XmlStripTags(char* xml)
 {
 	while (char *start = strchr(xml, '<'))
@@ -1289,7 +1313,32 @@ void WebUtil::XmlStripTags(char* xml)
 		xml = end + 1;
 	}
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// Classify the byte as the caller's char, preserving glibc's legacy
+	// negative-byte entries (in particular, EOF is distinct from byte 255).
+	int XmlEntityAlpha(int byte)
+	{
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		return (*__ctype_b_loc())[ch] & _ISalpha;
+#else
+		// Darwin and musl do not classify negative chars as alphabetic.
+		// Avoid passing them outside the standard isalpha domain.
+		return ch < 0 ? 0 : isalpha(ch);
+#endif
+	}
+}
+
+void WebUtil::XmlRemoveEntities(char* raw)
+{
+	// rust/src/text.rs
+	nzbget_rs_xml_remove_entities(raw, XmlEntityAlpha);
+}
+#else
 void WebUtil::XmlRemoveEntities(char* raw)
 {
 	char* output = raw;
@@ -1324,6 +1373,7 @@ BreakLoop:
 
 	*output = '\0';
 }
+#endif
 
 CString WebUtil::JsonEncode(const char* raw)
 {
@@ -1636,6 +1686,13 @@ const char* WebUtil::JsonNextValue(const char* jsonText, int* valueLength)
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+void WebUtil::HttpUnquote(char* raw)
+{
+	// rust/src/text.rs
+	nzbget_rs_http_unquote(raw);
+}
+#else
 void WebUtil::HttpUnquote(char* raw)
 {
 	if (*raw != '"')
@@ -1669,6 +1726,7 @@ BreakLoop:
 
 	*output = '\0';
 }
+#endif
 
 CString WebUtil::ParseContentDispositionFilename(const char* contentDisposition)
 {
@@ -1759,6 +1817,13 @@ CString WebUtil::ParseContentDispositionFilename(const char* contentDisposition)
 	return filename;
 }
 
+#ifdef NZBGET_USE_RUST
+void WebUtil::UrlDecode(char* raw)
+{
+	// rust/src/text.rs
+	nzbget_rs_url_decode(raw);
+}
+#else
 void WebUtil::UrlDecode(char* raw)
 {
 	char* output = raw;
@@ -1796,7 +1861,23 @@ BreakLoop:
 
 	*output = '\0';
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+CString WebUtil::UrlEncode(const char* raw)
+{
+	// rust/src/text.rs
+	NzbgetRsBuf buf = nzbget_rs_url_encode(raw);
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString WebUtil::UrlEncode(const char* raw)
 {
 	// calculate the required outputstring-size based on number of spaces
@@ -1835,7 +1916,23 @@ BreakLoop:
 
 	return result;
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+CString WebUtil::Latin1ToUtf8(const char* str)
+{
+	// rust/src/text.rs
+	NzbgetRsBuf buf = nzbget_rs_latin1_to_utf8(str);
+	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
+	{
+		nzbget_rs_free(buf);
+		std::abort();
+	}
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString WebUtil::Latin1ToUtf8(const char* str)
 {
 	CString res;
@@ -1857,6 +1954,7 @@ CString WebUtil::Latin1ToUtf8(const char* str)
 	*out = '\0';
 	return res;
 }
+#endif
 
 /*
  The date/time can be formatted according to RFC822 in different ways. Examples:

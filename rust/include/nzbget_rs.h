@@ -61,6 +61,22 @@ const char* nzbget_rs_json_next_value(const char* text, int* valueLength);
 // (rust/src/crc.rs); a length of 0 returns crc1
 unsigned int nzbget_rs_crc32_combine(unsigned int crc1, unsigned int crc2, unsigned int len2);
 
+// WebUtil's text helpers (rust/src/text.rs): the in-place ones take NULL (no-op)
+// or a caller-owned writable NUL-terminated string. Panics abort.
+// lower receives an ASCII hex letter and returns the caller's tolower result.
+// It must not unwind or access raw. NULL lower is a no-op.
+void nzbget_rs_xml_decode(char* raw, int (*lower)(int));
+void nzbget_rs_xml_strip_tags(char* raw);
+// isAlpha receives a byte in 0..255 and classifies it using the caller's locale
+// and char signedness. It must not unwind or access raw. NULL isAlpha is a no-op.
+void nzbget_rs_xml_remove_entities(char* raw, int (*isAlpha)(int));
+void nzbget_rs_http_unquote(char* raw);
+void nzbget_rs_url_decode(char* raw);
+// NULL input means empty. Results are Rust-owned NUL-terminated buffers:
+// copy before freeing with nzbget_rs_free, never with the C allocator.
+NzbgetRsBuf nzbget_rs_url_encode(const char* raw);
+NzbgetRsBuf nzbget_rs_latin1_to_utf8(const char* raw);
+
 #ifdef __cplusplus
 }
 #endif
