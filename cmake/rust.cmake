@@ -54,17 +54,21 @@ if(NOT NZBGET_RUST_TARGET)
 	endif()
 endif()
 
-# Cargo.lock is format 4, which Cargo reads from 1.78 on (rust-version in Cargo.toml).
-execute_process(COMMAND "${CARGO}" --version OUTPUT_VARIABLE CARGO_VERSION_OUTPUT
-	ERROR_QUIET RESULT_VARIABLE CARGO_STATUS)
-if(NOT CARGO_STATUS EQUAL 0 OR NOT CARGO_VERSION_OUTPUT MATCHES "^cargo ([0-9]+\\.[0-9]+\\.[0-9]+)"
-	OR CMAKE_MATCH_1 VERSION_LESS 1.78)
-	if(RUST_TARGET_EXPLICIT)
-		message(FATAL_ERROR "Building the Rust encoders requires Cargo 1.78 or later")
+# Cargo.lock is format 4, which Cargo reads from 1.78 on, and Cargo.toml asks
+# for rustc 1.78 (rust-version). Cargo gets the rustc checked here (RUSTC).
+foreach(RUST_TOOL CARGO RUSTC)
+	execute_process(COMMAND "${${RUST_TOOL}}" --version OUTPUT_VARIABLE RUST_TOOL_VERSION
+		ERROR_QUIET RESULT_VARIABLE RUST_TOOL_STATUS)
+	if(NOT RUST_TOOL_STATUS EQUAL 0 OR NOT RUST_TOOL_VERSION MATCHES "^[a-z]+ ([0-9]+\\.[0-9]+\\.[0-9]+)"
+		OR CMAKE_MATCH_1 VERSION_LESS 1.78)
+		if(RUST_TARGET_EXPLICIT)
+			message(FATAL_ERROR "Building the Rust encoders requires Cargo and rustc 1.78 or later")
+		endif()
+		message(STATUS "Cargo or rustc older than 1.78 or unusable: using C++ web encoders")
+		return()
 	endif()
-	message(STATUS "Cargo older than 1.78 or unusable: using C++ web encoders")
-	return()
-endif()
+endforeach()
+list(APPEND RUST_ENV "RUSTC=${RUSTC}")
 
 # Ninja Multi-Config before CMake 3.20 can't declare the per-configuration
 # archive as an output, so Ninja would stop on a missing input.
