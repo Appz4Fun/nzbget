@@ -339,6 +339,44 @@ mod tests {
     }
 
     #[test]
+    fn webutil_nulls_borrowing_and_ownership() {
+        unsafe {
+            for find in [nzbget_rs_xml_find_tag, nzbget_rs_json_find_field] {
+                let mut length = -7;
+                for (text, name) in [(std::ptr::null(), c"x".as_ptr()),
+                                     (c"".as_ptr(), std::ptr::null()),
+                                     (c"".as_ptr(), c"x".as_ptr())] {
+                    assert!(find(text, name, &mut length).is_null());
+                    assert_eq!(length, -7);
+                }
+                assert!(find(c"".as_ptr(), c"x".as_ptr(), std::ptr::null_mut()).is_null());
+            }
+            let xml = c"<x>abc</x>";
+            let json = c"\"x\": 123";
+            let mut length = -7;
+            assert_eq!(nzbget_rs_xml_find_tag(xml.as_ptr(), c"x".as_ptr(), &mut length), xml.as_ptr().add(3));
+            assert_eq!(length, 3);
+            assert_eq!(nzbget_rs_json_find_field(json.as_ptr(), c"x".as_ptr(), &mut length), json.as_ptr().add(5));
+            assert_eq!(length, 3);
+
+            for fold in [None, Some(digit_lower as extern "C" fn(c_int) -> c_int)] {
+                let result = nzbget_rs_content_disposition_filename(std::ptr::null(), std::ptr::null(), fold);
+                assert!(result.data.is_null());
+                nzbget_rs_free(result);
+            }
+            for (mut raw, expected) in [(b"filename=\"\"\0".to_vec(), &b"\0"[..]),
+                                         (b"FILENAME=abc\0".to_vec(), &b"abc\0"[..])] {
+                let result = nzbget_rs_content_disposition_filename(raw.as_ptr().cast(), std::ptr::null(), Some(digit_lower));
+                raw.fill(b'!');
+                assert!(!result.data.is_null());
+                assert_eq!(result.len, expected.len() - 1);
+                assert_eq!(std::slice::from_raw_parts(result.data.cast::<u8>(), result.len + 1), expected);
+                nzbget_rs_free(result);
+            }
+        }
+    }
+
+    #[test]
     fn text_null_inputs_and_callback() {
         unsafe {
             for f in [nzbget_rs_xml_strip_tags,

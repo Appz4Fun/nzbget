@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compare WebUtil::XmlFindTag, JsonFindField and
 ParseContentDispositionFilename (rust/src/webutil.rs) with the pre-port C++
-under ASan and UBSan, in several locales (strncasecmp).
+under ASan and UBSan, in several locales (strncasecmp). Locale comparisons
+also run without ASan: its strncasecmp interceptor uses ASCII case folding.
 
 Run at idle priority: chrt -i 0 nice -n 19 python3 rust/tests/webutil_differential.py
 """
@@ -87,6 +88,26 @@ static std::string rnd(const char* alphabet, int max) {
     for (char& c : s) c = alphabet[next() % strlen(alphabet)];
     return s;
 }
+static void check_finders(const std::string& xml, const std::string& json, const std::string& tag) {
+    int l1 = -7, l2 = -7;
+    const char* p1 = WebUtil::XmlFindTag(xml.c_str(), tag.c_str(), &l1);
+    const char* p2 = nzbget_rs_xml_find_tag(xml.c_str(), tag.c_str(), &l2);
+    if (p1 != p2 || l1 != l2) fail("XmlFindTag", xml, tag);
+    l1 = l2 = -7;
+    p1 = WebUtil::JsonFindField(json.c_str(), tag.c_str(), &l1);
+    p2 = nzbget_rs_json_find_field(json.c_str(), tag.c_str(), &l2);
+    if (p1 != p2 || l1 != l2) fail("JsonFindField", json, tag);
+}
+static void check_cd(const std::string& cd, const int* table) {
+    CString c = WebUtil::ParseContentDispositionFilename(cd.c_str());
+    // Exercise both the glibc table and the callback used on other platforms.
+    for (const int* t : {table, static_cast<const int*>(nullptr)}) {
+        NzbgetRsBuf r = nzbget_rs_content_disposition_filename(cd.c_str(), t, CaseFold);
+        bool same = (!c.m_data && !r.data) || (c.m_data && r.data && strlen(c.m_data) == r.len && !memcmp(c.m_data, r.data, r.len));
+        if (!same) fail("ParseContentDispositionFilename", cd, r.data ? r.data : "(null)");
+        nzbget_rs_free(r);
+    }
+}
 int main(int argc, char** argv) {
     long cases = 0;
     for (int l = 1; l < argc; ++l) {
@@ -96,26 +117,47 @@ int main(int argc, char** argv) {
 #else
         const int* table = nullptr;
 #endif
+        // Random short texts cannot match long names: construct hits at every
+        // BString truncation boundary, including overlapping open/close tags.
+        for (int n : {0, 1, 96, 97, 98, 99, 100, 120, 4096}) {
+            for (char byte : {'a', '/', '"', static_cast<char>(0xff)}) {
+                std::string tag(n, byte);
+                for (const char* value : {"", "12", "\"x\\\"y\"", "\"x\\a", "}"}) {
+                    check_finders("<" + tag + ">v</" + tag + ">", "\"" + tag + "\": " + value, tag);
+                    check_finders("<" + tag + "/><" + tag + ">v</" + tag + ">", "\"" + tag + "\": " + value, tag);
+                }
+            }
+        }
+        for (const char* cd : {"filename=\"\"", "filename=\"x\\\"y\"", "filename=\"x\\",
+                              "filename=x; filename*=UTF-8''%00y", "filename*=ISO-8859-1''caf%E9",
+                              "filename*=UTF-8''first; filename*=UTF-8''%00; filename=last",
+                              "filename*=\"UTF-8''quoted\"", "FILENAME=x", "filename*=iso-8859-1''%FF"}) {
+            check_cd(cd, table);
+        }
+        // Force locale-sensitive comparisons, including Turkish dotted I and
+        // every high byte, instead of hoping random parameter names match.
+        for (int byte = 1; byte <= 255; ++byte) {
+            for (int pos = 0; pos < 8; ++pos) {
+                std::string name = "filename";
+                name[pos] = static_cast<char>(byte);
+                check_cd(name + "=x; " + name + "*=UTF-8''y", table);
+            }
+            for (int pos = 0; pos < 10; ++pos) {
+                std::string charset = "ISO-8859-1";
+                charset[pos] = static_cast<char>(byte);
+                check_cd("filename*=" + charset + "''%E9", table);
+            }
+        }
         for (int i = 0; i < 300000; ++i) {
             // XmlFindTag and JsonFindField (tags up to 120 bytes: past BString<100>)
             std::string tag = (next() % 50 == 0) ? rnd("ab", 120) : rnd("ab/<>", 3);
             std::string xml = rnd("ab<>/ ", 40);
-            int l1 = -7, l2 = -7;
-            const char* p1 = WebUtil::XmlFindTag(xml.c_str(), tag.c_str(), &l1);
-            const char* p2 = nzbget_rs_xml_find_tag(xml.c_str(), tag.c_str(), &l2);
-            if (p1 != p2 || l1 != l2) fail("XmlFindTag", xml, tag);
             std::string json = rnd("ab\":, {}[]\\", 40);
-            p1 = WebUtil::JsonFindField(json.c_str(), tag.c_str(), &l1);
-            p2 = nzbget_rs_json_find_field(json.c_str(), tag.c_str(), &l2);
-            if (p1 != p2 || l1 != l2) fail("JsonFindField", json, tag);
+            check_finders(xml, json, tag);
             // ParseContentDispositionFilename
             std::string cd = rnd("filenameFILENAME*='\"\;= \t\r\nxy%2Ez0ISO-8859-1UTF8\xe9", 48);
             if (next() % 4 == 0) cd = "attachment; filename" + std::string(next() % 2 ? "*" : "") + "=" + rnd("\"'\\%E9a ;ISO-8859-1", 24);
-            CString c = WebUtil::ParseContentDispositionFilename(cd.c_str());
-            NzbgetRsBuf r = nzbget_rs_content_disposition_filename(cd.c_str(), table, CaseFold);
-            bool same = (!c.m_data && !r.data) || (c.m_data && r.data && strlen(c.m_data) == r.len && !memcmp(c.m_data, r.data, r.len));
-            if (!same) fail("ParseContentDispositionFilename", cd, r.data ? r.data : "(null)");
-            nzbget_rs_free(r);
+            check_cd(cd, table);
             ++cases;
         }
         std::printf("locale %s passed\n", argv[l]);
@@ -139,8 +181,14 @@ with tempfile.TemporaryDirectory(prefix="nzbget-webutil-") as temp:
     native = shlex.split(re.search(r"native-static-libs: ([^\r\n]+)", cargo.stdout + cargo.stderr).group(1))
     source = temp / "webutil.cpp"
     source.write_text(harness)
-    binary = temp / "webutil"
-    subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), "-std=c++20", "-O1", "-g", "-w",
-                    "-fsanitize=address,undefined", "-I", str(ROOT / "rust/include"), str(source),
-                    str(temp / "target/release/libnzbget_rs.a"), *native, "-o", str(binary)], check=True, env=env)
-    subprocess.run([str(binary), *locales], check=True, env=env)
+    for char_mode in ("-fsigned-char", "-funsigned-char"):
+        # ASan replaces strncasecmp with an ASCII comparison, which would give
+        # a false oracle in e.g. Turkish. UBSan leaves libc's locale semantics
+        # intact; retain ASan coverage in the C locale where they agree.
+        for sanitizer, test_locales in (("address,undefined", ["C"]), ("undefined", locales)):
+            binary = temp / ("webutil" + char_mode + sanitizer)
+            subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), "-std=c++20", "-O1", "-g", "-w", char_mode,
+                            "-fsanitize=" + sanitizer, "-fno-sanitize-recover=all", "-I", str(ROOT / "rust/include"), str(source),
+                            str(temp / "target/release/libnzbget_rs.a"), *native, "-o", str(binary)], check=True, env=env)
+            print(char_mode, sanitizer, flush=True)
+            subprocess.run([str(binary), *test_locales], check=True, env=env)

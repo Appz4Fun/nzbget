@@ -13,8 +13,16 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 
 /// A string formatted into BString<100>: at most 99 bytes.
 fn bstring100(parts: &[&[u8]]) -> Vec<u8> {
-    let mut v: Vec<u8> = parts.concat();
-    v.truncate(99);
+    // BString has fixed storage. Do not allocate/copy the full name before
+    // truncating: a long caller-supplied name must not exhaust the heap.
+    let mut v = Vec::with_capacity(99);
+    for part in parts {
+        let n = part.len().min(99 - v.len());
+        v.extend_from_slice(&part[..n]);
+        if v.len() == 99 {
+            break;
+        }
+    }
     v
 }
 
@@ -170,6 +178,21 @@ mod tests {
         assert_eq!(xml_find_tag(xml, b"d"), None);
         let json = b"{\"x\" : \"yz\", \"n\": 5}";
         assert_eq!(json_find_field(json, b"n"), Some((18, 1)));
+    }
+
+    #[test]
+    fn truncated_search_names() {
+        let tag = vec![b'/'; 4096];
+        let mut xml = vec![b'<'];
+        xml.extend_from_slice(&tag[..98]);
+        // All three formatted tags truncate to the same string. Preserve the
+        // legacy negative length and pointer to the terminating NUL.
+        assert_eq!(xml_find_tag(&xml, &tag), Some((99, -99)));
+        let field = vec![b'a'; 4096];
+        let mut json = vec![b'"'];
+        json.extend_from_slice(&field[..98]);
+        json.extend_from_slice(b": 12");
+        assert_eq!(json_find_field(&json, &field), Some((101, 2)));
     }
 
     #[test]
