@@ -242,6 +242,38 @@ NzbgetRsBuf nzbget_rs_collection_plan(const NzbgetRsFileEntry* files, size_t cou
 NzbgetRsBuf nzbget_rs_collection_name(int op, const char* a, size_t aLen, const char* b, size_t bLen,
 	const char* c, size_t cLen);
 
+// WebProcessor's request decisions (rust/src/webserver.rs). Header kinds:
+// 0 other, 1 Content-Length (number), 2 credentials (value), 3 credentials
+// too long, 4 Accept-Encoding (number: gzip), 5 Origin, 6 Auth-Token cookie,
+// 7 X-Forwarded-For, 8 If-None-Match, 9 keep-alive, 10 end of headers
+int nzbget_rs_web_header(const char* line, size_t len, int authInfoEmpty,
+	size_t* valueStart, size_t* valueLen, int* number);
+// NULL URL means empty; embedded NUL ends the URL. Outputs may be NULL.
+// Free both returned buffers with nzbget_rs_free (including on exceptions).
+NzbgetRsBuf nzbget_rs_web_parse_url(const char* url, size_t len, int* redirect, NzbgetRsBuf* auth);
+typedef struct
+{
+	const char* users[6]; // control, restricted, add: username, password
+	const char* authorizedIp;
+	const char* remoteAddr;
+	const char* authInfo;
+	const char* authToken;
+	const char* serverTokens[3];
+	const int* lowerTable; // as for WildMask
+	int charSigned;
+	int (*fold)(int);
+} NzbgetRsWebCredentials;
+typedef struct
+{
+	int authorized;
+	int access; // EUserAccess, -1 to leave it
+	ptrdiff_t authCut; // where m_authInfo is cut, -1 for none
+	int warn;
+} NzbgetRsWebCheck;
+// NULL input denies access; NULL out is a no-op. Output must not alias inputs.
+void nzbget_rs_web_check_credentials(const NzbgetRsWebCredentials* input, NzbgetRsWebCheck* out);
+int nzbget_rs_web_authorized_ip(const char* option, const char* remote, const int* table, int charSigned, int (*fold)(int));
+
 #ifdef __cplusplus
 }
 #endif

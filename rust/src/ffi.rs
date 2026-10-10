@@ -948,9 +948,229 @@ pub unsafe extern "C" fn nzbget_rs_collection_name(
     })
 }
 
+unsafe fn lower_of<'f>(table: *const c_int, char_signed: c_int, call: &'f dyn Fn(u8) -> c_int) -> crate::wildmask::Lower<'f> {
+    if table.is_null() {
+        crate::wildmask::Lower::Fold(call)
+    } else {
+        crate::wildmask::Lower::Table(&*table.sub(128).cast::<[c_int; 384]>(), char_signed != 0)
+    }
+}
+
+/// WebProcessor::ParseHeaders for one line (rust/src/webserver.rs): the kind
+/// (0 other, 1 Content-Length, 2 credentials, 3 credentials too long,
+/// 4 Accept-Encoding, 5 Origin, 6 Auth-Token cookie, 7 X-Forwarded-For,
+/// 8 If-None-Match, 9 keep-alive, 10 end of headers), its value as offset
+/// and length in the line, and a number (Content-Length, gzip).
+///
+/// # Safety
+/// `line` is readable for `len` bytes; the outputs are null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_web_header(
+    line: *const c_char,
+    len: usize,
+    auth_info_empty: c_int,
+    value_start: *mut usize,
+    value_len: *mut usize,
+    number: *mut c_int,
+) -> c_int {
+    use crate::webserver::Header;
+    let l = bytes(line, len);
+    let h = crate::webserver::header(l, auth_info_empty != 0);
+    let (kind, value, n): (c_int, &[u8], c_int) = match h {
+        Header::Other => (0, &[], 0),
+        Header::ContentLength(n) => (1, &[], n),
+        Header::Auth(v) => (2, v, 0),
+        Header::AuthTooBig => (3, &[], 0),
+        Header::AcceptEncoding { gzip } => (4, &[], gzip as c_int),
+        Header::Origin(v) => (5, v, 0),
+        Header::AuthToken(v) => (6, v, 0),
+        Header::ForwardedFor(v) => (7, v, 0),
+        Header::IfNoneMatch(v) => (8, v, 0),
+        Header::KeepAlive => (9, &[], 0),
+        Header::End => (10, &[], 0),
+    };
+    if !value_start.is_null() {
+        // the value's place in the line, an empty value's too (an empty
+        // "Authorization: Basic " decodes nothing, not the whole line)
+        let at = value.as_ptr() as usize;
+        let base = l.as_ptr() as usize;
+        *value_start = if at >= base && at <= base + l.len() { at - base } else { l.len() };
+    }
+    if !value_len.is_null() {
+        *value_len = value.len();
+    }
+    if !number.is_null() {
+        *number = n;
+    }
+    kind
+}
+
+/// WebProcessor::ParseUrl: the URL to dispatch, or with `redirect` set the
+/// location to redirect to; `auth` gets the credentials of the URL (data
+/// null for none). Free both with nzbget_rs_free.
+///
+/// # Safety
+/// `url` is null (empty) or readable for `len` bytes, stopping at its first
+/// NUL. `redirect` and `auth` are null or writable, disjoint from the input
+/// and each other. The caller owns returned buffers; free with nzbget_rs_free.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_web_parse_url(url: *const c_char, len: usize, redirect: *mut c_int, auth: *mut RsBuf) -> RsBuf {
+    let none = || RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+    if !auth.is_null() {
+        *auth = none();
+    }
+    match crate::webserver::parse_url(bytes(url, len)) {
+        crate::webserver::Url::Redirect(loc) => {
+            if !redirect.is_null() {
+                *redirect = 1;
+            }
+            into_buf(loc)
+        }
+        crate::webserver::Url::Go { url, auth: a } => {
+            if !redirect.is_null() {
+                *redirect = 0;
+            }
+            if let (Some(a), false) = (a, auth.is_null()) {
+                *auth = into_buf(a);
+            }
+            into_buf(url)
+        }
+    }
+}
+
+/// CheckCredentials' options and inputs (null strings for unset options).
+#[repr(C)]
+pub struct WebCredentialsC {
+    /// control, restricted, add: username, password
+    pub users: [*const c_char; 6],
+    pub authorized_ip: *const c_char,
+    pub remote_addr: *const c_char,
+    pub auth_info: *const c_char,
+    pub auth_token: *const c_char,
+    pub server_tokens: [*const c_char; 3],
+    pub lower_table: *const c_int,
+    pub char_signed: c_int,
+    pub fold: Option<extern "C" fn(c_int) -> c_int>,
+}
+
+/// CheckCredentials' result.
+#[repr(C)]
+pub struct WebCheckC {
+    pub authorized: c_int,
+    /// EUserAccess, or -1 to leave it
+    pub access: c_int,
+    /// where m_authInfo is cut (its ':'), or -1
+    pub auth_cut: isize,
+    pub warn: c_int,
+}
+
+unsafe fn opt(p: *const c_char) -> Option<&'static [u8]> {
+    (!p.is_null()).then(|| CStr::from_ptr(p).to_bytes())
+}
+
+/// WebProcessor::CheckCredentials.
+///
+/// # Safety
+/// `input` is null or readable; its strings are null or NUL-terminated;
+/// `lower_table` as for WildMask; `fold` doesn't unwind. `out` is null or
+/// writable and disjoint from all input storage. Null input denies access.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_web_check_credentials(input: *const WebCredentialsC, out: *mut WebCheckC) {
+    if out.is_null() {
+        return;
+    }
+    *out = WebCheckC { authorized: 0, access: -1, auth_cut: -1, warn: 0 };
+    if input.is_null() {
+        return;
+    }
+    let i = &*input;
+    let fold = i.fold;
+    let call = move |b: u8| fold.map_or(b as c_int, |f| f(b as c_int));
+    if i.lower_table.is_null() && fold.is_none() {
+        return;
+    }
+    let lower = lower_of(i.lower_table, i.char_signed, &call);
+    let o = crate::webserver::Credentials {
+        control_username: opt(i.users[0]),
+        control_password: opt(i.users[1]),
+        restricted_username: opt(i.users[2]),
+        restricted_password: opt(i.users[3]),
+        add_username: opt(i.users[4]),
+        add_password: opt(i.users[5]),
+        authorized_ip: opt(i.authorized_ip),
+    };
+    let tokens = [opt(i.server_tokens[0]).unwrap_or_default(), opt(i.server_tokens[1]).unwrap_or_default(), opt(i.server_tokens[2]).unwrap_or_default()];
+    let r = crate::webserver::check_credentials(
+        &o,
+        opt(i.remote_addr).unwrap_or_default(),
+        opt(i.auth_info).unwrap_or_default(),
+        opt(i.auth_token).unwrap_or_default(),
+        tokens,
+        &lower,
+    );
+    *out = WebCheckC {
+        authorized: r.authorized as c_int,
+        access: r.access.unwrap_or(-1),
+        auth_cut: r.auth_cut.map_or(-1, |k| k as isize),
+        warn: r.warn as c_int,
+    };
+}
+
+/// WebProcessor::IsAuthorizedIp.
+///
+/// # Safety
+/// The strings are null or NUL-terminated; `table` as for WildMask; `fold`
+/// doesn't unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_web_authorized_ip(
+    option: *const c_char,
+    remote: *const c_char,
+    table: *const c_int,
+    char_signed: c_int,
+    fold: Option<extern "C" fn(c_int) -> c_int>,
+) -> c_int {
+    if table.is_null() && fold.is_none() {
+        return 0;
+    }
+    let call = move |b: u8| fold.map_or(b as c_int, |f| f(b as c_int));
+    let lower = lower_of(table, char_signed, &call);
+    crate::webserver::is_authorized_ip(input(option), input(remote), &lower) as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_null_inputs_and_optional_outputs() {
+        unsafe {
+            let mut check = WebCheckC { authorized: 1, access: 2, auth_cut: 100, warn: 1 };
+            nzbget_rs_web_check_credentials(std::ptr::null(), &mut check);
+            assert_eq!((check.authorized, check.access, check.auth_cut, check.warn), (0, -1, -1, 0));
+            nzbget_rs_web_check_credentials(std::ptr::null(), std::ptr::null_mut());
+            let mut redirect = -1;
+            let mut auth = RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+            let url = nzbget_rs_web_parse_url(std::ptr::null(), 42, &mut redirect, &mut auth);
+            assert_eq!(redirect, 0);
+            assert!(auth.data.is_null());
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"");
+            nzbget_rs_free(url);
+            nzbget_rs_free(auth);
+            let input = b"/nzbget\0/u:p/jsonrpc";
+            let url = nzbget_rs_web_parse_url(input.as_ptr().cast(), input.len(), &mut redirect, std::ptr::null_mut());
+            assert_eq!(redirect, 1);
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"/nzbget/");
+            nzbget_rs_free(url);
+            let input = b"/u:p/jsonrpc";
+            let url = nzbget_rs_web_parse_url(input.as_ptr().cast(), input.len(), std::ptr::null_mut(), std::ptr::null_mut());
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"/jsonrpc");
+            nzbget_rs_free(url);
+            let (mut start, mut len, mut number) = (99, 99, 99);
+            assert_eq!(nzbget_rs_web_header(std::ptr::null(), 42, 1, &mut start, &mut len, &mut number), 10);
+            assert_eq!((start, len, number), (0, 0, 0));
+            assert_eq!(nzbget_rs_web_authorized_ip(std::ptr::null(), std::ptr::null(), std::ptr::null(), 1, None), 0);
+        }
+    }
 
     #[test]
     fn collection_null_inputs_and_callbacks() {
