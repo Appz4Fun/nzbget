@@ -108,6 +108,56 @@ pub unsafe extern "C" fn nzbget_rs_wild_match(
     WildResult { matched: matched.into(), count }
 }
 
+/// Base64-decodes `input` into `output` (WebUtil::DecodeBase64); a length of
+/// 0 or less means up to the NUL. `output` may be `input`.
+///
+/// # Safety
+/// `input` is readable for its length (or up to its NUL); `output` is
+/// writable for three quarters of that and is `input` or doesn't overlap it.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decode_base64(input: *const c_char, length: c_int, output: *mut c_char) -> u32 {
+    if input.is_null() {
+        return 0;
+    }
+    let len = if length > 0 { length as usize } else { CStr::from_ptr(input).to_bytes().len() };
+    crate::decode::base64_in_place(input.cast(), len, output.cast()) as u32
+}
+
+/// Decodes a JSON string body in place (WebUtil::JsonDecode).
+///
+/// # Safety
+/// `raw` is null or a writable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_json_decode(raw: *mut c_char) {
+    if raw.is_null() {
+        return;
+    }
+    let len = CStr::from_ptr(raw).to_bytes().len();
+    let buf = std::slice::from_raw_parts_mut(raw.cast::<u8>(), len);
+    let n = crate::decode::json_decode(buf);
+    *raw.add(n) = 0;
+}
+
+/// The next JSON value in `text` (WebUtil::JsonNextValue): its start, with
+/// its length in `value_length`, or null.
+///
+/// # Safety
+/// `text` is null or a NUL-terminated string; `value_length` is null or
+/// writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_json_next_value(text: *const c_char, value_length: *mut c_int) -> *const c_char {
+    if text.is_null() || value_length.is_null() {
+        return std::ptr::null();
+    }
+    match crate::decode::json_next_value(CStr::from_ptr(text).to_bytes()) {
+        Some((start, len)) => {
+            *value_length = len as c_int;
+            text.add(start)
+        }
+        None => std::ptr::null(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -43,6 +43,13 @@ typedef struct
 NzbgetRsWildResult nzbget_rs_wild_match(const char* pattern, const char* text,
 	int (*positions)[2], size_t capacity, const int* table, int char_signed, int (*fold)(int));
 
+// RPC request decoders (rust/src/decode.rs), as WebUtil's:
+// base64 (length <= 0: up to the NUL; output may be input), JSON string body
+// in place, and the next JSON value (null at the end)
+unsigned int nzbget_rs_decode_base64(const char* input, int length, char* output);
+void nzbget_rs_json_decode(char* raw);
+const char* nzbget_rs_json_next_value(const char* text, int* valueLength);
+
 #ifdef __cplusplus
 }
 #endif
