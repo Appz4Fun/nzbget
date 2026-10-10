@@ -54,6 +54,18 @@ if(NOT NZBGET_RUST_TARGET)
 	endif()
 endif()
 
+# Cargo.lock is format 4, which Cargo reads from 1.78 on (rust-version in Cargo.toml).
+execute_process(COMMAND "${CARGO}" --version OUTPUT_VARIABLE CARGO_VERSION_OUTPUT
+	ERROR_QUIET RESULT_VARIABLE CARGO_STATUS)
+if(NOT CARGO_STATUS EQUAL 0 OR NOT CARGO_VERSION_OUTPUT MATCHES "^cargo ([0-9]+\\.[0-9]+\\.[0-9]+)"
+	OR CMAKE_MATCH_1 VERSION_LESS 1.78)
+	if(RUST_TARGET_EXPLICIT)
+		message(FATAL_ERROR "Building the Rust encoders requires Cargo 1.78 or later")
+	endif()
+	message(STATUS "Cargo older than 1.78 or unusable: using C++ web encoders")
+	return()
+endif()
+
 # Match the CRT selection to the final C++ link. Without this, GNU targets
 # report -lgcc_s even for ENABLE_STATIC, which cannot be linked with -static.
 # Pass the same option to the probe and the crate's final staticlib compilation.
@@ -86,39 +98,58 @@ if(NOT "${RUST_NATIVE_OUTPUT}${RUST_NATIVE_ERROR}" MATCHES "native-static-libs: 
 endif()
 separate_arguments(RUST_NATIVE_LIBS UNIX_COMMAND "${CMAKE_MATCH_1}")
 
-# Separate Cargo directories and imported archives also support multi-config
-# generators without requiring generator expressions in OUTPUT/BYPRODUCTS.
+# One Cargo invocation per build, for the active configuration only: Debug uses
+# Cargo's dev profile, every other configuration the release profile. Separate
+# target directories keep the configurations of multi-config generators apart.
 if(CMAKE_CONFIGURATION_TYPES)
 	set(RUST_CONFIGS ${CMAKE_CONFIGURATION_TYPES})
+	set(RUST_CONFIG_DIR "$<CONFIG>")
 else()
 	set(RUST_CONFIGS ${CMAKE_BUILD_TYPE})
+	set(RUST_CONFIG_DIR "${CMAKE_BUILD_TYPE}")
 endif()
-add_library(nzbget-rs INTERFACE)
+set(RUST_IS_DEBUG "$<CONFIG:Debug>")
+set(RUST_PROFILE "$<IF:${RUST_IS_DEBUG},dev,release>")
+set(RUST_PROFILE_DIR "$<IF:${RUST_IS_DEBUG},debug,release>")
+set(RUST_LIB_NAME "${CMAKE_STATIC_LIBRARY_PREFIX}nzbget_rs${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(RUST_LIB "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG_DIR}/${NZBGET_RUST_TARGET}/${RUST_PROFILE_DIR}/${RUST_LIB_NAME}")
+
+# Ninja needs the archive as a known output; generator expressions in
+# BYPRODUCTS need CMake 3.20 (multi-config Ninja itself needs 3.17).
+set(RUST_BYPRODUCTS)
+if(NOT CMAKE_CONFIGURATION_TYPES OR NOT CMAKE_VERSION VERSION_LESS 3.20)
+	set(RUST_BYPRODUCTS BYPRODUCTS "${RUST_LIB}")
+endif()
+
+add_custom_target(nzbget-rs-build
+	COMMAND "${CMAKE_COMMAND}" -E env ${RUST_ENV} "${CARGO}" rustc --lib --locked
+		--profile "${RUST_PROFILE}" --target "${NZBGET_RUST_TARGET}"
+		--manifest-path "${CMAKE_SOURCE_DIR}/rust/Cargo.toml"
+		--target-dir "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG_DIR}"
+		-- ${RUST_CODEGEN_ARGS}
+	${RUST_BYPRODUCTS}
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
+	COMMENT "Building nzbget-rs"
+	VERBATIM
+)
+add_library(nzbget-rs-lib STATIC IMPORTED)
 foreach(RUST_CONFIG IN LISTS RUST_CONFIGS)
 	if(RUST_CONFIG STREQUAL "Debug")
-		set(RUST_PROFILE dev)
-		set(RUST_PROFILE_DIR debug)
+		set(RUST_CONFIG_PROFILE_DIR debug)
 	else()
-		set(RUST_PROFILE release)
-		set(RUST_PROFILE_DIR release)
+		set(RUST_CONFIG_PROFILE_DIR release)
 	endif()
-	set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG}")
-	set(RUST_LIB "${RUST_TARGET_DIR}/${NZBGET_RUST_TARGET}/${RUST_PROFILE_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}nzbget_rs${CMAKE_STATIC_LIBRARY_SUFFIX}")
-	add_custom_target(nzbget-rs-build-${RUST_CONFIG}
-		COMMAND "${CMAKE_COMMAND}" -E env ${RUST_ENV} "${CARGO}" rustc --lib --locked
-			--profile "${RUST_PROFILE}" --target "${NZBGET_RUST_TARGET}"
-			--manifest-path "${CMAKE_SOURCE_DIR}/rust/Cargo.toml" --target-dir "${RUST_TARGET_DIR}"
-			-- ${RUST_CODEGEN_ARGS}
-		BYPRODUCTS "${RUST_LIB}"
-		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/rust"
-		COMMENT "Building nzbget-rs (${RUST_CONFIG})"
-		VERBATIM
-	)
-	add_library(nzbget-rs-lib-${RUST_CONFIG} STATIC IMPORTED)
-	set_target_properties(nzbget-rs-lib-${RUST_CONFIG} PROPERTIES IMPORTED_LOCATION "${RUST_LIB}")
-	add_dependencies(nzbget-rs-lib-${RUST_CONFIG} nzbget-rs-build-${RUST_CONFIG})
-	target_link_libraries(nzbget-rs INTERFACE "$<$<CONFIG:${RUST_CONFIG}>:nzbget-rs-lib-${RUST_CONFIG}>")
+	string(TOUPPER "${RUST_CONFIG}" RUST_CONFIG_UPPER)
+	set(RUST_CONFIG_LIB "${CMAKE_BINARY_DIR}/rust/${RUST_CONFIG}/${NZBGET_RUST_TARGET}/${RUST_CONFIG_PROFILE_DIR}/${RUST_LIB_NAME}")
+	set_target_properties(nzbget-rs-lib PROPERTIES IMPORTED_LOCATION_${RUST_CONFIG_UPPER} "${RUST_CONFIG_LIB}")
+	if(NOT CMAKE_CONFIGURATION_TYPES)
+		set_target_properties(nzbget-rs-lib PROPERTIES IMPORTED_LOCATION "${RUST_CONFIG_LIB}")
+	endif()
 endforeach()
+add_dependencies(nzbget-rs-lib nzbget-rs-build)
+
+add_library(nzbget-rs INTERFACE)
+target_link_libraries(nzbget-rs INTERFACE nzbget-rs-lib)
 target_link_libraries(nzbget-rs INTERFACE ${RUST_NATIVE_LIBS})
 target_include_directories(nzbget-rs INTERFACE "${CMAKE_SOURCE_DIR}/rust/include")
 target_compile_definitions(nzbget-rs INTERFACE NZBGET_USE_RUST)
