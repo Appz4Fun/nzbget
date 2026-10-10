@@ -5,7 +5,7 @@
 //! included: the line buffer appends as strncpy (a NUL ends the copied text
 //! and the rest is zero-filled) and lines are found as strchr found them.
 
-use std::ffi::{c_int, c_void};
+use std::ffi::{c_char, c_int, c_longlong, c_ulong, c_void, CStr, CString};
 
 /// rapidyenc_decode_incremental: returns 0 (no end), 1 ("\r\n=y" found,
 /// `src` after the 'y') or 2 ("\r\n.\r\n" found, `src` after it).
@@ -92,48 +92,25 @@ pub struct Decoder {
     crc32: u32,
 }
 
-/// The C library's atoll: leading space, a sign, digits (saturating).
-fn atoll(s: &[u8]) -> i64 {
-    let s = &s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())];
-    let mut i = s.iter().position(|&b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)).unwrap_or(s.len());
-    let neg = s.get(i) == Some(&b'-');
-    if matches!(s.get(i), Some(b'-' | b'+')) {
-        i += 1;
-    }
-    let mut v: i64 = 0;
-    for &b in &s[i..] {
-        if !b.is_ascii_digit() {
-            break;
-        }
-        let d = (b - b'0') as i64;
-        v = if neg { v.saturating_mul(10).saturating_sub(d) } else { v.saturating_mul(10).saturating_add(d) };
-    }
-    v
+// Use the same CRT as C++: whitespace follows the current C locale and
+// strtoul overflow follows the platform's unsigned long width (LLP64 on Windows).
+extern "C" {
+    #[link_name = "atoll"]
+    fn c_atoll(s: *const c_char) -> c_longlong;
+    #[link_name = "strtoul"]
+    fn c_strtoul(s: *const c_char, end: *mut *mut c_char, base: c_int) -> c_ulong;
 }
 
-/// strtoul(s, nullptr, 16) as uint32.
+fn number_string(s: &[u8]) -> CString {
+    CString::new(&s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())]).expect("NUL removed")
+}
+
+fn atoll(s: &[u8]) -> i64 {
+    unsafe { c_atoll(number_string(s).as_ptr()) as i64 }
+}
+
 fn strtoul_hex(s: &[u8]) -> u32 {
-    let s = &s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())];
-    let mut i = s.iter().position(|&b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)).unwrap_or(s.len());
-    let neg = s.get(i) == Some(&b'-');
-    if matches!(s.get(i), Some(b'-' | b'+')) {
-        i += 1;
-    }
-    if s[i..].len() >= 2 && s[i] == b'0' && (s[i + 1] | 0x20) == b'x' && s.get(i + 2).is_some_and(|b| b.is_ascii_hexdigit()) {
-        i += 2;
-    }
-    let mut v: u64 = 0;
-    let mut overflow = false;
-    for &b in &s[i..] {
-        let Some(d) = (b as char).to_digit(16) else { break };
-        match v.checked_mul(16).and_then(|x| x.checked_add(d as u64)) {
-            Some(x) => v = x,
-            None => overflow = true,
-        }
-    }
-    // unsigned long is 64 bits here; the C++ cast it to uint32
-    let v = if overflow { u64::MAX } else { v };
-    (if neg { v.wrapping_neg() } else { v }) as u32
+    unsafe { c_strtoul(number_string(s).as_ptr(), std::ptr::null_mut(), 16) as u32 }
 }
 
 fn find(h: &[u8], n: &[u8]) -> Option<usize> {
@@ -208,9 +185,12 @@ impl Decoder {
     /// to `buf` itself; returns its length.
     ///
     /// # Safety
-    /// `buf` is writable for `len` bytes and as far beyond as the C++ wrote:
-    /// the decoded data of the lines completed in this call (the connection's
-    /// read buffer has the room).
+    /// `buf` is non-null and readable for `len` bytes. In line mode, zero
+    /// length means a NUL-terminated string (StringBuilder::Append's default).
+    /// The allocation must also fit the decoded output: up to the input length
+    /// plus 63 bytes for a pending UU line. Connection reserves 128 slack bytes.
+    /// It must not alias this decoder's storage. Callbacks obey DecodeFn/CrcFn's
+    /// contract and must not unwind. No Rust slice bounds the output to `len`.
     pub unsafe fn decode_buffer(&mut self, buf: *mut u8, len: usize) -> usize {
         if self.raw_mode {
             self.process_raw(std::slice::from_raw_parts(buf, len));
@@ -223,15 +203,20 @@ impl Decoder {
                 return outlen;
             }
         } else {
-            let chunk = std::slice::from_raw_parts(buf, len).to_vec();
-            self.line_buf.append(&chunk);
+            let chunk = if len == 0 {
+                CStr::from_ptr(buf.cast()).to_bytes()
+            } else {
+                std::slice::from_raw_parts(buf, len)
+            };
+            self.line_buf.append(chunk);
         }
 
         let mut line = 0usize;
-        loop {
-            // strchr(line, '\n') in the C string
-            let cend = self.line_buf.c_str_end(line);
-            let Some(nl) = self.line_buf.data[line..cend].iter().position(|&b| b == b'\n').map(|k| line + k) else { break };
+        // strchr(line, '\n') stops at the first newline or NUL.
+        while let Some(nl) = self.line_buf.data[line..].iter().position(|&b| b == 0 || b == b'\n').map(|k| line + k) {
+            if self.line_buf.data[nl] == 0 {
+                break;
+            }
             let llen = nl - line + 1;
             let lb = &self.line_buf.data;
             if lb[line] == b'.' && lb.get(line + 1) == Some(&b'\r') {
@@ -243,9 +228,14 @@ impl Decoder {
                 self.format = detect_format(&self.line_buf.data[line..], llen);
             }
             if self.format == Format::Yenc {
-                // the C string from the line on: strstr looked past the line
-                let full = self.line_buf.data[line..cend].to_vec();
-                self.process_yenc(&full, llen);
+                // Only control lines use strstr, which looked past the newline.
+                // Ordinary lines must not scan/copy the whole remaining article.
+                let text = &self.line_buf.data[line..];
+                if text.starts_with(b"=ybegin ") || text.starts_with(b"=ypart ") || text.starts_with(b"=yend ") {
+                    let cend = self.line_buf.c_str_end(line);
+                    let full = self.line_buf.data[line..cend].to_vec();
+                    self.process_yenc(&full, llen);
+                }
                 if self.body {
                     let rest_at = nl + 1;
                     let rest = self.line_buf.len - rest_at;
@@ -259,7 +249,14 @@ impl Decoder {
                     continue;
                 }
             } else if self.format == Format::Ux {
-                let text = self.line_buf.data[line..].to_vec();
+                // Only a begin line's filename parser scans past its newline.
+                // Copying the entire remaining article per UU line is quadratic.
+                let end = if self.line_buf.data[line..].starts_with(b"begin ") && !self.body {
+                    self.line_buf.c_str_end(line) + 1
+                } else {
+                    (line + llen.max(63)).min(self.line_buf.data.len())
+                };
+                let text = self.line_buf.data[line..end].to_vec();
                 outlen += self.decode_ux(&text, llen, buf.add(outlen));
             }
             line = nl + 1;
@@ -442,7 +439,7 @@ impl Decoder {
             2 => len >= 3 && b[..3] == *b".\r\n",
             3 => len >= 2 && b[..2] == *b"\r\n",
             4 => len >= 1 && b[0] == b'\n',
-            _ => false,
+            _ => self.eof,
         };
         self.eof |= find(b, b"\r\n.\r\n").is_some();
         self.state = if b.ends_with(b"\r\n.\r") {
@@ -510,4 +507,66 @@ fn detect_format(line: &[u8], len: usize) -> Format {
         return Format::Ux;
     }
     Format::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "C" fn decode(src: *mut *const c_void, dst: *mut *mut c_void, len: usize, _state: *mut c_int) -> c_int {
+        std::ptr::copy(*src as *const u8, *dst as *mut u8, len);
+        *src = (*src).byte_add(len);
+        *dst = (*dst).byte_add(len);
+        0
+    }
+
+    unsafe extern "C" fn crc(_src: *const c_void, _len: usize, init: u32) -> u32 { init }
+
+    #[test]
+    fn raw_eof_state_zero_is_sticky() {
+        let mut d = Decoder::new(decode, crc);
+        d.process_raw(b"\r\n.\r\nx");
+        d.process_raw(b"more");
+        assert!(d.eof);
+        d.process_raw(b"\r");
+        assert!(d.eof);
+        d.process_raw(b"x");
+        assert!(!d.eof);
+    }
+
+    #[test]
+    fn numeric_crt_overflow_and_sign() {
+        assert_eq!(strtoul_hex(b"-10000000000000000"), u32::MAX);
+        assert_eq!(strtoul_hex(b"-fffffffffffffffff"), u32::MAX);
+        assert_eq!(strtoul_hex(b" \t-0x1\r\n"), u32::MAX);
+        assert_eq!(strtoul_hex(b"100000000"), if std::mem::size_of::<c_ulong>() == 4 { u32::MAX } else { 0 });
+        assert_eq!(atoll(b" \t\x0b-123rest"), -123);
+    }
+
+    #[test]
+    fn ffi_nulls_and_zero_length_line() {
+        use crate::ffi::*;
+        use std::ptr::null_mut;
+        unsafe {
+            assert!(nzbget_rs_decoder_new(None, Some(crc)).is_null());
+            assert!(nzbget_rs_decoder_new(Some(decode), None).is_null());
+            nzbget_rs_decoder_clear(null_mut());
+            nzbget_rs_decoder_set(null_mut(), 0, 1);
+            assert_eq!(nzbget_rs_decoder_get(null_mut(), 0), 0);
+            assert_eq!(nzbget_rs_decoder_check(null_mut()), Status::UnknownError as c_int);
+            assert_eq!(CStr::from_ptr(nzbget_rs_decoder_filename(null_mut())).to_bytes(), b"");
+            assert_eq!(nzbget_rs_decoder_decode(null_mut(), null_mut(), 1), 0);
+            nzbget_rs_decoder_free(null_mut());
+            let d = nzbget_rs_decoder_new(Some(decode), Some(crc));
+            for len in [-1, 0, 10] {
+                assert_eq!(nzbget_rs_decoder_decode(d, null_mut(), len), 0);
+            }
+            let mut b = [0u8; 256];
+            let input = b"begin 644 x\r\n#04)#\r\n`\r\n\0";
+            b[..input.len()].copy_from_slice(input);
+            assert_eq!(nzbget_rs_decoder_decode(d, b.as_mut_ptr().cast(), 0), 3);
+            assert_eq!(&b[..3], b"ABC");
+            nzbget_rs_decoder_free(d);
+        }
+    }
 }

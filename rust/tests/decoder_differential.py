@@ -55,6 +55,8 @@ harness = r'''
 #include "Decoder.h"
 #include "OldDecoder.h"
 #include <random>
+#include <clocale>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -130,9 +132,71 @@ static std::string article() {
     return out;
 }
 
+
+// Check every piece, including output beyond its input length. The caller owns
+// 63 bytes of decode slack, followed by a canary checked after every call.
+static void regression(const std::vector<std::string>& pieces, bool raw = false, bool zeroLength = false) {
+    OldDecoder o;
+    Decoder r;
+    o.SetRawMode(raw); r.SetRawMode(raw);
+    o.SetCrcCheck(true); r.SetCrcCheck(true);
+    for (const auto& piece : pieces) {
+        size_t capacity = piece.size() + 63;
+        std::vector<char> bo(capacity + 32, 'Z'), br(bo);
+        memcpy(bo.data(), piece.data(), piece.size());
+        memcpy(br.data(), piece.data(), piece.size());
+        bo[piece.size()] = br[piece.size()] = 0;
+        int len = zeroLength ? 0 : (int)piece.size();
+        int lo = o.DecodeBuffer(bo.data(), len), lr = r.DecodeBuffer(br.data(), len);
+        bool same = lo == lr && lo >= 0 && (size_t)lo <= capacity &&
+            !memcmp(bo.data(), br.data(), lo) && o.GetEof() == r.GetEof() &&
+            o.Check() == r.Check() && o.GetFormat() == r.GetFormat() &&
+            o.GetSize() == r.GetSize() && o.GetBeginPos() == r.GetBeginPos() &&
+            o.GetEndPos() == r.GetEndPos() && o.GetExpectedCrc() == r.GetExpectedCrc() &&
+            !strcmp(o.GetArticleFilename(), r.GetArticleFilename());
+        for (size_t i = capacity; i < bo.size(); ++i) same &= bo[i] == 'Z' && br[i] == 'Z';
+        if (!same) {
+            fprintf(stderr, "regression mismatch: piece size %zu, raw %d, zero length %d, output %d/%d\n",
+                piece.size(), raw, zeroLength, lo, lr);
+            exit(1);
+        }
+    }
+}
+
+static void regressions() {
+    regression({"\r\n.\r\nx", "more"}, true); // state 0 preserves EOF
+    regression({"\r\n.\r\nx", "\r", "x"}, true); // state 1 resets EOF
+    regression({"begin 644 x\r\n#04)#\r\n`\r\n"}, false, true);
+    regression({"begin 644 x\r\n_" + std::string(84, 'A'), "\n"}); // 63 bytes from one input byte
+    regression({"begin 644 x\r\n" + std::string(20000, '\n')});
+    regression({"=ybegin part=1\r\n" + std::string(20000, '\n')});
+    const char* numbers[] = {"0", "-1", "+0xabcdef", "-10000000000000000",
+        "100000000", "-fffffffffffffffff", "fffffffffffffffffffffffffff", " \t\v\f123abc", "0x", "0Xf"};
+    for (const char* locale : {"C", "C.UTF-8", "en_US.UTF-8"}) {
+        if (!std::setlocale(LC_ALL, locale)) continue;
+        for (const char* number : numbers) {
+            std::string a = "=ybegin size=" + std::string(number) + " name=x\r\n*\r\n=yend size=1 crc32=" + number + "\r\n.\r\n";
+            for (size_t split = 1; split < a.size(); ++split)
+                regression({a.substr(0, split), a.substr(split)});
+        }
+    }
+    std::setlocale(LC_ALL, "C");
+    // Buffer contents past a line are intentionally visible to the old parser.
+    for (const std::string& a : {
+        std::string("=ybegin part=1 name=\r\n=ypart begin=1 end=2\r\n**\r\n=yend size=2 pcrc32=0\r\n"),
+        std::string("begin 644 \r\n#04)#\r\n`\r\n"),
+        std::string("begin 644 x\r\nM") + std::string(60, 'A') + "\n\n`\r\n",
+        std::string("ignored\r\n\0=ybegin size=1 name=x\r\n", sizeof("ignored\r\n\0=ybegin size=1 name=x\r\n") - 1)}) {
+        for (size_t split = 1; split < a.size(); ++split)
+            regression({a.substr(0, split), a.substr(split)});
+    }
+    puts("decoder regressions agree");
+}
+
 int main(int argc, char** argv) {
     rapidyenc_decode_init();
     rapidyenc_crc_init();
+    regressions();
     long cases = 0;
     int articles = atoi(argv[1]);
     for (int n = 0; n < articles; ++n) {
@@ -148,11 +212,15 @@ int main(int argc, char** argv) {
         while (at < a.size()) {
             size_t len = std::min(a.size() - at, (size_t)(pick(4) ? 1 + pick(64) : 1 + pick(4000)));
             // the connection's buffer: room past the piece for what the C++ wrote there
-            std::vector<char> bo(len + 8192, 0), br(len + 8192, 0);
+            std::vector<char> bo(len + 63 + 32, 0), br(len + 63 + 32, 0);
+            std::fill(bo.begin() + len + 63, bo.end(), 'Z');
+            std::fill(br.begin() + len + 63, br.end(), 'Z');
             memcpy(bo.data(), a.data() + at, len);
             memcpy(br.data(), a.data() + at, len);
             int lo = o.DecodeBuffer(bo.data(), (int)len), lr = r.DecodeBuffer(br.data(), (int)len);
-            if (lo != lr || memcmp(bo.data(), br.data(), std::max(lo, 0)) || o.GetEof() != r.GetEof()) {
+            bool guard = lo >= 0 && lr >= 0 && (size_t)lo <= len + 63 && (size_t)lr <= len + 63;
+            for (size_t q = len + 63; q < bo.size(); ++q) guard &= bo[q] == 'Z' && br[q] == 'Z';
+            if (!guard || lo != lr || memcmp(bo.data(), br.data(), std::max(lo, 0)) || o.GetEof() != r.GetEof()) {
                 printf("MISMATCH DecodeBuffer article %d at %zu len %zu: %d vs %d eof %d %d\n", n, at, len, lo, lr, o.GetEof(), r.GetEof());
                 int k = 0;
                 while (k < std::min(lo, lr) && bo[k] == br[k]) ++k;

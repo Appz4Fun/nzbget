@@ -31,7 +31,10 @@ namespace
 {
 	int YencDecode(const void** src, void** dst, size_t len, int* state)
 	{
-		return rapidyenc_decode_incremental(src, dst, len, reinterpret_cast<RapidYencDecoderState*>(state));
+		auto yencState = static_cast<RapidYencDecoderState>(*state);
+		int result = rapidyenc_decode_incremental(src, dst, len, &yencState);
+		*state = static_cast<int>(yencState);
+		return result;
 	}
 
 	unsigned int YencCrc(const void* src, size_t len, unsigned int init)
@@ -300,7 +303,9 @@ int Decoder::DecodeYenc(char* buffer, char* outbuf, int len)
 	const void* src = buffer;
 	void* dst = outbuf;
 
-	auto endseq = rapidyenc_decode_incremental(&src, &dst, len, (RapidYencDecoderState*)&m_state);
+	auto yencState = static_cast<RapidYencDecoderState>(m_state);
+	auto endseq = rapidyenc_decode_incremental(&src, &dst, len, &yencState);
+	m_state = static_cast<int>(yencState);
 
 	int bytesWritten = static_cast<int>(static_cast<char*>(dst) - outbuf);
 
