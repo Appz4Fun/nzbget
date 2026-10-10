@@ -248,6 +248,8 @@ NzbgetRsBuf nzbget_rs_collection_name(int op, const char* a, size_t aLen, const 
 // 7 X-Forwarded-For, 8 If-None-Match, 9 keep-alive, 10 end of headers
 int nzbget_rs_web_header(const char* line, size_t len, int authInfoEmpty,
 	size_t* valueStart, size_t* valueLen, int* number);
+// NULL URL means empty; embedded NUL ends the URL. Outputs may be NULL.
+// Free both returned buffers with nzbget_rs_free (including on exceptions).
 NzbgetRsBuf nzbget_rs_web_parse_url(const char* url, size_t len, int* redirect, NzbgetRsBuf* auth);
 typedef struct
 {
@@ -268,6 +270,7 @@ typedef struct
 	ptrdiff_t authCut; // where m_authInfo is cut, -1 for none
 	int warn;
 } NzbgetRsWebCheck;
+// NULL input denies access; NULL out is a no-op. Output must not alias inputs.
 void nzbget_rs_web_check_credentials(const NzbgetRsWebCredentials* input, NzbgetRsWebCheck* out);
 int nzbget_rs_web_authorized_ip(const char* option, const char* remote, const int* table, int charSigned, int (*fold)(int));
 

@@ -308,11 +308,13 @@ bool WebProcessor::ParseUrl()
 	int redirect = 0;
 	NzbgetRsBuf auth{};
 	NzbgetRsBuf url = nzbget_rs_web_parse_url(m_url, strlen(m_url), &redirect, &auth);
+	// Both buffers belong to Rust, including if constructing target throws.
+	auto release = [](NzbgetRsBuf* buf) { nzbget_rs_free(*buf); };
+	std::unique_ptr<NzbgetRsBuf, decltype(release)> urlOwner(&url, release);
+	std::unique_ptr<NzbgetRsBuf, decltype(release)> authOwner(&auth, release);
 	std::string target(url.data, url.len);
-	nzbget_rs_free(url);
 	if (redirect)
 	{
-		nzbget_rs_free(auth);
 		SendRedirectResponse(target.c_str());
 		return false;
 	}
@@ -321,7 +323,6 @@ bool WebProcessor::ParseUrl()
 		size_t len = std::min(auth.len, sizeof(m_authInfo) - 1);
 		memcpy(m_authInfo, auth.data, len);
 		m_authInfo[len] = '\0';
-		nzbget_rs_free(auth);
 	}
 	m_url = target.c_str();
 

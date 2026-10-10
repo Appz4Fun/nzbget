@@ -25,6 +25,7 @@ ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "200000"
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/remote/WebServer.cpp"], cwd=ROOT, text=True)
 new_src = (ROOT / "daemon/remote/WebServer.cpp").read_text()
+util_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/Util.cpp"], cwd=ROOT, text=True)
 METHODS = ["void WebProcessor::ParseHeaders()", "bool WebProcessor::ParseUrl()", "bool WebProcessor::CheckCredentials()",
            "bool WebProcessor::IsAuthorizedIp(const char* remoteAddr)"]
 
@@ -94,18 +95,38 @@ struct NAME {
 };
 '''
 harness = '#include "nzbget.h"\n#include "Util.h"\n#include "nzbget_rs.h"\n#include <climits>\n#include <clocale>\n#include <random>\n#include <vector>\n' + shim
+harness += r'''
+// Use the actual C++ wildcard oracle, even when libnzbget uses Rust.
+struct LegacyWildMask {
+    const char* m_pattern;
+    bool m_wantsPositions = false;
+    int m_wildCount = 0;
+    std::vector<int> m_wildStart, m_wildLen;
+    LegacyWildMask(const char* p) : m_pattern(p) {}
+    void ExpandArray();
+    bool Match(const char* text);
+};
+'''
+legacy_mask = util_src[util_src.index("void WildMask::ExpandArray()") :]
+for method in ("void WildMask::ExpandArray()", "bool WildMask::Match(const char* text)"):
+    harness += body(legacy_mask, method, "unused").replace("WildMask::", "LegacyWildMask::")
 harness += cls.replace("NAME", "OldWP") + cls.replace("NAME", "NewWP")
-harness += "".join(body(old_src, m, "OldWP") for m in METHODS)
+harness += "".join(body(old_src, m, "OldWP").replace("WildMask mask", "LegacyWildMask mask") for m in METHODS)
 harness += fold.replace("WebFold", "WebFold") + "".join(body(new_rust, m, "NewWP") for m in METHODS)
 harness += r'''
 int main(int argc, char** argv) {
     std::mt19937 rng(23);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
+    auto bytes = [&](int max) {
+        std::string s(pick(max + 1), '\0');
+        for (char& c : s) c = static_cast<char>(pick(256));
+        return s;
+    };
     const char* heads[] = {"Content-Length: ", "content-length: ", "Authorization: Basic ", "X-Authorization: Basic ",
         "Accept-Encoding: ", "Origin: ", "Cookie: ", "X-Forwarded-For: ", "If-None-Match: ", "Connection: keep-alive",
         "CONNECTION: Keep-Alive", "Host: ", "", "AUTHORIZATION: basic ", "Cookie: a=1; Auth-Token=", "IDE: "};
-    const char* vals[] = {"42", "-1", "abc", "bnpiZ2V0OnNlY3JldA==", "dXNlcjpwdw==", "gzip, deflate", "tokcontrol", "tokadd",
-        "x; Auth-Token=tokrestricted; y=1", "Auth-Token=;", "1.2.3.4", "\"etag\"", std::string(300, 'Q').c_str(), "\xe9", ""};
+    const std::string vals[] = {"42", "-1", "abc", "bnpiZ2V0OnNlY3JldA==", "dXNlcjpwdw==", "gzip, deflate", "tokcontrol", "tokadd",
+        "x; Auth-Token=tokrestricted; y=1", "Auth-Token=;", "1.2.3.4", "\"etag\"", std::string(300, 'Q'), "\xe9", ""};
     const char* urls[] = {"/", "/nzbget", "/nzbget/", "/nzbget/jsonrpc", "/u:p/jsonrpc", "/nzbget/nzbget:secret/xmlrpc",
         "/jsonrpc?a=b:c", "/a:b", "/%41dmin:p%3A%40/x", "/user%00x:pw/x", "/:x/y", "//"};
     const char* names[] = {"", "", "nzbget", "secret", "user", "pw", "add", "IDE"};
@@ -119,14 +140,41 @@ int main(int argc, char** argv) {
             FakeConnection a, b;
             int n = pick(6);
             for (int k = 0; k < n; ++k) a.lines.push_back(std::string(heads[pick(16)]) + vals[pick(15)] + (pick(3) ? "\r" : ""));
+            if (r % 2) {
+                a.lines.push_back(std::string(heads[pick(16)]) + bytes(1100));
+                // Exhaust the auth limit and token truncation boundaries.
+                a.lines.push_back(std::string(heads[2 + pick(2)]) + std::string(254 + pick(6), 'Q'));
+            }
             a.remote = remotes[pick(4)];
             b = a;
             fakeOptions.cu = names[pick(8)]; fakeOptions.cp = names[pick(8)]; fakeOptions.ru = names[pick(8)]; fakeOptions.rp = names[pick(8)];
             fakeOptions.au = names[pick(8)]; fakeOptions.ap = names[pick(8)]; fakeOptions.ip = ips[pick(7)];
+            if (r % 3 == 0) {
+                a.remote = bytes(40);
+                fakeOptions.ip = bytes(50) + ",; \t" + (pick(2) ? a.remote : "*") + "\r\n";
+                b.remote = a.remote;
+            }
             OldWP o; NewWP w;
             o.m_connection = &a; w.m_connection = &b;
             { const char* u = urls[pick(12)]; o.m_url = u; w.m_url = u; }
-            o.ParseHeaders(); w.ParseHeaders();
+            if (r % 2) {
+                std::string u = std::string(pick(2) ? "/nzbget/" : "/") + bytes(300) + ":" + bytes(300) + "/jsonrpc";
+                o.m_url = u.c_str(); w.m_url = u.c_str();
+            }
+            if (r % 5 == 0) {
+                std::string auth = std::string(names[pick(8)]) + ":" + names[pick(8)];
+                strcpy(o.m_authInfo, auth.c_str()); strcpy(w.m_authInfo, auth.c_str());
+                o.m_userAccess = OldWP::uaAdd; w.m_userAccess = NewWP::uaAdd;
+            }
+            int headerWarnings = warnings;
+            o.ParseHeaders();
+            int afterOldHeaders = warnings;
+            w.ParseHeaders();
+            if (o.State() != w.State() || a.next != b.next ||
+                afterOldHeaders - headerWarnings != warnings - afterOldHeaders) {
+                printf("Header mismatch (locale %s, round %d)\n", argv[l], r);
+                return 1;
+            }
             bool ou = o.ParseUrl(), nu = w.ParseUrl();
             int warnOld = warnings; bool oc = ou && o.CheckCredentials(); int warnMid = warnings; bool nc = nu && w.CheckCredentials();
             bool oi = o.IsAuthorizedIp(nullptr), ni = w.IsAuthorizedIp(nullptr);
@@ -157,7 +205,8 @@ with tempfile.TemporaryDirectory(prefix="nzbget-web-") as temp:
                 break
         locales.append("tr_TR.ISO8859-9")
     binary = temp / "web"
-    subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                    "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
-                    *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
-    subprocess.run([str(binary), ROUNDS, *locales], check=True, env=env)
+    for char_flag in ("-fsigned-char", "-funsigned-char"):
+        subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
+                        char_flag, *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
+                        *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
+        subprocess.run([str(binary), ROUNDS, *locales], check=True, env=env)

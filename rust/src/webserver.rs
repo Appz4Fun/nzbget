@@ -102,6 +102,9 @@ pub enum Url {
 
 /// WebProcessor::ParseUrl.
 pub fn parse_url(url: &[u8]) -> Url {
+    // Like the header parser, preserve the original C string boundary even
+    // when a bounded FFI input includes bytes after its terminator.
+    let url = &url[..url.iter().position(|&b| b == 0).unwrap_or(url.len())];
     let mut url = url.to_vec();
     if url.starts_with(b"/nzbget/") {
         url.drain(..7);
@@ -238,6 +241,8 @@ mod tests {
         assert_eq!(parse_url(b"/nzbget"), Url::Redirect(b"/nzbget/".to_vec()));
         assert_eq!(parse_url(b"/nzbget/u:p%40/jsonrpc"), Url::Go { url: b"/jsonrpc".to_vec(), auth: Some(b"u:p@".to_vec()) });
         assert_eq!(parse_url(b"/jsonrpc?x=a:b"), Url::Go { url: b"/jsonrpc?x=a:b".to_vec(), auth: None });
+        assert_eq!(parse_url(b"/nzbget\0/u:p/jsonrpc"), Url::Redirect(b"/nzbget/".to_vec()));
+        assert_eq!(parse_url(b"/u:p\0/jsonrpc"), Url::Go { url: b"/u:p".to_vec(), auth: None });
     }
 
     #[test]

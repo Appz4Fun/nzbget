@@ -1010,7 +1010,9 @@ pub unsafe extern "C" fn nzbget_rs_web_header(
 /// null for none). Free both with nzbget_rs_free.
 ///
 /// # Safety
-/// `url` is readable for `len` bytes; `redirect` and `auth` are writable.
+/// `url` is null (empty) or readable for `len` bytes, stopping at its first
+/// NUL. `redirect` and `auth` are null or writable, disjoint from the input
+/// and each other. The caller owns returned buffers; free with nzbget_rs_free.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_web_parse_url(url: *const c_char, len: usize, redirect: *mut c_int, auth: *mut RsBuf) -> RsBuf {
     let none = || RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
@@ -1069,18 +1071,22 @@ unsafe fn opt(p: *const c_char) -> Option<&'static [u8]> {
 /// WebProcessor::CheckCredentials.
 ///
 /// # Safety
-/// The strings are null or NUL-terminated; `table` as for WildMask; `fold`
-/// doesn't unwind; `out` is writable.
+/// `input` is null or readable; its strings are null or NUL-terminated;
+/// `lower_table` as for WildMask; `fold` doesn't unwind. `out` is null or
+/// writable and disjoint from all input storage. Null input denies access.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_web_check_credentials(input: *const WebCredentialsC, out: *mut WebCheckC) {
-    if input.is_null() || out.is_null() {
+    if out.is_null() {
+        return;
+    }
+    *out = WebCheckC { authorized: 0, access: -1, auth_cut: -1, warn: 0 };
+    if input.is_null() {
         return;
     }
     let i = &*input;
     let fold = i.fold;
     let call = move |b: u8| fold.map_or(b as c_int, |f| f(b as c_int));
     if i.lower_table.is_null() && fold.is_none() {
-        *out = WebCheckC { authorized: 0, access: -1, auth_cut: -1, warn: 0 };
         return;
     }
     let lower = lower_of(i.lower_table, i.char_signed, &call);
@@ -1134,6 +1140,37 @@ pub unsafe extern "C" fn nzbget_rs_web_authorized_ip(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_null_inputs_and_optional_outputs() {
+        unsafe {
+            let mut check = WebCheckC { authorized: 1, access: 2, auth_cut: 100, warn: 1 };
+            nzbget_rs_web_check_credentials(std::ptr::null(), &mut check);
+            assert_eq!((check.authorized, check.access, check.auth_cut, check.warn), (0, -1, -1, 0));
+            nzbget_rs_web_check_credentials(std::ptr::null(), std::ptr::null_mut());
+            let mut redirect = -1;
+            let mut auth = RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+            let url = nzbget_rs_web_parse_url(std::ptr::null(), 42, &mut redirect, &mut auth);
+            assert_eq!(redirect, 0);
+            assert!(auth.data.is_null());
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"");
+            nzbget_rs_free(url);
+            nzbget_rs_free(auth);
+            let input = b"/nzbget\0/u:p/jsonrpc";
+            let url = nzbget_rs_web_parse_url(input.as_ptr().cast(), input.len(), &mut redirect, std::ptr::null_mut());
+            assert_eq!(redirect, 1);
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"/nzbget/");
+            nzbget_rs_free(url);
+            let input = b"/u:p/jsonrpc";
+            let url = nzbget_rs_web_parse_url(input.as_ptr().cast(), input.len(), std::ptr::null_mut(), std::ptr::null_mut());
+            assert_eq!(CStr::from_ptr(url.data).to_bytes(), b"/jsonrpc");
+            nzbget_rs_free(url);
+            let (mut start, mut len, mut number) = (99, 99, 99);
+            assert_eq!(nzbget_rs_web_header(std::ptr::null(), 42, 1, &mut start, &mut len, &mut number), 10);
+            assert_eq!((start, len, number), (0, 0, 0));
+            assert_eq!(nzbget_rs_web_authorized_ip(std::ptr::null(), std::ptr::null(), std::ptr::null(), 1, None), 0);
+        }
+    }
 
     #[test]
     fn collection_null_inputs_and_callbacks() {
