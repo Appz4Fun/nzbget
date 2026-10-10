@@ -38,9 +38,10 @@ namespace Deobfuscation
 	std::string Deobfuscate(std::string_view str)
 	{
 		NzbgetRsBuf buf = nzbget_rs_deobfuscate(str.data(), str.size());
-		std::string result(buf.data, buf.len);
-		nzbget_rs_free(buf);
-		return result;
+		// Release the Rust allocation even if constructing the C++ string throws.
+		auto release = [](NzbgetRsBuf* owned) { nzbget_rs_free(*owned); };
+		std::unique_ptr<NzbgetRsBuf, decltype(release)> owner(&buf, release);
+		return std::string(buf.data, buf.len);
 	}
 }
 #else
