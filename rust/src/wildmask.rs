@@ -1,44 +1,47 @@
 //! Wildcard matching (WildMask): `*` any run, `?` any byte, `#` one digit;
-//! letters compare case-insensitively through the C library's tolower, so the
-//! result matches the C++ code in every locale. With positions wanted, it records
-//! where each wildcard matched, exactly as the C++ code did (quirks included).
+//! letters compare case-insensitively through a table supplied by the C++ caller
+//! for its current locale. With positions wanted, it records where each wildcard
+//! matched, exactly as the C++ code did (quirks included).
 
-use std::ffi::{c_char, c_int};
-use std::sync::OnceLock;
+use std::ffi::c_int;
 
-extern "C" {
-    fn tolower(c: c_int) -> c_int;
+/// Case folding of one byte, as the C++ code's tolower saw it: the full-width
+/// tolower result of the byte as the caller's char in its current locale (EOF
+/// stays distinct from 255).
+pub enum Lower<'a> {
+    /// glibc's tolower table for the calling thread's locale (what tolower
+    /// itself reads), indexed by the C++ char value, -128..=255, and whether
+    /// that char is signed (a compiler setting, so the C++ side says).
+    Table(*const i32, bool),
+    /// Any other C library: a call per comparison of two different bytes.
+    Fold(&'a dyn Fn(u8) -> c_int),
 }
 
-/// tolower of each byte as the C++ code saw it: a `char` (signed or unsigned,
-/// as on the platform) widened to int.
-pub struct Lower([u8; 256]);
-
-impl Lower {
-    fn new() -> Self {
-        let mut t = [0u8; 256];
-        for (b, slot) in t.iter_mut().enumerate() {
-            *slot = unsafe { tolower(b as u8 as c_char as c_int) } as u8;
+impl Lower<'_> {
+    #[inline]
+    fn get(&self, b: u8) -> c_int {
+        match *self {
+            // SAFETY: the table covers -128..=255 (see nzbget_rs.h)
+            Lower::Table(t, signed) => unsafe { *t.offset(if signed { b as i8 as isize } else { b as isize }) },
+            Lower::Fold(f) => f(b),
         }
-        Lower(t)
-    }
-
-    /// The table of the current locale. nzbget sets the locale once at start,
-    /// before any match, so the table is built on first use.
-    pub fn get() -> &'static Lower {
-        static LOWER: OnceLock<Lower> = OnceLock::new();
-        LOWER.get_or_init(Lower::new)
     }
 
     #[inline]
     fn eq(&self, a: u8, b: u8) -> bool {
-        self.0[a as usize] == self.0[b as usize]
+        a == b || self.get(a) == self.get(b)
     }
+}
+
+// C++ subtracts pointers before narrowing to int. Narrowing the end first and
+// doing checked i32 subtraction can panic in Debug even when the length fits.
+fn capture_len(end: usize, start: i32) -> i32 {
+    (end as i32).wrapping_sub(start)
 }
 
 /// Matches `text` against `pat`. When `pos` is Some, it receives the
 /// (start, len) of each wildcard match.
-pub fn wild_match(lower: &Lower, pat: &[u8], text: &[u8], mut pos: Option<&mut Vec<(i32, i32)>>) -> bool {
+pub fn wild_match(lower: &Lower<'_>, pat: &[u8], text: &[u8], mut pos: Option<&mut Vec<(i32, i32)>>) -> bool {
     let want = pos.is_some();
     if let Some(p) = pos.as_deref_mut() {
         p.clear();
@@ -57,7 +60,7 @@ pub fn wild_match(lower: &Lower, pat: &[u8], text: &[u8], mut pos: Option<&mut V
     macro_rules! close_last {
         ($s:expr) => {{
             let n = w.len() - 1;
-            w[n].1 = ($s as i32) - w[n].0;
+            w[n].1 = capture_len($s, w[n].0);
         }};
     }
 
@@ -157,8 +160,16 @@ pub fn wild_match(lower: &Lower, pat: &[u8], text: &[u8], mut pos: Option<&mut V
 mod tests {
     use super::*;
 
+    fn ascii(b: u8) -> c_int {
+        b.to_ascii_lowercase() as c_int
+    }
+
+    fn lower() -> Lower<'static> {
+        Lower::Fold(&ascii)
+    }
+
     fn m(p: &str, t: &str) -> bool {
-        wild_match(Lower::get(), p.as_bytes(), t.as_bytes(), None)
+        wild_match(&lower(), p.as_bytes(), t.as_bytes(), None)
     }
 
     #[test]
@@ -173,9 +184,44 @@ mod tests {
     }
 
     #[test]
+    fn full_width_locale_results_keep_eof_distinct() {
+        let fold = |b: u8| match b {
+            0xff => -1,
+            0xbe => 255,
+            b'I' => 0xfd,
+            _ => b.to_ascii_lowercase() as c_int,
+        };
+        let lower = Lower::Fold(&fold);
+        assert!(!wild_match(&lower, b"\xbe", b"\xff", None));
+        assert!(wild_match(&lower, b"I", b"\xfd", None));
+        assert!(!wild_match(&lower, b"I", b"i", None));
+    }
+
+    #[test]
+    fn glibc_style_table() {
+        // index -128..=255, as glibc's __ctype_tolower_loc table
+        let mut table = [0i32; 384];
+        for (i, slot) in table.iter_mut().enumerate() {
+            let c = i as i32 - 128;
+            *slot = if (b'A' as i32..=b'Z' as i32).contains(&c) { c + 32 } else { c };
+        }
+        let lower = Lower::Table(table[128..].as_ptr(), true);
+        assert!(wild_match(&lower, b"*aBc*", b"xxAbCxx", None));
+        assert!(!wild_match(&lower, b"\xff", b"\x7f", None));
+        assert!(wild_match(&lower, b"\xe9", b"\xe9", None));
+        let unsigned = Lower::Table(table[128..].as_ptr(), false);
+        assert!(wild_match(&unsigned, b"*aBc*", b"xxAbCxx", None));
+    }
+
+    #[test]
+    fn capture_length_across_signed_int_boundary() {
+        assert_eq!(capture_len(i32::MAX as usize + 3, i32::MAX - 1), 4);
+    }
+
+    #[test]
     fn positions() {
         let mut v = Vec::new();
-        assert!(wild_match(Lower::get(), b"S##E*.mkv", b"S01E02.x.mkv", Some(&mut v)));
+        assert!(wild_match(&lower(), b"S##E*.mkv", b"S01E02.x.mkv", Some(&mut v)));
         assert_eq!(v, vec![(1, 2), (4, 4)]);
     }
 }

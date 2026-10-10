@@ -1,7 +1,7 @@
 //! C ABI. Strings come in as NUL-terminated C strings; results go out as a
 //! buffer the caller copies and then frees with nzbget_rs_free.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::{c_char, c_int, CStr};
 
 #[repr(C)]
 pub struct RsBuf {
@@ -48,39 +48,120 @@ pub unsafe extern "C" fn nzbget_rs_free(buf: RsBuf) {
     }
 }
 
-/// Wildcard match (WildMask::Match). When `positions` isn't null it gets
-/// (start, length) pairs, at most `capacity` of them; the return value is the
-/// number of pairs, or -1 for no match. A pattern of n bytes yields at most n pairs.
+/// Both fields are meaningful on failure, too: the legacy matcher retains
+/// partial captures. Count can exceed capacity after backtracking.
+#[repr(C)]
+pub struct WildResult {
+    pub matched: c_int,
+    pub count: usize,
+}
+
+/// Match, folding case with glibc's tolower table `table` (indexed -128..=255)
+/// when it isn't null, else with the caller's `fold` (tolower of a byte in the
+/// current locale). Writes up to capacity
+/// pairs and returns the total count; retry with that capacity if needed.
+/// NULL positions disables capture collection, irrespective of capacity.
 ///
 /// # Safety
-/// `pattern` and `text` are null or valid NUL-terminated strings; `positions`
-/// is null or points to `capacity` writable pairs.
+/// `pattern` and `text` are null (empty) or valid NUL-terminated strings.
+/// `table` is null or valid for indexes -128..=255 (`char_signed`: whether the
+/// caller's char is signed, which picks the index of bytes from 0x80); `fold` takes a byte value
+/// 0..=255 and must not unwind. `positions` is null or points to
+/// `capacity` writable pairs of C ints, disjoint from all the input storage.
+/// All buffers remain caller-owned. Panics abort rather than crossing the ABI.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_wild_match(
     pattern: *const c_char,
     text: *const c_char,
-    positions: *mut [i32; 2],
+    positions: *mut [c_int; 2],
     capacity: usize,
-) -> i32 {
-    let lower = crate::wildmask::Lower::get();
-    if positions.is_null() {
-        return if crate::wildmask::wild_match(lower, input(pattern), input(text), None) { 0 } else { -1 };
-    }
+    table: *const c_int,
+    char_signed: c_int,
+    fold: extern "C" fn(c_int) -> c_int,
+) -> WildResult {
+    let call = |b: u8| fold(b as c_int);
+    let lower = if table.is_null() {
+        crate::wildmask::Lower::Fold(&call)
+    } else {
+        crate::wildmask::Lower::Table(table, char_signed != 0)
+    };
     let mut v = Vec::new();
-    if !crate::wildmask::wild_match(lower, input(pattern), input(text), Some(&mut v)) {
-        return -1;
+    let matched = crate::wildmask::wild_match(
+        &lower, input(pattern), input(text),
+        if positions.is_null() { None } else { Some(&mut v) },
+    );
+    let count = v.len();
+    // Avoid even constructing a slice from NULL for zero-length output.
+    if !positions.is_null() && capacity != 0 && count != 0 {
+        let out = std::slice::from_raw_parts_mut(positions, count.min(capacity));
+        for (slot, (start, len)) in out.iter_mut().zip(v) {
+            *slot = [start, len];
+        }
     }
-    let n = v.len().min(capacity);
-    let out = std::slice::from_raw_parts_mut(positions, n);
-    for (slot, (start, len)) in out.iter_mut().zip(v) {
-        *slot = [start, len];
-    }
-    n as i32
+    WildResult { matched: matched.into(), count }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    extern "C" fn lower(b: c_int) -> c_int {
+        (b as u8).to_ascii_lowercase() as c_int
+    }
+
+    #[test]
+    fn wildcard_null_inputs_and_output() {
+        unsafe {
+            let result = nzbget_rs_wild_match(
+                std::ptr::null(), std::ptr::null(), std::ptr::null_mut(), usize::MAX, std::ptr::null(), 1, lower,
+            );
+            assert_eq!((result.matched, result.count), (1, 0));
+            let result = nzbget_rs_wild_match(
+                b"?\0".as_ptr().cast(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null(), 1, lower,
+            );
+            assert_eq!((result.matched, result.count), (0, 0));
+        }
+    }
+
+    #[test]
+    fn wildcard_failure_preserves_partial_positions() {
+        let mut positions = [[-99; 2]; 3];
+        unsafe {
+            let result = nzbget_rs_wild_match(
+                b"?x\0".as_ptr().cast(), b"ay\0".as_ptr().cast(),
+                positions.as_mut_ptr(), positions.len(), std::ptr::null(), 1, lower,
+            );
+            assert_eq!((result.matched, result.count), (0, 1));
+            assert_eq!(positions, [[0, 1], [-99; 2], [-99; 2]]);
+        }
+    }
+
+    #[test]
+    fn wildcard_reports_untruncated_count_without_overwriting_capacity() {
+        let mut positions = [[-99; 2]; 2];
+        unsafe {
+            let result = nzbget_rs_wild_match(
+                b"*?ab\0".as_ptr().cast(), b"aaaaaaaaab\0".as_ptr().cast(),
+                positions.as_mut_ptr(), 1, std::ptr::null(), 1, lower,
+            );
+            assert_eq!(result.matched, 1);
+            assert!(result.count > 5);
+            assert_eq!(positions[1], [-99; 2]);
+            let mut full = vec![[0; 2]; result.count];
+            let retried = nzbget_rs_wild_match(
+                b"*?ab\0".as_ptr().cast(), b"aaaaaaaaab\0".as_ptr().cast(),
+                full.as_mut_ptr(), full.len(), std::ptr::null(), 1, lower,
+            );
+            assert_eq!((retried.matched, retried.count), (1, result.count));
+            assert_eq!(full[0], positions[0]);
+            let zero = nzbget_rs_wild_match(
+                b"*?ab\0".as_ptr().cast(), b"aaaaaaaaab\0".as_ptr().cast(),
+                positions.as_mut_ptr(), 0, std::ptr::null(), 1, lower,
+            );
+            assert_eq!(zero.count, result.count);
+            assert_eq!(positions[1], [-99; 2]);
+        }
+    }
 
     type Encoder = unsafe extern "C" fn(*const c_char) -> RsBuf;
 

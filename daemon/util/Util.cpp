@@ -28,6 +28,8 @@
 #include "Util.h"
 #ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
+#include <climits>
+#include <stdexcept>
 #include <limits>
 #endif
 
@@ -2096,21 +2098,61 @@ int RegEx::GetMatchLen(int index)
 
 
 #ifdef NZBGET_USE_RUST
+namespace
+{
+	// tolower of a byte as WildMask's C++ code saw it: a char (signed or not, as
+	// on the platform) in the current locale, EOF kept distinct from 255
+	int WildMaskFold(int byte)
+	{
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		// glibc supports negative signed chars for legacy programs
+		return tolower(ch);
+#else
+		// Darwin and musl leave negative characters unchanged; don't pass them
+		// outside the standard tolower domain
+		return ch < 0 ? ch : tolower(ch);
+#endif
+	}
+}
+
 bool WildMask::Match(const char* text)
 {
 	// rust/src/wildmask.rs
+#ifdef __GLIBC__
+	// what tolower reads: the table of this thread's locale
+	const int* table = reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#else
+	const int* table = nullptr;
+#endif
+	m_wildCount = 0;
+	m_wildStart.clear();
+	m_wildLen.clear();
 	if (!m_wantsPositions)
 	{
-		m_wildCount = 0;
-		return nzbget_rs_wild_match(m_pattern, text, nullptr, 0) >= 0;
+		return nzbget_rs_wild_match(m_pattern, text, nullptr, 0, table, CHAR_MIN < 0, WildMaskFold).matched != 0;
 	}
 
-	// a pattern of n bytes has at most n wildcard matches
-	size_t capacity = strlen(m_pattern) + 1;
-	std::vector<std::array<int, 2>> positions(capacity);
-	int count = nzbget_rs_wild_match(m_pattern, text,
-		reinterpret_cast<int (*)[2]>(positions.data()), capacity);
-	m_wildCount = count < 0 ? 0 : count;
+	// Backtracking can retain more captures than there are pattern bytes.
+	// Rust reports the total count even for failed or truncated matches.
+	size_t capacity = 100;
+	std::unique_ptr<int[][2]> positions(new int[capacity][2]);
+	auto match = [&]() {
+		return nzbget_rs_wild_match(m_pattern, text,
+			positions.get(), capacity, table, CHAR_MIN < 0, WildMaskFold);
+	};
+	auto result = match();
+	if (result.count > capacity)
+	{
+		capacity = result.count;
+		positions.reset(new int[capacity][2]);
+		result = match();
+	}
+	if (result.count > static_cast<size_t>(INT_MAX))
+	{
+		throw std::length_error("Too many wildcard captures");
+	}
+	m_wildCount = static_cast<int>(result.count);
 	m_wildStart.resize(m_wildCount);
 	m_wildLen.resize(m_wildCount);
 	for (int i = 0; i < m_wildCount; i++)
@@ -2118,7 +2160,7 @@ bool WildMask::Match(const char* text)
 		m_wildStart[i] = positions[i][0];
 		m_wildLen[i] = positions[i][1];
 	}
-	return count >= 0;
+	return result.matched != 0;
 }
 #else
 void WildMask::ExpandArray()
