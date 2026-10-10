@@ -85,8 +85,8 @@ pub fn xml_strip_tags(buf: &mut [u8]) {
 }
 
 /// WebUtil::XmlRemoveEntities: "&name;" / "&#123;" become one space.
-/// `is_alpha` is the C library's isalpha of the current locale for bytes from
-/// 0x80 (as the C++ char, see nzbget_rs.h).
+/// `is_alpha` classifies each byte in the caller's locale and char signedness
+/// (see nzbget_rs.h), including locale-specific ASCII letters.
 pub fn xml_remove_entities(buf: &mut [u8], is_alpha: &dyn Fn(u8) -> bool) -> usize {
     let len = buf.len();
     let (mut p, mut o) = (0, 0);
@@ -95,7 +95,7 @@ pub fn xml_remove_entities(buf: &mut [u8], is_alpha: &dyn Fn(u8) -> bool) -> usi
             let mut q = p + 1;
             while q < len && {
                 let b = buf[q];
-                if b < 0x80 { b.is_ascii_alphanumeric() || b == b'#' } else { is_alpha(b) }
+                is_alpha(b) || b.is_ascii_digit() || b == b'#'
             } {
                 q += 1;
             }
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(inplace(http_unquote, b"\"a\\\"b\\\\c\"rest"), b"a\"b\\c");
         assert_eq!(inplace(http_unquote, b"plain"), b"plain");
         assert_eq!(inplace(url_decode, b"a%20b%zz%4"), b"a b\0%4");
-        assert_eq!(inplace(|b| xml_remove_entities(b, &|_| false), b"x&amp;y&#12;z&nope"), b"x y z&nope");
+        assert_eq!(inplace(|b| xml_remove_entities(b, &|c| c.is_ascii_alphabetic()), b"x&amp;y&#12;z&nope"), b"x y z&nope");
         let mut v = b"a<b>c<d".to_vec();
         xml_strip_tags(&mut v);
         assert_eq!(v, b"a   c<d");

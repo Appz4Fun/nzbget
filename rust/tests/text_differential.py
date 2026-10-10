@@ -33,6 +33,7 @@ harness = r'''
 #include <cstring>
 #include <limits>
 #include <string>
+#include <vector>
 #include "nzbget_rs.h"
 typedef unsigned int uint32;
 typedef unsigned char uchar;
@@ -51,8 +52,10 @@ for sig in ("void WebUtil::XmlDecode(char* raw)", "void WebUtil::XmlStripTags(ch
             "void WebUtil::UrlDecode(char* raw)", "CString WebUtil::UrlEncode(const char* raw)",
             "CString WebUtil::Latin1ToUtf8(const char* str)"):
     harness += block(old, sig + "\n{")
+# Exercise the actual production classifier, including its platform guards.
+harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
+                 "namespace\n{\n\t// Classify the byte")
 harness += r'''
-static int Alpha(int byte) { return isalpha(static_cast<char>(byte)); }
 static unsigned state = 0x7e57da7a;
 static unsigned next() { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; }
 static void fail(const char* what, const std::string& in) {
@@ -62,20 +65,24 @@ static void fail(const char* what, const std::string& in) {
     std::abort();
 }
 template <class F, class G> static void same(const char* what, const std::string& in, F c, G r) {
-    std::string a = in, b = in;
+    std::vector<char> a(in.size() + 1), b(in.size() + 1);
+    memcpy(a.data(), in.data(), in.size());
+    memcpy(b.data(), in.data(), in.size());
     c(a.data()); r(b.data());
-    if (strcmp(a.c_str(), b.c_str())) fail(what, in);
+    // Compare the entire in-place buffer, including bytes after decoded NULs
+    // and the untouched tail. strcmp would hide these differences.
+    if (memcmp(a.data(), b.data(), in.size() + 1)) fail(what, in);
 }
 static void check(const std::string& in) {
     same("XmlDecode", in, WebUtil::XmlDecode, nzbget_rs_xml_decode);
     same("XmlStripTags", in, WebUtil::XmlStripTags, nzbget_rs_xml_strip_tags);
-    same("XmlRemoveEntities", in, WebUtil::XmlRemoveEntities, [](char* s) { nzbget_rs_xml_remove_entities(s, Alpha); });
+    same("XmlRemoveEntities", in, WebUtil::XmlRemoveEntities, [](char* s) { nzbget_rs_xml_remove_entities(s, XmlEntityAlpha); });
     same("HttpUnquote", in, WebUtil::HttpUnquote, nzbget_rs_http_unquote);
     same("UrlDecode", in, WebUtil::UrlDecode, nzbget_rs_url_decode);
     for (int w = 0; w < 2; ++w) {
         CString c = w ? WebUtil::UrlEncode(in.c_str()) : WebUtil::Latin1ToUtf8(in.c_str());
         NzbgetRsBuf r = w ? nzbget_rs_url_encode(in.c_str()) : nzbget_rs_latin1_to_utf8(in.c_str());
-        if (strlen(c.p) != r.len || memcmp(c.p, r.data, r.len)) fail(w ? "UrlEncode" : "Latin1ToUtf8", in);
+        if (strlen(c.p) != r.len || memcmp(c.p, r.data, r.len + 1)) fail(w ? "UrlEncode" : "Latin1ToUtf8", in);
         nzbget_rs_free(r);
     }
 }
@@ -84,6 +91,17 @@ int main(int argc, char** argv) {
     long cases = 0;
     for (int l = 1; l < argc; ++l) {
         if (!setlocale(LC_CTYPE, argv[l])) std::abort();
+        for (const char* in : {"", "&", "&#", "&#x", "&#;", "&#x;", "&#0", "&#0;tail",
+                "&#xD800;", "&#x10ffff;", "&#1114112;", "&#999999999999999999999999;",
+                "&#xFFFFFFFFFFFFFFFFFFF;", "&lt;&gt;&amp;&apos;&quot;", "&&amp;", "&@;",
+                "<![CDATA[&lt;<tag>]]>tail", "<![CDATA[unclosed", "<![CDATA[]]>",
+                "<open", "<a><b>tail", "\"a\\\"b\\\\c\"tail", "\"trailing\\", "\"",
+                "%", "%4", "%00tail%41", "%zztail", "a b  c"}) check(in);
+        check(std::string("%00a%41\0&@;tail", 15));
+        // Every possible URL escape pair, including invalid and high bytes.
+        for (int a = 1; a < 256; ++a)
+            for (int b = 1; b < 256; ++b)
+                check(std::string("%") + char(a) + char(b) + "tail%00end");
         for (int i = 0; i < 400000; ++i) {
             std::string in(next() % 32, '\0');
             for (char& c : in) c = alphabet[next() % strlen(alphabet)];
@@ -107,6 +125,14 @@ with tempfile.TemporaryDirectory(prefix="nzbget-text-") as temp:
         env["LOCPATH"] = str(locdir)
         subprocess.run(["localedef", "--no-archive", "-i", "en_US", "-f", "ISO-8859-15", str(locdir / "en_US.ISO8859-15")], check=True)
         locales.append("en_US.ISO8859-15")
+        # POSIX permits additional alphabetic characters outside the C locale,
+        # including ASCII punctuation. Do not assume bytes < 0x80 are invariant.
+        custom = temp / "custom-locale"
+        custom.write_text(Path("/usr/share/i18n/locales/en_US").read_text().replace(
+            'copy "i18n"', 'alpha <U0041>..<U005A>;<U0061>..<U007A>;<U0040>'))
+        subprocess.run(["localedef", "--no-archive", "-i", str(custom), "-f", "ISO-8859-15",
+                        str(locdir / "custom.ISO8859-15")], check=True)
+        locales.append("custom.ISO8859-15")
     cargo = subprocess.run(["cargo", "rustc", "--lib", "--release", "--locked", "--target-dir", str(temp / "target"),
                             "--", "--print", "native-static-libs"], cwd=ROOT / "rust", env=env,
                            capture_output=True, text=True, check=True)

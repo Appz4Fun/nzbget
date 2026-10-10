@@ -1309,10 +1309,18 @@ void WebUtil::XmlStripTags(char* xml)
 #ifdef NZBGET_USE_RUST
 namespace
 {
-	// isalpha as XmlRemoveEntities' C++ code called it: on a (signed) char
+	// Classify the byte as the caller's char, preserving glibc's legacy
+	// negative-byte entries (in particular, EOF is distinct from byte 255).
 	int XmlEntityAlpha(int byte)
 	{
-		return isalpha(static_cast<char>(byte));
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		return (*__ctype_b_loc())[ch] & _ISalpha;
+#else
+		// Darwin and musl do not classify negative chars as alphabetic.
+		// Avoid passing them outside the standard isalpha domain.
+		return ch < 0 ? 0 : isalpha(ch);
+#endif
 	}
 }
 
