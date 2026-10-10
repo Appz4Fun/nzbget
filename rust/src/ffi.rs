@@ -162,6 +162,12 @@ pub unsafe extern "C" fn nzbget_rs_json_next_value(text: *const c_char, value_le
     }
 }
 
+/// Crc32::Combine: the CRC of A then B from CRC(A), CRC(B) and B's length.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_crc32_combine(crc1: u32, crc2: u32, len2: u32) -> u32 {
+    crate::crc::combine(crc1, crc2, len2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
