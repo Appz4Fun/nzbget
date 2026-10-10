@@ -109,17 +109,21 @@ pub unsafe extern "C" fn nzbget_rs_wild_match(
 }
 
 /// Base64-decodes `input` into `output` (WebUtil::DecodeBase64); a length of
-/// 0 or less means up to the NUL. `output` may be `input`.
+/// 0 or less means up to the NUL, with the legacy uint32 length truncation.
+/// `output` may be `input`.
 ///
 /// # Safety
-/// `input` is readable for its length (or up to its NUL); `output` is
-/// writable for three quarters of that and is `input` or doesn't overlap it.
+/// `input` is null or readable for its length (or through its NUL). Null input
+/// returns zero without accessing output. Otherwise `output` is writable for
+/// `len / 4 * 3` bytes and is `input` or doesn't overlap it. No terminator is
+/// written. Both buffers remain caller-owned.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_decode_base64(input: *const c_char, length: c_int, output: *mut c_char) -> u32 {
     if input.is_null() {
         return 0;
     }
-    let len = if length > 0 { length as usize } else { CStr::from_ptr(input).to_bytes().len() };
+    // C++ stores strlen's result in uint32 before reading any quartets.
+    let len = if length > 0 { length as usize } else { CStr::from_ptr(input).to_bytes().len() as u32 as usize };
     crate::decode::base64_in_place(input.cast(), len, output.cast()) as u32
 }
 
@@ -161,6 +165,40 @@ pub unsafe extern "C" fn nzbget_rs_json_next_value(text: *const c_char, value_le
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoder_null_arguments_and_failed_value_preserve_length() {
+        unsafe {
+            assert_eq!(nzbget_rs_decode_base64(std::ptr::null(), 4, std::ptr::null_mut()), 0);
+            nzbget_rs_json_decode(std::ptr::null_mut());
+            let mut length = -7;
+            for text in [std::ptr::null(), b"\0".as_ptr().cast(), b"\"x\\a\0".as_ptr().cast()] {
+                assert!(nzbget_rs_json_next_value(text, &mut length).is_null());
+                assert_eq!(length, -7);
+            }
+            assert!(nzbget_rs_json_next_value(b"123\0".as_ptr().cast(), std::ptr::null_mut()).is_null());
+        }
+    }
+
+    #[test]
+    fn decoder_in_place_buffers_and_borrowed_value_pointer() {
+        unsafe {
+            let mut base64 = *b"YWJj\0YQ==!";
+            let ptr = base64.as_mut_ptr().cast();
+            assert_eq!(nzbget_rs_decode_base64(ptr, 9, ptr), 4);
+            assert_eq!(&base64, b"abca\0YQ==!");
+
+            let mut json = *b"\\ud83d\\ude00\\u0000\0!";
+            nzbget_rs_json_decode(json.as_mut_ptr().cast());
+            assert_eq!(&json[..8], b"\xf0\x9f\x98\x80\xef\xbf\xbd\0");
+            assert_eq!(json[19], b'!');
+
+            let text = b" ,\"x\\\"y\", rest\0";
+            let mut length = -7;
+            assert_eq!(nzbget_rs_json_next_value(text.as_ptr().cast(), &mut length), text.as_ptr().add(2).cast());
+            assert_eq!(length, 6);
+        }
+    }
 
     extern "C" fn lower(b: c_int) -> c_int {
         (b as u8).to_ascii_lowercase() as c_int

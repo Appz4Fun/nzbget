@@ -44,10 +44,17 @@ NzbgetRsWildResult nzbget_rs_wild_match(const char* pattern, const char* text,
 	int (*positions)[2], size_t capacity, const int* table, int char_signed, int (*fold)(int));
 
 // RPC request decoders (rust/src/decode.rs), as WebUtil's:
-// base64 (length <= 0: up to the NUL; output may be input), JSON string body
-// in place, and the next JSON value (null at the end)
+// All buffers remain caller-owned; these functions allocate no result buffers.
+// Base64: NULL input returns 0. Otherwise input is readable for length bytes,
+// or, when length <= 0, through the NUL (strlen is truncated to uint32 as in
+// C++). Output has room for len / 4 * 3 bytes, and is input or disjoint from it.
+// Returns bytes written, without a terminator.
 unsigned int nzbget_rs_decode_base64(const char* input, int length, char* output);
+// raw is NULL (no-op) or a writable NUL-terminated string, decoded in place.
 void nzbget_rs_json_decode(char* raw);
+// text is NULL or NUL-terminated; valueLength is NULL or a writable int.
+// Returns a pointer into text, or NULL on failure (including either NULL
+// argument). Leaves valueLength unchanged on failure.
 const char* nzbget_rs_json_next_value(const char* text, int* valueLength);
 
 #ifdef __cplusplus
