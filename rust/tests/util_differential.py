@@ -34,6 +34,7 @@ harness = r'''
 #include <cinttypes>
 #include <climits>
 #include <clocale>
+#include <cfenv>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -134,16 +135,45 @@ int main(int argc, char** argv) {
         uint32 init = next();
         int len = s.size();
         if (Util::HashBJ96(s.c_str(), len, init) != nzbget_rs_hash_bj96(s.c_str(), len, init)) fail("HashBJ96", s);
-        std::string r = rnd("TF|()-x", 30), from = rnd("TF|()-", 3), to = from.substr(0, from.empty() ? 0 : next() % from.size());  // shorter, as all callers (an equal one looped forever)
-        if (!from.empty()) {
+        std::string r = rnd("TF|()-x", 30), from = rnd("TF|()-", 3), to = rnd("TF|()-x", from.size() + 1);
+        if (!from.empty() && from != to) {
             std::string a = r, b = r;
             Util::ReduceStr(a.data(), from.c_str(), to.c_str());
             nzbget_rs_reduce_str(b.data(), from.c_str(), to.c_str());
-            if (strcmp(a.c_str(), b.c_str())) fail("ReduceStr", r + " " + from + " " + to);
+            if (a != b) fail("ReduceStr", r + " " + from + " " + to);
         }
         cases += 3;
     }
+    // Equal-size replacement truncates the suffix in the legacy forward copy.
+    {
+        std::string a = "abc", b = a;
+        Util::ReduceStr(a.data(), "ab", "xy");
+        nzbget_rs_reduce_str(b.data(), "ab", "xy");
+        if (a != b) fail("ReduceStr equal length", b);
+    }
+    // The replacement can alias the buffer and change after each reduction.
+    {
+        std::string a = "ababX", b = a;
+        Util::ReduceStr(a.data(), "ab", a.data() + 4);
+        nzbget_rs_reduce_str(b.data(), "ab", b.data() + 4);
+        if (a != b) fail("ReduceStr aliased operand", b);
+    }
+    {
+        std::string a = "abaXaba", b = a;
+        Util::ReduceStr(a.data(), a.data() + 4, "Z");
+        nzbget_rs_reduce_str(b.data(), b.data() + 4, "Z");
+        if (a != b) fail("ReduceStr aliased pattern", b);
+    }
     for (int l = 1; l < argc; ++l) {
+        if (!setlocale(LC_NUMERIC, argv[l])) std::abort();
+        for (int rounding : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+            if (fesetround(rounding)) std::abort();
+            for (int64 x : {1536ll, 1024001ll, 85496208ll, 1073741825ll, 12345678901ll}) {
+                if (std::string(Util::FormatSize(x).m_data) != take(nzbget_rs_format_size(x))) fail("FormatSize numeric locale/rounding", std::to_string(x));
+                if (std::string(Util::FormatSpeed(x).m_data) != take(nzbget_rs_format_speed(x))) fail("FormatSpeed numeric locale/rounding", std::to_string(x));
+            }
+        }
+        fesetround(FE_TONEAREST);
         if (!setlocale(LC_CTYPE, argv[l])) std::abort();
 #ifdef __GLIBC__
         const int* table = reinterpret_cast<const int*>(*__ctype_tolower_loc());
@@ -153,7 +183,8 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 200000; ++i) {
             std::string f = rnd("aAiIr.0zZ\xe9\xc9\xfd", 10), list = rnd(".aAiIr0*?#, ;\t\xe9\xc9", 20);
             bool c = Util::MatchFileExt(f.c_str(), list.c_str(), ",;");
-            bool r = nzbget_rs_match_file_ext(f.c_str(), list.c_str(), ",;", table, CHAR_MIN < 0, CaseFold, MaskFold) != 0;
+            const int* useTable = i % 3 ? table : nullptr;
+            bool r = nzbget_rs_match_file_ext(f.c_str(), list.c_str(), ",;", useTable, CHAR_MIN < 0, useTable && i % 2 ? nullptr : CaseFold, useTable && i % 2 ? nullptr : MaskFold) != 0;
             if (c != r) fail("MatchFileExt", f + " | " + list);
             ++cases;
         }

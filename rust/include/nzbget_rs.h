@@ -87,14 +87,24 @@ const char* nzbget_rs_json_find_field(const char* text, const char* field, int* 
 NzbgetRsBuf nzbget_rs_content_disposition_filename(const char* contentDisposition,
 	const int* table, int (*fold)(int));
 
-// Util's string helpers (rust/src/util.rs)
+// Util's string helpers (rust/src/util.rs). Format results are Rust-owned;
+// copy and release with nzbget_rs_free. Numeric formatting uses LC_NUMERIC.
+// Panics abort and never unwind through C++.
 NzbgetRsBuf nzbget_rs_format_size(long long size);
 NzbgetRsBuf nzbget_rs_format_speed(long long bytesPerSecond);
+// NULL is treated as an empty string.
 int nzbget_rs_alpha_num(const char* str);
+// buffer is NULL (hashed as empty) or readable for (unsigned int)bufSize bytes.
 unsigned int nzbget_rs_hash_bj96(const char* buffer, int bufSize, unsigned int initValue);
+// Caller-owned writable NUL-terminated str; from/to are NUL-terminated and
+// may point into str. Any NULL argument is a no-op. Empty patterns and growing
+// replacements are no-ops; equal-length replacements retain C++ truncation.
 void nzbget_rs_reduce_str(char* str, const char* from, const char* to);
 // case folding: glibc's tolower table (*__ctype_tolower_loc()) or NULL for
-// the callbacks: caseFold(byte 0..255) as strcasecmp, maskFold as WildMask's
+// the callbacks: caseFold(byte 0..255) as strcasecmp, maskFold as WildMask's.
+// Callbacks must not unwind or mutate input storage. They may both be NULL
+// with a table; without a table either NULL callback returns false.
+// NULL strings are empty; non-NULL strings must be readable and NUL-terminated.
 int nzbget_rs_match_file_ext(const char* filename, const char* extensionList, const char* listSeparator,
 	const int* table, int charSigned, int (*caseFold)(int), int (*maskFold)(int));
 

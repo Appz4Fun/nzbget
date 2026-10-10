@@ -325,20 +325,16 @@ pub unsafe extern "C" fn nzbget_rs_content_disposition_filename(
     }
 }
 
-fn string_buf(s: String) -> RsBuf {
-    into_buf(s.into_bytes())
-}
-
 /// Util::FormatSize; free the result with nzbget_rs_free.
 #[no_mangle]
 pub extern "C" fn nzbget_rs_format_size(size: i64) -> RsBuf {
-    string_buf(crate::util::format_size(size))
+    into_buf(crate::util::format_size(size))
 }
 
 /// Util::FormatSpeed; free the result with nzbget_rs_free.
 #[no_mangle]
 pub extern "C" fn nzbget_rs_format_speed(bytes_per_second: i64) -> RsBuf {
-    string_buf(crate::util::format_speed(bytes_per_second))
+    into_buf(crate::util::format_speed(bytes_per_second))
 }
 
 /// Util::AlphaNum.
@@ -353,7 +349,7 @@ pub unsafe extern "C" fn nzbget_rs_alpha_num(s: *const c_char) -> c_int {
 /// Util::HashBJ96 over `len` bytes (the C++ uint32 of an int length).
 ///
 /// # Safety
-/// `buf` is readable for `len` bytes (as uint32).
+/// `buf` is null or readable for `len` bytes (as uint32), at most isize::MAX.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_hash_bj96(buf: *const c_char, len: c_int, init: u32) -> u32 {
     let len = len as u32 as usize;
@@ -367,11 +363,10 @@ pub unsafe extern "C" fn nzbget_rs_hash_bj96(buf: *const c_char, len: c_int, ini
 ///
 /// # Safety
 /// `s` is null or a writable NUL-terminated string; `from` and `to` are null
-/// or NUL-terminated.
+/// or NUL-terminated. Operands may alias `s`; any null argument is a no-op.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_reduce_str(s: *mut c_char, from: *const c_char, to: *const c_char) {
-    let (from, to) = (input(from).to_vec(), input(to).to_vec());
-    in_place(s, |b| crate::util::reduce_str(b, &from, &to))
+    crate::util::reduce_str(s, from, to)
 }
 
 /// Util::MatchFileExt. Case folding: glibc's tolower `table` (entries
@@ -382,7 +377,8 @@ pub unsafe extern "C" fn nzbget_rs_reduce_str(s: *mut c_char, from: *const c_cha
 ///
 /// # Safety
 /// The strings are null or NUL-terminated; `table` is null or as described;
-/// the callbacks don't unwind.
+/// the callbacks don't unwind or mutate inputs. Callbacks may be null when
+/// a table is supplied.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_match_file_ext(
     filename: *const c_char,
@@ -394,9 +390,11 @@ pub unsafe extern "C" fn nzbget_rs_match_file_ext(
     mask_fold: Option<extern "C" fn(c_int) -> c_int>,
 ) -> c_int {
     use crate::wildmask::Lower;
-    let (Some(cf), Some(mf)) = (case_fold, mask_fold) else { return 0 };
-    let case_call = |b: u8| cf(b as c_int);
-    let mask_call = |b: u8| mf(b as c_int);
+    if table.is_null() && (case_fold.is_none() || mask_fold.is_none()) {
+        return 0;
+    }
+    let case_call = |b: u8| case_fold.expect("callback checked above")(b as c_int);
+    let mask_call = |b: u8| mask_fold.expect("callback checked above")(b as c_int);
     let (case_lower, mask_lower) = if table.is_null() {
         (Lower::Fold(&case_call), Lower::Fold(&mask_call))
     } else {
@@ -409,6 +407,38 @@ pub unsafe extern "C" fn nzbget_rs_match_file_ext(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn util_ffi_nulls_ownership_and_table_without_callbacks() {
+        unsafe {
+            assert_eq!(nzbget_rs_alpha_num(std::ptr::null()), 1);
+            assert_eq!(nzbget_rs_hash_bj96(std::ptr::null(), 7, 42), crate::util::hash_bj96(&[], 42));
+            nzbget_rs_reduce_str(std::ptr::null_mut(), std::ptr::null(), std::ptr::null());
+            let mut raw = *b"abc\0";
+            nzbget_rs_reduce_str(raw.as_mut_ptr().cast(), std::ptr::null(), c"".as_ptr());
+            assert_eq!(&raw, b"abc\0");
+            for (format, expected) in [
+                (nzbget_rs_format_size as extern "C" fn(i64) -> RsBuf, &b"512 B\0"[..]),
+                (nzbget_rs_format_speed, &b"0 KB/s\0"[..]),
+            ] {
+                let first = format(512);
+                let second = format(12345);
+                nzbget_rs_free(second);
+                assert_eq!(std::slice::from_raw_parts(first.data.cast::<u8>(), first.len + 1), expected);
+                nzbget_rs_free(first);
+            }
+            let mut table = [0; 384];
+            for (i, entry) in table.iter_mut().enumerate() {
+                *entry = if i >= 128 { ((i - 128) as u8).to_ascii_lowercase() as c_int } else { i as c_int - 128 };
+            }
+            for list in [c".NZB", c"*.NZ?"] {
+                assert_eq!(nzbget_rs_match_file_ext(c"a.nzb".as_ptr(), list.as_ptr(), c",".as_ptr(),
+                    table.as_ptr().add(128), 1, None, None), 1);
+            }
+            assert_eq!(nzbget_rs_match_file_ext(std::ptr::null(), std::ptr::null(), std::ptr::null(),
+                std::ptr::null(), 1, None, None), 0);
+        }
+    }
 
     extern "C" fn entity_alpha(byte: c_int) -> c_int {
         assert!((0..=255).contains(&byte));

@@ -3,42 +3,69 @@
 //! code it replaces, quirks included.
 
 use crate::wildmask::Lower;
+use std::ffi::{c_char, c_int, CStr};
+
+// Use the process C runtime, just as CString::Format does. Rust's formatter
+// ignores LC_NUMERIC and the C floating-point rounding mode. Keep raw bytes:
+// a locale's decimal separator need not be UTF-8.
+extern "C" {
+    fn snprintf(buf: *mut c_char, size: usize, format: *const c_char, ...) -> c_int;
+}
+
+fn decimal(value: f64, precision: c_int, suffix: &[u8]) -> Vec<u8> {
+    let mut buf = vec![0u8; 64];
+    loop {
+        // The fixed format and promoted varargs types agree; snprintf writes
+        // at most buf.len() bytes, including its terminator.
+        let n = unsafe { snprintf(buf.as_mut_ptr().cast(), buf.len(), c"%.*f".as_ptr(), precision, value) };
+        if n < 0 {
+            return Vec::new();
+        }
+        let n = n as usize;
+        if n < buf.len() {
+            buf.truncate(n);
+            buf.extend_from_slice(suffix);
+            return buf;
+        }
+        buf.resize(n + 1, 0);
+    }
+}
 
 /// Util::FormatSize: the C++ computes in float and prints with "%.2f".
-pub fn format_size(size: i64) -> String {
+pub fn format_size(size: i64) -> Vec<u8> {
     let f = size as f32;
     if size > 1024 * 1024 * 1000 {
-        format!("{:.2} GB", (f / 1024.0 / 1024.0 / 1024.0) as f64)
+        decimal((f / 1024.0 / 1024.0 / 1024.0) as f64, 2, b" GB")
     } else if size > 1024 * 1000 {
-        format!("{:.2} MB", (f / 1024.0 / 1024.0) as f64)
+        decimal((f / 1024.0 / 1024.0) as f64, 2, b" MB")
     } else if size > 1000 {
-        format!("{:.2} KB", (f / 1024.0) as f64)
+        decimal((f / 1024.0) as f64, 2, b" KB")
     } else if size == 0 {
-        "0 MB".to_string()
+        b"0 MB".to_vec()
     } else {
         // (int) of an int64: wraps
-        format!("{} B", size as i32)
+        format!("{} B", size as i32).into_bytes()
     }
 }
 
 /// Util::FormatSpeed.
-pub fn format_speed(bps: i64) -> String {
+pub fn format_speed(bps: i64) -> Vec<u8> {
     const K: i64 = 1024;
     let d = bps as f64;
     if bps >= 100 * K * K * K {
-        format!("{} GB/s", bps / K / K / K)
+        format!("{} GB/s", bps / K / K / K).into_bytes()
     } else if bps >= 10 * K * K * K {
-        format!("{:.1} GB/s", d / 1024.0 / 1024.0 / 1024.0)
+        decimal(d / 1024.0 / 1024.0 / 1024.0, 1, b" GB/s")
     } else if bps >= K * K * K {
-        format!("{:.2} GB/s", d / 1024.0 / 1024.0 / 1024.0)
+        decimal(d / 1024.0 / 1024.0 / 1024.0, 2, b" GB/s")
     } else if bps >= 100 * K * K {
-        format!("{} MB/s", bps / K / K)
+        format!("{} MB/s", bps / K / K).into_bytes()
     } else if bps >= 10 * K * K {
-        format!("{:.1} MB/s", d / 1024.0 / 1024.0)
+        decimal(d / 1024.0 / 1024.0, 1, b" MB/s")
     } else if bps >= K * 1000 {
-        format!("{:.2} MB/s", d / 1024.0 / 1024.0)
+        decimal(d / 1024.0 / 1024.0, 2, b" MB/s")
     } else {
-        format!("{} KB/s", bps / K)
+        format!("{} KB/s", bps / K).into_bytes()
     }
 }
 
@@ -83,26 +110,58 @@ pub fn hash_bj96(k: &[u8], init: u32) -> u32 {
     c
 }
 
-/// Util::ReduceStr, in place: every `from` becomes `to` (shorter or the same
-/// length), looking again from the start after each replacement, as the C++
-/// did; a match can only reappear where the text changed, so the search goes
-/// on from there. An empty `from` or a `to` equal to it (the C++ looped
-/// forever) or a longer `to` (it wrote past the text) leaves the text as it
-/// is. Returns the length.
-pub fn reduce_str(buf: &mut [u8], from: &[u8], to: &[u8]) -> usize {
-    let mut len = buf.len();
-    if from.is_empty() || to.len() > from.len() || to == from {
-        return len;
+/// Util::ReduceStr, preserving the legacy forward copies, including every
+/// intermediate NUL and the truncation caused by equal-length replacements.
+/// Read operands afresh: they may point into the buffer being modified.
+///
+/// # Safety
+/// `s` is null or a writable NUL-terminated string. `from` and `to` are null
+/// or readable NUL-terminated strings, and may alias `s`. As in C++, operands
+/// must stay terminated during the call. Empty patterns and growing
+/// replacements (which could loop forever or overflow in C++) are no-ops.
+pub unsafe fn reduce_str(s: *mut c_char, from: *const c_char, to: *const c_char) {
+    if s.is_null() || from.is_null() || to.is_null() {
+        return;
     }
-    let mut at = 0;
-    while let Some(k) = buf[at..len].windows(from.len()).position(|w| w == from) {
-        let p = at + k;
-        buf[p..p + to.len()].copy_from_slice(to);
-        buf.copy_within(p + from.len()..len, p + to.len());
-        len -= from.len() - to.len();
-        at = (p + 1).saturating_sub(from.len());
+    let capacity = CStr::from_ptr(s).to_bytes().len();
+    let len_from = CStr::from_ptr(from).to_bytes().len();
+    let len_to = CStr::from_ptr(to).to_bytes().len();
+    if len_from == 0 || len_to > len_from || CStr::from_ptr(from) == CStr::from_ptr(to) {
+        return;
     }
-    len
+    loop {
+        // End all shared borrows before writing; an operand may alias s.
+        let text = CStr::from_ptr(s).to_bytes();
+        let pattern = CStr::from_ptr(from).to_bytes();
+        if pattern.is_empty() {
+            return;
+        }
+        let Some(p) = text.windows(pattern.len()).position(|w| w == pattern) else { return };
+        // Aliasing can change either operand's length. The C++ still uses
+        // their initial lengths to locate the tail, even past the current
+        // NUL. Bound access by the original allocation's known string span.
+        let replacement_len = CStr::from_ptr(to).to_bytes().len();
+        let shift = len_from - len_to;
+        if shift > capacity - p || replacement_len > capacity - p - shift {
+            return;
+        }
+        for i in 0..=replacement_len {
+            let byte = *to.add(i);
+            *s.add(p + i) = byte;
+            // A forward-overlapping copy that overwrote its own terminator
+            // would run off the allocation in C++; stop before doing that.
+            if i == replacement_len && byte != 0 { return; }
+        }
+        let mut dest = p + replacement_len;
+        let mut source = dest + shift;
+        loop {
+            let byte = *s.add(source);
+            *s.add(dest) = byte;
+            if byte == 0 { break; }
+            dest += 1;
+            source += 1;
+        }
+    }
 }
 
 /// The tokens of the C++ Tokenizer: strtok_r's (runs between separators),
@@ -135,12 +194,12 @@ mod tests {
 
     #[test]
     fn formats() {
-        assert_eq!(format_size(0), "0 MB");
-        assert_eq!(format_size(512), "512 B");
-        assert_eq!(format_size(1536), "1.50 KB");
-        assert_eq!(format_size(5 * 1024 * 1024 * 1024), "5.00 GB");
-        assert_eq!(format_speed(500), "0 KB/s");
-        assert_eq!(format_speed(85_496_208), "81.5 MB/s");
+        assert_eq!(format_size(0), b"0 MB");
+        assert_eq!(format_size(512), b"512 B");
+        assert_eq!(format_size(1536), b"1.50 KB");
+        assert_eq!(format_size(5 * 1024 * 1024 * 1024), b"5.00 GB");
+        assert_eq!(format_speed(500), b"0 KB/s");
+        assert_eq!(format_speed(85_496_208), b"81.5 MB/s");
     }
 
     #[test]
@@ -154,12 +213,19 @@ mod tests {
 
     #[test]
     fn reduce() {
-        let mut b = b"TTTF|FT".to_vec();
-        let n = reduce_str(&mut b, b"TT", b"T");
-        assert_eq!(&b[..n], b"TF|FT");
-        let mut b = b"a-b--c".to_vec();
-        let n = reduce_str(&mut b, b"-", b"");
-        assert_eq!(&b[..n], b"abc");
+        unsafe {
+            for (raw, from, to, expected) in [
+                (&b"TTTF|FT\0"[..], c"TT", c"T", &b"TF|FT\0\0\0"[..]),
+                (&b"abc\0"[..], c"ab", c"xy", &b"xy\0\0"[..]),
+            ] {
+                let mut b = raw.to_vec();
+                reduce_str(b.as_mut_ptr().cast(), from.as_ptr(), to.as_ptr());
+                assert_eq!(b, expected);
+            }
+            let mut b = *b"ababX\0";
+            reduce_str(b.as_mut_ptr().cast(), c"ab".as_ptr(), b.as_ptr().add(4).cast());
+            assert_eq!(&b, b"XbX\0\0\0");
+        }
     }
 
     #[test]
