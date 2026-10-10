@@ -126,7 +126,7 @@ pub unsafe fn reduce_str(s: *mut c_char, from: *const c_char, to: *const c_char)
     let capacity = CStr::from_ptr(s).to_bytes().len();
     let len_from = CStr::from_ptr(from).to_bytes().len();
     let len_to = CStr::from_ptr(to).to_bytes().len();
-    if len_from == 0 || len_to > len_from || CStr::from_ptr(from) == CStr::from_ptr(to) {
+    if len_from == 0 || len_to > len_from {
         return;
     }
     loop {
@@ -225,6 +225,11 @@ mod tests {
             let mut b = *b"ababX\0";
             reduce_str(b.as_mut_ptr().cast(), c"ab".as_ptr(), b.as_ptr().add(4).cast());
             assert_eq!(&b, b"XbX\0\0\0");
+            // Initially equal operands are not a no-op: the first copy
+            // truncates the aliased replacement, so the next deletes 'a'.
+            let mut b = *b"aa\0";
+            reduce_str(b.as_mut_ptr().cast(), c"a".as_ptr(), b.as_ptr().add(1).cast());
+            assert_eq!(&b, b"\0\0\0");
         }
     }
 

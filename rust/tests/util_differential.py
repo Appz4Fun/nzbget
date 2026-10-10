@@ -152,6 +152,13 @@ int main(int argc, char** argv) {
         if (a != b) fail("ReduceStr equal length", b);
     }
     // The replacement can alias the buffer and change after each reduction.
+    // This also applies when the operands initially have identical contents.
+    {
+        std::string a = "aa", b = a;
+        Util::ReduceStr(a.data(), "a", a.data() + 1);
+        nzbget_rs_reduce_str(b.data(), "a", b.data() + 1);
+        if (a != b) fail("ReduceStr initially equal aliased operand", b);
+    }
     {
         std::string a = "ababX", b = a;
         Util::ReduceStr(a.data(), "ab", a.data() + 4);
