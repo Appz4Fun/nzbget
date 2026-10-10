@@ -129,18 +129,25 @@ static void boundary(time_t now, time_t last, int offset, int hours, int minutes
 	long long check = last;
 	int reset = -1;
 	const size_t sentinel = std::numeric_limits<size_t>::max();
-	size_t guarded[11];
-	std::fill(std::begin(guarded), std::end(guarded), sentinel);
-	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded + 1, &reset,
-		[](long long value, NzbgetRsSchedTm* result) {
+	std::vector<size_t> guarded(11, sentinel);
+	auto calendar = [](long long value, NzbgetRsSchedTm* result) {
 			time_t time = value;
 			tm fields{};
 			gmtime_r(&time, &fields);
 			*result = {(long long)fields.tm_year + 1900, fields.tm_mon, fields.tm_mday,
 				fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
-		});
-	bool same = a.m_run == b.m_run && a.m_run == c.m_run && n == a.m_run.size() && n <= 9 &&
-		guarded[0] == sentinel && guarded[10] == sentinel &&
+		};
+	size_t n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded.data() + 1, 9, &reset, calendar);
+	bool same = true;
+	if (n > 9)
+	{
+		same = check == last && task.lastExecuted == executed && reset == -1 &&
+			std::all_of(guarded.begin(), guarded.end(), [=](size_t value) { return value == sentinel; });
+		guarded.assign(n + 2, sentinel);
+		n = nzbget_rs_scheduler_check(&task, 1, &check, now, offset, guarded.data() + 1, n, &reset, calendar);
+	}
+	same = same && a.m_run == b.m_run && a.m_run == c.m_run && n == a.m_run.size() && n <= guarded.size() - 2 &&
+		guarded.front() == sentinel && guarded.back() == sentinel &&
 		a.m_lastCheck == b.m_lastCheck && a.m_lastCheck == c.m_lastCheck && check == a.m_lastCheck &&
 		a.m_executeProcess == b.m_executeProcess && a.m_executeProcess == c.m_executeProcess &&
 		(reset == 0) == a.m_executeProcess &&
@@ -159,6 +166,14 @@ static void boundary(time_t now, time_t last, int offset, int hours, int minutes
 int main()
 {
 	tzset();
+	if (std::getenv("NZBGET_SCHEDULER_LEAP_STRESS"))
+	{
+		// libc accepts TZif corrections larger than a second. Repeated calendar
+		// dates can then produce more than nine runs of an unnormalized task.
+		boundary(80049600, 0, 0, 336, 0, 0, 0);
+		std::puts("large leap-correction check agrees");
+		return 0;
+	}
 	for (time_t now : {78796799, 78796800, 78796801, 78796860})
 	for (int gap : {0, 1, 60, 5400, 5401})
 	for (int hour : {-1, 0, 23})
@@ -196,7 +211,7 @@ int main()
 			}
 		}
 	}
-	std::printf("%ld boundary checks agree (guarded count * 9 output)\n", boundaries);
+	std::printf("%ld boundary checks agree (guarded output with capacity retry)\n", boundaries);
 	long checks = 0, runs = 0, resets = 0;
 	for (int scenario = 0; scenario < 4000; scenario++)
 	{
@@ -267,6 +282,11 @@ with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
     leap_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 1, 0, 1, 4)
                           + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
                           + struct.pack(">li", 78796800, 1))
+    stress_zone = temp / "leap-stress"
+    stress_zone.write_bytes(b"TZif\0" + bytes(15) + struct.pack(">6I", 0, 0, 15, 0, 1, 4)
+                            + struct.pack(">lBB", 0, 0, 0) + b"UTC\0"
+                            + b"".join(struct.pack(">li", 78796800 + i * 86400, 1 + i * 86400)
+                                       for i in range(15)))
     cargo = subprocess.run(["cargo", "rustc", "--lib", "--profile", "dev" if args.debug else "release",
                             "--locked", "--target-dir", str(temp / "target"),
                             "--", "--print", "native-static-libs"], cwd=ROOT / "rust", env=env,
@@ -280,6 +300,8 @@ with tempfile.TemporaryDirectory(prefix="nzbget-scheduler-") as temp:
                         "-I", str(ROOT / "rust/include"), "-I", str(ROOT / "daemon/util"), str(source),
                         str(temp / "target" / ("debug" if args.debug else "release") / "libnzbget_rs.a"),
                         *native, "-o", str(binary)], check=True, env=env)
+        subprocess.run([str(binary)], check=True,
+                       env=dict(env, TZ=f":{stress_zone}", NZBGET_SCHEDULER_LEAP_STRESS="1"))
         for timezone in ("UTC0", f":{leap_zone}"):
             print(f"Checking {'Debug' if args.debug else 'Release'}, {flags}, TZ={timezone}", flush=True)
             subprocess.run([str(binary)], check=True, env=dict(env, TZ=timezone))

@@ -1,5 +1,5 @@
 //! Scheduler::CheckTasks' timing: which scheduled tasks are due between the
-//! last check and now (local time), day by day over at most a week, with the
+//! last check and now (local time), day by day over the check interval, with the
 //! startup tasks and the reset after a clock jump. Running the tasks stays
 //! C++. Dates are computed as the C++ did: gmtime_r's fields and nzbget's
 //! Timegm (Boost's arithmetic, without normalizing the fields).
@@ -102,13 +102,10 @@ pub struct Check {
     pub reset: bool,
 }
 
-/// The most days the check loop visits: the last check is at most a week
-/// back (after a reset) and the loop starts less than a day before it.
-pub const MAX_LOOP_DAYS: usize = 9;
-
 /// Scheduler::CheckTasks' timing for `tasks` (in the scheduler's order):
-/// updates their last runs and `last_check` and returns what to run, at
-/// most `tasks.len() * MAX_LOOP_DAYS` entries.
+/// updates their last runs and `last_check` and returns what to run.
+/// Nine entries per task normally suffice, but libc's TZif leap corrections
+/// can repeat calendar dates and make this bound invalid.
 pub fn check_tasks(
     tasks: &mut [Task], last_check: &mut i64, current: i64, local_offset: i64,
     gmtime: impl Fn(i64) -> Tm,

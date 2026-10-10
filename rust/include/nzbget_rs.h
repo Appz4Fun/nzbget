@@ -300,11 +300,14 @@ const char* nzbget_rs_decoder_filename(NzbgetRsDecoder* decoder);
 // Scheduler::CheckTasks' timing (rust/src/scheduler.rs): which tasks are due
 // between *lastCheck and current (local time = UTC + localOffset). Updates the
 // tasks' lastExecuted and *lastCheck, writes the due task indexes in execution
-// order to due (room for count * 9) and returns how many; *reset tells whether
+// order to due (room for dueCapacity) and returns how many; *reset tells whether
 // the clock jumped (> 90 minutes or back) and a week was rechecked.
+// If the return value exceeds dueCapacity, no outputs change; retry with that
+// many entries. count * 9 is a usual capacity, not a bound for every libc TZif.
 // All buffers are disjoint and caller-owned. NULL lastCheck/reset, or NULL
-// tasks/due with nonzero count, returns 0 without changing outputs. With count
-// zero, tasks/due may be NULL. Unrepresentable buffer sizes are also rejected.
+// tasks with nonzero count, or NULL due with nonzero dueCapacity, returns 0
+// without changing outputs. With zero count/capacity, tasks/due may be NULL.
+// Unrepresentable buffer sizes are also rejected.
 typedef struct NzbgetRsSchedTask
 {
 	int hours; // -1: startup task
@@ -319,7 +322,7 @@ typedef struct NzbgetRsSchedTm
 	long long year, mon, mday, hour, min, sec, wday;
 } NzbgetRsSchedTm;
 // gmtime must fill all fields and must not throw. NULL is rejected atomically.
-size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long localOffset, size_t* due, int* reset, void (*gmtime)(long long, NzbgetRsSchedTm*));
+size_t nzbget_rs_scheduler_check(NzbgetRsSchedTask* tasks, size_t count, long long* lastCheck, long long current, long long localOffset, size_t* due, size_t dueCapacity, int* reset, void (*gmtime)(long long, NzbgetRsSchedTm*));
 
 #ifdef __cplusplus
 }

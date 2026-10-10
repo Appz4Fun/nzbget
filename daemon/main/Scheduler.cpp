@@ -117,16 +117,27 @@ void Scheduler::CheckTasks()
 		std::vector<size_t> due(m_taskList.size() * 9);
 		long long lastCheck = m_lastCheck;
 		int reset = 0;
-		size_t dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
-			g_WorkState->GetLocalTimeOffset(), due.data(), &reset,
-			[](long long value, NzbgetRsSchedTm* result)
+		auto calendar = [](long long value, NzbgetRsSchedTm* result)
+		{
+			time_t time = static_cast<time_t>(value);
+			tm fields{};
+			gmtime_r(&time, &fields);
+			*result = {static_cast<long long>(fields.tm_year) + 1900, fields.tm_mon,
+				fields.tm_mday, fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
+		};
+		size_t dueCount;
+		while (true)
+		{
+			dueCount = nzbget_rs_scheduler_check(tasks.data(), tasks.size(), &lastCheck, current,
+				g_WorkState->GetLocalTimeOffset(), due.data(), due.size(), &reset, calendar);
+			if (dueCount <= due.size())
 			{
-				time_t time = static_cast<time_t>(value);
-				tm fields{};
-				gmtime_r(&time, &fields);
-				*result = {static_cast<long long>(fields.tm_year) + 1900, fields.tm_mon,
-					fields.tm_mday, fields.tm_hour, fields.tm_min, fields.tm_sec, fields.tm_wday};
-			});
+				break;
+			}
+			// Leap corrections in libc's calendar can exceed the usual count * 9.
+			// An undersized output leaves all input state unchanged for this retry.
+			due.resize(dueCount);
+		}
 
 		if (reset)
 		{
