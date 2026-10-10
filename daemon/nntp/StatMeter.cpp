@@ -21,6 +21,10 @@
 
 #include "nzbget.h"
 #include "StatMeter.h"
+
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "Options.h"
 #include "WorkState.h"
 #include "ServerPool.h"
@@ -30,6 +34,31 @@
 static const int DAYS_UP_TO_2013_JAN_1 = 15706;
 static const int DAYS_IN_TWENTY_YEARS = 366*20;
 
+#ifdef NZBGET_USE_RUST
+void ServerVolume::CalcSlots(time_t locCurTime)
+{
+	// rust/src/statmeter.rs
+	NzbgetRsVolumeSlots slots;
+	nzbget_rs_volume_calc_slots(locCurTime, &m_firstDay, &slots);
+	m_secSlot = slots.sec;
+	m_minSlot = slots.min;
+	m_hourSlot = slots.hour;
+	m_daySlot = slots.day;
+	if (slots.inRange)
+	{
+		size_t daySlot = Util::SafeIntCast<int, size_t>(m_daySlot + 1);
+		if (daySlot > m_bytesPerDays.size())
+		{
+			m_bytesPerDays.resize(daySlot);
+		}
+
+		if (daySlot > m_articlesPerDays.size())
+		{
+			m_articlesPerDays.resize(daySlot);
+		}
+	}
+}
+#else
 void ServerVolume::CalcSlots(time_t locCurTime)
 {
 	m_secSlot = (int)locCurTime % 60;
@@ -62,6 +91,7 @@ void ServerVolume::CalcSlots(time_t locCurTime)
 		m_daySlot = -1;
 	}
 }
+#endif
 
 void ServerVolume::AddStats(Stats stats)
 {
@@ -74,6 +104,14 @@ void ServerVolume::AddStats(Stats stats)
 
 	CalcSlots(locCurTime);
 
+	int64 bytes = static_cast<int64>(stats.bytes);
+#ifdef NZBGET_USE_RUST
+	// rust/src/statmeter.rs: clear the slots passed, add to the current ones
+	NzbgetRsVolumeSlots slots{m_secSlot, m_minSlot, m_hourSlot, m_daySlot, 0};
+	nzbget_rs_volume_add(m_bytesPerSeconds.data(), m_bytesPerSeconds.size(), m_bytesPerMinutes.data(),
+		m_bytesPerMinutes.size(), m_bytesPerHours.data(), m_bytesPerHours.size(), &slots, lastMinSlot,
+		lastHourSlot, locCurTime, locDataTime, bytes);
+#else
 	if (locCurTime != locDataTime)
 	{
 		// clear seconds/minutes/hours slots if necessary
@@ -120,10 +158,10 @@ void ServerVolume::AddStats(Stats stats)
 	}
 
 	// add bytes to every slot
-	int64 bytes = static_cast<int64>(stats.bytes);
 	m_bytesPerSeconds[m_secSlot] += bytes;
 	m_bytesPerMinutes[m_minSlot] += bytes;
 	m_bytesPerHours[m_hourSlot] += bytes;
+#endif
 	if (m_daySlot >= 0)
 	{
 		size_t daySlot = static_cast<size_t>(m_daySlot);

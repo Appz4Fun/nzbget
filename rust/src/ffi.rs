@@ -1537,6 +1537,50 @@ pub unsafe extern "C" fn nzbget_rs_parse_rfc822_date_time(s: *const c_char) -> i
     crate::util::parse_rfc822_date_time(CStr::from_ptr(s))
 }
 
+/// ServerVolume::CalcSlots: the slots of a local time; updates `*first_day`.
+///
+/// # Safety
+/// `first_day` and `slots` are null (a no-op) or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_volume_calc_slots(loc_cur_time: i64, first_day: *mut c_int, slots: *mut crate::statmeter::Slots) {
+    if first_day.is_null() || slots.is_null() {
+        return;
+    }
+    *slots = crate::statmeter::calc_slots(loc_cur_time, &mut *first_day);
+}
+
+/// ServerVolume::AddStats for the second, minute and hour counters: clears
+/// the slots passed since `loc_data_time` and adds `bytes` at `slots`. Slots
+/// outside an array are skipped.
+///
+/// # Safety
+/// Each array is null (with length 0) or writable for its length; the arrays
+/// are disjoint; `slots` is null (a no-op) or readable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_volume_add(
+    seconds: *mut i64,
+    seconds_len: usize,
+    minutes: *mut i64,
+    minutes_len: usize,
+    hours: *mut i64,
+    hours_len: usize,
+    slots: *const crate::statmeter::Slots,
+    last_min_slot: c_int,
+    last_hour_slot: c_int,
+    loc_cur_time: i64,
+    loc_data_time: i64,
+    bytes: i64,
+) {
+    unsafe fn array<'a>(p: *mut i64, len: usize) -> &'a mut [i64] {
+        if p.is_null() || len == 0 { &mut [] } else { std::slice::from_raw_parts_mut(p, len) }
+    }
+    let Some(slots) = slots.as_ref() else { return };
+    crate::statmeter::add_stats(
+        array(seconds, seconds_len), array(minutes, minutes_len), array(hours, hours_len), slots,
+        last_min_slot, last_hour_slot, loc_cur_time, loc_data_time, bytes,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

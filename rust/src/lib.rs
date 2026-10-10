@@ -13,6 +13,7 @@ pub mod paths;
 pub mod rpcparams;
 pub mod rpcroute;
 pub mod scheduler;
+pub mod statmeter;
 pub mod text;
 pub mod url;
 pub mod util;

@@ -30,6 +30,7 @@ in `rust/include/nzbget_rs.h`.
 | `XmlCommand` request parameters (`PrepareParams`, `NextParamAsInt/Bool/Str`) | `rpcparams` | port only |
 | `XmlRpcProcessor` routing (`Execute` protocol, `Dispatch` method/id/params) and `BuildResponse` envelope | `rpcroute` | port only |
 | `Util::SplitCommandLine`, `Trim*`, `SanitizeLine`, `EndsWith`, `FormatBuffer`, `WebUtil::ParseRfc822DateTime` | `util` | port only |
+| `ServerVolume::CalcSlots` and `AddStats` slot clearing (StatMeter) | `statmeter` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
