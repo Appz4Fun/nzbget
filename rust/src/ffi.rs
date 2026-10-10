@@ -623,9 +623,55 @@ pub unsafe extern "C" fn nzbget_rs_feed_filter_match(filter: *mut crate::feedfil
     (*filter).matches(&mut c_item);
 }
 
+unsafe fn bytes<'a>(p: *const c_char, len: usize) -> &'a [u8] {
+    if p.is_null() || len == 0 { &[] } else { std::slice::from_raw_parts(p.cast(), len) }
+}
+
+/// Deobfuscation::IsExcessivelyObfuscated (rust/src/deobfuscation.rs).
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_is_excessively_obfuscated(s: *const c_char, len: usize) -> c_int {
+    crate::deobfuscation::is_excessively_obfuscated(bytes(s, len)) as c_int
+}
+
+/// Deobfuscation::Deobfuscate; free the result with nzbget_rs_free.
+///
+/// # Safety
+/// `s` is null or readable for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_deobfuscate(s: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::deobfuscation::deobfuscate(bytes(s, len)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deobfuscation_nulls_lengths_and_owned_buffers() {
+        unsafe {
+            for len in [0, 10, usize::MAX] {
+                assert_eq!(nzbget_rs_is_excessively_obfuscated(std::ptr::null(), len), 0);
+                let result = nzbget_rs_deobfuscate(std::ptr::null(), len);
+                assert_eq!(result.len, 0);
+                assert_eq!(*result.data, 0);
+                nzbget_rs_free(result);
+            }
+            let mut input = b"prefix \"a\0b\" suffix".to_vec();
+            let first = nzbget_rs_deobfuscate(input.as_ptr().cast(), input.len());
+            let second = nzbget_rs_deobfuscate(input.as_ptr().cast(), 6);
+            input.fill(b'x');
+            drop(input);
+            assert_eq!(std::slice::from_raw_parts(first.data.cast::<u8>(), first.len + 1), b"a\0b\0");
+            assert_eq!(std::slice::from_raw_parts(second.data.cast::<u8>(), second.len + 1), b"prefix\0");
+            nzbget_rs_free(second);
+            nzbget_rs_free(first);
+            assert_eq!(nzbget_rs_is_excessively_obfuscated(b"abcx".as_ptr().cast(), 3), 1);
+            assert_eq!(nzbget_rs_is_excessively_obfuscated(b"abcx".as_ptr().cast(), 4), 0);
+        }
+    }
 
     #[test]
     fn feed_filter_nulls_ownership_and_callback_order() {

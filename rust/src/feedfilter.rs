@@ -43,7 +43,7 @@ fn c_atoi(b: &[u8]) -> i32 {
 /// The C cast (int64)double: x86 gives INT64_MIN out of range (and for NaN);
 /// elsewhere (as Rust) the conversion saturates.
 fn to_i64(f: f64) -> i64 {
-    if cfg!(any(target_arch = "x86_64", target_arch = "x86")) && !(f > -9.223372036854775808e18 && f < 9.223372036854775808e18) {
+    if cfg!(any(target_arch = "x86_64", target_arch = "x86")) && !(f > i64::MIN as f64 && f < -(i64::MIN as f64)) {
         i64::MIN
     } else {
         f as i64

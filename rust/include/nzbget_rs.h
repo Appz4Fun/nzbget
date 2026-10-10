@@ -165,6 +165,12 @@ void nzbget_rs_feed_filter_free(NzbgetRsFeedFilter* filter);
 // Matching requires exclusive access to the filter and its regex handles.
 void nzbget_rs_feed_filter_match(NzbgetRsFeedFilter* filter, const NzbgetRsFeedItem* item);
 
+// Deobfuscation (rust/src/deobfuscation.rs): text as pointer and length.
+// NULL means empty regardless of len; otherwise len bytes must be readable.
+// Embedded NULs are preserved. Free the owned result with nzbget_rs_free.
+int nzbget_rs_is_excessively_obfuscated(const char* str, size_t len);
+NzbgetRsBuf nzbget_rs_deobfuscate(const char* str, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
