@@ -71,11 +71,15 @@ struct OldFS {
 ''' + "".join(block(s) for s in sigs) + r'''
 #undef RESERVED_DEVICE_NAMES
 static long cases = 0;
-static void fail(const char* what, const std::string& s) { printf("MISMATCH %s [%s]\n", what, s.c_str()); exit(1); }
+static void fail(const char* what, const std::string& s) {
+    printf("MISMATCH %s (%zu bytes): ", what, s.size());
+    for (unsigned char c : s) printf("%02x", c);
+    puts(""); exit(1);
+}
 static void check(const std::string& s) {
     std::string a = s, b = s;
     OldFS::NormalizePathSeparators(a.data()); FileSystem::NormalizePathSeparators(b.data());
-    if (strcmp(a.c_str(), b.c_str())) fail("NormalizePathSeparators", s);
+    if (a != b) fail("NormalizePathSeparators", s);
     if (OldFS::BaseFileName(s.c_str()) != FileSystem::BaseFileName(s.c_str())) fail("BaseFileName", s);
     if (OldFS::SplitPathAndFilename(s) != FileSystem::SplitPathAndFilename(s)) fail("SplitPathAndFilename", s);
     for (bool slashes : {false, true}) {
@@ -100,7 +104,23 @@ int main(int argc, char** argv) {
         " --opt", "/usr/bin/x", "C:\\Program Files\\x.exe", "IDE", "\xfd", "i"};
     for (const char* loc : {"C", "C.UTF-8", "tr_TR.ISO8859-9"}) {
         if (!setlocale(LC_CTYPE, loc)) { printf("locale %s unavailable\n", loc); return 1; }
+        for (const char* s : {"", ".", "..", "../..", "/../a", "\\\\server\\share\\..\\x", "C:\\..\\x",
+                             "CON", "con.txt", "COM1..x", ".. .\t", "a/.../b", "a\\..\\b"}) check(s);
+        // std::string/view inputs retain NULs; the C-string functions stop at them.
+        for (int c = 0; c <= 255; ++c) {
+            check(std::string(1, static_cast<char>(c)));
+            check(std::string("../a\0..\\", 8) + static_cast<char>(c) + "/../b");
+        }
+        for (size_t n : {1023, 1024, 1025}) {
+            check(std::string(n, '\x80') + "/../x");
+            check(std::string(n, 'x') + "\xc3\xa9/..");
+        }
         for (auto& l : lines) check(l);
+        for (int i = 0; i < 10000; ++i) {
+            std::string s(pick(128), '\0');
+            for (char& c : s) c = static_cast<char>(pick(256));
+            check(s);
+        }
         for (int i = 0; i < 300000; ++i) {
             std::string s;
             int n = pick(8);
@@ -132,7 +152,13 @@ with tempfile.TemporaryDirectory(prefix="nzbget-paths-") as temp:
                 os.symlink(sysloc, locdir / "C.UTF-8")
                 break
     binary = temp / "paths"
-    subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                    "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
-                    *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
+    compile_cmd = [*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")),
+                   *shlex.split(get("CXX_DEFINES")), *shlex.split(get("CXX_INCLUDES"))]
+    link_libs = [str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]
+    if sys.platform.startswith("linux"):
+        ownership = temp / "ownership"
+        subprocess.run([*compile_cmd, str(ROOT / "rust/tests/paths_ownership.cpp"), "-o", str(ownership),
+                        "-Wl,--wrap=nzbget_rs_free", *link_libs], check=True, cwd=BUILD)
+        subprocess.run([str(ownership)], check=True)
+    subprocess.run([*compile_cmd, "-w", str(temp / "main.cpp"), "-o", str(binary), *link_libs], check=True, cwd=BUILD)
     subprocess.run([str(binary), *TEXTS], check=True, env=env)

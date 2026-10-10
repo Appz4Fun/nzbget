@@ -7,6 +7,7 @@
 use std::ffi::{c_char, c_int};
 
 extern "C" {
+    #[cfg_attr(windows, link_name = "_strnicmp")]
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
 }
 
@@ -193,8 +194,9 @@ mod tests {
         assert_eq!(make_valid_filename(b"COM1", false), b"_COM1");
         assert_eq!(make_valid_filename(b"console", false), b"console");
         assert_eq!(sanitize_path_segment(b"  ..evil..name.  "), b"_evil_name");
-        assert_eq!(sanitize_relative_path(b"../a//b\\..\\c"), b"a/b/c");
-        assert_eq!(extract_file_path_from_cmd(b"/usr/bin/x -v a"), b"/usr/bin/x");
+        assert_eq!(sanitize_relative_path(b"../a//b\\..\\c"), [b'a', PATH_SEPARATOR, b'b', PATH_SEPARATOR, b'c']);
+        let cmd = [PATH_SEPARATOR, b'x', b' ', b'-', b'v'];
+        assert_eq!(extract_file_path_from_cmd(&cmd), &cmd[..2]);
         assert_eq!(&b"/a/b"[base_file_name(b"/a/b")..], b"b");
     }
 }

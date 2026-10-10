@@ -23,6 +23,15 @@
 #include "FileSystem.h"
 #ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
+#include <memory>
+
+// Keep the Rust allocation owned even if std::string's allocation throws.
+static std::string CopyRustPathText(NzbgetRsBuf buf)
+{
+	const auto release = [buf](char*) { nzbget_rs_free(buf); };
+	const std::unique_ptr<char, decltype(release)> owner(buf.data, release);
+	return std::string(buf.data, buf.len);
+}
 #endif
 #include "Util.h"
 #include "Log.h"
@@ -598,10 +607,7 @@ CString FileSystem::MakeValidFilename(const char* filename, bool allowSlashes)
 std::string FileSystem::SanitizePathSegment(std::string_view name)
 {
 	// rust/src/paths.rs
-	NzbgetRsBuf buf = nzbget_rs_path_text(1, name.data(), name.size(), 0);
-	std::string result(buf.data, buf.len);
-	nzbget_rs_free(buf);
-	return result;
+	return CopyRustPathText(nzbget_rs_path_text(1, name.data(), name.size(), 0));
 }
 #else
 std::string FileSystem::SanitizePathSegment(std::string_view name)
@@ -693,10 +699,7 @@ std::string FileSystem::SanitizePathSegment(std::string_view name)
 std::string FileSystem::SanitizeRelativePath(std::string_view path)
 {
 	// rust/src/paths.rs
-	NzbgetRsBuf buf = nzbget_rs_path_text(2, path.data(), path.size(), 0);
-	std::string result(buf.data, buf.len);
-	nzbget_rs_free(buf);
-	return result;
+	return CopyRustPathText(nzbget_rs_path_text(2, path.data(), path.size(), 0));
 }
 #else
 std::string FileSystem::SanitizeRelativePath(std::string_view path)
@@ -949,10 +952,7 @@ std::string FileSystem::ExtractFilePathFromCmd(const std::string& path)
 std::string FileSystem::EscapePathForShell(const std::string& path)
 {
 	// rust/src/paths.rs
-	NzbgetRsBuf buf = nzbget_rs_path_text(3, path.data(), path.size(), 0);
-	std::string result(buf.data, buf.len);
-	nzbget_rs_free(buf);
-	return result;
+	return CopyRustPathText(nzbget_rs_path_text(3, path.data(), path.size(), 0));
 }
 #else
 std::string FileSystem::EscapePathForShell(const std::string& path)
