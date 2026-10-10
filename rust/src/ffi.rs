@@ -1137,6 +1137,95 @@ pub unsafe extern "C" fn nzbget_rs_web_authorized_ip(
     crate::webserver::is_authorized_ip(input(option), input(remote), &lower) as c_int
 }
 
+/// Decoder (rust/src/decoder.rs) with rapidyenc's decoder and CRC.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_decoder_new(decode: crate::decoder::DecodeFn, crc: crate::decoder::CrcFn) -> *mut crate::decoder::Decoder {
+    Box::into_raw(Box::new(crate::decoder::Decoder::new(decode, crc)))
+}
+
+/// # Safety
+/// `d` is null or from nzbget_rs_decoder_new, not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_free(d: *mut crate::decoder::Decoder) {
+    if !d.is_null() {
+        drop(Box::from_raw(d));
+    }
+}
+
+/// Decoder::Clear.
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_clear(d: *mut crate::decoder::Decoder) {
+    (*d).clear();
+}
+
+/// Decoder::DecodeBuffer.
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new; `buffer` is writable as the C++
+/// Decoder needed (see Decoder::decode_buffer).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_decode(d: *mut crate::decoder::Decoder, buffer: *mut c_char, len: c_int) -> c_int {
+    if len < 0 {
+        return 0;
+    }
+    (*d).decode_buffer(buffer.cast(), len as usize) as c_int
+}
+
+/// Decoder::Check: the EStatus.
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_check(d: *mut crate::decoder::Decoder) -> c_int {
+    (*d).check() as c_int
+}
+
+/// The decoder's settings and fields: `which` 0 crc check, 1 raw mode
+/// (set to `value`).
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_set(d: *mut crate::decoder::Decoder, which: c_int, value: c_int) {
+    match which {
+        0 => (*d).crc_check = value != 0,
+        1 => (*d).raw_mode = value != 0,
+        _ => {}
+    }
+}
+
+/// `which`: 0 format, 1 begin, 2 end, 3 size, 4 expected CRC, 5 calculated
+/// CRC, 6 EOF.
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_get(d: *mut crate::decoder::Decoder, which: c_int) -> i64 {
+    let d = &*d;
+    match which {
+        0 => d.format as i64,
+        1 => d.begin_pos,
+        2 => d.end_pos,
+        3 => d.size,
+        4 => d.expected_crc as i64,
+        5 => d.calculated_crc as i64,
+        6 => d.eof as i64,
+        _ => 0,
+    }
+}
+
+/// GetArticleFilename: valid until the decoder changes.
+///
+/// # Safety
+/// `d` is from nzbget_rs_decoder_new.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_decoder_filename(d: *mut crate::decoder::Decoder) -> *const c_char {
+    (*d).filename_c().cast()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
