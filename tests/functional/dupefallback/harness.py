@@ -9629,6 +9629,60 @@ def scenario_lostindexpar(daemon, t):
     return ('lostindexpar', ok, 'status=%s unpaused_logs=%d' % (h['Status'], unpaused))
 
 
+def _near_twin_release(t, tag, seed_first, names):
+    """3 volumes of 400 KB under <names>: the first from <seed_first> (a re-packed
+    archive header), the other two the same bytes in every release; a par2 set."""
+    import subprocess as _sp
+    work = t.path('data', tag)
+    os.makedirs(work, exist_ok=True)
+    for i, name in enumerate(names):
+        t.write_file(os.path.join('data', tag, name), _payload(400_000, seed_first if i == 0 else 13300 + i))
+    _sp.run(['par2', 'create', '-q', '-q', '-s65536', '-c2', '-n1', '-a', 'set', 'set.par2'] + names,
+            cwd=work, check=True, capture_output=True)
+    return [('%s/%s' % (tag, n), n, os.path.getsize(os.path.join(work, n)), 40_000, set())
+            for n in sorted(os.listdir(work))]
+
+
+def scenario_neartwinborrow(daemon, t):
+    """Re-uploads of one archive (NZBDAV copies): random names, the first volume
+    re-packed, the others the same bytes. The duplicate is labelled a near-twin
+    (twin:2/3) by the par2 file lists, and the articles the primary lost in a
+    volume both hold are borrowed from the duplicate's file with that content,
+    whatever its name: by name nothing matched, and the equal-size volumes were
+    ambiguous by layout."""
+    primary = _near_twin_release(t, 'ntP', 13310, ['Qx81LmA.7z.001', 'Qx81LmA.7z.002', 'Qx81LmA.7z.003'])
+    donor = _near_twin_release(t, 'ntD', 13320, ['Zp4KvTe.7z.001', 'Zp4KvTe.7z.002', 'Zp4KvTe.7z.003'])
+    primary = [m[:4] + ({3, 7},) if m[1] == 'Qx81LmA.7z.002' else m for m in primary]
+    api = daemon.wait_ready()
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'nt-key', 100)
+    daemon.append(api, 'Donor', build_multi_nzb(donor), True, 'nt-key', 90)
+
+    def param(item, name):
+        return next((p['Value'] for p in item.get('Parameters', []) if p['Name'] == name), '')
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        groups = {g['NZBName']: g for g in api.listgroups()}
+        if all(param(groups.get(n, {}), 'DupeFiles') for n in ('Primary', 'Donor')):
+            break
+        time.sleep(1)
+    api.editqueue('GroupResume', 0, '', [g['NZBID'] for g in api.listgroups() if g['NZBName'] == 'Primary'])
+    hp = daemon.wait_history(api, 'Primary', timeout=180)
+    recovered = int(hp.get('DupeRecoveredArticles', 0))
+    data = open(t.path('data', 'ntP', 'Qx81LmA.7z.002'), 'rb').read()
+    out = [os.path.join(r, f) for d in (t.path('main', 'dst'), t.path('main', 'inter')) for r, _, fs in os.walk(d) for f in fs]
+    vol = [f for f in out if f.endswith('Qx81LmA.7z.002')]
+    intact = bool(vol) and open(vol[0], 'rb').read() == data
+    deadline = time.time() + 60
+    kind = ''
+    while time.time() < deadline and not kind:
+        donor_item = next((g for g in api.listgroups() if g['NZBName'] == 'Donor'), None) or \
+            next((h for h in api.history() if h['Name'] == 'Donor'), {})
+        kind = param(donor_item, 'DupeKind')
+        time.sleep(1)
+    ok = recovered >= 2 and intact and kind == 'twin:2/3'
+    return ('neartwinborrow', ok, 'status=%s recovered=%d intact=%s kind=%s' % (hp['Status'], recovered, intact, kind))
+
+
 def scenario_pardamagerepairable(daemon, t):
     """The same release with the lost articles inside 2 blocks (fewer than its 3
     recovery blocks): repairable, no failover, par-repair fixes it."""
@@ -10138,6 +10192,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'neartwinborrow': scenario_neartwinborrow,
     'lostindexpar': scenario_lostindexpar,
     'obfuscatedparnoborrow': scenario_obfuscatedparnoborrow,
     'twinaltsampled': scenario_twinaltsampled,
@@ -10462,6 +10517,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'neartwinborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'ParCheck=force'],
     'lostindexpar': ['ParCheck=auto', 'Unpack=no', 'DupeArticleFallback=no'],
     'obfuscatedparnoborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'DirectRename=no', 'ParCheck=force'],
     'twinaltsampled': ['HealthCheck=dupe'],

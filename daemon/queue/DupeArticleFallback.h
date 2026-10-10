@@ -118,7 +118,7 @@ public:
 	 * data file: preferably by filename, otherwise by unambiguous structural identity
 	 * (article count and sizes). Returns nullptr if no or multiple candidates. */
 	static FileInfo* MatchDonorFile(FileInfo* targetFile, NzbInfo* donorNzb,
-		const char* targetNzbFilename = nullptr);
+		const char* targetNzbFilename = nullptr, int donorNzbId = 0);
 	/* Exact identity fingerprint used to pick among several structural
 	 * matches: equal steps between consecutive NZB article sizes. */
 	static bool ArticleSizeStepsMatch(FileInfo* targetFile, FileInfo* donorFile);

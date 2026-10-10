@@ -9,6 +9,10 @@ publish = false
 name = "nzbget_rs"
 crate-type = ["staticlib", "rlib"]
 
+[dependencies]
+rust-par2 = { git = "https://github.com/TheDancingDeveloper-org/Rust-PAR2", rev = "dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf" }
+quick-xml = "0.41"
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -70,7 +70,7 @@ public:
 		std::vector<CString> groups;
 		std::vector<std::pair<int64, std::string>> segments;	// bytes, message-id with brackets
 		int64 size = 0;
-		bool IsPar2() const;
+		bool par2 = false;		// its name says .par2
 	};
 	/* the <file> entries of an nzb-file, read without the queue's parser (that one
 	 * writes the article lists to the queue directory in server mode) */
@@ -93,11 +93,23 @@ public:
 	/* the files of a posting's par2 set, as fetched for its fingerprint (kept in the
 	 * queue directory, file "twincheck"); empty if not known */
 	static std::vector<FileSig> SigsOf(int nzbId);
-	/* how many of <primary>'s files <dupe> holds (by MD5 and length) */
-	static int SharedFiles(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe);
-	/* the label of <dupe> against <primary>: "twin" (every file), "twin:N/M" (N of
-	 * the primary's M files: a near-twin, re-packed archive headers), "alt" (none) */
-	static std::string Kind(const std::vector<FileSig>& primary, const std::vector<FileSig>& dupe);
+	/* the label of download <dupeId> against <primaryId> by their par2 file lists:
+	 * "twin" (every file), "twin:N/M" (N of the primary's M files: a near-twin,
+	 * a re-packed archive header), "alt" (none), "" when a list isn't known */
+	static std::string Kind(int primaryId, int dupeId);
+	/* the file of download <donorId> holding the bytes of our file <target> (or
+	 * <targetAlt>) of download <ownId>: its name; "-" when our file's content is
+	 * known and no single donor file holds it; "" when our content isn't known */
+	static std::string MatchByContent(int ownId, const char* target, const char* targetAlt, int donorId);
+	/* the twin check runs on the Rust parts (rust/src/twin.rs) */
+	static bool Available()
+	{
+#ifdef NZBGET_USE_RUST
+		return true;
+#else
+		return false;
+#endif
+	}
 
 	/* shutdown: cancels running checks and refuses new ones; WaitAll() returns when they ended */
 	static void StopAll();
