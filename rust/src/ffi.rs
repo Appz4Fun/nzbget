@@ -1407,6 +1407,8 @@ pub unsafe extern "C" fn nzbget_rs_rpc_route(
     std::ptr::copy_nonoverlapping(r.method.as_ptr().cast::<c_char>(), method_name, r.method.len());
     *method_name.add(r.method.len()) = 0;
     *params = match r.params {
+        // a null URL has no parameters to point into (and no arithmetic on null)
+        Some(_) if url.is_null() => std::ptr::null(),
         Some(at) => url.add(at),
         None => request,
     };
