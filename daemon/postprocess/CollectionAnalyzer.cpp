@@ -126,9 +126,9 @@ namespace CollectionAnalyzer
 
 		std::string TakeString(NzbgetRsBuf buf)
 		{
-			std::string s(buf.data, buf.len);
-			nzbget_rs_free(buf);
-			return s;
+			auto release = [](NzbgetRsBuf* owned) { nzbget_rs_free(*owned); };
+			std::unique_ptr<NzbgetRsBuf, decltype(release)> owner(&buf, release);
+			return std::string(buf.data, buf.len);
 		}
 
 		struct PlanContext

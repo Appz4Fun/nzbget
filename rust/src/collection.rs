@@ -140,7 +140,14 @@ fn sibling(path: &[u8], name: &[u8]) -> Vec<u8> {
     let parent = match path.iter().rposition(|&b| b == PATH_SEPARATOR) {
         None => &path[..0],
         Some(0) => &path[..1],
-        Some(k) => &path[..k],
+        Some(mut k) => {
+            // parent_path() removes the entire separator run before the
+            // filename, retaining one separator for the root directory.
+            while k > 1 && path[k - 1] == PATH_SEPARATOR {
+                k -= 1;
+            }
+            &path[..k]
+        }
     };
     let mut p = parent.to_vec();
     if !p.is_empty() && *p.last().unwrap() != PATH_SEPARATOR {
@@ -327,6 +334,16 @@ mod tests {
         assert_eq!(p.actions[0].new_filename, b"Show.S01E01.1080p.mkv");
         assert_eq!(p.actions[1].new_filename, b"Show.S01E01.1080p-sample.mkv");
         assert_eq!(p.actions[2].new_filename, b"Show.S01E01.1080p.en.srt");
+    }
+
+    #[test]
+    fn repeated_separators() {
+        for path in ["/d//abc.mkv", "/d///abc.mkv"] {
+            let p = build_plan(&[entry(path, 1)], false, b"Movie.2026", &mut NoDisk);
+            assert_eq!(p.actions[0].dst_path, b"/d/Movie.2026.mkv");
+        }
+        assert_eq!(sibling(b"///abc.mkv", b"Movie.mkv"), b"/Movie.mkv");
+        assert_eq!(sibling(b"d///abc.mkv", b"Movie.mkv"), b"d/Movie.mkv");
     }
 
     #[test]

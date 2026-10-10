@@ -687,4 +687,16 @@ BOOST_AUTO_TEST_CASE(CollectionAnalyzerDiscDescriptorKnownExtensionTest)
 	fs::remove_all(tempDir);
 }
 
+BOOST_AUTO_TEST_CASE(CollectionAnalyzerRepeatedPathSeparatorsTest)
+{
+	fs::path tempDir = fs::temp_directory_path() / "nzbget_test_collection_separators";
+	fs::create_directories(tempDir);
+	std::ofstream(tempDir / "abc.mkv") << "video";
+	const fs::path repeated = fs::u8path(fs::u8string(tempDir) + "///");
+	auto plan = CollectionAnalyzer::BuildPlan(repeated, "Movie.2026", nullptr);
+	BOOST_REQUIRE_EQUAL(plan.actions.size(), 1u);
+	BOOST_CHECK_EQUAL(fs::u8string(plan.actions[0].dstPath), fs::u8string(tempDir / "Movie.2026.mkv"));
+	fs::remove_all(tempDir);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

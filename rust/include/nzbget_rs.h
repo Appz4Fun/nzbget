@@ -196,7 +196,14 @@ void nzbget_rs_normalize_path_separators(char* path);
 // CollectionAnalyzer (rust/src/collection.rs): files as text and length;
 // an analysis by index (-1: none), index arrays with room for every file;
 // a plan through callbacks (exists, ignored by the ignoreExt list, each
-// rename), the effective base name returned
+// rename), the effective base name returned (free with nzbget_rs_free).
+// NULL files/text means empty, regardless of length. NULL analysis output is
+// ignored; NULL index arrays report counts only. Non-NULL arrays hold count
+// indices and must not overlap the output struct. NULL plan table/flags
+// returns an empty buffer and clears non-NULL flags. NULL exists/ignored
+// returns false; NULL action discards actions. Callback strings are borrowed
+// only during each call; callbacks must not throw or invalidate table/flags.
+// Panics abort; input storage remains caller-owned.
 typedef struct
 {
 	const char* path; size_t pathLen;

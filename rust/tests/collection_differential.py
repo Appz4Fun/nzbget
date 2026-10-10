@@ -43,6 +43,7 @@ harness = r'''
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <clocale>
 
 namespace N = CollectionAnalyzer;
 namespace O = OldCollectionAnalyzer;
@@ -67,6 +68,7 @@ template <class P> static std::string plan(const P& p) {
 }
 
 int main(int argc, char** argv) {
+    std::setlocale(LC_CTYPE, "");
     std::mt19937 rng(17);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
     const char* stems[] = {"Movie.2014.1080p", "a8f7s6d5f4g3h2j1k0l9", "5KzdcWdGVGUG83Q9jv8KXht4O2k57w", "sample", "movie-sample",
@@ -74,12 +76,38 @@ int main(int argc, char** argv) {
     const char* exts[] = {".mkv", ".MKV", ".mp4", ".avi", ".srt", ".en.srt", ".eng.sub", ".nfo", ".mp3", ".flac", ".epub",
         ".pdf", ".rar", ".par2", ".vob", ".ifo", ".cue", ".iso", ".jpg", ".txt", "", ".bin", ".mkv.1", ".duplicate1.mkv"};
     const char* targets[] = {"Movie.2014.1080p", "Show.S01E01.720p", "nzb", "", "abc", "a8f7s6d5f4g3h2j1k0l9", "Bad/Name:..",
-        "Movie.2014.1080p.mkv", "  spaced  ", "Re.Release"};
+        "Movie.2014.1080p.mkv", "  spaced  ", "Re.Release", "CON", ".hidden", "Movie\nTitle", "Movie.\xff"};
     const char* ignores[] = {nullptr, ".nfo", ".srt,.sub", "*.mkv"};
     fs::path base = fs::temp_directory_path() / ("nzbget-collection-" + std::to_string(getpid()));
     long cases = 0;
     int rounds = atoi(argv[1]);
     for (int round = 0; round < rounds; ++round) {
+        // Analyze accepts entries independent of the filesystem: include
+        // empty fields, ties, zero sizes and unsigned overflow.
+        std::vector<N::FileEntry> nf;
+        std::vector<O::FileEntry> of;
+        for (int k = pick(12); k > 0; --k) {
+            const std::string stem = stems[pick(sizeof stems / sizeof *stems)];
+            const std::string ext = exts[pick(sizeof exts / sizeof *exts)];
+            const std::string name = pick(5) ? stem + ext : "";
+            const uintmax_t sizes[] = {0, 1, 3, 4, UINT64_MAX, UINT64_MAX / 3, UINT64_MAX / 3 + 1};
+            const uintmax_t size = sizes[pick(7)];
+            nf.push_back({name, name, stem, ext, size});
+            of.push_back({name, name, stem, ext, size});
+        }
+        if (analysis(N::Analyze(nf)) != analysis(O::Analyze(of))) {
+            printf("MISMATCH Analyze round %d\n", round); return 1;
+        }
+        std::string raw;
+        for (int k = pick(40); k > 0; --k) raw += char(pick(256));
+        std::string tag = raw + ".";
+        for (int k = pick(6); k > 0; --k) tag += char(pick(256));
+        if (N::ResolveSubtitleName(raw, tag, ".srt") != O::ResolveSubtitleName(raw, tag, ".srt") ||
+            N::ResolveTargetName(raw, tag) != O::ResolveTargetName(raw, tag) ||
+            N::ResolveSampleName(raw, tag) != O::ResolveSampleName(raw, tag)) {
+            printf("MISMATCH raw name resolver round %d\n", round); return 1;
+        }
+        cases += 4;
         fs::remove_all(base);
         fs::create_directories(base);
         int n = pick(7);
@@ -92,12 +120,13 @@ int main(int argc, char** argv) {
             std::ofstream(dir / name) << std::string(pick(3) ? pick(20) * 100 : pick(3), 'x');
         }
         if (pick(4) == 0) std::ofstream(base / "Movie.2014.1080p.mkv") << "x";
-        std::string a = analysis(O::AnalyzeDirectory(base)), b = analysis(N::AnalyzeDirectory(base));
+        const fs::path walked = round % 2 ? fs::path(base.string() + "///") : base;
+        std::string a = analysis(O::AnalyzeDirectory(walked)), b = analysis(N::AnalyzeDirectory(walked));
         if (a != b) { printf("MISMATCH AnalyzeDirectory round %d\n--- C++\n%s\n--- Rust\n%s\n", round, a.c_str(), b.c_str()); return 1; }
         for (int t = 0; t < 3; ++t) {
             const char* target = targets[pick(sizeof targets / sizeof *targets)];
             const char* ignore = ignores[pick(4)];
-            std::string p = plan(O::BuildPlan(base, target, ignore)), q = plan(N::BuildPlan(base, target, ignore));
+            std::string p = plan(O::BuildPlan(walked, target, ignore)), q = plan(N::BuildPlan(walked, target, ignore));
             if (p != q) { printf("MISMATCH BuildPlan round %d target [%s]\n--- C++\n%s\n--- Rust\n%s\n", round, target, p.c_str(), q.c_str()); return 1; }
             ++cases;
         }

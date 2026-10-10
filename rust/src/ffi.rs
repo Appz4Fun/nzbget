@@ -793,7 +793,11 @@ pub struct AnalysisC {
 /// CollectionAnalyzer::Analyze.
 ///
 /// # Safety
-/// `files` holds `count` valid entries; `out`'s arrays have room for `count`.
+/// `files` is null (empty) or holds `count` valid entries. Entry strings
+/// are null (empty) or readable for their lengths. `out` is null or writable;
+/// its arrays are null (counts only) or have room for `count` indices and
+/// are disjoint from `out`. All storage remains caller-owned.
+/// Panics abort rather than crossing the ABI.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_collection_analyze(files: *const FileEntryC, count: usize, out: *mut AnalysisC) {
     if out.is_null() {
@@ -826,14 +830,15 @@ pub unsafe extern "C" fn nzbget_rs_collection_analyze(files: *const FileEntryC, 
 #[repr(C)]
 pub struct PlanCallbacks {
     pub user: *mut std::ffi::c_void,
-    pub exists: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int,
-    pub ignored: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int,
+    pub exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int>,
+    pub ignored: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, usize) -> c_int>,
     /// a rename: the file's index, the new path, the new file name
-    pub action: unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, usize, *const c_char, usize),
+    pub action: Option<unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char, usize, *const c_char, usize)>,
 }
 
 /// RenamePlan's flags; the effective base name is returned.
 #[repr(C)]
+#[derive(Default)]
 pub struct PlanFlagsC {
     pub ambiguous: c_int,
     pub disc_structure: c_int,
@@ -845,10 +850,10 @@ struct CDisk<'c>(&'c PlanCallbacks);
 
 impl crate::collection::Disk for CDisk<'_> {
     fn exists(&mut self, path: &[u8]) -> bool {
-        unsafe { (self.0.exists)(self.0.user, path.as_ptr().cast(), path.len()) != 0 }
+        self.0.exists.is_some_and(|f| unsafe { f(self.0.user, path.as_ptr().cast(), path.len()) != 0 })
     }
     fn ignored(&mut self, path: &[u8]) -> bool {
-        unsafe { (self.0.ignored)(self.0.user, path.as_ptr().cast(), path.len()) != 0 }
+        self.0.ignored.is_some_and(|f| unsafe { f(self.0.user, path.as_ptr().cast(), path.len()) != 0 })
     }
 }
 
@@ -856,8 +861,13 @@ impl crate::collection::Disk for CDisk<'_> {
 /// effective base name with nzbget_rs_free.
 ///
 /// # Safety
-/// `files` holds `count` valid entries; `target` is readable for
-/// `target_len`; the callbacks are valid and don't unwind; `flags` writable.
+/// `files` is null (empty) or holds `count` valid entries, with strings null
+/// (empty) or readable for their lengths. `target` is null (empty) or readable
+/// for `target_len`. `callbacks` is null or a valid table; its functions must
+/// not unwind or invalidate the table/flags. Callback strings are borrowed
+/// only for the call. `flags` is null or writable and disjoint from the table.
+/// Null table/flags returns an empty buffer, clearing non-null flags. Null
+/// exists/ignored means false; null action discards actions. Panics abort.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_collection_plan(
     files: *const FileEntryC,
@@ -868,13 +878,18 @@ pub unsafe extern "C" fn nzbget_rs_collection_plan(
     callbacks: *const PlanCallbacks,
     flags: *mut PlanFlagsC,
 ) -> RsBuf {
+    if !flags.is_null() {
+        *flags = PlanFlagsC::default();
+    }
     if callbacks.is_null() || flags.is_null() {
         return into_buf(Vec::new());
     }
     let cb = &*callbacks;
     let plan = crate::collection::build_plan(&entries(files, count), disc_dir != 0, bytes(target, target_len), &mut CDisk(cb));
     for a in &plan.actions {
-        (cb.action)(cb.user, a.src, a.dst_path.as_ptr().cast(), a.dst_path.len(), a.new_filename.as_ptr().cast(), a.new_filename.len());
+        if let Some(action) = cb.action {
+            action(cb.user, a.src, a.dst_path.as_ptr().cast(), a.dst_path.len(), a.new_filename.as_ptr().cast(), a.new_filename.len());
+        }
     }
     *flags = PlanFlagsC {
         ambiguous: plan.ambiguous as c_int,
@@ -913,6 +928,56 @@ pub unsafe extern "C" fn nzbget_rs_collection_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collection_null_inputs_and_callbacks() {
+        unsafe {
+            let mut out = AnalysisC {
+                main_video: 0, sample_video: 0, main_book: 0,
+                subtitles: std::ptr::null_mut(), subtitle_count: 99,
+                nfos: std::ptr::null_mut(), nfo_count: 99,
+                other_files: std::ptr::null_mut(), other_count: 99,
+                ambiguous: 1, disc_structure: 1, has_audio: 1,
+            };
+            nzbget_rs_collection_analyze(std::ptr::null(), usize::MAX, &mut out);
+            assert_eq!((out.main_video, out.sample_video, out.main_book), (-1, -1, -1));
+            assert_eq!((out.subtitle_count, out.nfo_count, out.other_count), (0, 0, 0));
+            assert_eq!((out.ambiguous, out.disc_structure, out.has_audio), (0, 0, 0));
+            nzbget_rs_collection_analyze(std::ptr::null(), 0, std::ptr::null_mut());
+
+            let cb = PlanCallbacks { user: std::ptr::null_mut(), exists: None, ignored: None, action: None };
+            let mut flags = PlanFlagsC { can_rename: 1, ..PlanFlagsC::default() };
+            let empty = nzbget_rs_collection_plan(std::ptr::null(), 99, 0, std::ptr::null(), 99, std::ptr::null(), &mut flags);
+            assert_eq!(empty.len, 0);
+            assert_eq!(flags.can_rename, 0);
+            nzbget_rs_free(empty);
+            let empty = nzbget_rs_collection_plan(std::ptr::null(), 99, 1, std::ptr::null(), 99, &cb, &mut flags);
+            assert_eq!(flags.disc_structure, 1);
+            assert_eq!(flags.can_rename, 0);
+            nzbget_rs_free(empty);
+            let empty = nzbget_rs_collection_plan(std::ptr::null(), 0, 0, std::ptr::null(), 0, &cb, std::ptr::null_mut());
+            nzbget_rs_free(empty);
+
+            let file = FileEntryC {
+                path: c"/d/abc.mkv".as_ptr(), path_len: 10,
+                filename: c"abc.mkv".as_ptr(), filename_len: 7,
+                stem: c"abc".as_ptr(), stem_len: 3,
+                ext: c".mkv".as_ptr(), ext_len: 4, size: 1,
+            };
+            let base = nzbget_rs_collection_plan(&file, 1, 0, c"Movie.2026".as_ptr(), 10, &cb, &mut flags);
+            assert_eq!(flags.can_rename, 1);
+            assert_eq!(std::slice::from_raw_parts(base.data.cast::<u8>(), base.len), b"Movie.2026");
+            // Another result must neither overwrite nor free the first one.
+            for op in 0..=2 {
+                let name = nzbget_rs_collection_name(op, std::ptr::null(), 99, std::ptr::null(), 99, std::ptr::null(), 99);
+                let expected: &[u8] = if op == 2 { b"-sample" } else { b"" };
+                assert_eq!(std::slice::from_raw_parts(name.data.cast::<u8>(), name.len), expected);
+                nzbget_rs_free(name);
+            }
+            assert_eq!(std::slice::from_raw_parts(base.data.cast::<u8>(), base.len), b"Movie.2026");
+            nzbget_rs_free(base);
+        }
+    }
 
     #[test]
     fn path_nulls_lengths_and_owned_results() {
