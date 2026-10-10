@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <climits>
 #include <fstream>
 #include <iterator>
 #include "TwinCheck.h"
@@ -63,6 +64,10 @@ std::set<TwinCheckJob*> g_jobs;
 std::set<int> g_checking;		// downloads whose fingerprint is being fetched
 std::atomic<int> g_jobCount{0};
 bool g_stopping = false;
+// fetches of a posting's par2-file that came to nothing (its articles gone, or
+// the servers busy): after MaxAttempts it's given up, not tried first forever
+std::map<int, int> g_failedAttempts;
+constexpr int MaxAttempts = 3;
 
 class TwinCheckJob : public Thread
 {
@@ -148,14 +153,22 @@ void TwinCheckJob::Run()
 	std::vector<TwinCheck::FileSig> sigs;
 	bool fetched = false;
 	bool known = IndexSigs(sigs, fetched);
-	if (IsStopped() || (!known && fetched))
+	if (IsStopped())
 	{
-		// stopped, or the par2-file's articles weren't there (servers busy or down):
-		// asked again at a later round
 		return;
 	}
+	if (!known && fetched)
+	{
+		// the par2-file's articles weren't there (gone, or the servers busy): asked
+		// again at a later round, a few times
+		Guard guard(g_mutex);
+		if (++g_failedAttempts[m_nzbId] < MaxAttempts)
+		{
+			return;
+		}
+	}
 
-	std::string fingerprint = known ? TwinCheck::Fingerprint(sigs) : "none";
+	std::string fingerprint = known ? TwinCheck::Fingerprint(sigs) : fetched ? "lost" : "none";
 	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 	NzbInfo* nzbInfo = nullptr;
 	for (NzbInfo* queued : downloadQueue->GetQueue())
@@ -277,6 +290,7 @@ struct Item
 {
 	NzbInfo* nzbInfo;
 	bool queued;
+	int rank;	// the queue first, then history newest first: who needs it soonest
 };
 
 }
@@ -518,6 +532,7 @@ void TwinCheck::ServiceWork()
 		bool hinted;
 		int primaryId = 0;			// sampling against this one
 		std::string primaryNzbFilename;
+		int rank = 0;				// of its dupe key: the queue first, then the newest history
 	};
 	std::vector<Job> jobs;
 	{
@@ -536,14 +551,16 @@ void TwinCheck::ServiceWork()
 		{
 			if (nzbInfo->GetKind() == NzbInfo::nkNzb && !keyOf(nzbInfo).empty())
 			{
-				keys[keyOf(nzbInfo)].push_back({nzbInfo, true});
+				keys[keyOf(nzbInfo)].push_back({nzbInfo, true, 0});
 			}
 		}
+		int rank = 0;
 		for (std::unique_ptr<HistoryInfo>& historyInfo : *downloadQueue->GetHistory())
 		{
+			rank++;
 			if (historyInfo->GetKind() == HistoryInfo::hkNzb && !keyOf(historyInfo->GetNzbInfo()).empty())
 			{
-				keys[keyOf(historyInfo->GetNzbInfo())].push_back({historyInfo->GetNzbInfo(), false});
+				keys[keyOf(historyInfo->GetNzbInfo())].push_back({historyInfo->GetNzbInfo(), false, rank});
 			}
 		}
 
@@ -566,6 +583,12 @@ void TwinCheck::ServiceWork()
 			if (items.size() < 2)
 			{
 				continue;
+			}
+			size_t firstJob = jobs.size();
+			int keyRank = INT_MAX;
+			for (Item& item : items)
+			{
+				keyRank = std::min(keyRank, item.rank);
 			}
 
 			// postings without a fingerprint yet get one
@@ -611,7 +634,8 @@ void TwinCheck::ServiceWork()
 			{
 				NzbInfo* nzbInfo = item.nzbInfo;
 				std::string print = fingerprintOf(nzbInfo);
-				bool byPar2 = !primaryPrint.empty() && primaryPrint != "none" && !print.empty() && print != "none";
+				auto usable = [](const std::string& value) { return !value.empty() && value != "none" && value != "lost"; };
+				bool byPar2 = usable(primaryPrint) && usable(print);
 				bool sampleable = primaryOk && nzbInfo != primary && isDupe(item) && !print.empty() &&
 					!primaryPrint.empty() && !byPar2;
 				NzbParameter* sampled = nzbInfo->GetParameters()->Find(SampledParam);
@@ -643,6 +667,11 @@ void TwinCheck::ServiceWork()
 					}
 				}
 			}
+
+			for (size_t i = firstJob; i < jobs.size(); i++)
+			{
+				jobs[i].rank = keyRank;
+			}
 		}
 
 		if (changed)
@@ -652,7 +681,8 @@ void TwinCheck::ServiceWork()
 		}
 	}
 
-	std::stable_sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b) { return a.hinted > b.hinted; });
+	std::stable_sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b)
+		{ return a.rank != b.rank ? a.rank < b.rank : a.hinted > b.hinted; });
 
 	Guard guard(g_mutex);
 	for (Job& job : jobs)

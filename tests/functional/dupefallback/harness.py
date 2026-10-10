@@ -9049,11 +9049,20 @@ def scenario_daemonlock(daemon, t):
     wait_up(False)
     time.sleep(2)
     removed = not os.path.exists(lock)
-    if not removed and pid.strip().isdigit():
-        try:
-            os.kill(int(pid), 9)
-        except OSError:
-            pass
+    # whatever happened, no daemon of this config outlives the test (after the
+    # reload one could, under a pid the lock-file no longer named)
+    conf_arg = base[base.index('-c') + 1] if '-c' in base else None
+    for entry in os.listdir('/proc'):
+        if entry.isdigit() and conf_arg:
+            try:
+                cmd = open('/proc/%s/cmdline' % entry, 'rb').read().split(b'\0')
+            except OSError:
+                continue
+            if conf_arg.encode() in cmd:
+                try:
+                    os.kill(int(entry), 9)
+                except OSError:
+                    pass
     ok = first_up and _re.fullmatch(r'\d+\n', pid) is not None and kept and removed
     return ('daemonlock', ok, 'up=%s pid=%r kept=%s removed=%s' % (first_up, pid, kept, removed))
 
