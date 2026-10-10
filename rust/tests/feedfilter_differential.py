@@ -234,6 +234,36 @@ int main(int argc, char** argv) {
         regressions.push_back(wild);
     }
     long cases = 0;
+    // Cover every non-NUL byte pair, including locale-specific case pairs,
+    // control characters, separators and invalid multibyte text. The random
+    // vocabulary above only samples a handful of these. Reuse each filter
+    // across all titles to check captures are refreshed between matches.
+    for (int pattern = 1; pattern < 256; ++pattern) {
+        for (bool substring : {false, true}) {
+            std::string filter = "A(c:${1},k:${2}): @";
+            if (substring) filter += '*';
+            filter += char(pattern);
+            if (substring) filter += '*';
+            locale(compileLocale);
+            OldFeedFilter oldFilter(filter.c_str());
+            FeedFilter newFilter(filter.c_str());
+            locale(matchLocale ? matchLocale : compileLocale);
+            for (int title = 1; title < 256; ++title) {
+                std::string text(1, char(title));
+                FeedItemInfo a, b;
+                a.SetTitle(text.c_str());
+                b.SetTitle(text.c_str());
+                oldFilter.Match(a);
+                newFilter.Match(b);
+                if (state(a) != state(b)) {
+                    printf("MISMATCH byte pattern %02x title %02x substring %d\n  C++: %s\n  Rust: %s\n",
+                        pattern, title, substring, state(a).c_str(), state(b).c_str());
+                    return 1;
+                }
+                ++cases;
+            }
+        }
+    }
     int filters = argc > 1 ? atoi(argv[1]) : 20000;
     for (int f = -int(regressions.size()); f < filters; ++f) {
         std::string filter;
