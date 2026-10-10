@@ -4,6 +4,7 @@
 pub mod crc;
 pub mod decode;
 pub mod escape;
+pub mod feedfilter;
 pub mod text;
 pub mod url;
 pub mod util;
