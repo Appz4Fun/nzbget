@@ -122,6 +122,13 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
         let hi = u32::try_from(number(g, "RemainingSizeHi")?).map_err(|_| "invalid size word")?;
         let lo = u32::try_from(number(g, "RemainingSizeLo")?).map_err(|_| "invalid size word")?;
         let stage = g["Status"].as_str().ok_or("missing job stage")?;
+        // listgroups exports NzbInfo::GetPriority as MaxPriority. The daemon's
+        // GetForcePriority threshold is 900; URL fetching instead uses UrlForce.
+        let force_priority = g["MaxPriority"]
+            .as_i64()
+            .and_then(|p| i32::try_from(p).ok())
+            .ok_or("missing or invalid priority RPC field")?
+            >= 900;
         let download = matches!(stage, "DOWNLOADING" | "FETCHING");
         let post = matches!(
             stage,
@@ -153,7 +160,9 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             success: number(g, "SuccessArticles")?,
             failed: number(g, "FailedArticles")?,
             progress: number(g, "PostStageProgress")?,
-            active: (download && !download_paused && !quota) || (post && !post_paused),
+            active: (download
+                && ((!download_paused && !quota) || (stage == "DOWNLOADING" && force_priority)))
+                || (post && (!post_paused || force_priority)),
         });
     }
     let daemon = [
@@ -294,7 +303,7 @@ mod tests {
     }
     fn group() -> Value {
         json!({"NZBID":7,"Status":"DOWNLOADING","RemainingSizeHi":1,"RemainingSizeLo":3,
-            "SuccessArticles":2,"FailedArticles":0,"PostStageProgress":0,
+            "SuccessArticles":2,"FailedArticles":0,"PostStageProgress":0,"MaxPriority":0,
             "NZBName":"private release","DestDir":"/private/media","Password":"secret"})
     }
 
@@ -324,6 +333,79 @@ mod tests {
         let mut st = status();
         st["DownloadPaused"] = json!(true);
         assert!(!normalize(&st, &json!([group()]), 0).unwrap().jobs[0].active);
+    }
+
+    // Canonical daemon contracts: NzbInfo::GetForcePriority uses >=900;
+    // QueueCoordinator and PrePostProcessor bypass global pauses for force work.
+    // These literal expectations exercise normalization AND the real detector.
+    #[test]
+    fn force_priority_stalls_survive_global_pause_and_quota() {
+        let cases = [
+            ("DOWNLOADING", 899, true, false, false, 0),
+            ("DOWNLOADING", 900, true, false, false, 1),
+            ("DOWNLOADING", 901, false, true, false, 1),
+            ("DOWNLOADING", 900, true, true, false, 1),
+            ("DOWNLOADING", -100, false, true, false, 0),
+            ("DOWNLOADING", -100, false, false, false, 1),
+            ("UNPACKING", 899, false, false, true, 0),
+            ("UNPACKING", 900, false, false, true, 1),
+            ("REPAIRING", 901, true, true, true, 1),
+            ("QUEUED", 900, true, true, true, 0),
+            ("PP_QUEUED", 900, true, true, true, 0),
+            ("PAUSED", 900, true, true, true, 0),
+            ("PP_FINISHED", 900, true, true, true, 0),
+            ("NEW_STAGE", 900, true, true, true, 0),
+            // URL downloads use UrlForce, not NzbInfo's force priority.
+            ("FETCHING", 900, true, false, false, 0),
+        ];
+        for (stage, priority, download_pause, quota, post_pause, count) in cases {
+            let mut st = status();
+            let mut g = group();
+            g["Status"] = json!(stage);
+            g["MaxPriority"] = json!(priority);
+            let mut detector = Detector::default();
+            assert!(detector
+                .observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60)
+                .is_empty());
+            st["DownloadPaused"] = json!(download_pause);
+            st["QuotaReached"] = json!(quota);
+            st["PostPaused"] = json!(post_pause);
+            st["UpTimeSec"] = json!(160);
+            let paused = normalize(&st, &json!([g.clone()]), 60).unwrap();
+            let alerts = detector.observe(&paused, 60);
+            assert_eq!(
+                alerts.len(),
+                count,
+                "{stage} priority {priority}, pauses {download_pause}/{quota}/{post_pause}"
+            );
+            if count == 1 {
+                assert_eq!(alerts[0].job_id, 7);
+                assert_eq!(alerts[0].no_progress_secs, 60);
+            }
+            st["UpTimeSec"] = json!(220);
+            assert!(detector
+                .observe(&normalize(&st, &json!([g]), 120).unwrap(), 60)
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn invalid_or_missing_priority_is_unknown_instead_of_suppressing_work() {
+        for priority in [
+            json!(null),
+            json!("900"),
+            json!(900.5),
+            json!(true),
+            json!(2147483648_i64),
+            json!(-2147483649_i64),
+        ] {
+            let mut g = group();
+            g["MaxPriority"] = priority;
+            assert!(normalize(&status(), &json!([g]), 0).is_err());
+        }
+        let mut g = group();
+        g.as_object_mut().unwrap().remove("MaxPriority");
+        assert!(normalize(&status(), &json!([g]), 0).is_err());
     }
 
     #[test]

@@ -14,7 +14,7 @@ tested dependency versions):
 
 ```bash
 cargo build --release --locked --manifest-path tools/nzbget-observe/Cargo.toml
-export NZBGET_OBSERVE_USER='your-read-only-user'
+export NZBGET_OBSERVE_USER='your-nzbget-user'
 read -rs NZBGET_OBSERVE_PASSWORD
 export NZBGET_OBSERVE_PASSWORD
 tools/nzbget-observe/target/release/nzbget-observe \
@@ -22,8 +22,17 @@ tools/nzbget-observe/target/release/nzbget-observe \
   --interval 15 --stall-seconds 300 --samples 240
 ```
 
-Use an existing restricted read-only NZBGet account. Passwords are read from the
-environment, never from command-line arguments. HTTP is accepted only for literal
+Use an existing NZBGet credential that can call `status` and `listgroups`.
+NZBGet's built-in `RestrictedUsername`/`RestrictedPassword` account is **not
+read-only**: it denies `saveconfig`, but still permits mutating commands such as
+`pause`, `shutdown`, and `editqueue`. The watcher itself sends only the two
+observation methods. To enforce read-only access for its credential, use a
+method-filtering proxy that allows only `status` and `listgroups` and denies other
+RPC methods, with the daemon credential held by the proxy. No proxy is installed
+or configured by this tool.
+
+Passwords are read from the environment, never from command-line arguments.
+HTTP is accepted only for literal
 loopback addresses; remote endpoints require HTTPS with certificate validation.
 Redirects and environment proxies are turned off. The endpoint must end in
 `/jsonrpc`, without user information, query parameters, or fragments.
@@ -55,7 +64,14 @@ The default trigger is **300 seconds of unchanged observed progress for an
 actively running job**. Download progress uses remaining bytes and successful or
 failed article counts; post-processing also uses stage progress. Queued, paused,
 finished and unrecognized stages do not trigger. Global download pause/quota and
-post-processing pause suppress the corresponding jobs. Stage changes, any counter
+post-processing pause suppress ordinary jobs. Running article downloads and
+post-processing jobs with force priority (900 or higher) remain observed through
+these global flags, matching the daemon's force-mode behavior. Priority is read
+from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
+the observation unknown. Individually paused or queued jobs remain inactive even
+at force priority. URL fetching retains global download-pause/quota suppression;
+the daemon's separate `UrlForce` setting is not observed by this tool.
+Stage changes, any counter
 change, detected daemon restart, and observation failures reset the window.
 Restart detection uses uptime regression or an uptime increase more than ten
 seconds shorter than the monotonic observation interval. Small clock differences

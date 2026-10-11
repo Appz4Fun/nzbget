@@ -45,7 +45,7 @@ fn read_only_rpc_pair_normalizes_real_http_replies_without_private_job_data() {
                 assert_eq!(method, "listgroups");
                 assert_eq!(request["params"], json!([0]));
                 json!([{"NZBID":7,"Status":"DOWNLOADING","RemainingSizeHi":0,"RemainingSizeLo":123,
-                    "SuccessArticles":2,"FailedArticles":0,"PostStageProgress":0,"NZBName":"secret release"}])
+                    "SuccessArticles":2,"FailedArticles":0,"PostStageProgress":0,"MaxPriority":0,"NZBName":"secret release"}])
             };
             methods.push(method);
             let reply = json!({"version":"1.1","id":request["id"],"result":result}).to_string();
