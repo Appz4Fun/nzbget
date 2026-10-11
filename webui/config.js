@@ -1080,11 +1080,12 @@ var Config = (new function($)
 			caption = '<span class="config-multicaption">' + caption.substring(0, caption.indexOf('.') + 1) + '</span>' + caption.substring(caption.indexOf('.') + 1);
 		}
 
+		// makeId removes colons, so label: IDs cannot collide with option controls.
 		var i18nCaptionAttr = option.i18nCaption ? 'data-i18n="' + Util.textToAttr(option.i18nCaption) + '" ' : '';
 		var html =
 			'<div class="control-group ' + option.sectionId + (section.multi ? ' multiid' + option.multiid + ' multiset' : '') + '">'+
 				'<label class="control-label">' +
-				'<a class="option-name" href="#" data-optid="' + option.formId + '" ' + i18nCaptionAttr +
+				'<a class="option-name" id="label:' + option.formId + '" href="#" data-optid="' + option.formId + '" ' + i18nCaptionAttr +
 				'onclick="Config.scrollToOption(event, this)">' + caption + '</a>' +
 				(option.value === null && !section.postparam && !option.commandopts ?
 					' <a data-toggle="modal" href="#ConfigNewOptionHelp" class="label label-info text-uppercase">new</a>' : '') + '</label>'+
@@ -1161,7 +1162,7 @@ var Config = (new function($)
 		else if (option.select.length > 1)
 		{
 			option.type = 'switch';
-			html +=	'<div class="btn-group btn-switch" id="' + option.formId + '">';
+			html +=	'<div class="btn-group btn-switch" role="group" aria-labelledby="label:' + option.formId + '" id="' + option.formId + '">';
 
 			var valfound = false;
 			for (var j=0; j < option.select.length; j++)
@@ -1178,12 +1179,12 @@ var Config = (new function($)
 				}
 				if (value && pvalue.toLowerCase() === value.toLowerCase())
 				{
-					html += '<input type="button" class="btn btn-primary" value="' + Util.textToAttr(pvalueDisplay) + '" data-value="' + Util.textToAttr(pvalue) + '" onclick="Config.switchClick(this)">';
+					html += '<input type="button" class="btn btn-primary" aria-pressed="true" value="' + Util.textToAttr(pvalueDisplay) + '" data-value="' + Util.textToAttr(pvalue) + '" onclick="Config.switchClick(this)">';
 					valfound = true;
 				}
 				else
 				{
-					html += '<input type="button" class="btn btn-default" value="' + Util.textToAttr(pvalueDisplay) + '" data-value="' + Util.textToAttr(pvalue) + '" onclick="Config.switchClick(this)">';
+					html += '<input type="button" class="btn btn-default" aria-pressed="false" value="' + Util.textToAttr(pvalueDisplay) + '" data-value="' + Util.textToAttr(pvalue) + '" onclick="Config.switchClick(this)">';
 				}
 			}
 			if (!valfound)
@@ -1196,7 +1197,7 @@ var Config = (new function($)
 				{
 					valueDisplay = I18n.defaultValue(option.i18nSelectPrefix + value.toLowerCase(), valueDisplay);
 				}
-				html += '<input type="button" class="btn btn-primary" value="' + Util.textToAttr(valueDisplay) + '" data-value="' + Util.textToAttr(value) + '" onclick="Config.switchClick(this)">';
+				html += '<input type="button" class="btn btn-primary" aria-pressed="true" value="' + Util.textToAttr(valueDisplay) + '" data-value="' + Util.textToAttr(value) + '" onclick="Config.switchClick(this)">';
 			}
 
 			html +='</div>';
@@ -1622,9 +1623,9 @@ var Config = (new function($)
 	this.switchClick = function(control)
 	{
 		var btn  = $('.btn', $(control).parent());
-		btn.removeClass('btn-primary');
+		btn.removeClass('btn-primary').attr('aria-pressed', 'false');
 		btn.addClass('btn-default');
-		$(control).addClass('btn-primary');
+		$(control).addClass('btn-primary').attr('aria-pressed', 'true');
 		$(control).removeClass('btn-default');
 
 		// not for page Postprocess in download details
@@ -1704,9 +1705,9 @@ var Config = (new function($)
 
 	function switchSetValue(control, value)
 	{
-		$('.btn', control).removeClass('btn-primary');
+		$('.btn', control).removeClass('btn-primary').attr('aria-pressed', 'false');
 		var btn = $('.btn', control).filter(function() { return $(this).attr('data-value') == value || $(this).val() == value || $(this).attr('value') == value; });
-		btn.addClass('btn-primary');
+		btn.addClass('btn-primary').attr('aria-pressed', 'true');
 	}
 
 	this.togglePassword = function(control, target)
@@ -1906,10 +1907,15 @@ var Config = (new function($)
 				// update input id
 				var oldFormId = option.formId;
 				option.formId = option.formId.replace(new RegExp(option.multiid), newMultiId);
-				$('#' + oldFormId).attr('id', option.formId);
+				var optionControl = $('#' + oldFormId);
+				optionControl.attr('id', option.formId);
+				if (optionControl.hasClass('btn-switch'))
+				{
+					optionControl.attr('aria-labelledby', 'label:' + option.formId);
+				}
 
 				// update label data-optid
-				$('a[data-optid=' + oldFormId + ']').attr('data-optid', option.formId);
+				$('a[data-optid=' + oldFormId + ']').attr('data-optid', option.formId).attr('id', 'label:' + option.formId);
 
 				// update editor id
 				$('#' + oldFormId + '_Editor').attr('id', option.formId + '_Editor');

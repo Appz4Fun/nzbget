@@ -2614,6 +2614,65 @@ label,
 	font-weight: 400;
 }
 
+/* Settings choices: separate rounded segments inside a quiet capsule. */
+.btn-group.btn-switch {
+	box-sizing: border-box;
+	max-width: 100%;
+	padding: 4px;
+	gap: 4px;
+	border-radius: var(--radius-xl);
+	background: var(--fill-quaternary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+.btn-group.btn-switch > .btn {
+	box-sizing: border-box;
+	min-width: 56px;
+	max-width: 100%;
+	min-height: 32px;
+	margin: 0;
+	padding: 0 12px;
+	border-radius: var(--radius-lg);
+	background: transparent;
+	box-shadow: none;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 500;
+	text-transform: none;
+	text-overflow: ellipsis;
+	overflow: hidden;
+}
+
+.btn-group.btn-switch > .btn:hover {
+	background: var(--fill-secondary);
+	color: var(--label-primary);
+}
+
+.btn-group.btn-switch > .btn.btn-primary {
+	background: var(--accent-fill);
+	box-shadow: var(--shadow-card);
+	color: var(--on-accent);
+	font-weight: 600;
+}
+
+.btn-group.btn-switch > .btn:focus-visible {
+	position: relative;
+	z-index: 2;
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 1px;
+}
+
+.btn-group.btn-switch > .btn[disabled] {
+	background: var(--fill-tertiary);
+	box-shadow: none;
+	color: var(--label-tertiary);
+}
+
+.phone .btn-group.btn-switch > .btn {
+	min-height: 40px;
+}
+
 /* ---------- Settings: option rows ---------- */
 
 #DownloadsEdit_ParamTab div.control-group.wants-divider,

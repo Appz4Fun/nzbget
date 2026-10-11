@@ -468,11 +468,18 @@ var Frontend = (new function($)
 	{
 		var key = Util.keyName(e);
 
+		var nativeControl = $(e.target).closest('a[href], button, input[type="button"], input[type="submit"], input[type="reset"]');
 		var modals = $('.modal:visible');
 		if (modals.length > 0)
 		{
 			if (key === 'Enter' && !Util.wantsReturn(e.target))
 			{
+				// A focused control in the active modal keeps native activation;
+				// an obscured opener must not bypass the modal's default action.
+				if (nativeControl.length && nativeControl.closest('.modal')[0] === modals.last()[0])
+				{
+					return;
+				}
 				var primaryButton = $('.btn-primary:visible', modals.last());
 				if (primaryButton.length === 1)
 				{
@@ -480,6 +487,12 @@ var Frontend = (new function($)
 				}
 				return false;
 			}
+			return;
+		}
+
+		// Outside a modal, focused links and buttons keep native activation.
+		if (key === 'Enter' && nativeControl.length)
+		{
 			return;
 		}
 

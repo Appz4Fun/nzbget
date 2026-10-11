@@ -105,21 +105,21 @@
 
 					var searcher = new FastSearcher();
 
-					// Create a timer which gets reset upon every keyup event.
+					// Reset the timer for text input (including paste) and keyboard events.
 					// Perform filter only when the timer's wait is reached (user finished typing or paused long enough to elapse the timer).
 					// Do not perform the filter is the query has not changed.
 					// Immediately perform the filter if the ENTER key is pressed.
 
 					var timer;
 
-					config.filterInput.keyup(function()
+					config.filterInput.on('input keyup', function(event)
 					{
 						var timerWait = 500;
 						var overrideBool = false;
 						var inputBox = this;
 
 						// Was ENTER pushed?
-						if (inputBox.keyCode == 13)
+						if (event.keyCode == 13)
 						{
 							timerWait = 1;
 							overrideBool = true;
