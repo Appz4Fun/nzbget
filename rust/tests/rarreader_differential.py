@@ -7,8 +7,9 @@ truncations, insertions, deletions) - comparing the result, the volume state
 and every file's fields. Also covers synthetic integer/crypt-record boundaries,
 source exceptions (including crypt records), repeated reads, exhaustive short
 synthetic-archive truncations, overlong/overflowing vints, encrypted padding
-boundaries, and source call traces. Non-advancing blocks are excluded from
-the old-reader comparison; Rust and the fallback are always compared.
+boundaries, and source call traces. Non-advancing blocks and RAR3 total-size
+overflow are excluded from the old-reader comparison; Rust and the fallback
+are always compared.
 
 All three C++ readers are compiled as separate translation units with renamed
 classes and test-only access to the decrypt cache. This also instruments the
@@ -50,14 +51,17 @@ def renamed(src, hdr, prefix, fallback=False):
 
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/RarReader.cpp"], cwd=ROOT, text=True)
-# Stop the reference at the same block boundary without changing its results
-# for advancing inputs. Check the replacement counts so source drift fails.
+# Stop the reference at boundaries with deliberately different behavior.
+# Check the replacement counts so source drift fails.
 loop = "\twhile (!file.Eof())\n\t{"
 seek = "\t\tif (!file.Seek(skip, DiskFile::soCur))\n\t\t{\n\t\t\treturn false;\n\t\t}"
 assert old_src.count(loop) == 2 and old_src.count(seek) == 2
-old_src = "struct NonAdvancing {};\n" + old_src.replace(
+addition = "\t\tblocksize += (uint32)block.addsize;"
+assert old_src.count(addition) == 1
+old_src = "struct NonAdvancing {};\nstruct Rar3SizeOverflow {};\n" + old_src.replace(
     loop, loop + "\n\t\tint64 blockStart = file.Position();").replace(
-    seek, seek + "\n\t\tif (file.Position() <= blockStart) throw NonAdvancing{};")
+    seek, seek + "\n\t\tif (file.Position() <= blockStart) throw NonAdvancing{};").replace(
+    addition, "\t\tif ((uint64)blocksize + block.addsize > 0xffffffffULL) throw Rar3SizeOverflow{};\n" + addition)
 new_src = (ROOT / "daemon/postprocess/RarReader.cpp").read_text()
 
 flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
@@ -87,7 +91,9 @@ main = r'''
 ''' + decls + r'''
 
 struct NonAdvancing {};
+struct Rar3SizeOverflow {};
 static size_t filtered = 0;
+static size_t filteredSize = 0;
 
 struct MemSource : ContentSource
 {
@@ -163,7 +169,7 @@ template <class V> static std::string run(const std::string& data, const char* p
 	return result;
 }
 
-static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1, int fault = 0, bool allowNonAdvancing = true)
+static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1, int fault = 0, bool allowBoundaryDifference = true)
 {
 	std::string b = run<PortRarVolume>(data, password, failAt, repeats, fault);
 	std::string c = run<FallbackRarVolume>(data, password, failAt, repeats, fault);
@@ -185,12 +191,21 @@ static bool check(const std::string& data, const char* password, const std::stri
 	}
 	catch (const NonAdvancing&)
 	{
-		if (!allowNonAdvancing)
+		if (!allowBoundaryDifference)
 		{
 			fprintf(stderr, "non-advancing fixture: %s\n", what.c_str());
 			return false;
 		}
 		++filtered;
+	}
+	catch (const Rar3SizeOverflow&)
+	{
+		if (!allowBoundaryDifference)
+		{
+			fprintf(stderr, "RAR3 size overflow in fixture: %s\n", what.c_str());
+			return false;
+		}
+		++filteredSize;
 	}
 	return true;
 }
@@ -359,8 +374,8 @@ int main(int argc, char** argv)
 		if (!check(data, pw, "mutated " + std::string(argv[2 + which]) + " round " + std::to_string(round))) return 1;
 		parsed++;
 	}
-	if (filtered == 0) return 1;
-	printf("%zu volumes and %ld mutations agree; %zu non-advancing comparisons filtered (reference %s)\n", files.size(), parsed, filtered, "''' + REFERENCE + r'''");
+	if (filtered == 0 || filteredSize == 0) return 1;
+	printf("%zu volumes and %ld mutations agree; %zu non-advancing and %zu RAR3 size comparisons filtered (reference %s)\n", files.size(), parsed, filtered, filteredSize, "''' + REFERENCE + r'''");
 }
 '''
 

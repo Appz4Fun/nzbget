@@ -528,8 +528,11 @@ RarVolume::RarBlock RarVolume::ReadRar3Block(RarSourceCursor& file)
 
 	if (block.flags & RAR3_BLOCK_ADDSIZE)
 	{
-		blocksize += (uint32)block.addsize;
-		block.trailsize = blocksize - sizeof(buf) - 4;
+		// Header and packed data together can exceed the low 32-bit size.
+		// Retain the native-size subtraction for undersized headers.
+		uint64 total = (uint64)blocksize + block.addsize;
+		block.trailsize = total >= sizeof(buf) + 4 ? total - sizeof(buf) - 4 :
+			(size_t)total - sizeof(buf) - 4;
 	}
 
 #ifdef DEBUG

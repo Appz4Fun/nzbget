@@ -366,8 +366,10 @@ impl Parser<'_, '_> {
         block.addsize = u32::from_le_bytes(add) as u64;
         block.datasize = 0;
         if block.flags & RAR3_BLOCK_ADDSIZE != 0 {
-            blocksize = blocksize.wrapping_add(block.addsize as u32);
-            block.trailsize = (blocksize as usize).wrapping_sub(7).wrapping_sub(4) as u64;
+            // Header and packed data together can exceed the low 32-bit size.
+            // Retain the native-size subtraction for undersized headers.
+            let total = blocksize as u64 + block.addsize;
+            block.trailsize = if total >= 11 { total - 11 } else { (total as usize).wrapping_sub(11) as u64 };
         }
         // a zero type ends the parse (as the C++'s empty block)
         (block.kind != 0).then_some(block)
@@ -740,15 +742,15 @@ mod tests {
     }
 
     #[test]
-    fn rar3_trailer_uses_native_size_t_then_widens() {
+    fn rar3_trailer_size_boundaries() {
         let max = usize::MAX as u64;
         for (size, add, expected) in [
             (0u16, None, max - 6),
             (7, None, 0),
             (10, Some(0u32), max),
             (11, Some(0), 0),
-            (7, Some(u32::MAX), max - 4),
-            (u16::MAX, Some(u32::MAX), 65523),
+            (7, Some(u32::MAX), (1u64 << 32) - 5),
+            (u16::MAX, Some(u32::MAX), (1u64 << 32) + 65523),
         ] {
             let mut bytes = vec![0, 0, RAR3_BLOCK_FILE, 0, if add.is_some() { 0x80 } else { 0 }];
             bytes.extend(size.to_le_bytes());
@@ -761,6 +763,82 @@ mod tests {
             let block = p.rar3_block().unwrap();
             assert_eq!(block.trailsize, expected);
             assert_eq!(block.addsize, add.unwrap_or(0) as u64);
+        }
+    }
+
+    #[test]
+    fn rar3_large_block_offsets() {
+        struct Sparse {
+            prefix: Vec<u8>,
+            end: i64,
+        }
+        impl Source for Sparse {
+            fn size(&mut self) -> i64 { self.end + 7 }
+            fn read(&mut self, offset: i64, buf: &mut [u8]) -> bool {
+                let tail = [0, 0, RAR3_BLOCK_ENDARC, 0, 0, 7, 0];
+                let bytes = if offset >= self.end {
+                    tail.get((offset - self.end) as usize..)
+                } else {
+                    self.prefix.get(offset as usize..)
+                };
+                let Some(bytes) = bytes.and_then(|b| b.get(..buf.len())) else { return false };
+                buf.copy_from_slice(bytes);
+                true
+            }
+        }
+        for large in [false, true] {
+            let header_size = if large { 41u16 } else { 33 };
+            for packed in [(1u64 << 32) - header_size as u64 - 1,
+                           (1u64 << 32) - header_size as u64,
+                           (1u64 << 32) - header_size as u64 + 1,
+                           u32::MAX as u64, (1u64 << 32) + 7] {
+                if !large && packed > u32::MAX as u64 { continue; }
+                let mut prefix = b"Rar!\x1a\x07\0\0\0\x73\0\0\x0d\0\0\0\0\0\0\0".to_vec();
+                prefix.extend([0, 0, RAR3_BLOCK_FILE]);
+                prefix.extend((RAR3_BLOCK_ADDSIZE | if large { RAR3_FILE_ADDSIZE } else { 0 }).to_le_bytes());
+                prefix.extend(header_size.to_le_bytes());
+                prefix.extend((packed as u32).to_le_bytes());
+                prefix.extend((packed as u32).to_le_bytes());
+                prefix.extend([0; 9]);
+                prefix.extend([20, 0x30, 1, 0]);
+                prefix.extend([0; 4]);
+                if large {
+                    prefix.extend(((packed >> 32) as u32).to_le_bytes());
+                    prefix.extend(((packed >> 32) as u32).to_le_bytes());
+                }
+                prefix.push(b'a');
+                assert_eq!(prefix.len(), 20 + header_size as usize);
+                let end = prefix.len() as i64 + packed as i64;
+                let mut source = Sparse { prefix, end };
+                let mut volume = Volume::default();
+                let mut cipher = TestCipher::default();
+                let mut files = Vec::new();
+                assert!(read_from(&mut volume, &mut source, &mut cipher, &mut files));
+                assert_eq!(files.len(), 1);
+                assert_eq!(files[0].packed_size, packed as i64);
+                assert_eq!(files[0].size, packed as i64);
+                assert_eq!(files[0].data_offset, 20 + header_size as i64);
+            }
+        }
+    }
+
+    #[test]
+    fn rar3_large_encrypted_block_padding() {
+        for size in [31u16, 32, 33] {
+            let mut data = vec![0; 8];
+            data.extend([0, 0, RAR3_BLOCK_FILE, 0, 0x80]);
+            data.extend(size.to_le_bytes());
+            data.extend(u32::MAX.to_le_bytes());
+            data.resize(24, 0);
+            let mut source = Bytes(data);
+            let mut volume = Volume { encrypted: true, ..Volume::default() };
+            let mut cipher = TestCipher::default();
+            let mut files = Vec::new();
+            let mut p = Parser { v: &mut volume, file: Cursor { source: &mut source, position: 0, eof: false }, cipher: &mut cipher, files: &mut files };
+            let block = p.rar3_block().unwrap();
+            assert!(p.skip_to_next(&block, false, 0));
+            assert_eq!(p.file.position, 8 + ((size as i64 + 15) & !15) + u32::MAX as i64);
+            assert_eq!(p.v.decrypt_pos, 16);
         }
     }
 
@@ -800,7 +878,7 @@ mod tests {
 
     #[test]
     fn a_block_must_advance() {
-        let mut source = Bytes(b"Rar!\x1a\x07\x00\x00\x00\x73\x00\x80\x10\x00\xf0\xff\xff\xff".to_vec());
+        let mut source = Bytes(b"Rar!\x1a\x07\x00\x00\x00\x73\x00\x00\x00\x00".to_vec());
         let mut volume = Volume::default();
         let mut cipher = TestCipher { fail: false, blocks: 0, frees: 0 };
         let mut files: Vec<RarFile> = Vec::new();
