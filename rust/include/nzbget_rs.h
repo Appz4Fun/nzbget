@@ -595,7 +595,16 @@ int nzbget_rs_same_par_collection(const char* name1, const char* name2, int conf
 // file read, in order, also when the parse fails; 1 when the volume was read
 // to its end. size/read are the ContentSource; rar3Prepare, rar5Prepare, init
 // (iv NULL: rar3's derived IV), decrypt (one 16-byte block) and free are the
-// header cipher. Callbacks return nonzero for success and must not throw.
+// header cipher. addFile commits a completed header before the trailing seek;
+// setDataOffset updates the last file to position minus its packed size after
+// that seek succeeds. File/name pointers are borrowed only for addFile: copy
+// their contents there; never retain or free them. read/decrypt buffers are
+// borrowed writable storage of len/16 bytes. Callbacks must not throw; int
+// callbacks return nonzero for success; a rejected addFile stops parsing. NULL io/state
+// fails without callbacks; NULL callbacks are allowed (missing addFile drops
+// files and suppresses setDataOffset). ctx is opaque and may be NULL if the
+// callbacks support it. io must remain immutable and state exclusively borrowed
+// until rar_read returns, including during callbacks.
 typedef struct NzbgetRsRarFile
 {
 	const char* filename;
@@ -631,7 +640,8 @@ typedef struct NzbgetRsRarIo
 	int (*init)(void* ctx, int keyBits, const uint8_t* iv);
 	int (*decrypt)(void* ctx, const uint8_t* in, uint8_t* out);
 	void (*free)(void* ctx);
-	void (*addFile)(void* ctx, const NzbgetRsRarFile* file);
+	int (*addFile)(void* ctx, const NzbgetRsRarFile* file);
+	void (*setDataOffset)(void* ctx, int64_t position);
 } NzbgetRsRarIo;
 typedef struct NzbgetRsRarVolume
 {

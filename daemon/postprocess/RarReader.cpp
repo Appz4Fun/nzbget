@@ -81,7 +81,7 @@ static const uint8 RAR5_ENDARC_NEXTVOL = 0x01;
 
 int64 RarSourceCursor::Read(void* buffer, int64 size)
 {
-	int64 available = std::min(size, std::max<int64>(0, m_source.Size() - m_position));
+	int64 available = std::min(size, std::max<int64>(0, (int64)((uint64)m_source.Size() - (uint64)m_position)));
 	if (available < size)
 	{
 		m_eof = true;	// mimic feof: only a read past the end raises it
@@ -100,8 +100,10 @@ int64 RarSourceCursor::Read(void* buffer, int64 size)
 
 bool RarSourceCursor::Seek(int64 position, DiskFile::ESeekOrigin origin)
 {
-	int64 target = origin == DiskFile::soCur ? m_position + position :
-		origin == DiskFile::soEnd ? m_source.Size() + position : position;
+	// Header sizes can wrap the cursor. Use unsigned arithmetic explicitly:
+	// signed overflow here is undefined even though the parser needs wrapping.
+	int64 target = origin == DiskFile::soCur ? (int64)((uint64)m_position + (uint64)position) :
+		origin == DiskFile::soEnd ? (int64)((uint64)m_source.Size() + (uint64)position) : position;
 	if (target < 0)
 	{
 		return false;
@@ -145,6 +147,7 @@ namespace
 		RarVolume* volume;
 		ContentSource* source;
 		std::exception_ptr error;
+		bool signatureRead = false;
 	};
 
 	// a callback that throws makes the parse fail; the exception is kept and
@@ -183,7 +186,12 @@ bool RarVolume::ReadFrom(ContentSource& source)
 	};
 	io.read = [](void* ctx, int64_t offset, uint8_t* buffer, int64_t len) -> int
 	{
-		return RarCall(ctx, 0, [=](RarContext* c) { return c->source->Read(offset, buffer, len) ? 1 : 0; });
+		return RarCall(ctx, 0, [=](RarContext* c)
+		{
+			bool ok = c->source->Read(offset, buffer, len);
+			c->signatureRead = true;
+			return ok ? 1 : 0;
+		});
 	};
 	io.rar3Prepare = [](void* ctx, const uint8_t* salt) -> int
 	{
@@ -212,9 +220,9 @@ bool RarVolume::ReadFrom(ContentSource& source)
 	{
 		RarCall(ctx, 0, [](RarContext* c) { c->volume->DecryptFree(); return 0; });
 	};
-	io.addFile = [](void* ctx, const NzbgetRsRarFile* f)
+	io.addFile = [](void* ctx, const NzbgetRsRarFile* f) -> int
 	{
-		RarCall(ctx, 0, [f](RarContext* c)
+		return RarCall(ctx, 0, [f](RarContext* c)
 		{
 			RarFile file;
 			file.m_filename.assign(f->filename, f->filenameLen);
@@ -242,6 +250,17 @@ bool RarVolume::ReadFrom(ContentSource& source)
 				file.m_crypt.HasCheck = f->cryptHasCheck;
 			}
 			c->volume->m_files.push_back(std::move(file));
+			return 1;
+		});
+	};
+
+	io.setDataOffset = [](void* ctx, int64_t position)
+	{
+		RarCall(ctx, 0, [=](RarContext* c)
+		{
+			RarFile& file = c->volume->m_files.back();
+			// Preserve the two's-complement result without signed overflow.
+			file.m_dataOffset = (int64)((uint64)position - (uint64)file.m_packedSize);
 			return 0;
 		});
 	};
@@ -259,7 +278,9 @@ bool RarVolume::ReadFrom(ContentSource& source)
 
 	bool ok = nzbget_rs_rar_read(&io, &state) != 0;
 
-	m_version = state.version;
+	// DetectRarVersion never assigned m_version if Size/Read threw while
+	// reading the signature. Preserve it when this is a repeated ReadFrom.
+	if (!context.error || context.signatureRead) m_version = state.version;
 	m_volumeNo = state.volumeNo;
 	m_newNaming = state.newNaming;
 	m_hasNextVolume = state.hasNextVolume;
@@ -459,7 +480,7 @@ bool RarVolume::ReadRar3Volume(RarSourceCursor& file)
 			// last packedSize bytes before it (works for encrypted
 			// volumes too, where it names the ciphertext region)
 			RarFile& lastFile = m_files.back();
-			lastFile.m_dataOffset = file.Position() - lastFile.m_packedSize;
+			lastFile.m_dataOffset = (int64)((uint64)file.Position() - (uint64)lastFile.m_packedSize);
 		}
 	}
 
@@ -664,7 +685,7 @@ bool RarVolume::ReadRar5Volume(RarSourceCursor& file)
 			// last packedSize bytes before it (works for encrypted
 			// volumes too, where it names the ciphertext region)
 			RarFile& lastFile = m_files.back();
-			lastFile.m_dataOffset = file.Position() - lastFile.m_packedSize;
+			lastFile.m_dataOffset = (int64)((uint64)file.Position() - (uint64)lastFile.m_packedSize);
 		}
 	}
 

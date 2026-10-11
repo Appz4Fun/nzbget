@@ -4,7 +4,8 @@ wrapper of RarReader.cpp), and its C++ fallback, with the pre-port C++: every
 RAR3/RAR5 volume of tests/testdata (plain, encrypted data, encrypted headers),
 with and without the password, then the same volumes mutated (byte flips,
 truncations, insertions, deletions) - comparing the result, the volume state
-and every file's fields.
+and every file's fields. Also covers synthetic integer/crypt-record boundaries,
+source exceptions, repeated reads and truncations of a two-file archive.
 
 The pre-port and fallback readers are compiled as separate translation units
 with the classes renamed; the Rust-backed one is the build's. The volumes are
@@ -18,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import struct
 import subprocess
 import sys
 import tempfile
@@ -64,6 +66,7 @@ main = r'''
 #include <iterator>
 #include <string>
 #include <vector>
+#include <stdexcept>
 ''' + globals_block + r'''
 #undef NZBGET_USE_RUST
 ''' + decls + r'''
@@ -71,9 +74,12 @@ main = r'''
 struct MemSource : ContentSource
 {
 	std::string data;
+	int failAt = -1;
+	int reads = 0;
 	int64 Size() override { return (int64)data.size(); }
 	bool Read(int64 offset, void* buffer, int64 size) override
 	{
+		if (reads++ == failAt) throw std::runtime_error("source failure");
 		if (offset < 0 || size < 0 || offset + size > (int64)data.size()) return false;
 		memcpy(buffer, data.data() + offset, (size_t)size);
 		return true;
@@ -86,36 +92,47 @@ static int below(int n) { return n <= 0 ? 0 : (int)(next() % (unsigned long long
 
 static std::string hex(const uint8* p, int n) { std::string s; char b[3]; for (int i = 0; i < n; i++) { snprintf(b, 3, "%02x", p[i]); s += b; } return s; }
 
-template <class V> static std::string run(const std::string& data, const char* password)
+template <class V> static std::string run(const std::string& data, const char* password, int failAt = -1, int repeats = 1)
 {
 	MemSource source;
 	source.data = data;
+	source.failAt = repeats > 1 ? -1 : failAt;
 	V volume("vol.rar");
 	if (password) volume.SetPassword(password);
-	bool ok = volume.ReadFrom(source);
-	std::string s = std::to_string(ok) + "|" + std::to_string(volume.GetVersion()) + "," + std::to_string(volume.GetVolumeNo()) + "," +
-		std::to_string(volume.GetNewNaming()) + std::to_string(volume.GetHasNextVolume()) + std::to_string(volume.GetMultiVolume()) +
-		std::to_string(volume.GetEncrypted()) + "|";
-	for (auto& f : *volume.GetFiles())
+	std::string result;
+	for (int attempt = 0; attempt < repeats; ++attempt)
 	{
-		s += std::string(f.GetFilename()) + "/" + std::to_string(f.GetTime()) + "/" + std::to_string(f.GetAttr()) + "/" +
-			std::to_string(f.GetSize()) + "/" + std::to_string(f.GetSplitBefore()) + std::to_string(f.GetSplitAfter()) + "/" +
-			std::to_string(f.GetMethod()) + "/" + std::to_string(f.GetStored()) + "/" + std::to_string(f.GetPackedSize()) + "/" +
-			std::to_string(f.GetDataOffset()) + "/" + std::to_string(f.GetEncryptedData()) + "/" + std::to_string(f.GetHasSalt()) +
-			hex(f.GetSalt(), 8) + "/";
-		if (auto* c = f.GetCrypt())
-			s += std::to_string(c->Version) + "," + std::to_string(c->Flags) + "," + std::to_string(c->KdfCount) + "," +
-				hex(c->Salt, 16) + hex(c->Iv, 16) + hex(c->CheckValue, 12) + std::to_string(c->HasCheck);
-		s += ";";
+		bool ok = false;
+		bool threw = false;
+		try { ok = volume.ReadFrom(source); }
+		catch (const std::runtime_error&) { threw = true; }
+		std::string s = std::to_string(ok) + std::to_string(threw) + "|" + std::to_string(volume.GetVersion()) + "," + std::to_string(volume.GetVolumeNo()) + "," +
+			std::to_string(volume.GetNewNaming()) + std::to_string(volume.GetHasNextVolume()) + std::to_string(volume.GetMultiVolume()) +
+			std::to_string(volume.GetEncrypted()) + "|";
+		for (auto& f : *volume.GetFiles())
+		{
+			s += hex((const uint8*)f.GetFilename(), (int)strlen(f.GetFilename())) + "/" + std::to_string(f.GetTime()) + "/" + std::to_string(f.GetAttr()) + "/" +
+				std::to_string(f.GetSize()) + "/" + std::to_string(f.GetSplitBefore()) + std::to_string(f.GetSplitAfter()) + "/" +
+				std::to_string(f.GetMethod()) + "/" + std::to_string(f.GetStored()) + "/" + std::to_string(f.GetPackedSize()) + "/" +
+				std::to_string(f.GetDataOffset()) + "/" + std::to_string(f.GetEncryptedData()) + "/" + std::to_string(f.GetHasSalt()) +
+				hex(f.GetSalt(), 8) + "/";
+			if (auto* c = f.GetCrypt())
+				s += std::to_string(c->Version) + "," + std::to_string(c->Flags) + "," + std::to_string(c->KdfCount) + "," +
+					hex(c->Salt, 16) + hex(c->Iv, 16) + hex(c->CheckValue, 12) + std::to_string(c->HasCheck);
+			s += ";";
+		}
+		result += s + "\n";
+		source.reads = 0;
+		source.failAt = failAt;
 	}
-	return s;
+	return result;
 }
 
-static bool check(const std::string& data, const char* password, const std::string& what)
+static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1)
 {
-	std::string a = run<OldRarVolume>(data, password);
-	std::string b = run<RarVolume>(data, password);
-	std::string c = run<FallbackRarVolume>(data, password);
+	std::string a = run<OldRarVolume>(data, password, failAt, repeats);
+	std::string b = run<RarVolume>(data, password, failAt, repeats);
+	std::string c = run<FallbackRarVolume>(data, password, failAt, repeats);
 	if (a != b || a != c)
 	{
 		fprintf(stderr, "mismatch: %s (password %s)\nold:      %s\nrust:     %s\nfallback: %s\n", what.c_str(),
@@ -138,7 +155,24 @@ int main(int argc, char** argv)
 			if (getenv("NZBGET_TEST_VERBOSE")) fprintf(stderr, "volume %s pw %s\n", argv[i], pw ? pw : "-");
 			if (!check(files.back(), pw, argv[i])) return 1;
 		}
+		// Exercise the cached decrypt position across calls and a short encrypted
+		// header, using only the first volume to keep key derivations bounded.
+		if (std::string(argv[i]).find("encnam.part01") != std::string::npos)
+		{
+			if (!check(files.back(), "123", "repeated encrypted read", -1, 2)) return 1;
+			if (!check(files.back().substr(0, 64), "123", "truncated encrypted header")) return 1;
+		}
 	}
+	// Fail each read of a tiny two-file archive, including after one file was
+	// committed. The reference preserves completed files when a source throws.
+	std::string tiny("Rar!\x1a\x07\x01\0", 8);
+	const char file[] = {0,0,0,0,9,2,0,0,0,0,0,0,1,'a'};
+	tiny.append(file, sizeof(file));
+	tiny.append(file, sizeof(file));
+	for (int at = 0; at < 35; ++at)
+		if (!check(tiny, nullptr, "source exception " + std::to_string(at), at, 2)) return 1;
+	for (size_t length = 0; length <= tiny.size(); ++length)
+		if (!check(tiny.substr(0, length), nullptr, "truncated two-file archive", -1, 2)) return 1;
 	long parsed = 0;
 	for (long round = 0; round < rounds; round++)
 	{
@@ -167,18 +201,84 @@ int main(int argc, char** argv)
 }
 '''
 
+
+def vint(n):
+    result = bytearray()
+    while n >= 128:
+        result.append((n & 127) | 128)
+        n >>= 7
+    result.append(n)
+    return bytes(result)
+
+
+def block5(kind, flags, body=b"", extra=b"", data=0, size=None):
+    header = vint(kind) + vint(flags)
+    if flags & 1:
+        header += vint(len(extra))
+    if flags & 2:
+        header += vint(data)
+    header += body + extra
+    return bytes(4) + vint(len(header) if size is None else size) + header
+
+
+def record(kind, body):
+    body = vint(kind) + body
+    return vint(len(body)) + body
+
+
+def synthetic_volumes():
+    sig5 = b"Rar!\x1a\x07\x01\0"
+    end5 = block5(5, 0, b"\1")
+    for name in [b"", b"a", b"a\0ignored", b"\xff\x80", b"x" * 8192, b"x" * 8193]:
+        body = b"\0" + vint((1 << 64) - 1) + vint((1 << 32) + 7) + vint(7 << 7) + b"\0" + vint(len(name)) + name
+        yield sig5 + block5(258, 1 << 16, body) + end5
+    body = b"\0\0\0\0\0\1a"
+    crypt = b"\0\1\0" + bytes(range(44))
+    for length in range(len(crypt) + 1):
+        extra = record(1, crypt[:length])
+        yield sig5 + block5(2, 1, body, extra) + end5
+    for extra in [record(1, b"\0\0\0" + bytes(32)),
+                  record(1, b"\x80" * 10), record(1, crypt) + record(1, b"\0"),
+                  record(3, b"\1" + bytes(4)), record(3, b"\0" + bytes(8)),
+                  record(3, b"\0" + b"\xff" * 8), record(99, bytes(9))]:
+        yield sig5 + block5(2, 1, body, extra) + end5
+    for value in [0, 1, 127, 128, (1 << 32), (1 << 63) - 1, (1 << 63), (1 << 64) - 1]:
+        yield sig5 + block5(1, 0, vint(3) + vint(value)) + end5
+        yield sig5 + block5(2, 0, body, size=value) + end5
+        yield sig5 + block5(2, 2, body, data=value) + end5
+    for high in [None, 0, 1, 0x80000000, 0xffffffff]:
+        for salt in [b"", bytes(range(8))]:
+            flags = 0x8000 | (0x100 if high is not None else 0) | (0x404 if salt else 0)
+            name = b"a\0hidden"
+            body = struct.pack("<IBIIBBHI", 7, 0, 0, 123, 20, 0x30, len(name), 32)
+            if high is not None:
+                body += struct.pack("<II", high, high)
+            body += name + salt
+            block = struct.pack("<HBHHI", 0, 0x74, flags, 11 + len(body), 0) + body
+            yield b"Rar!\x1a\x07\0" + block + struct.pack("<HBHHI", 0, 0x7b, 9, 11, 123)
+
 with tempfile.TemporaryDirectory(prefix="nzbget-rarreader-") as temp:
     temp = Path(temp)
     (temp / "main.cpp").write_text(main)
     (temp / "old.cpp").write_text(renamed(old_src, old_header, "Old"))
     (temp / "fallback.cpp").write_text(renamed(new_src, header, "Fallback", fallback=True))
+    for i, data in enumerate(synthetic_volumes()):
+        path = temp / f"synthetic-{i}.rar"
+        path.write_bytes(data)
+        volumes.append(str(path))
     binary = temp / "rarreader"
     # an encrypted volume derives its key (PBKDF2, up to 2^24 rounds for a
     # mutated KDF count) on every read: the sanitizer build gets a quarter of
     # the mutations
     for extra, rounds in ((["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], str(max(1, int(ROUNDS) // 4))), ([], ROUNDS)):
-        subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                        *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "old.cpp"),
+        compiler = [*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")),
+                    *shlex.split(get("CXX_DEFINES")), *extra, "-w", *shlex.split(get("CXX_INCLUDES"))]
+        # The reference has signed cursor/offset overflows on hostile sizes.
+        # Pin its intended two's-complement behavior; leave the current reader
+        # and fallback under normal UBSan checks so new UB is still caught.
+        subprocess.run([*compiler, "-fwrapv", "-c", str(temp / "old.cpp"),
+                        "-o", str(temp / "old.o")], check=True, cwd=BUILD)
+        subprocess.run([*compiler, str(temp / "main.cpp"), str(temp / "old.o"),
                         str(temp / "fallback.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
         # NZBGET_TEST_WRAPPER (e.g. "gdb -batch -ex run -ex bt --args") runs the binary under a tool

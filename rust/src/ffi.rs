@@ -2640,7 +2640,8 @@ pub struct RarIo {
     pub init: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const u8) -> c_int>,
     pub decrypt: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, *mut u8) -> c_int>,
     pub free: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
-    pub add_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const RarFileOut)>,
+    pub add_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const RarFileOut) -> c_int>,
+    pub set_data_offset: Option<unsafe extern "C" fn(*mut std::ffi::c_void, i64)>,
 }
 
 /// NzbgetRsRarVolume: RarVolume's state, read and written back.
@@ -2716,13 +2717,53 @@ impl crate::rarreader::Cipher for FfiRar<'_> {
     }
 }
 
+impl crate::rarreader::Files for FfiRar<'_> {
+    fn add(&mut self, f: &crate::rarreader::RarFile) -> bool {
+        let Some(add) = self.0.add_file else { return true };
+        let c = f.crypt.unwrap_or_default();
+        let out = RarFileOut {
+            filename: if f.filename.is_empty() { c"".as_ptr() } else { f.filename.as_ptr().cast() },
+            filename_len: f.filename.len(),
+            time: f.time,
+            attr: f.attr,
+            size: f.size,
+            split_before: f.split_before as c_int,
+            split_after: f.split_after as c_int,
+            method: f.method,
+            stored: f.stored as c_int,
+            packed_size: f.packed_size,
+            data_offset: f.data_offset,
+            encrypted_data: f.encrypted_data as c_int,
+            has_salt: f.has_salt as c_int,
+            salt: f.salt,
+            has_crypt: f.crypt.is_some() as c_int,
+            crypt_version: c.version,
+            crypt_flags: c.flags,
+            crypt_kdf_count: c.kdf_count,
+            crypt_salt: c.salt,
+            crypt_iv: c.iv,
+            crypt_check_value: c.check_value,
+            crypt_has_check: c.has_check as c_int,
+        };
+        unsafe { add(self.0.ctx, &out) != 0 }
+    }
+    fn set_data_offset(&mut self, position: i64) {
+        if self.0.add_file.is_none() { return; }
+        if let Some(set) = self.0.set_data_offset {
+            unsafe { set(self.0.ctx, position) }
+        }
+    }
+}
+
 /// RarVolume::ReadFrom: parses the source into `state` (updated) and hands the
 /// files read to add_file, in order (also when the parse fails). 1 when the
 /// volume was read to its end, else 0.
 ///
 /// # Safety
-/// `io` and `state` are valid; the callbacks don't unwind; read writes at
-/// most `len` bytes to its buffer.
+/// Non-NULL `io` and `state` must be aligned, initialized objects. `io` stays
+/// immutable and `state` is exclusively borrowed for the call, including
+/// callbacks. Callbacks must not unwind or retain borrowed pointers; read
+/// writes at most `len` bytes, decrypt at most 16 bytes. ctx is caller-owned.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_rar_read(io: *const RarIo, state: *mut RarVolumeState) -> c_int {
     let (Some(io), Some(st)) = (io.as_ref(), state.as_mut()) else { return 0 };
@@ -2736,11 +2777,11 @@ pub unsafe extern "C" fn nzbget_rs_rar_read(io: *const RarIo, state: *mut RarVol
         has_password: st.has_password != 0,
         decrypt_buf: st.decrypt_buf,
         decrypt_pos: st.decrypt_pos,
-        files: Vec::new(),
     };
     let mut source = FfiRar(io);
     let mut cipher = FfiRar(io);
-    let ok = crate::rarreader::read_from(&mut v, &mut source, &mut cipher);
+    let mut files = FfiRar(io);
+    let ok = crate::rarreader::read_from(&mut v, &mut source, &mut cipher, &mut files);
     st.version = v.version;
     st.volume_no = v.volume_no;
     st.new_naming = v.new_naming as c_int;
@@ -2749,42 +2790,98 @@ pub unsafe extern "C" fn nzbget_rs_rar_read(io: *const RarIo, state: *mut RarVol
     st.encrypted = v.encrypted as c_int;
     st.decrypt_buf = v.decrypt_buf;
     st.decrypt_pos = v.decrypt_pos;
-    if let Some(add) = io.add_file {
-        for f in &v.files {
-            let c = f.crypt.unwrap_or_default();
-            let out = RarFileOut {
-                filename: f.filename.as_ptr().cast(),
-                filename_len: f.filename.len(),
-                time: f.time,
-                attr: f.attr,
-                size: f.size,
-                split_before: f.split_before as c_int,
-                split_after: f.split_after as c_int,
-                method: f.method,
-                stored: f.stored as c_int,
-                packed_size: f.packed_size,
-                data_offset: f.data_offset,
-                encrypted_data: f.encrypted_data as c_int,
-                has_salt: f.has_salt as c_int,
-                salt: f.salt,
-                has_crypt: f.crypt.is_some() as c_int,
-                crypt_version: c.version,
-                crypt_flags: c.flags,
-                crypt_kdf_count: c.kdf_count,
-                crypt_salt: c.salt,
-                crypt_iv: c.iv,
-                crypt_check_value: c.check_value,
-                crypt_has_check: c.has_check as c_int,
-            };
-            add(io.ctx, &out);
-        }
-    }
     ok as c_int
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rarreader_nulls_borrowed_files_and_failed_append() {
+        use std::ptr::{null, null_mut};
+        struct Context {
+            data: Vec<u8>,
+            names: Vec<Vec<u8>>,
+            positions: Vec<i64>,
+            reject: bool,
+            freed: usize,
+        }
+        unsafe extern "C" fn size(ctx: *mut std::ffi::c_void) -> i64 {
+            (*(ctx as *mut Context)).data.len() as i64
+        }
+        unsafe extern "C" fn read(ctx: *mut std::ffi::c_void, offset: i64, buf: *mut u8, len: i64) -> c_int {
+            let ctx = &*(ctx as *mut Context);
+            let Some(data) = ctx.data.get(offset as usize..offset as usize + len as usize) else { return 0 };
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buf, data.len());
+            1
+        }
+        unsafe extern "C" fn add(ctx: *mut std::ffi::c_void, file: *const RarFileOut) -> c_int {
+            let ctx = &mut *(ctx as *mut Context);
+            if ctx.reject { return 0; }
+            let file = &*file;
+            assert_eq!(file.data_offset, -1);
+            ctx.names.push(std::slice::from_raw_parts(file.filename.cast(), file.filename_len).to_vec());
+            1
+        }
+        unsafe extern "C" fn offset(ctx: *mut std::ffi::c_void, position: i64) {
+            (*(ctx as *mut Context)).positions.push(position);
+        }
+        unsafe extern "C" fn free(ctx: *mut std::ffi::c_void) {
+            (*(ctx as *mut Context)).freed += 1;
+        }
+        let mut state = RarVolumeState {
+            version: 0, volume_no: 0, new_naming: 0, has_next_volume: 0,
+            multi_volume: 0, encrypted: 0, has_password: 0,
+            decrypt_buf: [0; 16], decrypt_pos: 16,
+        };
+        let mut io = RarIo {
+            ctx: null_mut(), size: None, read: None, rar3_prepare: None,
+            rar5_prepare: None, init: None, decrypt: None, free: None,
+            add_file: None, set_data_offset: None,
+        };
+        unsafe {
+            assert_eq!(nzbget_rs_rar_read(null(), null_mut()), 0);
+            assert_eq!(nzbget_rs_rar_read(null(), &mut state), 0);
+            assert_eq!(nzbget_rs_rar_read(&io, null_mut()), 0);
+            assert_eq!(nzbget_rs_rar_read(&io, &mut state), 0);
+            let mut ctx = Context {
+                // Two headers (one empty name), followed by an invalid block.
+                data: b"Rar!\x1a\x07\x01\0".to_vec(),
+                names: Vec::new(), positions: Vec::new(), reject: false, freed: 0,
+            };
+            ctx.data.extend([0,0,0,0,9,2,0,0,0,0,0,0,1,b'a']);
+            ctx.data.extend([0,0,0,0,8,2,0,0,0,0,0,0,0]);
+            io.ctx = (&mut ctx as *mut Context).cast();
+            io.size = Some(size);
+            io.read = Some(read);
+            io.add_file = Some(add);
+            io.set_data_offset = Some(offset);
+            io.free = Some(free);
+            assert_eq!(nzbget_rs_rar_read(&io, &mut state), 0);
+            assert_eq!(ctx.names, [b"a".to_vec(), Vec::new()]);
+            assert_eq!(ctx.positions, [22, 35]);
+            assert_eq!(ctx.freed, 1);
+            ctx.data[21] = b'z';
+            assert_eq!(ctx.names[0], b"a"); // callback owns its copy
+            ctx.reject = true;
+            assert_eq!(nzbget_rs_rar_read(&io, &mut state), 0);
+            assert_eq!(ctx.names.len(), 2);
+            assert_eq!(ctx.positions, [22, 35]); // no seek after rejected append
+            assert_eq!(ctx.freed, 2);
+            // All byte values are valid FFI state. The main header switches
+            // encryption on before any decrypt normalizes an oversized pos.
+            ctx.data = b"Rar!\x1a\x07\0".to_vec();
+            ctx.data.extend([0, 0, 0x73, 0x80, 0, 13, 0]);
+            ctx.data.extend([0; 6]);
+            state.has_password = 1;
+            for pos in 0..=u8::MAX {
+                state.encrypted = 0;
+                state.decrypt_pos = pos;
+                assert_eq!(nzbget_rs_rar_read(&io, &mut state), 0);
+            }
+        }
+    }
 
     #[test]
     fn parparser_bounded_input_and_outputs() {
