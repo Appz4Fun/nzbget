@@ -92,6 +92,7 @@ docker/config
 .*
 !/.gitignore
 !/.gitattributes
+!/.vale.ini
 !.github/
 !.github/**
 

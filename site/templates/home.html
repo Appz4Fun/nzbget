@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block main %}
+<article class="content content-wide">
+  <section class="hero">
+    <div>
+      <p class="eyebrow">{{ page.meta.eyebrow }}</p>
+      <h1>{{ page.meta.headline }}<br><span>{{ page.meta.headline_accent }}</span></h1>
+      <p class="lede">{{ page.meta.lede }}</p>
+      <div class="actions">
+        <a class="button primary" href="install.html">Install and build</a>
+        <a class="button" href="duplicate-fleets.html">How fleets work</a>
+      </div>
+      <ul class="facts">
+        {% for fact in page.meta.facts %}<li>{{ fact }}</li>{% endfor %}
+      </ul>
+    </div>
+    <figure class="readout" aria-label="Illustration: how a fleet of duplicate postings resolves into one download">
+      <figcaption>illustration · one title, four postings</figcaption>
+<pre><span class="v">  Grouped</span> 4 postings under one key
+<span class="v">   Ranked</span> primary <span class="m">99% alive · 2160p</span>
+<span class="v">   Proved</span> twin    <span class="m">par2 hashes match</span>
+<span class="v">     Kept</span> alt     <span class="m">other encode · backup</span>
+<span class="w">  Missing</span> 212 articles on all servers
+<span class="v"> Borrowed</span> 212 articles from the twin
+<span class="v"> Verified</span> par2 · nothing left to repair
+<span class="r"> Finished</span> 1 download · 0 failovers</pre>
+    </figure>
+  </section>
+  <div class="prose">
+{{ page.body | safe }}
+  </div>
+</article>
+{% endblock %}

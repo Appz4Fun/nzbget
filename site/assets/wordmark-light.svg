@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 96" width="520" height="96" role="img" aria-label="RustyGet">
+  <g transform="translate(4 8) scale(1.25)">
+    <path d="M32 3.5 56.7 17.75v28.5L32 60.5 7.3 46.25v-28.5Z" fill="#a8400f"/>
+    <path d="M32 17v20m-9-9 9 9 9-9M21.5 45h21" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="56" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-size="46" font-weight="700" letter-spacing="-1.5" fill="#1c1916">Rusty<tspan fill="#a8400f">Get</tspan></text>
+  <text x="98" y="82" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" fill="#5c534b">usenet downloader :: fleet-aware :: rewriting in Rust</text>
+</svg>

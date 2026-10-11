@@ -1,0 +1,33 @@
+# Site settings. To rename the project, change name, name_head, name_tail
+# and crate here, then replace the name in site/content and README.md.
+
+[site]
+name = "RustyGet"
+name_head = "Rusty"
+name_tail = "Get"
+crate = "rustyget"
+tagline = "a fleet-aware Usenet downloader, rewritten in Rust"
+status = "rewrite in progress"
+repo = "https://github.com/Appz4Fun/nzbget"
+branch = "dupe-article-fallback"
+base_url = "https://appz4fun.github.io/nzbget/"
+
+[[nav]]
+title = "Overview"
+pages = ["index", "why", "differences"]
+
+[[nav]]
+title = "Get started"
+pages = ["install", "quick-start"]
+
+[[nav]]
+title = "Features"
+pages = ["features", "duplicates", "duplicate-fleets", "dupesearch", "kodi", "nzbhydra2", "post-processing", "automation", "performance"]
+
+[[nav]]
+title = "Reference"
+pages = ["options", "api", "rust-port", "design-system"]
+
+[[nav]]
+title = "Project"
+pages = ["contributing"]
