@@ -56,11 +56,33 @@ in `rust/include/nzbget_rs.h`.
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
 
-Each port also adds its hot function to `rust/benches/ports.rs`, and its pull
-request shows the C++ time, the Rust time and the percentage change. A Rust port
-more than 10% slower than the C++ it replaces is optimized further before it is
-merged; a slowdown that can't be removed is explained in the pull request. CI
-tracks the benchmarks with Bencher (see `rust/benches/README.md`).
+Each port adds representative Rust kernel coverage to rust/benches/ports.rs or
+the selective development-only Criterion pilot. Kernel results support
+attribution and regression history; they do not qualify a runtime replacement.
+
+Before each replacement, the PR shows matched complete C++/current-Rust/candidate
+caller timings and percentage changes for every representative fixture, with raw
+samples, verified observable output, immutable source/compiler/binary/input
+hashes and reproduction instructions. Include the real external C++/FFI call
+boundaries, allocation, mutable input clone/reset and ownership/destruction costs.
+Retain original and stronger optimized C++ controls, slower rows, unchanged-control
+drift and layout/host uncertainty. The replacement must be independently faster
+than the C++ it replaces and preserve existing Rust caller performance where
+already ported. Missing or inconclusive complete-caller evidence is HOLD; rework
+or hold/split slower functions instead of advancing a broad patch.
+
+Bencher's inherited 10% historical regression alert is monitoring only, never a
+migration waiver. Passing that alert is not proof that a replacement is faster.
+The historical figures above describe their recorded fixtures, not standing
+approval for later changes. New shared qualification defaults apply
+prospectively; partial legacy archives retain unknown fields and raw rows rather
+than inventing native v1 evidence.
+
+See rust/benches/README.md for the shared remote runner, resource-lock order,
+schema, whole-process paired statistics, Criterion limits, data-only trusted
+publication and verified xbmc4lyfe identity. Current Bencher configuration is
+absent and publication ready=false; workflow definitions or a signed evidence
+commit alone do not establish activation or attest a measurement.
 
 ## Native duplicate discovery
 
