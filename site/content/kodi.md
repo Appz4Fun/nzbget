@@ -31,7 +31,7 @@ The add-on decides *which release* you get. RustyGet decides *which copy* of tha
 - **NZBGet**, which downloads and unpacks the whole release, then plays the finished file. RustyGet is a drop-in for this backend.
 - **StreamNZB**, which returns a direct HTTP stream.
 
-Fleet submission with `appendfleet` came in add-on pull requests [514](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/514), [518](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/518), and [519](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/519). It ships in the add-on's beta channel, which publishes every pre-release tag: the first beta after 2.0.0-beta.2 includes it. Beta 2 sends backups one at a time with `append` instead.
+Fleet submission with `appendfleet` came in add-on pull requests [514](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/514), [518](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/518), and [519](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/519). It shipped in [2.0.0-beta.3](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/releases/tag/v2.0.0-beta.3), released on 2026-10-11 in the add-on's beta channel, which publishes every pre-release. Earlier betas send backups one at a time with `append`.
 
 ## Step 1: search through NZBHydra2
 

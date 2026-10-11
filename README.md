@@ -73,7 +73,7 @@ The same release usually exists as many postings: reposts, listings on several i
 
 RustyGet can also search on its own: with `DupeSearch=yes`, it queries NZBHydra2 for more copies of each new download, checks them the same way, and adds the live ones as backups.
 
-The add-on decides *which release* you get. RustyGet decides *which copy* of it downloads, because only your news servers know which copies still exist. Fleet submission with `appendfleet` came in add-on pull requests [514](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/514), [518](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/518), and [519](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/519) and ships in the add-on's beta channel. With stock NZBGet, the add-on falls back to one `append` per copy.
+The add-on decides *which release* you get. RustyGet decides *which copy* of it downloads, because only your news servers know which copies still exist. Fleet submission with `appendfleet` came in add-on pull requests [514](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/514), [518](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/518), and [519](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/pull/519), and shipped in the add-on's [2.0.0-beta.3](https://github.com/Appz4Fun/NeNeTeePee-Stream-Kodi/releases/tag/v2.0.0-beta.3) pre-release on 2026-10-11. With stock NZBGet, the add-on falls back to one `append` per copy.
 
 For more detail, see [Duplicate fleets](https://appz4fun.github.io/nzbget/duplicate-fleets.html), [Streaming with Kodi](https://appz4fun.github.io/nzbget/kodi.html), [Donor search](https://appz4fun.github.io/nzbget/dupesearch.html), and [NZBHydra2](https://appz4fun.github.io/nzbget/nzbhydra2.html).
 
