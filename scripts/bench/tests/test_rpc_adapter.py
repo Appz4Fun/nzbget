@@ -306,6 +306,63 @@ class RpcAdapterTests(unittest.TestCase):
             self.assertFalse(marker.exists(), "unrelated dangling output bypassed invalid-proof cleanup")
             self.assertEqual(source.read_text(), '{"case":"rpc/log-10"}\n')
 
+    def test_input_directory_symlink_ancestors_survive_rejection(self):
+        for argument in ("manifest", "source"):
+            for route in ("direct", "output_alias", "dotdot"):
+                with self.subTest(argument=argument, route=route), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    output = root / "out"
+                    output.mkdir()
+                    external = root / "external"
+                    external.mkdir()
+                    (external / "input.json").write_text('{"malformed":')
+                    proof = root / "proof.json"
+                    proof.write_text('{"historical":true}')
+                    source = root / "source.samples"
+                    source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    ancestor = output / "manifest.json"
+                    ancestor.symlink_to(external, target_is_directory=True)
+                    marker = output / "adapter-status.json"
+                    marker.write_text('{"adapter":"rpc","status":"READY"}')
+                    if route == "output_alias":
+                        alias = root / "output-alias"
+                        alias.symlink_to(output, target_is_directory=True)
+                        selected = alias / "manifest.json/input.json"
+                    elif route == "dotdot":
+                        # The supplied route traverses the protected symlink
+                        # even though lexical normalization leaves output.
+                        selected = output / "manifest.json" / ".." / ".." / root.name / "external/input.json"
+                    else:
+                        selected = ancestor / "input.json"
+                    inputs = {"manifest": proof, "source": source}
+                    inputs[argument] = selected
+                    run = subprocess.run([sys.executable, str(ADAPTER),
+                                          "--manifest", str(inputs["manifest"]),
+                                          "--source", str(inputs["source"]),
+                                          "--output-dir", str(output)], capture_output=True, text=True)
+                    self.assertEqual(run.returncode, 2)
+                    self.assertTrue(ancestor.is_symlink(), "input ancestor link was deleted")
+                    self.assertEqual((external / "input.json").read_text(), '{"malformed":')
+                    self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+                    self.assertIn("collision", run.stderr)
+
+    def test_dangling_input_parent_symlink_survives_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            output.mkdir()
+            ancestor = output / "manifest.json"
+            ancestor.symlink_to(root / "missing-external-directory", target_is_directory=True)
+            (output / "adapter-status.json").write_text('{"adapter":"rpc","status":"READY"}')
+            proof = root / "proof.json"
+            proof.write_text('{"historical":true}')
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(proof),
+                                  "--source", str(ancestor / "source.jsonl"),
+                                  "--output-dir", str(output)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 2)
+            self.assertTrue(ancestor.is_symlink(), "dangling input ancestor was deleted")
+            self.assertIn("collision", run.stderr)
+
     def test_invalid_deep_json_clears_status_even_with_damaged_export(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

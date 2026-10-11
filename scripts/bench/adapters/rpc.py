@@ -23,6 +23,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -258,13 +259,20 @@ def check_paths(manifest, source, output):
     if inputs[0] == inputs[1] or (manifest.exists() and source.exists() and manifest.samefile(source)):
         raise ValueError("manifest and source must be separate files")
     for original, path in zip((manifest, source), inputs):
-        # Preserve the input directory entry itself: resolving a dangling
-        # leaf symlink can move its target outside output, where cleanup would
-        # otherwise mistake the original input link for an owned artifact.
-        entry = original.parent.resolve() / original.name
+        lexical = Path(os.path.abspath(original))
+        lexical_output = Path(os.path.abspath(output))
         if (path == destination or destination in path.parents or
-                entry == destination or destination in entry.parents):
+                lexical == destination or destination in lexical.parents or
+                lexical == lexical_output or lexical_output in lexical.parents):
             raise ValueError("input/output collision")
+        # Keep every directory entry used to reach the input, not just its
+        # final resolved target. Resolving parents can erase a directory link
+        # under output; '..' may also hide that link from lexical containment.
+        absolute = original.absolute()
+        for ancestor in (absolute, *absolute.parents):
+            entry = ancestor.parent.resolve() / ancestor.name
+            if entry == destination or destination in entry.parents:
+                raise ValueError("input/output ancestor collision")
     for filename in ["source.raw", "source-manifest.raw", "manifest.json", "samples.jsonl", "adapter-status.json", "legacy-evidence.json"]:
         target = output / filename
         if target.exists() or target.is_symlink():
