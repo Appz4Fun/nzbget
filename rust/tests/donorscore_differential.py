@@ -83,8 +83,8 @@ static double share()
 	{
 		case 0: return -1.0;
 		case 1: return below(2) ? 1.0 : 0.0;
-		case 2: return (below(161) + 0.5) / 160.0;        // 80 * share lands on a half
-		case 3: return (below(201) + 0.5) / 200.0;        // 100 * share lands on a half
+		case 2: return (2 * below(80) + 1) / 160.0;       // 80 * share lands on a half (nearbyint: to even)
+		case 3: return (2 * below(100) + 1) / 200.0;      // 100 * share lands on a half
 		case 4: return 1.0 + below(1000) / 100.0;         // above whole
 		case 5: return -below(1000) / 100.0;              // other negatives
 		default: return below(1000001) / 1000000.0;
@@ -124,6 +124,10 @@ int main(int argc, char** argv)
 		if (failures > 5) return 1;
 	}
 	nzbget_rs_donorscore_rerank(nullptr, 0, 0, nullptr);  // empty: nothing read or written
+	// the ties must really occur, or the halves-to-even rule goes untested
+	int ties = 0;
+	for (int n = 0; n < 80; n++) ties += std::fabs(80 * ((2 * n + 1) / 160.0) - (n + 0.5)) == 0;
+	if (ties < 40) { printf("only %d exact halves among the 80 tie shares\n", ties); return 1; }
 	printf("%ld rounds agree (reference %s)\n", rounds, "''' + REFERENCE + r'''");
 
 	// timing: 1M Rerank calls of 8 entries each, C++ and Rust in one binary
