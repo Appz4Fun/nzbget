@@ -4573,6 +4573,112 @@ def scenario_dupesearchstructuralcache(daemon, t):
     return 'dupesearchstructuralcache', ok, 'shared_ids=5 complete_parts=%d first_sample_all_alive=%d partial_dead=%d renamed=%s grabs=%s donors=%d complete_alive=%s previous_dead=%d' % (len(complete), first, rejected, edited, grabs, len(donors), params.get('DupeAlive'), poisoned)
 
 
+def _ds_stamp(t, key):
+    path = os.path.join('main', 'queue', 'dupesearch')
+    text = t.read_file(path).decode() if t.exists(path) else ''
+    return next((line.split('\t') for line in text.splitlines() if line.split('\t')[0] == key.lower()), [])
+
+
+def scenario_dupesearchfastdeadretry(daemon, t):
+    """A fast-added donor ultimately declared dead leaves discovery retryable."""
+    mids = ['fdr-%d@x' % i for i in range(40)]
+    api = _ds_donor_env(daemon, t, {'gone': (mids, 420_000, 5, 12)}, set(mids[:12]))
+    deadline = time.time() + 30
+    while time.time() < deadline and _grep_log(t, ' added=') == 0:
+        time.sleep(0.25)
+    time.sleep(1)
+    donors = [g for g in api.history() + api.listgroups() if any(p['Name'] == 'DupeSearch' for p in g.get('Parameters', []))]
+    params = {p['Name']: p['Value'] for p in donors[0].get('Parameters', [])} if len(donors) == 1 else {}
+    fast = _grep_log(t, '(fast)')
+    measured = _grep_log(t, 'alive=30% (12 of 40 articles)')
+    stamp = _ds_stamp(t, DS_KEY)
+    retry = stamp[4] if len(stamp) >= 5 else None
+    ok = len(donors) == 1 and params.get('DupeAlive') == '0' and fast == 1 and measured == 1 and retry == '1'
+    return 'dupesearchfastdeadretry', ok, 'donors=%d fast_added=%d measured_30_percent=%d donor_alive=%s retryable=%s' % (len(donors), fast, measured, params.get('DupeAlive'), retry)
+
+
+def scenario_dupesearchkeylessbackup(daemon, t):
+    """A same-name keyless late backup schedules its generated-key parent."""
+    mids = lambda tag: ['kb-%s-%d@x' % (tag, i) for i in range(40)]
+    daemon.fake_nntp.alive = set(mids('pick') + mids('backup')[:20])
+    daemon.newznab.respond = lambda params, path: (200, newznab_xml([]))
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(mids('pick'), 400_000).decode(), '', 0)
+    deadline = time.time() + 20
+    while time.time() < deadline and _grep_log(t, ' added=') == 0:
+        time.sleep(0.25)
+    before = _ds_group(api, DS_TITLE)
+    backup_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(mids('backup'), 410_000).decode(), '', 999_999)
+    deadline = time.time() + 15
+    backup, params = {}, {}
+    while time.time() < deadline:
+        backup = next((g for g in api.history() + api.listgroups() if g.get('NZBID') == backup_id), {})
+        params = {p['Name']: p['Value'] for p in backup.get('Parameters', [])}
+        if params.get('DupeHealth') == '50': break
+        time.sleep(0.25)
+    requests = len(daemon.newznab.requests)
+    ok = bool(before and before['NZBID'] == pick_id) and before.get('DupeKey') == 'dupes:show.s01e01.1080p.web.h264.grp' and before.get('DupeScore') == 1_000_000 and backup.get('DupeKey') == '' and params.get('DupeHealth') == '50' and backup.get('DupeScore', 999999) < 999_999 and requests == 3
+    return 'dupesearchkeylessbackup', ok, 'parent_key=%s parent_score=%s backup_found=%s backup_key=%s backup_health=%s backup_score=%s requests=%d' % (before.get('DupeKey') if before else None, before.get('DupeScore') if before else None, bool(backup), backup.get('DupeKey'), params.get('DupeHealth'), backup.get('DupeScore'), requests)
+
+
+def scenario_dupesearchranknoserver(daemon, t):
+    """An inconclusive rank-only health run reschedules without new grabs."""
+    mids = lambda tag: ['rn-%s-%d@x' % (tag, i) for i in range(40)]
+    daemon.fake_nntp.alive = set(mids('pick') + mids('old') + mids('late'))
+    daemon.newznab.respond = lambda params, path: (200, newznab_xml([]))
+    api = daemon.wait_ready()
+    _ds_append(api, DS_TITLE, _fake_nzb_ids(mids('pick'), 400_000).decode(), DS_KEY, DS_PICK)
+    _ds_append(api, 'Show S01E01 1080p WEB H264-GRP', _fake_nzb_ids(mids('old'), 410_000).decode(), DS_KEY, DS_PICK - 1)
+    deadline = time.time() + 25
+    while time.time() < deadline and _grep_log(t, ' added=') == 0:
+        time.sleep(0.25)
+    before = _ds_stamp(t, DS_KEY)
+    requests_before = len(daemon.newznab.requests)
+    disabled = api.editserver(1, False)
+    late_id = _ds_append(api, 'Show_S01E01_1080p_WEB_H264-GRP', _fake_nzb_ids(mids('late'), 420_000).decode(), DS_KEY, DS_PICK - 2)
+    deadline = time.time() + 15
+    while time.time() < deadline and _grep_log(t, 'no active news servers') == 0:
+        time.sleep(0.25)
+    time.sleep(1)
+    after = _ds_stamp(t, DS_KEY)
+    late = next((g for g in api.history() + api.listgroups() if g.get('NZBID') == late_id), {})
+    params = {p['Name']: p['Value'] for p in late.get('Parameters', [])}
+    inconclusive = _grep_log(t, 'no active news servers')
+    scheduled = _grep_log(t, 'retrying backup health in 15 minutes')
+    requests_after = len(daemon.newznab.requests)
+    ok = disabled and inconclusive >= 1 and scheduled == 1 and before == after and len(after) >= 5 and after[4] == '0' and requests_before == requests_after == 3 and bool(late) and 'DupeHealth' not in params
+    return 'dupesearchranknoserver', ok, 'server_disabled=%s inconclusive_logs=%d scheduled_rank_retry=%d completed_stamp_unchanged=%s retryable=%s requests=%d/%d late_health=%s' % (disabled, inconclusive, scheduled, before == after, after[4] if len(after) >= 5 else None, requests_before, requests_after, params.get('DupeHealth'))
+
+
+def scenario_dupesearchplacewhole(daemon, t):
+    """Inferred whole bytes also order final placement before the fast cap."""
+    mids = lambda tag, n: ['pw-%s-%d@x' % (tag, i) for i in range(n)]
+    pick_ids, partial_ids, whole_ids = mids('pick', 5), mids('partial', 5), mids('whole', 150)
+    whole_title = 'Show S01E01 1080p WEB H264-GRP'
+    daemon.fake_nntp.alive = set(pick_ids + partial_ids + whole_ids)
+    partial = _fake_nzb_ids(partial_ids, 500, DS_TITLE + '.mkv').replace(b'yEnc (1/1)', b'yEnc (1/150)')
+    whole = _fake_nzb_ids(whole_ids, 15_000, whole_title + '.mkv')
+    def respond(params, path):
+        if path == '/getnzb/partial': return 200, partial
+        if path == '/getnzb/whole': return 200, whole
+        tag = 'partial' if params.get('q') == 'show s01e01 1080p web h264 grp' else 'whole' if params.get('q') == 'show s01e01' else None
+        result = {'title': DS_TITLE if tag == 'partial' else whole_title, 'link': 'http://127.0.0.1:%d/getnzb/%s' % (daemon.newznab.port, tag), 'size': 500 if tag == 'partial' else 15_000, 'grabs': 1, 'indexer': 'PlaceWhole'}
+        return 200, newznab_xml([result] if tag else [])
+    daemon.newznab.respond = respond
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(pick_ids, 500, DS_TITLE + '.mkv').replace(b'yEnc (1/1)', b'yEnc (1/150)').decode(), DS_KEY, DS_PICK)
+    deadline = time.time() + 35
+    while time.time() < deadline and _grep_log(t, ' added=') == 0:
+        time.sleep(0.25)
+    time.sleep(1)
+    fetches = {tag: sum(r['_path'] == '/getnzb/' + tag for r in daemon.newznab.requests) for tag in ('partial', 'whole')}
+    donors = [g for g in api.history() + api.listgroups() if g.get('NZBID') != pick_id and any(p['Name'] == 'DupeSearch' for p in g.get('Parameters', []))]
+    params = {p['Name']: p['Value'] for p in donors[0].get('Parameters', [])} if len(donors) == 1 else {}
+    title = donors[0].get('NZBName') if len(donors) == 1 else None
+    ok = fetches == {'partial': 1, 'whole': 1} and len(donors) == 1 and title == whole_title and params.get('DupeAlive') == '100' and _grep_log(t, '(fast)') == 1
+    return 'dupesearchplacewhole', ok, 'pick_parts=5/150 inferred_bytes=15000 max_donors=1 fetches=%s donors=%d accepted_title=%s donor_alive=%s' % (fetches, len(donors), title, params.get('DupeAlive'))
+
+
 def scenario_dupesearchwholeorder(daemon, t):
     """A partial pick's inferred whole size ranks the complete strict result
     ahead of three differently sized truncated postings under a three-fetch cap."""
@@ -10911,6 +11017,10 @@ SCENARIOS = {
     'dupesearchhistoryother': scenario_dupesearchhistoryother,
     'dupesearchhistoryrename': scenario_dupesearchhistoryrename,
     'dupesearchstructuralcache': scenario_dupesearchstructuralcache,
+    'dupesearchfastdeadretry': scenario_dupesearchfastdeadretry,
+    'dupesearchkeylessbackup': scenario_dupesearchkeylessbackup,
+    'dupesearchranknoserver': scenario_dupesearchranknoserver,
+    'dupesearchplacewhole': scenario_dupesearchplacewhole,
     'dupesearchwholeorder': scenario_dupesearchwholeorder,
     'dupesearchexplicitprefix': scenario_dupesearchexplicitprefix,
     'dupesearchownedlegacy': scenario_dupesearchownedlegacy,
@@ -11292,6 +11402,10 @@ SCENARIO_OPTIONS = {
     'dupesearchhistoryother': ['HealthCheck=delete', 'ArticleRetries=0', 'DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=15', 'DupeSearchApiKey=k', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=100'],
     'dupesearchhistoryrename': ['HealthCheck=delete', 'ArticleRetries=0', 'DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=15', 'DupeSearchApiKey=k', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=100'],
     'dupesearchstructuralcache': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=100'],
+    'dupesearchfastdeadretry': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=2', 'DupeSearchApiKey=k', 'DupeSearchMaxDonors=1', 'DupeFastDonors=1', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchkeylessbackup': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=2', 'DupeSearchApiKey=k', 'DupeSearchMaxDonors=4', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchranknoserver': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=2', 'DupeSearchApiKey=k', 'DupeSearchMaxDonors=4', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchplacewhole': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=2', 'DupeSearchApiKey=k', 'DupeSearchMaxDonors=1', 'DupeFastDonors=1', 'DupeBodyChecks=0', 'DupeHealthMin=5', 'DupeHealthMax=40'],
     'dupesearchwholeorder': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k', 'DupeSearchMaxDonors=1', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=5', 'DupeHealthMax=40'],
     'dupesearchexplicitprefix': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
     'dupesearchownedlegacy': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=10', 'DupeSearchApiKey=k', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
@@ -11668,13 +11782,13 @@ SCENARIO_EXTENSIONS = {'dupesearchwatchscript': {'watchevent.py': WATCH_EVENT_EX
 SCENARIO_FIRST_FAIL_PROXY = {'recheckfailed': ((b'?5=', b'?10=', b'?15='),)}
 
 # scenarios with a FakeNewznab indexer (DupeSearchUrl points to it)
-SCENARIO_NEWZNAB = {'dupesearchpargap', 'dupesearchhistoryother', 'dupesearchhistoryrename', 'dupesearchstructuralcache', 'dupesearchwholeorder', 'dupesearchexplicitprefix', 'dupesearchownedlegacy', 'dupesearchretiredfleet', 'dupesearchvanishedbackup', 'dupesearchhistoryown', 'dupesearchbroaderretry', 'dupesearchzerolate', 'dupesearchwatchpersist', 'dupesearchpartialdead', 'dupesearchlegacyrename', 'dupesearchwatchscript', 'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'dupesearchbareurl', 'dupesearchgzip', 'dupesearchrestart', 'dupesearchsearch', 'dupesearchfetch', 'dupesearchfetcherror', 'dupesearchfilters', 'dupesearchdonors',
+SCENARIO_NEWZNAB = {'dupesearchfastdeadretry', 'dupesearchkeylessbackup', 'dupesearchranknoserver', 'dupesearchplacewhole', 'dupesearchpargap', 'dupesearchhistoryother', 'dupesearchhistoryrename', 'dupesearchstructuralcache', 'dupesearchwholeorder', 'dupesearchexplicitprefix', 'dupesearchownedlegacy', 'dupesearchretiredfleet', 'dupesearchvanishedbackup', 'dupesearchhistoryown', 'dupesearchbroaderretry', 'dupesearchzerolate', 'dupesearchwatchpersist', 'dupesearchpartialdead', 'dupesearchlegacyrename', 'dupesearchwatchscript', 'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'dupesearchbareurl', 'dupesearchgzip', 'dupesearchrestart', 'dupesearchsearch', 'dupesearchfetch', 'dupesearchfetcherror', 'dupesearchfilters', 'dupesearchdonors',
                    'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun',
                    'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchresume', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged',
                    'dupesearchresumedeleted'}
 
 # scenarios with a FakeNntp news server in place of nserv
-SCENARIO_FAKE_NNTP = {'dupesearchpargap', 'dupesearchhistoryother', 'dupesearchhistoryrename', 'dupesearchstructuralcache', 'dupesearchwholeorder', 'dupesearchexplicitprefix', 'dupesearchownedlegacy', 'dupesearchretiredfleet', 'dupesearchvanishedbackup', 'dupesearchhistoryown', 'dupesearchbroaderretry', 'dupesearchzerolate', 'dupesearchwatchpersist', 'dupesearchpartialdead', 'dupesearchlegacyrename', 'dupesearchwatchscript', 'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'uucache', 'stallquit', 'joingroupreconnect', 'joingroupnogroups', 'fleetparallel', 'fleetduringpost', 'fleetslowurlfirst', 'fleetwide', 'fleetsamekey', 'fleetscoremax', 'fleetmerged', 'fleetslowurl', 'fleetpaused', 'fleetmostlydead', 'fleetlarge', 'fleetcopy', 'fleetbusy', 'fleetdeadtwins', 'fleetfailover', 'fleetaddbackup', 'fleetresendslow', 'fleetresend', 'fleetallerror', 'fleetotherkey', 'fleetnokey', 'fleetdeadfirst', 'fleettwins', 'fleettimeout', 'fleetone', 'fleetalldead', 'fleetshutdown', 'dupesearchresumedeleted', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged', 'dupesearchresume', 'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchdonors', 'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun'}
+SCENARIO_FAKE_NNTP = {'dupesearchfastdeadretry', 'dupesearchkeylessbackup', 'dupesearchranknoserver', 'dupesearchplacewhole', 'dupesearchpargap', 'dupesearchhistoryother', 'dupesearchhistoryrename', 'dupesearchstructuralcache', 'dupesearchwholeorder', 'dupesearchexplicitprefix', 'dupesearchownedlegacy', 'dupesearchretiredfleet', 'dupesearchvanishedbackup', 'dupesearchhistoryown', 'dupesearchbroaderretry', 'dupesearchzerolate', 'dupesearchwatchpersist', 'dupesearchpartialdead', 'dupesearchlegacyrename', 'dupesearchwatchscript', 'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'uucache', 'stallquit', 'joingroupreconnect', 'joingroupnogroups', 'fleetparallel', 'fleetduringpost', 'fleetslowurlfirst', 'fleetwide', 'fleetsamekey', 'fleetscoremax', 'fleetmerged', 'fleetslowurl', 'fleetpaused', 'fleetmostlydead', 'fleetlarge', 'fleetcopy', 'fleetbusy', 'fleetdeadtwins', 'fleetfailover', 'fleetaddbackup', 'fleetresendslow', 'fleetresend', 'fleetallerror', 'fleetotherkey', 'fleetnokey', 'fleetdeadfirst', 'fleettwins', 'fleettimeout', 'fleetone', 'fleetalldead', 'fleetshutdown', 'dupesearchresumedeleted', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged', 'dupesearchresume', 'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchdonors', 'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun'}
 
 
 # --------------------------------------------------------------------------- #

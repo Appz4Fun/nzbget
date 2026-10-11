@@ -146,7 +146,7 @@ void DupeSearch::DownloadQueueUpdate(DownloadQueue* downloadQueue, void* aspect)
         // Queue notifications run under the queue lock; only schedule work here.
         NzbInfo* added = queueAspect->nzbInfo;
         if (queueAspect->action == DownloadQueue::eaNzbAdded && !IsDonor(added) &&
-            added->GetDupeMode() == dmScore && !Util::EmptyStr(added->GetDupeKey()) &&
+            added->GetDupeMode() == dmScore &&
             !added->GetParameters()->Find("DupeFleet"))
         {
             NzbInfo* parent = nullptr;
@@ -933,7 +933,8 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	std::map<std::string, int>& rejected, int results, int candidates, int postings)
 {
 	// closest size first: the likeliest byte-identical repost; then the most grabbed
-	long long pickBytes = pick.totalBytes;
+	long long pickBytes = (long long)std::min(DupeIdentity::WholeBytes(pick),
+        (unsigned long long)std::numeric_limits<long long>::max());
 	auto distance = [&](const NzbFetcher::Fetched& f)
 		{ return f.info.totalBytes > pickBytes ? f.info.totalBytes - pickBytes : pickBytes - f.info.totalBytes; };
 	std::stable_sort(verified.begin(), verified.end(), [&](const NzbFetcher::Fetched& x, const NzbFetcher::Fetched& y)
@@ -1204,17 +1205,24 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	// earlier searches' donors) are measured the same way and ranked with the
 	// new ones: nzbget tries them by score, whoever sent them. Each is read
 	// from its own nzb-file, never matched by size: two postings can have one size.
-	if (!servers.empty() && !job.members.empty())
+	std::set<size_t> uncheckedMembers;
+	if (!job.members.empty() && (!servers.empty() || job.rankOnly))
 	{
 		std::vector<NzbSummary> summaries(job.members.size());
 		std::vector<DonorHealth::Posting> list;
 		std::map<size_t, size_t> sameAs;	// a member whose posting another member already is
 		for (size_t m = 0; m < job.members.size(); m++)
 		{
-			if (!NzbReader::Parse(DupeUtil::ReadAll(job.members[m].second), summaries[m]) || Posting::SamePosting(summaries[m].messageIds, pick.messageIds))
+			uncheckedMembers.insert(m);
+			if (!NzbReader::Parse(DupeUtil::ReadAll(job.members[m].second), summaries[m]))
 			{
 				continue;
 			}
+            if (Posting::SamePosting(summaries[m].messageIds, pick.messageIds))
+            {
+                uncheckedMembers.erase(m);
+                continue;
+            }
 			// each posting is checked once: the client's copies of it share the answer
 			auto first = std::find_if(list.begin(), list.end(), [&](const DonorHealth::Posting& posting)
 				{ return Posting::SamePosting(summaries[m].messageIds, posting.ids); });
@@ -1226,7 +1234,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 			list.push_back({ std::to_string(m), summaries[m].messageIds, groupsOf(summaries[m]) });
 		}
 		std::map<size_t, DonorHealth::Health> measured;
-		DonorHealth::CheckPostings(servers, list, healthOptions, true, FetchParallel,
+		if (!servers.empty()) DonorHealth::CheckPostings(servers, list, healthOptions, true, FetchParallel,
 			[&](const std::string& key, const DonorHealth::Health& health)
 			{
 				std::lock_guard<std::mutex> guard(placeMutex);
@@ -1313,6 +1321,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		}
 		if (SetScore(donor.id, score, params))
 		{
+            if (donor.member) uncheckedMembers.erase(order2[n] - verified.size());
 			Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: reranked %s: score %i", job.name.c_str(), donor.title.c_str(), score);
 			donor.entry.score = wanted[n];
 		}
@@ -1346,7 +1355,8 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		std::lock_guard<std::mutex> guard(m_mutex);
 		m_sent.erase(job.nzbId);
 	}
-    // Empty searches are retryable while the pick remains queued; no new grabs for a completed key.
+    // Without a usable whole backup discovery remains retryable while the
+    // pick is queued, even if a fast-added donor was later declared dead.
     bool usableBackup = false;
     {
         GuardedDownloadQueue queue = DownloadQueue::Guard();
@@ -1371,7 +1381,9 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
           if (state!=m_searched.end()) state->second.retryable=false; }
         if (!g_Options->GetDupeSearchDryRun()) SaveState();
     }
-    if (retryWanted && !usableBackup && added == 0 && !IsStopped())
+    bool rankIncomplete = job.rankOnly && !uncheckedMembers.empty();
+    bool retryDiscovery = retryWanted && !usableBackup;
+    if ((retryDiscovery || rankIncomplete) && !IsStopped())
     {
         GuardedDownloadQueue queue=DownloadQueue::Guard();
         NzbInfo* current=queue->GetQueue()->Find(job.nzbId);
@@ -1379,8 +1391,24 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
             !current->GetPostInfo() && LowerKey(EffectiveKey(current))==LowerKey(job.dupeKey) &&
             ReleaseName::Normalize(current->GetName())==ReleaseName::Normalize(job.name))
         {
-            ForgetSearch(job.dupeKey);
+            if (retryDiscovery)
+            {
+                // An owed discovery retry takes priority over ranking an
+                // inconclusive backup; otherwise rank-only retries can starve it.
+                { std::lock_guard<std::mutex> guard(m_mutex);
+                  m_rankPending.erase(job.nzbId); }
+                ForgetSearch(job.dupeKey);
+            }
+            else
+            {
+                // Retain the completed search stamp: only recheck existing
+                // backups, without repeating indexer searches or paid grabs.
+                std::lock_guard<std::mutex> guard(m_mutex);
+                m_rankPending.insert(job.nzbId);
+            }
             Schedule(job.nzbId,Util::CurrentTime()+900);
+            if (!retryDiscovery)
+                current->PrintMessage(Message::mkInfo, "DupeSearch: %s: retrying backup health in 15 minutes", job.name.c_str());
         }
     }
 }
