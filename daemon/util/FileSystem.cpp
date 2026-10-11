@@ -1259,7 +1259,13 @@ namespace
 {
 // Delete roots without trailing separators or trailing "." components; roots
 // and the paths below them longer than the path buffers are refused, never cut.
+#ifdef WIN32
+// room for the listing mask ("\\*.*") and the long-path prefix ("\\\\?\\UNC\\")
+// the Windows calls add to a path in their own 1024-byte buffers
+constexpr size_t MaxDeletePath = 1023 - 10;
+#else
 constexpr size_t MaxDeletePath = 1023;
+#endif
 
 bool DeleteSeparator(char c)
 {
