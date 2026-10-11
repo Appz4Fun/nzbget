@@ -24,7 +24,22 @@
 #include <cmath>
 #include <numeric>
 #include "DonorScore.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
+#ifdef NZBGET_USE_RUST
+// rust/src/donorscore.rs
+int DonorScore::Base(int pickScore)
+{
+	return nzbget_rs_donorscore_base(pickScore);
+}
+
+int DonorScore::Target(double alive, bool twin)
+{
+	return nzbget_rs_donorscore_target(alive, twin ? 1 : 0);
+}
+#else
 int DonorScore::Base(int pickScore)
 {
 	return std::max(0, pickScore - 1000);
@@ -36,6 +51,7 @@ int DonorScore::Target(double alive, bool twin)
 	// nearbyint: halves go to even, as the proxy's round() did
 	return std::min(Top, 9 + (int)std::nearbyint(80 * share) + (twin ? 1 : 0));
 }
+#endif
 
 int DonorScore::Ranks::Take(double alive, bool twin)
 {
@@ -48,6 +64,20 @@ int DonorScore::Ranks::Take(double alive, bool twin)
 	return score;
 }
 
+#ifdef NZBGET_USE_RUST
+std::vector<int> DonorScore::Rerank(const std::vector<Entry>& entries, long long pickBytes)
+{
+	std::vector<NzbgetRsDonorEntry> raw;
+	raw.reserve(entries.size());
+	for (const Entry& e : entries)
+	{
+		raw.push_back({e.score, e.alive, e.twin ? 1 : 0, (int64_t)e.bytes, e.grabs});
+	}
+	std::vector<int> scores(entries.size());
+	nzbget_rs_donorscore_rerank(raw.data(), raw.size(), (int64_t)pickBytes, scores.data());
+	return scores;
+}
+#else
 std::vector<int> DonorScore::Rerank(const std::vector<Entry>& entries, long long pickBytes)
 {
 	std::vector<int> scores;
@@ -82,3 +112,4 @@ std::vector<int> DonorScore::Rerank(const std::vector<Entry>& entries, long long
 	}
 	return scores;
 }
+#endif

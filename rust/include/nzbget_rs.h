@@ -991,6 +991,21 @@ int nzbget_rs_binrpc_is_url(const char* content);
 int nzbget_rs_url_dnzb_header(const char* line, NzbgetRsBuf* first, NzbgetRsBuf* value);
 void nzbget_rs_url_completed(int downloaderStatus, int deleting, int* urlStatus, int* deleteStatus, int* retry);
 
+// ---- dupesearch (daemon/dupesearch/) ----
+// DonorScore (rust/src/donorscore.rs): Base, Target (twin 0/1) and Rerank;
+// rerank writes n scores parallel to entries into out (both NULL for n 0).
+typedef struct NzbgetRsDonorEntry
+{
+	int score;
+	double alive;
+	int twin;
+	int64_t bytes;
+	int grabs;
+} NzbgetRsDonorEntry;
+int nzbget_rs_donorscore_base(int pickScore);
+int nzbget_rs_donorscore_target(double alive, int twin);
+void nzbget_rs_donorscore_rerank(const NzbgetRsDonorEntry* entries, size_t n, int64_t pickBytes, int* out);
+
 #ifdef __cplusplus
 }
 #endif
