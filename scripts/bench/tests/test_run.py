@@ -153,6 +153,28 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(actual["name"], "build-driver")
                 self.assertEqual(actual["args"], [f"-j{jobs}"])
 
+    @unittest.skipUnless(LINUX, "fake Cargo-driver tests are Linux-only")
+    def test_cargo_config_overrides_cannot_bypass_job_cap_or_hide_in_alias(self):
+        cargo = self.root / "cargo"
+        ready = self.root / "launched"
+        cargo.write_text(f"#!/usr/bin/env python3\nfrom pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        cargo.chmod(0o755)
+        alias = self.root / "build-driver"
+        alias.symlink_to(cargo)
+        config = self.root / "override.toml"
+        config.write_text("[build]\njobs=99\n")
+        for executable in (cargo, alias):
+            for flags in (("--config", "build.jobs=99"), ("--config=build.jobs=99",), ("--config", str(config))):
+                with self.subTest(executable=executable.name, flags=flags):
+                    ready.unlink(missing_ok=True)
+                    status, _, _ = self.run_cli("build", [str(executable), *flags, "build"])
+                    self.assertEqual(status, 2)
+                    self.assertFalse(ready.exists())
+        ready.unlink(missing_ok=True)
+        status, _, error = self.run_cli("build", [str(alias), "--offline", "run", "--", "--config", "build.jobs=99", "-j99"])
+        self.assertEqual(status, 0, error)
+        self.assertTrue(ready.exists())
+
     @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
     def test_metadata_cannot_replace_inputs_aliases_or_lock_files(self):
         for case in ("fixture", "tool", "executable", "lock", "hardlink", "symlink", "parent_symlink", "parent_symlink_dotdot"):
@@ -238,6 +260,18 @@ class RunnerTests(unittest.TestCase):
                     module.metadata_destination_safe(args, [sys.executable])
                 self.assertEqual(metadata.lstat().st_ino, inode)
                 self.assertEqual((real / "fixture").read_bytes(), b"preserve input")
+
+    @unittest.skipUnless(LINUX, "Linux treats slash and double-slash as the same root")
+    def test_metadata_cannot_replace_missing_input_slot_through_double_slash_root(self):
+        metadata = self.root / "absent-fixture"
+        alias = Path("//" + str(metadata).lstrip("/"))
+        spec = importlib.util.spec_from_file_location("runner_double_slash", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = SimpleNamespace(metadata=metadata, fixture=[alias], toolchain_binary=[], lock_dir=self.locks)
+        with self.assertRaises(ValueError):
+            module.metadata_destination_safe(args, [sys.executable])
+        self.assertFalse(metadata.exists())
 
     @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
     def test_metadata_collision_created_while_queued_is_rejected_under_lock(self):
@@ -357,6 +391,96 @@ raise SystemExit(runner.main())
             os.kill(int(ready.read_text()), 0)
         self.assertTrue(self.available("i7-heavy.lock"))
         self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
+    @unittest.skipUnless(LINUX, "authoritative child-table tests are Linux-only")
+    def test_empty_proc_scan_or_cleanup_exception_never_releases_live_adopted_child(self):
+        for case in ("ordinary", "timeout", "emergency_empty", "emergency_exception"):
+            with self.subTest(case=case):
+                ready, root_pid, injected = [self.root / f"{case}-{name}" for name in ("leaf", "root", "injected")]
+                leaf = self.script(f"from pathlib import Path\nimport os,time\nos.setsid()\nPath({str(ready)!r}).write_text(str(os.getpid()))\ntime.sleep(1)\n", f"{case}-leaf.py")
+                driver = self.script(f"""import os,subprocess,time
+from pathlib import Path
+Path({str(root_pid)!r}).write_text(str(os.getpid()))
+subprocess.Popen({leaf!r},close_fds=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+while not Path({str(ready)!r}).exists(): time.sleep(.005)
+""", f"{case}-driver.py")
+                wrapper = self.script(f"""import importlib.util,os
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+real_wait,real_scan=runner.os.waitpid,runner.descendants
+reaped=False
+last_wait=None
+scans=0
+def waitpid(pid,flags):
+    global reaped,last_wait
+    result=real_wait(pid,flags)
+    last_wait=result[0]
+    if result[0] and Path({str(root_pid)!r}).exists() and result[0]==int(Path({str(root_pid)!r}).read_text()): reaped=True
+    return result
+def scan():
+    global scans
+    if reaped and last_wait==0 and Path({str(ready)!r}).exists():
+        pid=int(Path({str(ready)!r}).read_text())
+        try:
+            value=Path('/proc/'+str(pid)+'/stat').read_text()
+            fields=value[value.rfind(')')+2:].split()
+            live=fields[0]!='Z' and int(fields[1])==os.getpid()
+        except FileNotFoundError: live=False
+        if live:
+            scans+=1
+            if {case!r} in ('ordinary','timeout') and scans<= (8 if {case!r}=='timeout' else 1):
+                Path({str(injected)!r}).touch()
+                return set()
+            if {case!r}.startswith('emergency') and scans==1:
+                Path({str(injected)!r}).touch()
+                raise OSError('controlled supervisor error')
+            if {case!r}=='emergency_empty' and scans in (2,3): return set()
+            if {case!r}=='emergency_exception' and scans==2: raise RuntimeError('controlled cleanup error')
+    return real_scan()
+runner.os.waitpid=waitpid
+runner.descendants=scan
+raise SystemExit(runner.main())
+""", f"{case}-wrapper.py")
+                extra = ("--timeout-seconds", ".1", "--shutdown-grace-seconds", ".05") if case == "timeout" else ()
+                command = self.command("build", driver, extra)
+                command[0:2] = wrapper
+                child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.children.append(child)
+                try:
+                    child.communicate(timeout=5)
+                    self.assertTrue(injected.exists())
+                    pid = int(ready.read_text())
+                    with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
+                    self.assertEqual(child.returncode, 124 if case == "timeout" else 2 if case.startswith("emergency") else 0)
+                    self.assertTrue(self.available("i7-heavy.lock"))
+                    self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+                finally:
+                    if ready.exists():
+                        try: os.kill(int(ready.read_text()), signal.SIGKILL)
+                        except ProcessLookupError: pass
+
+    @unittest.skipUnless(LINUX, "SIGCHLD disposition tests are Linux-only")
+    def test_inherited_ignored_sigchld_does_not_make_child_status_unreapable(self):
+        wrapper = self.script(f"""import importlib.util,signal
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+signal.signal(signal.SIGCHLD,signal.SIG_IGN)
+raise SystemExit(runner.main())
+""", "ignored-sigchld.py")
+        command = self.command("build", [shutil.which("true")])
+        command[0:2] = wrapper
+        child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        try:
+            _, error = child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.terminate()
+            child.communicate(timeout=5)
+            self.fail("ignored SIGCHLD made command status impossible to reap")
+        self.assertEqual(child.returncode, 0, error)
 
     @unittest.skipUnless(LINUX, "descendant supervision is Linux-only")
     def test_build_preserves_multicall_executable_alias(self):

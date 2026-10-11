@@ -88,6 +88,24 @@ def timing_forbidden(name):
             bool(re.search(r"(?:^|-)(gcc|g\+\+|clang|clang\+\+|rustc)$", name)))
 
 
+def cargo_build_argument_end(command):
+    """Locate only a genuine run/test/bench program-argument boundary."""
+    index = 1
+    while index < len(command):
+        token = command[index]
+        if token in ("run", "test", "bench"):
+            return command.index("--", index) if "--" in command[index:] else len(command)
+        if token in ("--config", "--color", "-Z", "-C"):
+            index += 2
+        elif (token.startswith(("+", "--config=", "--color=", "-Z", "-C")) or
+              token in ("--offline", "--locked", "--frozen", "--quiet", "-q", "--verbose") or
+              re.fullmatch(r"-v+", token)):
+            index += 1
+        else:
+            return len(command)
+    return len(command)
+
+
 def prepare_command(args):
     name = tool_name(args.command[0])
     if name in SHELLS:
@@ -95,13 +113,23 @@ def prepare_command(args):
     if args.mode == "time" and timing_forbidden(name):
         raise ValueError("timing requires a prebuilt native program, not an interpreter or build tool")
     command = list(args.command)
+    executable = shutil.which(command[0])
+    if not executable:
+        raise ValueError("command executable was not found")
+    invocation = Path(executable).absolute()
+    executable = invocation.resolve()
+    resolved_name = tool_name(executable.name)
+    if resolved_name in SHELLS:
+        raise ValueError("shell/eval commands are not accepted; pass an argument vector")
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError("command must be an executable regular file")
     if args.mode == "build":
         # Only Cargo's run/test/bench program arguments are exempt. CMake's
         # trailing -- arguments go to the native builder and still need a cap.
-        cargo_prefix = 2 if len(command) > 1 and command[1].startswith("+") else 1
-        program_args = (name == "cargo" and len(command) > cargo_prefix and
-                        command[cargo_prefix] in ("run", "test", "bench"))
-        end = command.index("--") if program_args and "--" in command else len(command)
+        is_cargo = name == "cargo" or resolved_name == "cargo"
+        end = cargo_build_argument_end(command) if is_cargo else len(command)
+        if is_cargo and any(value == "--config" or value.startswith("--config=") for value in command[1:end]):
+            raise ValueError("Cargo configuration overrides are not accepted for build commands")
         for index, value in enumerate(command[1:end], 1):
             jobs = None
             if value in ("-j", "--jobs", "--parallel"):
@@ -117,16 +145,6 @@ def prepare_command(args):
         if name == "cmake" and "--build" in command:
             native_start = command.index("--") if "--" in command else len(command)
             command[native_start:native_start] = ["--parallel", str(args.jobs)]
-    executable = shutil.which(command[0])
-    if not executable:
-        raise ValueError("command executable was not found")
-    invocation = Path(executable).absolute()
-    executable = invocation.resolve()
-    resolved_name = tool_name(executable.name)
-    if resolved_name in SHELLS:
-        raise ValueError("shell/eval commands are not accepted; pass an argument vector")
-    if not executable.is_file() or not os.access(executable, os.X_OK):
-        raise ValueError("command must be an executable regular file")
     if args.mode == "build" and (name == "ninja" or resolved_name == "ninja"):
         command[1:1] = [f"-j{args.jobs}"]
     if args.mode == "time":
@@ -167,7 +185,9 @@ def metadata_destination_safe(args, command):
     def lookup(path):
         absolute = path if path.is_absolute() else Path.cwd() / path
         pending = deque(absolute.parts[1:])
-        current = Path(absolute.anchor)
+        def anchor(value):
+            return Path("/") if sys.platform.startswith("linux") and value == "//" else Path(value)
+        current = anchor(absolute.anchor)
         visited = {current}
         expansions = 0
         while pending:
@@ -192,7 +212,7 @@ def metadata_destination_safe(args, command):
                 raise ValueError("metadata dependency exceeds the symlink expansion limit")
             target = Path(os.readlink(candidate))
             if target.is_absolute():
-                current = Path(target.anchor)
+                current = anchor(target.anchor)
                 visited.add(current)
                 parts = target.parts[1:]
             else:
@@ -345,6 +365,8 @@ def descendants():
                 except FileNotFoundError:
                     pass
         except (FileNotFoundError, ProcessLookupError):
+            if pid == os.getpid():
+                raise
             continue
         for child in children:
             if child not in found:
@@ -367,24 +389,32 @@ def emergency_reap():
         try:
             pids = descendants()
             stop_children(pids, signal.SIGKILL)
+            saw_echild = False
             while True:
                 try:
                     pid, _ = os.waitpid(-1, os.WNOHANG)
                 except ChildProcessError:
+                    saw_echild = True
                     break
                 if pid == 0:
                     break
-            if not descendants():
+            if saw_echild and not descendants():
                 return
-        except OSError:
-            # Losing /proc visibility must not become an early lock release.
+            time.sleep(POLL_SECONDS)
+        except BaseException:
+            # Neither failed visibility nor cleanup exceptions authorize unlock.
+            # Keep custody and retry until the kernel reports ECHILD too.
+            try:
+                time.sleep(POLL_SECONDS)
+            except BaseException:
+                pass
             pass
-        time.sleep(POLL_SECONDS)
 
 
 def supervise(args, command, env, locks, parent_pipe, result_pipe):
     """Custodian survives CLI death; lock release follows descendant reaping."""
     os.setsid()
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     interrupted = [0]
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
@@ -427,10 +457,12 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
     while True:
         # waitpid reaps both the command and adopted grandchildren. Popen.wait
         # alone would let an orphan continue after the root process exited.
+        saw_echild = False
         while True:
             try:
                 pid, status = os.waitpid(-1, os.WNOHANG)
             except ChildProcessError:
+                saw_echild = True
                 break
             if pid == 0:
                 break
@@ -438,7 +470,7 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
                 root_status = os.waitstatus_to_exitcode(status)
                 child.returncode = root_status
         pids = descendants()
-        if root_status is not None and not pids:
+        if root_status is not None and saw_echild and not pids:
             break
         if stopping_at is None:
             parent_ready = select.select([parent_pipe], [], [], 0)[0]
@@ -482,16 +514,30 @@ def execute(args, command, env, locks, interrupted):
     if pid == 0:
         os.close(parent_write)
         os.close(result_read)
+        quiescent = False
         try:
             supervise(args, command, env, locks, parent_read, result_write)
-        except BaseException:
             emergency_reap()
-            os.write(result_write, b'{"exit_code":2,"outcome":"runner_error","duration_ns":0,"command_started":null}')
+            quiescent = True
+        except BaseException:
+            while not quiescent:
+                try:
+                    emergency_reap()
+                    quiescent = True
+                except BaseException:
+                    continue
+            try:
+                os.write(result_write, b'{"exit_code":2,"outcome":"runner_error","duration_ns":0,"command_started":null}')
+            except BaseException:
+                pass
         finally:
             # The CLI may have died via SIGKILL and cannot run its TemporaryDirectory
             # cleanup. The surviving custodian owns that cleanup after reaping.
-            shutil.rmtree(env["HOME"], ignore_errors=True)
-            os._exit(0)  # closes lock fds without unwinding inherited contexts
+            if quiescent:
+                try:
+                    shutil.rmtree(env["HOME"], ignore_errors=True)
+                finally:
+                    os._exit(0)  # lock release requires established quiescence
     os.close(parent_read)
     os.close(result_write)
     for fd in locks:
@@ -564,6 +610,7 @@ def save_metadata(path, proof):
 def main(argv=None):
     args = arguments(argv)
     interrupted = [0]
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
     proof = None
