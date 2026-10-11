@@ -8,7 +8,10 @@ Legacy inputs contain rounded nanoseconds per operation. They cannot recover
 elapsed totals, iteration counts, process clusters, or SHA-256 output digests.
 Every original row (including slower controls and initialization) is retained
 in adapter-evidence.json, with empty samples.jsonl and HOLD qualification.
-Optional --metadata JSON preserves reviewed caller metadata and its hash.
+For legacy formats --manifest accepts bounded partial historical metadata,
+archived as legacy-metadata.json rather than a v1 manifest. Missing identities
+and fixture hashes remain absent. Optional --metadata JSON preserves reviewed
+caller metadata and its hash.
 
 Formats match retained DeadPostings Load logs/summaries, ArticleWriter CRC CSV,
 PAR CRC packet-fold CSV, PAR damage CSV, and PAR range-plan CSV. Empty CRC/PAR
@@ -50,7 +53,7 @@ LIMITATIONS = [
     "Legacy rows are HOLD-only; source hashes preserve bytes but do not verify harness scope or build freshness.",
 ]
 GENERATED = {"manifest.json", "samples.jsonl", "summary.json", "bencher.json",
-             "qualification.json", "adapter-evidence.json", "report.md"}
+             "qualification.json", "adapter-evidence.json", "report.md", "legacy-metadata.json"}
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_ROWS = 100_000
@@ -261,8 +264,24 @@ def shared_summary(manifest, sources):
     return rows, summary, bencher, qualification, module.render_report(summary, qualification)
 
 
-def adapt(kind, paths, manifest, metadata_paths=()):
-    validate_manifest(manifest)
+def legacy_identity(metadata):
+    """Retain usable historical assertions, never fill unknown identities."""
+    identity = {}
+    for key in ("base_sha", "candidate_sha"):
+        value = metadata.get(key)
+        if isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{40}", value):
+            identity[key] = value
+    testbed = metadata.get("testbed")
+    if isinstance(testbed, str) and testbed.strip() and len(testbed) <= 200 and testbed.isprintable():
+        identity["testbed"] = testbed
+    return identity
+
+
+def adapt(kind, paths, manifest, metadata_paths=(), manifest_source=None):
+    if kind == "v1":
+        validate_manifest(manifest)
+    elif not isinstance(manifest, dict):
+        raise EvidenceError("legacy historical metadata must be a JSON object")
     sources = []
     remaining = MAX_SOURCE_BYTES
     for path in paths:
@@ -299,18 +318,22 @@ def adapt(kind, paths, manifest, metadata_paths=()):
             reasons.append("DeadPostings source has no observable digest trailer.")
         if kind == "deadpostings-summary":
             reasons.append("Aggregate medians/counts are not individual raw timing samples.")
-        evidence = {"schema_version": 1, "format": kind, "status": "HOLD", "reasons": reasons,
-                    "sources": sources, "metadata": metadata}
+        reasons.append("Historical metadata is an unverified assertion; missing identities and fixture hashes remain unknown.")
+        archive = {"archive_schema_version": 1, "artifact_kind": "legacy_hold_archive"}
+        evidence = {**archive, "format": kind, "status": "HOLD", "reasons": reasons,
+                    "sources": sources, "metadata": metadata,
+                    "legacy_metadata": {**(manifest_source or {}), "data": manifest}}
         cases = {}
         for source in sources:
             for row in source["rows"]:
                 cases[row["case"]] = {"case": row["case"], "phase": row["phase"], "status": "HOLD"}
-        identity = {key: manifest[key] for key in ("schema_version", "base_sha", "candidate_sha", "testbed")}
-        qualification = {**identity, "status": "HOLD", "reasons": reasons, "cases": list(cases.values())}
-        summary = {**identity, "method": "legacy_hold_only", "cases": list(cases.values()),
+        identity = legacy_identity(manifest)
+        qualification = {**archive, **identity, "status": "HOLD", "reasons": reasons, "cases": list(cases.values())}
+        summary = {**archive, **identity, "method": "legacy_hold_only", "cases": list(cases.values()),
                    "input_hashes": {s["name"]: s["sha256"] for s in sources}}
         rows, bencher = [], {}
-    return {"manifest": manifest, "samples": rows, "summary": summary, "bencher": bencher,
+    metadata_key = "manifest" if kind == "v1" else "legacy-metadata"
+    return {metadata_key: manifest, "samples": rows, "summary": summary, "bencher": bencher,
             "qualification": qualification, "adapter-evidence": evidence, "_report": report}
 
 
@@ -357,26 +380,35 @@ def main(argv=None):
             check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
         except (OSError, RuntimeError) as error:
             raise AliasError("cannot safely resolve input/output aliases; refusing mutation") from error
-        manifest = load_json(read_source(args.manifest, MAX_MANIFEST_BYTES)["text"])
-        result = adapt(args.format, args.source, manifest, args.metadata)
+        manifest_source = read_source(args.manifest, MAX_MANIFEST_BYTES)
+        manifest = load_json(manifest_source["text"])
+        result = adapt(args.format, args.source, manifest, args.metadata, manifest_source)
         # Finish all validation/serialization before creating any output.
-        manifest_text = json.dumps(result["manifest"], indent=2, allow_nan=False) + "\n"
+        native = args.format == "v1"
+        metadata_key = "manifest" if native else "legacy-metadata"
+        manifest_text = json.dumps(result[metadata_key], indent=2, allow_nan=False) + "\n"
         sample_text = "".join(json.dumps(r, allow_nan=False) + "\n" for r in result["samples"])
-        hashes = {"manifest_sha256": hashlib.sha256(manifest_text.encode("utf-8")).hexdigest(),
-                  "samples_sha256": hashlib.sha256(sample_text.encode("utf-8")).hexdigest()}
+        hashes = {("manifest_sha256" if native else "metadata_sha256"): hashlib.sha256(manifest_text.encode("utf-8")).hexdigest(),
+                  ("samples_sha256" if native else "empty_samples_sha256"): hashlib.sha256(sample_text.encode("utf-8")).hexdigest()}
+        if not native:
+            hashes["source_sha256"] = {s["name"]: s["sha256"] for s in result["adapter-evidence"]["sources"]}
         result["summary"]["input_hashes"] = hashes
         result["qualification"]["input_hashes"] = hashes
         contents = {f"{key}.json": json.dumps(value, indent=2, allow_nan=False) + "\n"
                     for key, value in result.items() if key not in {"samples", "_report"}}
-        contents["manifest.json"] = manifest_text
+        contents[f"{metadata_key}.json"] = manifest_text
         contents["samples.jsonl"] = sample_text
         status = result["qualification"]["status"]
         reasons = result["adapter-evidence"]["reasons"]
         contents["report.md"] = result["_report"] or (f"Postprocess adapter status: **{status}**\n\n" +
                                  "\n".join(f"- {r}" for r in reasons) +
                                  "\n\nAll original source rows and metadata are preserved in adapter-evidence.json.\n")
-        contents["report.md"] += ("\nSerialized v1 input SHA256: manifest `" + hashes["manifest_sha256"] +
-                                  "`; samples `" + hashes["samples_sha256"] + "`.\n")
+        if native:
+            contents["report.md"] += ("\nSerialized v1 input SHA256: manifest `" + hashes["manifest_sha256"] +
+                                      "`; samples `" + hashes["samples_sha256"] + "`.\n")
+        else:
+            contents["report.md"] += ("\nLegacy HOLD archive metadata SHA256: `" + hashes["metadata_sha256"] +
+                                      "`. Original source and metadata bytes/hashes are retained in adapter-evidence.json.\n")
         clear_generated(args.output_dir)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         for name, content in contents.items():

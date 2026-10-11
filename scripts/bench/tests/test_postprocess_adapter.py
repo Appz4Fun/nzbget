@@ -214,7 +214,52 @@ class PostprocessAdapterTests(unittest.TestCase):
                 original = json.loads(self.manifest.read_text())
                 original.update(updates)
                 self.manifest.write_text(json.dumps(original))
-                self.assert_invalid("article-crc", ARTICLE)
+                self.assert_invalid("v1", '{"case":"caller"}\n', "samples.jsonl")
+
+    def test_partial_historical_metadata_archives_all_legacy_rows_under_hold(self):
+        metadata_text = '{"historical":true}\n'
+        self.manifest.write_text(metadata_text)
+        result, _ = self.run_adapter("article-crc", ARTICLE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = self.evidence()
+        self.assertEqual(evidence["status"], "HOLD")
+        self.assertEqual(evidence["artifact_kind"], "legacy_hold_archive")
+        self.assertEqual(evidence["legacy_metadata"]["text"], metadata_text)
+        self.assertEqual(evidence["legacy_metadata"]["sha256"], hashlib.sha256(metadata_text.encode()).hexdigest())
+        self.assertEqual(evidence["sources"][0]["text"], ARTICLE)
+        self.assertEqual(len(evidence["sources"][0]["rows"]), 2)
+        self.assertEqual(json.loads((self.output / "legacy-metadata.json").read_text()), {"historical": True})
+        self.assertFalse((self.output / "manifest.json").exists(), "legacy metadata must not impersonate a v1 manifest")
+        qualification = json.loads((self.output / "qualification.json").read_text())
+        self.assertEqual(qualification["status"], "HOLD")
+        for key in ("schema_version", "base_sha", "candidate_sha", "testbed", "fixtures"):
+            self.assertNotIn(key, qualification, "unknown historical identities must remain absent")
+        self.assertEqual((self.output / "samples.jsonl").read_text(), "")
+
+    def test_empty_historical_metadata_stays_hold_and_native_stays_strict(self):
+        self.manifest.write_text('{}')
+        result, _ = self.run_adapter("par-crc", PAR_CRC)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.output = self.root / "native-rejected"
+        self.assert_invalid("v1", '{"case":"caller"}\n', "samples.jsonl")
+
+    def test_legacy_retains_only_supplied_identity_assertions(self):
+        self.manifest.write_text(json.dumps({"base_sha": "a" * 40, "historical": True}))
+        result, _ = self.run_adapter("par-damage", PAR_DAMAGE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        qualification = json.loads((self.output / "qualification.json").read_text())
+        self.assertEqual(qualification["base_sha"], "a" * 40)
+        self.assertNotIn("candidate_sha", qualification)
+        self.assertNotIn("testbed", qualification)
+
+    def test_legacy_rerun_removes_stale_v1_manifest(self):
+        self.output.mkdir()
+        (self.output / "manifest.json").write_text('{"old":"v1"}')
+        self.manifest.write_text('{"historical":true}')
+        result, _ = self.run_adapter("article-crc", ARTICLE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.output / "manifest.json").exists())
+        self.assertTrue((self.output / "legacy-metadata.json").exists())
 
     def test_overflowing_json_number_rejected(self):
         self.assert_invalid("deadpostings-summary", '[{"records":0,"samples":45,"cpp_ns":1e999,"rust_ns":1}]')
