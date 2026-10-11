@@ -38,6 +38,9 @@ def wrap(name, src, fallback=False):
     if fallback:
         body = body.replace("#ifdef NZBGET_USE_RUST", "#ifndef NZBGET_USE_RUST")
     body = re.sub(r"\berror\(", "TestError(", body)
+    if name == "newimpl":
+        body = body.replace("Copy(*from, *context.manifest);",
+                            'if (failCopy) throw std::runtime_error("injected copy exception"); Copy(*from, *context.manifest);')
     body = body.replace("namespace ManifestFile\n{", "namespace ManifestFile\n{\n" + declarations, 1)
     # renamed, so that lookup through the argument types can't reach the library's functions
     body = re.sub(r"\b(Load|ValidateAndSet|ValidateCommandsAndSet|ValidateOptionsAndSet|ValidateSectionsAndSet|ValidateTxtAndSet|CheckKeyAndSet)\(",
@@ -75,15 +78,19 @@ main = r'''
 #include "FileSystem.h"
 #include "Log.h"
 #include "nzbget_rs.h"
+#include <boost/json/basic_parser_impl.hpp>
+#include <boost/json/detail/impl/handler.ipp>
 #include <clocale>
 #include <cstdarg>
 #include <cstring>
 #include <exception>
+#include <stdexcept>
 #include <map>
 #include <string>
 #include <vector>
 ''' + globals_block + r'''
 static std::string logged;
+static bool failCopy = false;
 static void TestError(const char* format, ...)
 {
 	char buf[4096];
@@ -326,33 +333,43 @@ static std::string edit(std::string s)
 static std::string sel(const ManifestFile::SelectOption& v)
 {
 	char buf[64];
-	if (const double* d = std::get_if<double>(&v)) { snprintf(buf, sizeof(buf), "%a", *d); return buf; }
-	return "\"" + std::get<std::string>(v) + "\"";
+	if (const double* d = std::get_if<double>(&v))
+	{
+		uint64_t bits;
+		static_assert(sizeof(bits) == sizeof(*d));
+		memcpy(&bits, d, sizeof(bits));
+		snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)bits);
+		return buf;
+	}
+	const auto& text = std::get<std::string>(v);
+	return std::to_string(text.size()) + ":" + text;
 }
 
 static std::string dump(bool ok, const ManifestFile::Manifest& m)
 {
 	std::string s = std::string(ok ? "OK\n" : "FAIL\n") + logged;
-	if (!ok) return s;
+
+	auto text = [&](const std::string& value) { s += std::to_string(value.size()) + ":" + value; };
 	for (const std::string* f : {&m.author, &m.main, &m.kind, &m.name, &m.homepage, &m.displayName, &m.version,
-		&m.nzbgetMinVersion, &m.license, &m.about, &m.queueEvents, &m.taskTime}) s += "[" + *f + "]";
-	auto texts = [&](const std::vector<std::string>& v) { s += "{"; for (auto& t : v) s += "[" + t + "]"; s += "}"; };
-	auto section = [&](const ManifestFile::Section& sec) { s += "(" + std::to_string(sec.multi) + "," + sec.name + "," + sec.prefix + ")"; };
+		&m.nzbgetMinVersion, &m.license, &m.about, &m.queueEvents, &m.taskTime}) text(*f);
+	auto texts = [&](const std::vector<std::string>& v) { s += "{" + std::to_string(v.size()) + ":"; for (auto& t : v) text(t); s += "}"; };
+	auto section = [&](const ManifestFile::Section& sec) { s += "(" + std::to_string(sec.multi); text(sec.name); text(sec.prefix); s += ")"; };
 	texts(m.description);
 	texts(m.requirements);
 	for (auto& o : m.options)
 	{
 		s += "\nO";
 		section(o.section);
-		s += o.name + "|" + o.displayName + "|" + sel(o.value) + "|";
+		text(o.name); text(o.displayName); text(sel(o.value));
 		texts(o.description);
-		for (auto& v : o.select) s += sel(v) + ";";
+		s += "SELECT" + std::to_string(o.select.size()) + ":";
+		for (auto& v : o.select) text(sel(v));
 	}
 	for (auto& c : m.commands)
 	{
 		s += "\nC";
 		section(c.section);
-		s += c.name + "|" + c.displayName + "|" + c.action + "|";
+		text(c.name); text(c.displayName); text(c.action);
 		texts(c.description);
 	}
 	return s;
@@ -363,7 +380,26 @@ template <class Load> static std::string run(Load load, const char* dir)
 	logged.clear();
 	ManifestFile::Manifest m{};
 	bool ok = load(m, dir);
-	return dump(ok, m);
+	std::string result = dump(ok, m);
+	// Reuse a populated destination, including entries whose sections must
+	// be updated by the next Load even if that load eventually fails.
+	m.nzbgetMinVersion = "old minimum";
+	m.description.emplace_back("old description");
+	m.requirements.emplace_back("old requirement");
+	for (const char* name : {"S", "OPTIONS", "options"})
+	{
+		ManifestFile::Option o{};
+		o.section = {true, name, "old prefix"};
+		o.name = "old option";
+		m.options.push_back(o);
+		ManifestFile::Command c{};
+		c.section = o.section;
+		c.name = "old command";
+		m.commands.push_back(c);
+	}
+	logged.clear();
+	ok = load(m, dir);
+	return result + "\nRELOAD\n" + dump(ok, m);
 }
 
 static int failures = 0;
@@ -380,7 +416,7 @@ static void compare(const std::string& text, const std::string& dir)
 	std::string c = run(fallbackimpl::ManifestFile::TestLoad, dir.c_str());
 	std::string kind = a.substr(0, 2) == "OK" ? "loaded" : a.find("Syntax error") != std::string::npos ? "syntax" :
 		a.find("isn't a JSON object") != std::string::npos ? "not an object" : a.find("not an object") != std::string::npos ? "entry not an object" :
-		a.size() == 5 ? "refused" : "other";
+		"refused";
 	stats[kind]++;
 	if (a != b || a != c)
 	{
@@ -389,14 +425,73 @@ static void compare(const std::string& text, const std::string& dir)
 	}
 }
 
+// Exercise Boost's actual limit checks with a small handler, avoiding
+// multi-gigabyte allocations. Duplicate keys count before deduplication.
+struct LimitedHandler : boost::json::detail::handler
+{
+	using handler::handler;
+	static constexpr size_t max_string_size = 4, max_key_size = 4;
+	static constexpr size_t max_array_size = 2, max_object_size = 2;
+};
+static void checkLimits()
+{
+	for (const char* input : {"{}", "[]", "[0,0]", "[0,0,0]", R"({"a":0,"a":1})", R"({"a":0,"a":1,"a":2})",
+		R"("abcd")", R"("abcde")", R"("\ud83d\ude00")", R"("a\ud83d\ude00")", R"("\ud83d\ude00a")", R"({"abcde":0})"})
+	{
+		boost::json::basic_parser<LimitedHandler> parser({}, boost::json::storage_ptr(), nullptr, 0);
+		parser.handler().st.reset({});
+		boost::json::error_code ec;
+		size_t consumed = parser.write_some(false, input, strlen(input), ec);
+		bool boostOK = !ec && consumed == strlen(input);
+		int rust = nzbget_rs_manifest_load(input, strlen(input), {4, 2, 2}, nullptr, nullptr);
+		if (boostOK != (rust != -1))
+		{
+			fprintf(stderr, "size limit mismatch on %s\n", input);
+			exit(1);
+		}
+	}
+}
+
 int main(int argc, char** argv)
 {
+	checkLimits();
 	long rounds = atol(argv[1]);
 	std::string dir = argv[2];
 	for (int l = 3; l < argc; ++l)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
-		long loaded = 0;
+		const std::string base = R"({"author":"a","main":"m","homepage":"h","about":"b","version":"1","name":"n","displayName":"d","kind":"k","license":"l","taskTime":"","queueEvents":"","description":[],"requirements":[],"commands":[],"options":[{"name":"o","displayName":"O","description":[],"select":[],"value":)";
+		// Deterministic regressions: partial writes, section updates on reload,
+		// and failure after description but before requirements/minimum version.
+		compare("{\"author\":\"written before failure\"}", dir);
+		compare(base + R"(1},{"select":[]},false]})", dir);
+		compare(base + R"(1}],"sections":[{"name":"S","prefix":"new","multi":false},0]})", dir);
+		compare(base + R"(1}],"description":["new"],"requirements":false,"nzbgetMinVersion":"new"})", dir);
+		// Grammar boundaries (including UTF-8 scalar boundaries and depth 32).
+		for (int depth : {31, 32, 33}) compare(std::string(depth, '[') + "0" + std::string(depth, ']'), dir);
+		for (const char* value : {R"("\u0000")", R"("\ud800")", R"("\udc00")", R"("\udbff\udfff")",
+			R"("\ud800\u0041")", "\"\xc0\x80\"", "\"\xed\xa0\x80\"", "\"\xf4\x90\x80\x80\"",
+			"\"\xef\xbf\xbf\"", "\"\xf4\x8f\xbf\xbf\"", "NaN", "Infinity", "+1", "01", "-01", "1.", "1e+"})
+		{
+			compare(base + value + "}]}", dir);
+		}
+		// Sweep the pow10 table, overflow/underflow and zero * infinity (NaN).
+		for (int e = -650; e <= 650; ++e)
+		{
+			for (const char* m : {"0", "-0", "1", "-1", "9007199254740993", "18446744073709551616"})
+			{
+				std::string n = std::string(m) + "e" + std::to_string(e);
+				compare(base + n + "}]}", dir);
+				compare(base + n + std::string(40, ' ') + "}]}", dir);
+			}
+		}
+		// Both sides of Boost's 33-byte fast-path boundary, for each sign.
+		for (const char* n : {"0.90071992547409929", "-0.90071992547409929", "1.23456789012345678",
+			"-123456789012345.6789", "0e2147483647", "-0e2147483648", "1e-2147483648",
+			"123456789012345678901234567890e-2147483647", "0.000000000000000000001e2147483647"})
+		{
+			for (int pad = 0; pad <= 40; ++pad) compare(base + n + std::string(pad, ' ') + "}]}", dir);
+		}
 		// numbers alone and in an option value, followed by 0..40 more bytes
 		for (int i = 0; i < 3000; i++)
 		{
@@ -414,15 +509,27 @@ int main(int argc, char** argv)
 			if (below(8) == 0) text = edit(text);
 			compare(text, dir);
 		}
+		// C++ must catch a copy exception inside the callback before Rust
+		// destroys the borrowed view, then log it after returning from Rust.
+		compare(base + "1}]}", dir);
+		failCopy = true;
+		std::string copyError = run(newimpl::ManifestFile::TestLoad, dir.c_str());
+		failCopy = false;
+		if (copyError.find("injected copy exception") == std::string::npos)
+		{
+			fprintf(stderr, "copy exception was not reported\n");
+			return 1;
+		}
 		// a missing file
 		remove((dir + "/manifest.json").c_str());
 		std::string a = run(oldimpl::ManifestFile::TestLoad, dir.c_str());
 		std::string b = run(newimpl::ManifestFile::TestLoad, dir.c_str());
 		std::string c = run(fallbackimpl::ManifestFile::TestLoad, dir.c_str());
 		if (a != b || a != c) { fprintf(stderr, "missing file mismatch\n"); return 1; }
-		for (auto& [kind, count] : stats) printf("  %s: %ld\n", kind.c_str(), count);
+		long compared = 0;
+		for (auto& [kind, count] : stats) { printf("  %s: %ld\n", kind.c_str(), count); compared += count; }
 		stats.clear();
-		printf("%s: %ld manifests agree (reference %s)\n", argv[l], rounds, "''' + REFERENCE + r'''");
+		printf("%s: %ld manifests agree, including reloads (reference %s)\n", argv[l], compared, "''' + REFERENCE + r'''");
 	}
 	return failures ? 1 : 0;
 }

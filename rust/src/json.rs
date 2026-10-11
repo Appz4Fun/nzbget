@@ -48,9 +48,22 @@ impl Value {
 
 const MAX_DEPTH: usize = 32;
 
+/// Boost's handler limits depend on its build configuration and address model.
+/// The C++ caller supplies string::max_size(), array::max_size(), object::max_size().
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Limits {
+    pub string: usize,
+    pub array: usize,
+    pub object: usize,
+}
+
+#[cfg(test)]
+pub const TEST_LIMITS: Limits = Limits { string: 0x7ffffffe, array: 0x7ffffffe, object: 0x7ffffffe };
+
 /// The value, or None for any parse error.
-pub fn parse(s: &[u8]) -> Option<Value> {
-    let mut p = Parser { s, i: 0, depth: 0 };
+pub fn parse(s: &[u8], limits: Limits) -> Option<Value> {
+    let mut p = Parser { s, i: 0, depth: 0, limits };
     p.ws();
     let v = p.value()?;
     p.ws();
@@ -61,6 +74,7 @@ struct Parser<'a> {
     s: &'a [u8],
     i: usize,
     depth: usize,
+    limits: Limits,
 }
 
 impl Parser<'_> {
@@ -114,6 +128,7 @@ impl Parser<'_> {
         self.ws();
         if self.eat(b']').is_none() {
             loop {
+                if items.len() == self.limits.array { return None; }
                 items.push(self.value()?);
                 self.ws();
                 match self.peek()? {
@@ -138,12 +153,16 @@ impl Parser<'_> {
         self.i += 1;
         let mut members: Vec<(Vec<u8>, Value)> = Vec::new();
         let mut index: HashMap<Vec<u8>, usize> = HashMap::new();
+        // Boost counts input members, including duplicate keys.
+        let mut count = 0;
         self.ws();
         if self.eat(b'}').is_none() {
             loop {
                 if self.peek()? != b'"' {
                     return None;
                 }
+                if count == self.limits.object { return None; }
+                count += 1;
                 let key = self.string()?;
                 self.ws();
                 self.eat(b':')?;
@@ -196,6 +215,7 @@ impl Parser<'_> {
                 self.i += 1;
             }
             let run = &self.s[start..self.i];
+            if run.len() > self.limits.string - out.len() { return None; }
             std::str::from_utf8(run).ok()?;
             out.extend_from_slice(run);
             match self.peek()? {
@@ -236,7 +256,9 @@ impl Parser<'_> {
                         _ => return None,
                     };
                     let mut buf = [0; 4];
-                    out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                    let encoded = ch.encode_utf8(&mut buf).as_bytes();
+                    if encoded.len() > self.limits.string - out.len() { return None; }
+                    out.extend_from_slice(encoded);
                 }
                 _ => return None,
             }
@@ -502,6 +524,20 @@ fn number(s: &[u8], start: usize) -> Option<(Value, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(s: &[u8]) -> Option<Value> { super::parse(s, TEST_LIMITS) }
+
+    #[test]
+    fn handler_limits() {
+        let limited = |s: &[u8]| super::parse(s, Limits { string: 4, array: 2, object: 2 });
+        for s in [b"[0,0]".as_slice(), br#"{"a":0,"a":1}"#, br#""abcd""#, br#""\ud83d\ude00""#] {
+            assert!(limited(s).is_some());
+        }
+        for s in [b"[0,0,0]".as_slice(), br#"{"a":0,"a":1,"a":2}"#, br#""abcde""#,
+            br#""a\ud83d\ude00""#, br#""\ud83d\ude00a""#, br#"{"abcde":0}"#] {
+            assert!(limited(s).is_none());
+        }
+    }
 
     #[test]
     fn grammar() {

@@ -68,7 +68,7 @@ namespace ManifestFile
 			std::string* fields[] = {&manifest.author, &manifest.main, &manifest.homepage, &manifest.about,
 				&manifest.version, &manifest.name, &manifest.displayName, &manifest.kind, &manifest.license,
 				&manifest.taskTime, &manifest.queueEvents, &manifest.nzbgetMinVersion};
-			for (size_t i = 0; i < 12; ++i)
+			for (size_t i = 0; i < 11; ++i)
 			{
 				if (from.has[i])
 				{
@@ -106,8 +106,27 @@ namespace ManifestFile
 			}
 			manifest.commands.shrink_to_fit();
 
-			manifest.description = Strs(from.description, from.descriptionCount);
-			manifest.requirements = Strs(from.requirements, from.requirementsCount);
+			for (size_t i = 0; i < from.sectionCount; ++i)
+			{
+				Section section = MakeSection(from.sections[i]);
+				for (auto& option : manifest.options)
+				{
+					if (option.section.name == section.name) option.section = section;
+				}
+				for (auto& command : manifest.commands)
+				{
+					if (command.section.name == section.name) command.section = section;
+				}
+			}
+			for (size_t i = 0; i < from.descriptionCount; ++i)
+			{
+				manifest.description.emplace_back(Str(from.description[i]));
+			}
+			for (size_t i = 0; i < from.requirementsCount; ++i)
+			{
+				manifest.requirements.emplace_back(Str(from.requirements[i]));
+			}
+			if (from.has[11]) manifest.nzbgetMinVersion = Str(from.fields[11]);
 		}
 	}
 
@@ -131,7 +150,8 @@ namespace ManifestFile
 			Manifest* manifest;
 			std::exception_ptr error;
 		} context{&manifest, nullptr};
-		int loaded = nzbget_rs_manifest_load(jsonStr.data(), jsonStr.size(), &context,
+		const NzbgetRsJsonLimits limits{Json::string::max_size(), Json::JsonArray::max_size(), Json::JsonObject::max_size()};
+		int loaded = nzbget_rs_manifest_load(jsonStr.data(), jsonStr.size(), limits, &context,
 			[](void* ctx, const NzbgetRsManifest* from) noexcept
 			{
 				Context& context = *static_cast<Context*>(ctx);
@@ -161,15 +181,15 @@ namespace ManifestFile
 				error("Failed to parse %s. The manifest isn't a JSON object.", path.c_str());
 				return false;
 			}
+			if (context.error)
+			{
+				std::rethrow_exception(context.error);
+			}
 			if (loaded == -3)
 			{
 				// the exception Boost.JSON throws for an entry that isn't an object
 				const Json::JsonValue notObject;
 				(void)notObject.as_object();
-			}
-			if (context.error)
-			{
-				std::rethrow_exception(context.error);
 			}
 		}
 		catch (const std::exception& e)

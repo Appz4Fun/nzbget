@@ -3105,6 +3105,8 @@ pub struct ManifestOut {
     pub option_count: usize,
     pub commands: *const ManifestCommandOut,
     pub command_count: usize,
+    pub sections: *const ManifestSection,
+    pub section_count: usize,
 }
 
 fn rs_strs(v: &[Vec<u8>]) -> Vec<RsStr> {
@@ -3124,23 +3126,25 @@ fn manifest_select(s: &crate::manifest::Select) -> ManifestSelect {
 
 /// ManifestFile::Load on the text the C++ read: 1 loaded (`loaded` was
 /// called), 0 refused, -1 a syntax error, -2 not a JSON object, -3 an option,
-/// command or section that isn't an object.
+/// command or section that isn't an object. On 0 and -3 the callback receives
+/// the partial writes preceding the failure, as in the original C++.
 ///
 /// # Safety
-/// `text` is null (empty) or `len` readable bytes. `loaded` (null: not
-/// called) gets a manifest borrowed only for the call and must not unwind.
+/// `text` is null (empty) or `len` readable bytes (at most isize::MAX).
+/// `loaded` (null: not called) gets a manifest borrowed only for the call
+/// and must not unwind. Rust panics abort rather than crossing the ABI.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize, ctx: *mut std::ffi::c_void,
+pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize, limits: crate::json::Limits, ctx: *mut std::ffi::c_void,
     loaded: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const ManifestOut)>) -> c_int {
     use crate::manifest::Outcome;
-    let manifest = match crate::manifest::load(bytes_arg(text.cast(), len)) {
-        Outcome::Loaded(m) => m,
-        Outcome::Refused => return 0,
+    let (manifest, status) = match crate::manifest::load(bytes_arg(text.cast(), len), limits) {
+        Outcome::Loaded(m) => (m, 1),
+        Outcome::Refused(m) => (m, 0),
         Outcome::Syntax => return -1,
         Outcome::NotObject => return -2,
-        Outcome::ElementNotObject => return -3,
+        Outcome::ElementNotObject(m) => (m, -3),
     };
-    let Some(loaded) = loaded else { return 1 };
+    let Some(loaded) = loaded else { return status };
     let description = rs_strs(&manifest.description);
     let requirements = rs_strs(&manifest.requirements);
     let option_texts: Vec<(Vec<RsStr>, Vec<ManifestSelect>)> = manifest.options.iter()
@@ -3155,6 +3159,7 @@ pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize
         section: manifest_section(&c.section), name: rs_str(&c.name), display_name: rs_str(&c.display_name),
         action: rs_str(&c.action), description: d.as_ptr(), description_count: d.len(),
     }).collect();
+    let sections: Vec<ManifestSection> = manifest.sections.iter().map(manifest_section).collect();
     let out = ManifestOut {
         fields: std::array::from_fn(|i| rs_str(manifest.fields[i].as_deref().unwrap_or(b""))),
         has: std::array::from_fn(|i| manifest.fields[i].is_some() as c_int),
@@ -3162,14 +3167,35 @@ pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize
         requirements: requirements.as_ptr(), requirements_count: requirements.len(),
         options: options.as_ptr(), option_count: options.len(),
         commands: commands.as_ptr(), command_count: commands.len(),
+        sections: sections.as_ptr(), section_count: sections.len(),
     };
     loaded(ctx, &out);
-    1
+    status
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_nulls_and_partial_borrowed_view() {
+        use std::ptr::{null, null_mut};
+        unsafe extern "C" fn copy_author(ctx: *mut std::ffi::c_void, view: *const ManifestOut) {
+            let view = &*view;
+            let author = &view.fields[0];
+            *ctx.cast::<Vec<u8>>() = std::slice::from_raw_parts(author.data.cast(), author.len).to_vec();
+        }
+        unsafe {
+            assert_eq!(nzbget_rs_manifest_load(null(), usize::MAX, crate::json::TEST_LIMITS, null_mut(), None), -1);
+            let text = br#"{"author":"copied\u0000discarded"}"#;
+            let mut author = Vec::<u8>::new();
+            assert_eq!(nzbget_rs_manifest_load(text.as_ptr().cast(), text.len(), crate::json::TEST_LIMITS,
+                (&mut author as *mut Vec<u8>).cast(), Some(copy_author)), 0);
+            // The callback's copy is still owned after all borrowed storage is freed.
+            assert_eq!(author, b"copied");
+            assert_eq!(nzbget_rs_manifest_load(text.as_ptr().cast(), text.len(), crate::json::TEST_LIMITS, null_mut(), None), 0);
+        }
+    }
 
     #[test]
     fn rarrenamer_nulls_and_borrowed_callback_strings() {

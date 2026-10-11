@@ -743,11 +743,13 @@ int nzbget_rs_direct_need_rename_pars(const NzbgetRsParName* pars, size_t count,
 // parse with the default options) on the manifest text the C++ read: 1 when
 // loaded, after loaded got the manifest; 0 refused (a required key missing
 // or of another kind); -1 a syntax error; -2 not a JSON object; -3 an
-// option, command or section that isn't an object. The manifest and every
+// option, command or section that isn't an object. On 0 and -3, loaded gets
+// the partial writes preceding failure. Texts/options/commands are appended; sections apply
+// to both existing and appended entries. The manifest and every
 // string in it are borrowed for the loaded call only; strings are not
 // NUL-terminated. fields are author, main, homepage, about, version, name,
 // displayName, kind, license, taskTime, queueEvents, nzbgetMinVersion; has[i]
-// says whether fields[i] was in the manifest. NULL text is empty; NULL loaded
+// says whether fields[i] was assigned before validation stopped. NULL text is empty; NULL loaded
 // is not called. loaded must not throw; panics abort.
 typedef struct NzbgetRsManifestSection
 {
@@ -793,8 +795,17 @@ typedef struct NzbgetRsManifest
 	size_t optionCount;
 	const NzbgetRsManifestCommand* commands;
 	size_t commandCount;
+	const NzbgetRsManifestSection* sections;
+	size_t sectionCount;
 } NzbgetRsManifest;
-int nzbget_rs_manifest_load(const char* text, size_t len, void* ctx,
+// Limits from this build of Boost.JSON, in decoded bytes / input elements.
+typedef struct NzbgetRsJsonLimits
+{
+	size_t stringSize;
+	size_t arraySize;
+	size_t objectSize;
+} NzbgetRsJsonLimits;
+int nzbget_rs_manifest_load(const char* text, size_t len, NzbgetRsJsonLimits limits, void* ctx,
 	void (*loaded)(void* ctx, const NzbgetRsManifest* manifest));
 
 #ifdef __cplusplus
