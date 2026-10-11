@@ -167,3 +167,37 @@ active C++ route; at/above4096 measures the active Rust route. Source is frozen
 and signed before independent timing and review. Production ownership stays
 C++, no dependencies are removed, and the final verdict is HOLD if any
 statistically resolved slowdown against original or fair optimized C++ remains.
+
+
+## Renewed architectural repair after f72 HOLD
+
+The human renewed work after the held hybrid. Dispatch4096 and Rust/ABI bytes
+remain fixed. Root-cause inspection found the f72 public method paid six saved
+registers, a200-byte frame and stack-canary loads/checks even for empty/tiny
+calls; every adverse fair-control case used C++ with no FFI entry. This identifies
+avoidable common-path work, not a complete attribution of every diagnostic
+nanosecond. No alignment, padding, threshold or host tuning is used.
+
+Owned storage is now isolated in noinline private exceptional helpers. Exact
+subtraction clears contents but reuses both vector capacities across probes;
+unordered lists up to the existing eight-range linear limit use a constructed
+std::array scratch prefix. Larger unordered inputs use one vector copy. Pure
+ordered interval accounting remains inline and borrows original storage. Raw
+sums, lazy endpoints, probe order/duplicates and the exact non-Rust fallback
+remain unchanged. Correctness supplements cover7/8/9 scratch boundaries.
+
+`--allocation-regression` uses a separate allocator-instrumented executable.
+The old f72 source failed with unordered1allocation and exact5initial/12repeated
+allocations; the fix passes with0and5/5. These are allocation work observations,
+not latency qualification. Actual/fallback sanitizer replay compares original,
+verbatim old fair control and the equally improved all-C++ control on every
+case. `streamcompare_improved_control.inc` mechanically copies production
+helpers/caller with only class rename and Rust dispatch removed, inheriting the
+exact Reference base/total/intersection helpers. It adds no timed wrapper.
+
+Rust sources and Cargo inputs are unchanged; prior Rust233-pass/clippy/bench
+receipts remain applicable, while CPP parity and daemon/CTest are rerun. CPP
+threshold mutation now targets two active return checks rather than the prior
+three. Independent fail-closed qualification owns all new timing and compares
+both fair controls without waiving any resolved loss. Earlier data, controls,
+failed runs and source branches remain retained.

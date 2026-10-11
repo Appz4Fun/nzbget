@@ -30,6 +30,7 @@
 #include "Log.h"
 #include "Util.h"
 #ifdef NZBGET_USE_RUST
+#include <array>
 #include <bit>
 #include <cstdlib>
 #include <limits>
@@ -258,6 +259,91 @@ void DupeStreamRepair::SubtractCovered(StreamRangeList& ranges, const StreamRang
 	ranges = std::move(remaining);
 }
 
+#ifdef NZBGET_USE_RUST
+inline int64 DupeStreamRepair::RequiredCompareFloorAvailable(const StreamRange* ranges, size_t count,
+	const StreamRangeList& donorRanges, const std::vector<int>& probeParts)
+{
+	int64 achievable = 0;
+	const StreamRange* end = ranges + count;
+	for (int partIndex : probeParts)
+	{
+		const auto& donor = donorRanges[partIndex];
+		int64 bytes = donor.Size;
+		auto start = count <= 8 ? ranges : std::lower_bound(ranges, end, donor.Offset,
+			[](const auto& hole, int64 offset) { return hole.End() <= offset; });
+		for (auto hole = start; hole != end && hole->Offset < donor.End(); ++hole)
+		{
+			if (hole->End() <= donor.Offset) continue;
+			bytes -= std::max<int64>(0, std::min(donor.End(), hole->End()) - std::max(donor.Offset, hole->Offset));
+		}
+		achievable += bytes;
+	}
+	return achievable;
+}
+
+int64 DupeStreamRepair::RequiredCompareFloorExact(const StreamRangeList& holes,
+	const StreamRangeList& donorRanges, const std::vector<int>& probeParts)
+{
+	int64 achievable = 0;
+	StreamRangeList present, remaining;
+	for (int partIndex : probeParts)
+	{
+		// Reset contents while retaining both capacities across ordered probes.
+		present.clear();
+		present.push_back(donorRanges[partIndex]);
+		for (const auto& hole : holes)
+		{
+			remaining.clear();
+			for (const auto& range : present)
+			{
+				if (!RangesIntersect(range, hole)) remaining.push_back(range);
+				else
+				{
+					if (range.Offset < hole.Offset) remaining.push_back({range.Offset, hole.Offset - range.Offset});
+					if (hole.End() < range.End()) remaining.push_back({hole.End(), range.End() - hole.End()});
+				}
+			}
+			present.swap(remaining);
+		}
+		achievable += TotalSize(present);
+	}
+	return achievable;
+}
+
+int64 DupeStreamRepair::RequiredCompareFloorUnordered(const StreamRangeList& holes,
+	const StreamRangeList& donorRanges, const std::vector<int>& probeParts)
+{
+	// Eight is the existing linear-scan limit. Every scratch element is
+	// constructed; compaction writes only within the populated prefix.
+	std::array<StreamRange, 8> small{};
+	StreamRangeList large;
+	StreamRange* ranges;
+	if (holes.size() <= small.size())
+	{
+		std::copy(holes.begin(), holes.end(), small.begin());
+		ranges = small.data();
+	}
+	else
+	{
+		large = holes;
+		ranges = large.data();
+	}
+	std::sort(ranges, ranges + holes.size(), [](auto& left, auto& right) { return left.Offset < right.Offset; });
+	size_t count = 0;
+	for (size_t i = 0; i < holes.size(); ++i)
+	{
+		auto hole = ranges[i];
+		if (count && hole.Offset <= ranges[count - 1].End())
+		{
+			auto& last = ranges[count - 1];
+			last.Size = std::max(last.End(), hole.End()) - last.Offset;
+		}
+		else ranges[count++] = hole;
+	}
+	return RequiredCompareFloorAvailable(ranges, count, donorRanges, probeParts);
+}
+#endif
+
 int64 DupeStreamRepair::RequiredCompareFloor(int64 decodedFileSize, const StreamRangeList& holes,
 	const StreamRangeList& donorRanges, const std::vector<int>& probeParts)
 {
@@ -319,64 +405,9 @@ int64 DupeStreamRepair::RequiredCompareFloor(int64 decodedFileSize, const Stream
 		positive &= donorRanges[partIndex].Size >= 0;
 		positive &= wrappedEnd(donorRanges[partIndex]) >= donorRanges[partIndex].Offset;
 	}
-	if (!positive)
-	{
-		int64 achievable = 0;
-		for (int partIndex : probeParts)
-		{
-			StreamRangeList present = {donorRanges[partIndex]}, remaining;
-			for (const auto& hole : holes)
-			{
-				remaining.clear();
-				for (const auto& range : present)
-				{
-					if (!RangesIntersect(range, hole)) remaining.push_back(range);
-					else
-					{
-						if (range.Offset < hole.Offset) remaining.push_back({range.Offset, hole.Offset - range.Offset});
-						if (hole.End() < range.End()) remaining.push_back({hole.End(), range.End() - hole.End()});
-					}
-				}
-				present.swap(remaining);
-			}
-			achievable += TotalSize(present);
-		}
-		return achievable >= 64 ? std::min(base, achievable) : base;
-	}
-	StreamRangeList merged;
-	const StreamRangeList* ranges = &holes;
-	if (!ordered)
-	{
-		merged = holes;
-		std::sort(merged.begin(), merged.end(), [](auto& left, auto& right) { return left.Offset < right.Offset; });
-		size_t count = 0;
-		for (size_t i = 0; i < merged.size(); ++i)
-		{
-			auto hole = merged[i];
-			if (count && hole.Offset <= merged[count - 1].End())
-			{
-				auto& last = merged[count - 1];
-				last.Size = std::max(last.End(), hole.End()) - last.Offset;
-			}
-			else merged[count++] = hole;
-		}
-		merged.resize(count);
-		ranges = &merged;
-	}
-	int64 achievable = 0;
-	for (int partIndex : probeParts)
-	{
-		const auto& donor = donorRanges[partIndex];
-		int64 bytes = donor.Size;
-		auto start = ranges->size() <= 8 ? ranges->begin() : std::lower_bound(ranges->begin(), ranges->end(), donor.Offset,
-			[](const auto& hole, int64 offset) { return hole.End() <= offset; });
-		for (auto hole = start; hole != ranges->end() && hole->Offset < donor.End(); ++hole)
-		{
-			if (hole->End() <= donor.Offset) continue;
-			bytes -= std::max<int64>(0, std::min(donor.End(), hole->End()) - std::max(donor.Offset, hole->Offset));
-		}
-		achievable += bytes;
-	}
+	int64 achievable = !positive ? RequiredCompareFloorExact(holes, donorRanges, probeParts) :
+		!ordered ? RequiredCompareFloorUnordered(holes, donorRanges, probeParts) :
+		RequiredCompareFloorAvailable(holes.data(), holes.size(), donorRanges, probeParts);
 	return achievable >= 64 ? std::min(base, achievable) : base;
 #else
 	int64 base = BaseCompareFloor(decodedFileSize - TotalSize(holes));

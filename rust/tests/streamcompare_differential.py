@@ -22,6 +22,7 @@ p.add_argument('--uninstrumented', action='store_true')
 p.add_argument('--extended-fixtures', action='store_true')
 p.add_argument('--fixtures-only', action='store_true')
 p.add_argument('--route-check', action='store_true')
+p.add_argument('--allocation-regression', action='store_true')
 p.add_argument('--mutation', action='store_true')
 p.add_argument('--mutation-threshold', action='store_true')
 p.add_argument('--mutation-cpp-threshold', action='store_true')
@@ -33,6 +34,7 @@ a = p.parse_args()
 assert not (a.route_check and a.fallback), 'Rust-route oracle needs the Rust-enabled production adapter'
 assert not (a.route_check and a.bench), 'route instrumentation is correctness-only'
 assert sum((a.mutation, a.mutation_threshold, a.mutation_cpp_threshold)) <= 1, 'choose one mutation'
+assert not (a.allocation_regression and (a.uninstrumented or a.bench or a.fallback)), 'allocation oracle needs native allocator counters, not timing/fallback'
 build = a.build.resolve()
 commands = json.loads((build / 'compile_commands.json').read_text())
 entry = next(e for e in commands if e['file'].endswith('/daemon/queue/DupeStreamRepair.cpp'))
@@ -76,12 +78,13 @@ if a.mutation_cpp_threshold:
     stop = text.index('#else', start)
     active = text[start:stop]
     needle = 'achievable >= 64'
-    assert active.count(needle) == 3
+    assert active.count(needle) == 2
     source = out / 'DupeStreamRepair-cpp-threshold-mutant.cpp'
     source.write_text(text[:start] + active.replace(needle, 'achievable >= 65') + text[stop:])
 obj = out / 'DupeStreamRepair.o'
 cpp = ROOT / 'rust/tests/streamcompare_caller.cpp'
 ref = ROOT / 'rust/tests/streamcompare_reference.inc'
+improved_ref = ROOT / 'rust/tests/streamcompare_improved_control.inc'
 archive = next(build.glob('rust/**/release/libnzbget_rs.a'))
 if a.mutation_threshold:
     text = (ROOT / 'rust/src/streamcompare.rs').read_text()
@@ -105,7 +108,7 @@ run(link)
 manifest = {'reference': 'c2316ef5e5ac7d5fb1c309e52de9e40dbc76c63e', 'compile_flags': flags, 'harness_flags': harness_flags,
             'allocation_instrumentation': not a.uninstrumented,
             'link_command': [str(v) for v in link],
-            'sha256': {str(v): hashlib.sha256(v.read_bytes()).hexdigest() for v in (source, cpp, ref, archive, binary)}}
+            'sha256': {str(v): hashlib.sha256(v.read_bytes()).hexdigest() for v in (source, cpp, ref, improved_ref, archive, binary)}}
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
 if a.bench:
     with (out / 'raw.csv').open('w') as f:
@@ -118,4 +121,4 @@ elif a.mutation or a.mutation_threshold or a.mutation_cpp_threshold:
     assert result.returncode != 0 and 'Mismatch' in result.stderr, 'mutation did not fail at parity oracle'
     print('Mutation rejected by complete production caller parity oracle')
 else:
-    run([binary, 'fixtures' if a.fixtures_only else a.rounds])
+    run([binary, 'allocation-regression' if a.allocation_regression else 'fixtures' if a.fixtures_only else a.rounds])

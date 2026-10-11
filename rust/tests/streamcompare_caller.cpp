@@ -3,6 +3,7 @@
 #include "DupeStreamRepair.h"
 #include "nzbget_rs.h"
 #include <chrono>
+#include <array>
 #include <bit>
 #include <cstdio>
 #include <cstdlib>
@@ -10,6 +11,7 @@
 #include <random>
 #include <limits>
 #include "streamcompare_reference.inc"
+#include "streamcompare_improved_control.inc"
 
 #ifndef STREAMCOMPARE_UNINSTRUMENTED
 static bool counting = false;
@@ -145,8 +147,9 @@ static void Check(const Fixture& f) {
     }
 #endif
     auto cpp=Control(f.decoded,f.holes,f.donors,f.probes);
-    if (old!=rs || old!=cpp) {
-        std::fprintf(stderr,"Mismatch %s old=%lld rust=%lld cpp=%lld decoded=%lld\n",f.name,(long long)old,(long long)rs,(long long)cpp,(long long)f.decoded);
+    auto improved=ImprovedControl::RequiredCompareFloor(f.decoded,f.holes,f.donors,f.probes);
+    if (old!=rs || old!=cpp || old!=improved) {
+        std::fprintf(stderr,"Mismatch %s old=%lld rust=%lld cpp=%lld improved=%lld decoded=%lld\n",f.name,(long long)old,(long long)rs,(long long)cpp,(long long)improved,(long long)f.decoded);
         for(auto h:f.holes) std::fprintf(stderr,"hole %lld %lld\n",(long long)h.Offset,(long long)h.Size);
         for(auto d:f.donors) std::fprintf(stderr,"donor %lld %lld\n",(long long)d.Offset,(long long)d.Size);
         std::abort();
@@ -237,6 +240,14 @@ static void CheckBoundaries() {
         }
         Check(unusedPositive);Check(unusedNegative);
     }
+    for(int count: {7,8,9}) {
+        Fixture f{"scratch_boundary",100000,{},{{0,1024},{1024,1024}},{1,0,1}};
+        for(int i=0;i<count;++i)f.holes.push_back({i*100LL,i%3?30:0});
+        std::reverse(f.holes.begin(),f.holes.end());Check(f);
+        f.holes[0]={50,200};f.holes[1]={50,200};Check(f);
+        f.holes[2]={200,-100};Check(f);
+    }
+    std::puts("Scratch parity: 9 directed 7/8/9-hole zero/overlap/duplicate/reversed cases");
     std::mt19937_64 random(0xCA1B409620261011ULL);
     for(int k=0;k<128;++k) {
         const int count=4095+k%3;
@@ -256,7 +267,36 @@ static double Time(Fn fn,const Fixture& f,size_t iterations) {
     sink=x;
     return std::chrono::duration<double,std::nano>(std::chrono::steady_clock::now()-start).count()/iterations;
 }
+#ifndef STREAMCOMPARE_UNINSTRUMENTED
+static size_t ActualAllocations(const Fixture& f) {
+    allocations=allocatedBytes=0;counting=true;
+    sink=DupeStreamRepair::RequiredCompareFloor(f.decoded,f.holes,f.donors,f.probes);
+    counting=false;
+    return allocations;
+}
+static void AllocationRegressions() {
+    bool pass=true;
+    Fixture unordered{"small_unordered",100000,{{400,600},{210,100},{0,200}},{{0,500},{500,500}},{0,1}};
+    Check(unordered);
+    const size_t small=ActualAllocations(unordered);
+    if(small!=0) {
+        std::fprintf(stderr,"Allocation regression small_unordered expected=0 actual=%zu\n",small);pass=false;
+    }
+    Fixture exact{"reversed_reuse",100000,{{200,-100},{250,0}},{{0,300},{100,-20}},{0}};
+    Check(exact);const size_t first=ActualAllocations(exact);
+    exact.probes={0,1,0};Check(exact);const size_t repeated=ActualAllocations(exact);
+    if(repeated!=first) {
+        std::fprintf(stderr,"Allocation regression reversed_reuse first=%zu repeated=%zu\n",first,repeated);pass=false;
+    }
+    std::printf("Allocation regression counts: unordered=%zu exact_first=%zu exact_repeated=%zu\n",small,first,repeated);
+    std::fflush(stdout);
+    if(!pass)std::abort();
+}
+#endif
 int main(int argc,char** argv) {
+#ifndef STREAMCOMPARE_UNINSTRUMENTED
+    if(argc>1 && std::string(argv[1])=="allocation-regression") { AllocationRegressions(); return 0; }
+#endif
     if(argc>1 && std::string(argv[1])=="boundaries") { CheckBoundaries(); return 0; }
     auto fs=Fixtures();
     const bool fixturesOnly=argc>1 && std::string(argv[1])=="fixtures";
