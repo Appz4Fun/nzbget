@@ -49,6 +49,11 @@ struct NzbSummary
 	std::vector<std::string> groups;			// newsgroups, sorted, unique
 	std::map<std::string, std::string> meta;	// lowercase type -> text
 	std::string mainName;						// the largest file that isn't par2
+	uint64_t listedParts = 0;
+	uint64_t declaredParts = 0;
+	uint64_t articleBytes = 0;
+	Head parIndex;
+	std::vector<uint64_t> recoveryBytes;
 	long long dataBytes = 0;
 	int dataFiles = 0;
 	std::vector<Head> heads;					// first parts of the largest data files

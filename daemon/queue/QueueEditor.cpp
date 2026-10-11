@@ -1025,7 +1025,13 @@ void QueueEditor::SetNzbName(NzbInfo* nzbInfo, const char* name)
 {
 	debug("QueueEditor: renaming '%s' to '%s'", nzbInfo->GetName(), name);
 
-	g_QueueCoordinator->SetQueueEntryName(m_downloadQueue, nzbInfo, name);
+    std::string previous = nzbInfo->GetName();
+    g_QueueCoordinator->SetQueueEntryName(m_downloadQueue, nzbInfo, name);
+    if (previous != nzbInfo->GetName())
+    {
+        DownloadQueue::Aspect named = { DownloadQueue::eaNzbNamed, m_downloadQueue, nzbInfo, nullptr };
+        m_downloadQueue->Notify(&named);
+    }
 }
 
 bool QueueEditor::MergeGroups(ItemList* itemList)

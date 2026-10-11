@@ -25,6 +25,10 @@
 #include <limits>
 #include "NzbReader.h"
 #include "XmlReader.h"
+#include "NzbFile.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 #include "DupeUtil.h"
 #ifdef NZBGET_USE_RUST
@@ -113,11 +117,15 @@ public:
 			m_name = NameOfSubject(XmlReader::Attr(attrs, "subject"));
 			m_fileBytes = 0;
 			m_firstId.clear();
+			m_subject = XmlReader::Attr(attrs, "subject");
+			m_parts.clear();
+			m_validParts = 0;
 		}
 		else if (name == "segment" && m_inFile)
 		{
 			m_segmentBytes = atoll(XmlReader::Attr(attrs, "bytes").c_str());
 			m_segmentNumber = atoll(XmlReader::Attr(attrs, "number").c_str());
+			m_parts.push_back({ m_segmentNumber, m_segmentBytes });
 			m_inSegment = true;
 		}
 	}
@@ -139,6 +147,8 @@ public:
 			{
 				sizes[m_name] += m_segmentBytes;
 				ids.insert(id);
+                m_validParts++;
+                if (!IsParName(m_name) && m_segmentBytes > 0) articleSizes.push_back((uint64_t)m_segmentBytes);
 				if (m_segmentBytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - m_segmentBytes)
 				{
 					m_fileBytes += m_segmentBytes;
@@ -159,6 +169,23 @@ public:
 		}
 		else if (name == "file")
 		{
+            uint64_t listed = m_parts.size(), declared = listed;
+#ifdef NZBGET_USE_RUST
+            std::vector<NzbgetRsDupePart> raw;
+            raw.reserve(m_parts.size());
+            for (const auto& part : m_parts) raw.push_back({ part.first, part.second });
+            int count = NzbFile::DeclaredParts(m_subject.c_str());
+            nzbget_rs_dupe_part_counts(raw.data(), raw.size(), count > 0 ? (uint32_t)count : 0,
+                IsParName(m_name), &listed, &declared);
+#else
+            for (const auto& part : m_parts) if (part.first > 0 && part.first <= 200000)
+                declared = std::max(declared, (uint64_t)part.first);
+#endif
+            listedParts += m_validParts;
+            declaredParts += declared;
+            if (IsParName(m_name) && m_fileBytes > 0 && !m_firstId.empty())
+                parityHeads.push_back({ m_name, m_firstId, m_fileBytes });
+
 			if (!IsParName(m_name) && m_fileBytes > 0)
 			{
 				dataFiles++;
@@ -184,6 +211,9 @@ public:
 	long long dataBytes = 0;
 	int dataFiles = 0;
 	bool geometryValid = true;
+	uint64_t listedParts = 0, declaredParts = 0;
+	std::vector<uint64_t> articleSizes;
+	std::vector<NzbSummary::Head> parityHeads;
 	std::set<std::string> ids;
 	std::set<std::string> groups;
 	std::map<std::string, std::string> meta;
@@ -196,6 +226,9 @@ private:
 	long long m_segmentNumber = 0;
 	long long m_fileBytes = 0;
 	std::string m_firstId;
+	std::string m_subject;
+	uint64_t m_validParts = 0;
+	std::vector<std::pair<long long,long long>> m_parts;
 	bool m_inFile = false;
 	bool m_inSegment = false;
 };
@@ -233,6 +266,20 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
 	summary.meta = reader.meta;
 	summary.messageIds.assign(reader.ids.begin(), reader.ids.end());
 	summary.groups.assign(reader.groups.begin(), reader.groups.end());
+    summary.listedParts = reader.listedParts;
+    summary.declaredParts = reader.declaredParts;
+    if (!reader.articleSizes.empty())
+    {
+        std::sort(reader.articleSizes.begin(), reader.articleSizes.end());
+        summary.articleBytes = reader.articleSizes[reader.articleSizes.size()/2];
+    }
+    std::stable_sort(reader.parityHeads.begin(), reader.parityHeads.end(),
+        [](const NzbSummary::Head& a, const NzbSummary::Head& b) { return a.bytes < b.bytes; });
+    if (!reader.parityHeads.empty())
+    {
+        summary.parIndex = reader.parityHeads.front();
+        for (size_t i=1;i<reader.parityHeads.size();i++) summary.recoveryBytes.push_back((uint64_t)reader.parityHeads[i].bytes);
+    }
 
 	std::string mainName;
 	long long mainSize = -1;

@@ -86,18 +86,22 @@ private:
 	{
 	public:
 		DupeSearch* m_owner;
-		void Update(Subject* caller, void* aspect) override { m_owner->DownloadQueueUpdate(aspect); }
+		void Update(Subject* caller, void* aspect) override { m_owner->DownloadQueueUpdate(static_cast<DownloadQueue*>(caller), aspect); }
 	};
 
 	struct Searched
 	{
 		int score = 0;
 		time_t time = 0;
+		std::string title;
+		bool retryable = false;
 	};
 
 	struct Job
 	{
 		int nzbId = 0;
+		bool failed = false;
+		bool rankOnly = false;
 		std::string name;
 		std::string dupeKey;
 		std::string category;
@@ -120,16 +124,21 @@ private:
 	DeadPostings m_dead;
 	std::mutex m_mutex;
 	std::condition_variable m_cond;
+	std::set<int> m_rankPending;
 	std::map<int, time_t> m_pending;			// nzb id -> when to look at it
 	std::map<std::string, Searched> m_searched;	// lowercase dupe key -> last search
 	// pick id -> fingerprints its search queued; per pick, not per key: a pick sent
 	// again after the user deleted it and its duplicates gets them back (B41)
 	std::map<int, std::set<std::string>> m_sent;
 
-	void DownloadQueueUpdate(void* aspect);
+	void DownloadQueueUpdate(DownloadQueue* downloadQueue, void* aspect);
 	void Schedule(int nzbId, time_t due);
 	void ScanQueue();
 	bool Prepare(DownloadQueue* downloadQueue, int nzbId, Job& job);
+	bool PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job);
+	void Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior, time_t deadline, NzbFetcher::Budget& budget,
+		std::vector<NzbFetcher::Fetched>& fetched, std::set<std::string>& attempted, NzbFetcher::Stats& stats,
+		int& results, int& candidates, int& postings);
 	void Search(const Job& job);
 	/* health checks, adds and ranks the verified postings and the key's duplicates in history */
 	void Place(const Job& job, const NzbSummary& pick, std::vector<NzbFetcher::Fetched>& verified,
@@ -147,7 +156,7 @@ private:
 	void Note(int nzbId, Message::EKind kind, const char* format, ...) PRINTF_SYNTAX(4);
 	std::string PendingDir(int nzbId);
 	void MarkSearching(int nzbId);
-	void SavePending(const Job& job, const std::vector<NzbFetcher::Fetched>& verified);
+	void SavePending(const Job& job, const NzbSummary& pick, const std::vector<NzbFetcher::Fetched>& verified);
 	void RemovePending(int nzbId);
 	void ResumePending();
 	/* why the search may no longer add duplicates for the pick (deleted by the user,

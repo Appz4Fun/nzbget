@@ -70,11 +70,35 @@ conflicting release names. The daemon retains article transport and queue
 ownership. `DupeSameSize` hints compare data-file counts and bytes independently
 of parity overhead; existing and newly discovered backups use the same rule.
 The hints select candidates for the existing checksum validation, rather than
-establishing byte identity. The broader discovery integration follows separately.
+establishing byte identity.
+
+`dupewatch` owns queue/history eligibility, repeat-search suppression, broader
+queries, a shared atomic fetch budget, partial-NZB health normalization and PAR2
+repairability estimates. The daemon retains queue locks, HTTP/NNTP transport and
+the existing failover controller. A search shares one deadline and a budget of
+three HTTP attempts per configured donor across strict and broader passes; zero
+keeps the existing unlimited mode. Broader candidates need conservative release
+compatibility and matching decoded packed-media identity. Generated duplicate
+keys follow renamed picks; explicit client keys remain intact. Empty searches
+can retry without losing the title needed to recognize generated keys, while a
+usable existing backup suppresses those retries.
 
 The offline differential test compares the pure Python proxy reference with
 Rust. It deliberately never imports proxy configuration or performs indexer
-requests. The Bencher suite includes the new identity function.
+requests. The watcher differential suite likewise runs only local pure-function
+fixtures. Isolated fake NNTP/Newznab functional scenarios exercise broader
+identity proof, data-only hints and rename tracking. The Bencher suite includes
+identity, queue decisions, broader queries and partial health normalization.
+
+The source-extracted pre-port `Prepare` prefix matches 184,320 ASan/UBSan
+fixtures; proxy-specific fleet/rename behavior is checked separately. Five
+exclusive-worker timing runs measured median C++ policy time of 39.277 ns and
+Rust policy time of 4.717 ns. This compares the decision kernel only and excludes
+queue adaptation, transport and locking costs from the Rust call; it is not an
+end-to-end discovery speedup. New discovery behavior has no prior C++ equivalent.
+Restarted searches require the saved original title, key and posting fingerprint
+before using donor identity proof; changed or legacy unbound state is searched
+again. In-flight jobs likewise stop placing donors after a title or key change.
 
 ## Parked
 

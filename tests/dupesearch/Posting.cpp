@@ -25,6 +25,9 @@
 #include "DupeIdentity.h"
 #include "Posting.h"
 #include "Util.h"
+#include "NzbFetcher.h"
+#include <thread>
+#include <atomic>
 #include <stdexcept>
 
 namespace
@@ -199,6 +202,84 @@ BOOST_AUTO_TEST_CASE(NativeIdentityFetchExceptionTest)
     BOOST_CHECK_EQUAL(attempts, 2);
     BOOST_CHECK((bool)found);
     BOOST_CHECK_EQUAL(found.bytes, 1000);
+}
+#endif
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetChargesRetriesTest)
+{
+    NzbFetcher::Budget budget(1);
+    int calls = 0;
+    NzbFetcher fetcher([&](const std::string&, const std::string&, size_t, long long) {
+        calls++;
+        HttpGet::Reply reply;
+        reply.ok = true;
+        reply.status = 200;
+        reply.body = "<html>indexer error</html>";
+        return reply;
+    });
+    auto listing = Listing("http://fake.invalid/one", 1, 0, 1);
+    fetcher.Fetch(listing, Util::CurrentTime() + 20, 3, &budget);
+    BOOST_CHECK_EQUAL(calls, 3);
+    BOOST_CHECK(budget.Spent());
+}
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetCooldownIsFreeTest)
+{
+    NzbFetcher::Budget budget(1);
+    int calls = 0;
+    NzbFetcher fetcher([&](const std::string&, const std::string&, size_t, long long) {
+        calls++;
+        HttpGet::Reply reply;
+        reply.status = 403;
+        return reply;
+    });
+    auto listing = Listing("http://fake.invalid/two", 1, 0, 1, "limited");
+    fetcher.Fetch(listing, Util::CurrentTime() + 10, 0, &budget);
+    BOOST_CHECK_EQUAL(fetcher.Fetch(listing, Util::CurrentTime() + 10, 0, &budget).reason, NzbFetcher::frRefused);
+    BOOST_CHECK_EQUAL(calls, 1);
+    BOOST_CHECK(budget.Take());
+    BOOST_CHECK(budget.Take());
+    BOOST_CHECK(!budget.Take());
+}
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetConcurrentTest)
+{
+    NzbFetcher::Budget budget(1);
+    std::atomic<int> admitted{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 16; i++) threads.emplace_back([&]() { if (budget.Take()) admitted++; });
+    for (auto& thread : threads) thread.join();
+    BOOST_CHECK_EQUAL(admitted.load(), 3);
+    BOOST_CHECK(budget.Spent());
+    NzbFetcher::Budget unlimited(0);
+    for (int i = 0; i < 100; i++) BOOST_REQUIRE(unlimited.Take());
+    BOOST_CHECK(!unlimited.Spent());
+}
+
+#ifdef NZBGET_USE_RUST
+BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
+{
+    NzbSummary info;
+    std::string xml="<nzb><file subject='&quot;rel.part01.rar&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='10000'>a@x</segment>"
+        "<segment number='2' bytes='10000'>b@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml,info));
+    BOOST_CHECK_EQUAL(info.listedParts,2);
+    BOOST_CHECK_EQUAL(info.declaredParts,150);
+    BOOST_CHECK_EQUAL(info.articleBytes,10000);
+    BOOST_CHECK_EQUAL(DupeIdentity::WholeBytes(info),1500000);
+    DonorHealth::Health health;
+    health.present=13;
+    NzbSummary fractional;
+    fractional.listedParts=3;
+    fractional.declaredParts=10;
+    BOOST_CHECK_CLOSE(DupeIdentity::Alive(health,fractional),13.0/43.0,0.00001);
+    BOOST_CHECK_EQUAL(DupeIdentity::UnlistedMissing(health,fractional),30);
+    health.present=5;health.error=5;
+    fractional.listedParts=1;fractional.declaredParts=2;
+    BOOST_CHECK_CLOSE(DupeIdentity::Alive(health,fractional),0.25,0.00001);
+    health.present=0;health.error=2;
+    BOOST_CHECK_EQUAL(DupeIdentity::Alive(health,fractional),-1);
 }
 #endif
 

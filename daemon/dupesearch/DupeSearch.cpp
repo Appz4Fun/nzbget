@@ -21,6 +21,7 @@
 #include "nzbget.h"
 
 #include <chrono>
+#include <limits>
 #include <fstream>
 #include <sstream>
 #include "DupeSearch.h"
@@ -41,6 +42,9 @@
 #include "Log.h"
 #include "Options.h"
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 DupeSearch* g_DupeSearch = nullptr;
 
@@ -124,13 +128,37 @@ void DupeSearch::Stop()
 	m_cond.notify_all();
 }
 
-void DupeSearch::DownloadQueueUpdate(void* aspect)
+void DupeSearch::DownloadQueueUpdate(DownloadQueue* downloadQueue, void* aspect)
 {
 	DownloadQueue::Aspect* queueAspect = (DownloadQueue::Aspect*)aspect;
-	if (queueAspect->action == DownloadQueue::eaNzbAdded && queueAspect->nzbInfo &&
+	if ((queueAspect->action == DownloadQueue::eaNzbAdded || queueAspect->action == DownloadQueue::eaNzbNamed) && queueAspect->nzbInfo &&
 		g_Options->GetDupeSearch() && !IsStopped())
 	{
 		Schedule(queueAspect->nzbInfo->GetId(), Util::CurrentTime() + g_Options->GetDupeSearchDelay());
+#ifdef NZBGET_USE_RUST
+        // An external lower-scored backup can arrive after the initial search.
+        // Queue notifications run under the queue lock; only schedule work here.
+        NzbInfo* added = queueAspect->nzbInfo;
+        if (queueAspect->action == DownloadQueue::eaNzbAdded && !IsDonor(added) &&
+            added->GetDupeMode() == dmScore && !Util::EmptyStr(added->GetDupeKey()) &&
+            !added->GetParameters()->Find("DupeFleet"))
+        {
+            NzbInfo* parent = nullptr;
+            for (NzbInfo* item : downloadQueue->GetQueue())
+                if (item != added && item->GetKind() == NzbInfo::nkNzb && !item->GetDeleting() &&
+                    item->GetDeleteStatus() == NzbInfo::dsNone && !item->GetPostInfo() &&
+                    LowerKey(EffectiveKey(item)) == LowerKey(EffectiveKey(added)) &&
+                    item->GetDupeScore() > added->GetDupeScore() &&
+                    (!parent || item->GetDupeScore() > parent->GetDupeScore())) parent = item;
+            if (parent)
+            {
+                std::lock_guard<std::mutex> guard(m_mutex);
+                m_rankPending.insert(parent->GetId());
+                m_pending[parent->GetId()] = Util::CurrentTime() + g_Options->GetDupeSearchDelay();
+                m_cond.notify_all();
+            }
+        }
+#endif
 	}
 }
 
@@ -249,6 +277,9 @@ void DupeSearch::Run()
  */
 bool DupeSearch::Prepare(DownloadQueue* downloadQueue, int nzbId, Job& job)
 {
+#ifdef NZBGET_USE_RUST
+    return PrepareNative(downloadQueue, nzbId, job);
+#else
 	if (!g_Options->GetDupeSearch() || !g_Options->GetDupeCheck())
 	{
 		return false;
@@ -371,6 +402,104 @@ bool DupeSearch::Prepare(DownloadQueue* downloadQueue, int nzbId, Job& job)
 	nzbInfo->PrintMessage(Message::mkInfo, "DupeSearch: searching duplicates of %s (key %s)%s",
 		nzbInfo->GetName(), key.c_str(), failed ? ": it failed before its search was due" : "");
 	return true;
+#endif
+}
+
+bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job)
+{
+#ifdef NZBGET_USE_RUST
+    if (!g_Options->GetDupeSearch() || !g_Options->GetDupeCheck()) return false;
+    NzbInfo* pick = FindNzb(downloadQueue, nzbId);
+    if (!pick) { std::lock_guard<std::mutex> guard(m_mutex); m_rankPending.erase(nzbId); return false; }
+    bool history = downloadQueue->GetQueue()->Find(nzbId) != pick;
+    std::string key = EffectiveKey(pick);
+    std::string title = ReleaseName::Normalize(pick->GetName());
+    Searched previous;
+    bool havePrevious = false, changedIdentity = false, rankOnly = false;
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        auto found = m_searched.find(LowerKey(key));
+        if (found != m_searched.end()) { previous = found->second; havePrevious = true; }
+        changedIdentity = havePrevious && !previous.title.empty() && previous.title != title;
+        rankOnly = m_rankPending.erase(nzbId) != 0 && havePrevious;
+    }
+    if (changedIdentity) rankOnly = false;
+    // Only rewrite a key this search previously generated; explicit client keys stay.
+    if (changedIdentity && key == "dupes:" + previous.title)
+    {
+        key = "dupes:" + title;
+        // The key remains a snapshot until the Rust policy accepts the job.
+        havePrevious = false;
+    }
+    auto flags = [&](NzbInfo* item, bool inHistory) -> uint32_t {
+        uint32_t value = rsDupeEnabled | rsDupeCheck | rsDupePresent;
+        if (item->GetKind() == NzbInfo::nkNzb) value |= rsDupeNzb;
+        if (inHistory) value |= rsDupeHistory;
+        if (item->IsDupeSuccess()) value |= rsDupeSuccess;
+        if (item->GetDeleting()) value |= rsDupeDeleting;
+        if (item->GetDeleteStatus() == NzbInfo::dsNone) value |= rsDupeDeleteNone;
+        if (item->GetDeleteStatus() == NzbInfo::dsManual) value |= rsDupeDeleteManual;
+        if (item->GetDeleteStatus() == NzbInfo::dsDupe) value |= rsDupeDeleteDupe;
+        if (item->GetDeleteStatus() == NzbInfo::dsCopy) value |= rsDupeDeleteCopy;
+        if (item->GetDeleteStatus() == NzbInfo::dsGood) value |= rsDupeDeleteGood;
+        if (item->GetPostInfo()) value |= rsDupePostProcess;
+        if (item->GetDupeMode() == dmScore) value |= rsDupeScoreMode;
+        if (IsDonor(item)) value |= rsDupeDonor;
+        if (item->GetDupeHint() == NzbInfo::dhRedownloadAuto) value |= rsDupeAutoRedownload;
+        if (item->GetParameters()->Find("DupeFleet")) value |= rsDupeManagedFleet;
+        return value;
+    };
+    std::vector<NzbInfo*> others;
+    std::vector<bool> histories;
+    for (NzbInfo* item : downloadQueue->GetQueue()) { others.push_back(item); histories.push_back(false); }
+    for (HistoryInfo* item : downloadQueue->GetHistory()) if (item->GetKind() == HistoryInfo::hkNzb)
+    { others.push_back(item->GetNzbInfo()); histories.push_back(true); }
+    std::vector<std::string> keys;
+    keys.reserve(others.size());
+    for (NzbInfo* other : others) keys.push_back(LowerKey(EffectiveKey(other)));
+    std::vector<NzbgetRsDupeWatchPeer> peers;
+    uint32_t pickFlags = flags(pick, history);
+    for (size_t i = 0; i < others.size(); i++)
+    {
+        uint32_t f = flags(others[i], histories[i]);
+        if (keys[i] == LowerKey(key) && (f & rsDupeManagedFleet)) pickFlags |= rsDupeManagedFleet;
+        peers.push_back({ others[i]->GetId(), others[i]->GetDupeScore(), f, keys[i].data(), keys[i].size() });
+    }
+    std::string lowerKey = LowerKey(key);
+    NzbgetRsDupeWatchPeer snapshot{ nzbId, pick->GetDupeScore(), pickFlags, lowerKey.data(), lowerKey.size() };
+    time_t now = Util::CurrentTime();
+    int decision = nzbget_rs_dupe_watch(&snapshot, peers.data(), peers.size(), (int64_t)now,
+        previous.score, (int64_t)previous.time, havePrevious && !previous.retryable && !rankOnly, changedIdentity);
+    if (decision == 1) {
+        if (rankOnly) { std::lock_guard<std::mutex> guard(m_mutex); m_rankPending.insert(nzbId); }
+        Schedule(nzbId, now + std::max(PostProcessRetrySec, g_Options->GetDupeSearchDelay()));
+        return false;
+    }
+    if (decision != 2) return false;
+    int score = std::max(pick->GetDupeScore(), BasePickScore);
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        if (!rankOnly) m_searched[lowerKey] = { score, now, title };
+    }
+    if (!g_Options->GetDupeSearchDryRun() && !rankOnly) SaveState();
+    bool edit = !g_Options->GetDupeSearchDryRun() && !history;
+    if (edit)
+    {
+        pick->SetDupeKey(key.c_str());
+        if (pick->GetDupeScore() < BasePickScore) pick->SetDupeScore(BasePickScore);
+        downloadQueue->SaveChanged();
+    }
+    Collect(downloadQueue, pick, job);
+    job.dupeKey = key;
+    job.score = score;
+    job.failed = history;
+    job.rankOnly = rankOnly;
+    pick->PrintMessage(Message::mkInfo, "DupeSearch: searching duplicates of %s (key %s)%s",
+        pick->GetName(), key.c_str(), rankOnly ? ": ranking new backups" : history ? ": it failed before its search was due" : "");
+    return true;
+#else
+    return false;
+#endif
 }
 
 /*
@@ -433,6 +562,118 @@ void DupeSearch::Collect(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, Job& jo
 	}
 }
 
+void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior,
+    time_t deadline, NzbFetcher::Budget& budget, std::vector<NzbFetcher::Fetched>& fetched,
+    std::set<std::string>& attempted, NzbFetcher::Stats& stats, int& results, int& candidates, int& postings)
+{
+#ifdef NZBGET_USE_RUST
+    if (IsStopped() || budget.Spent() || Util::CurrentTime()>=deadline || pick.messageIds.empty()) return;
+    auto servers=NntpHealthServer::Servers();
+    if (servers.empty()) return;
+    auto healthOptions = [&]() {
+        DonorHealth::Options options;
+        options.sample.percent=g_Options->GetDupeHealthPercent();
+        options.sample.minimum=g_Options->GetDupeHealthMin();
+        options.sample.maximum=g_Options->GetDupeHealthMax();
+        options.sample.maxBody=g_Options->GetDupeBodyChecks();
+        options.budgetMs=(int)std::max(1LL,std::min((long long)g_Options->GetDupeHealthBudget()*1000,
+            (long long)(deadline-Util::CurrentTime())*1000));
+        return options;
+    };
+    auto check = [&](const NzbSummary& info) {
+        return DonorHealth::CheckPosting(servers,info.messageIds,
+            std::make_shared<std::vector<std::string>>(info.groups),healthOptions(),true);
+    };
+    DonorHealth::Health health;
+    double alive=-1;
+    bool doomed=false;
+    int missing=0;
+    if (!job.failed)
+    {
+        health=check(pick);
+        alive=DupeIdentity::Alive(health,pick);
+        long long combined=(long long)health.missing+DupeIdentity::UnlistedMissing(health,pick);
+        missing=(int)std::min(combined,(long long)std::numeric_limits<int>::max());
+        if (alive>=0.85 && health.missing>=DonorHealth::MinKnown)
+            doomed=DupeIdentity::ParDoomed(pick,alive,deadline);
+    }
+    if (!nzbget_rs_dupe_should_expand(alive,missing,job.failed || doomed,false)) return;
+    // Do not spend indexer grabs when a usable whole backup already exists.
+    std::set<std::string> probed;
+    auto whole=[&](const NzbSummary& info) {
+        if (Util::CurrentTime()>=deadline || IsStopped() || !probed.insert(info.Fingerprint()).second) return false;
+        auto h=check(info);
+        return DupeIdentity::Alive(h,info)>=0.999;
+    };
+    for (const auto& posting : fetched)
+        if ((!ReleaseName::Readable(posting.info.mainName) || ReleaseName::SameRelease(job.name,posting.info.mainName)) && whole(posting.info)) return;
+    for (const auto& member : job.members)
+    {
+        NzbSummary info;
+        if (NzbReader::Parse(DupeUtil::ReadAll(member.second),info) && whole(info)) return;
+    }
+    if (IsStopped() || budget.Spent() || Util::CurrentTime()>=deadline) return;
+    std::vector<Newznab::Params> queries;
+    NzbgetRsBuf raw=nzbget_rs_dupe_queries(job.name.data(),job.name.size());
+    size_t at=0;
+    auto number=[&]() -> uint32_t {
+        if (at>raw.len || raw.len-at<4) { at=raw.len; return 0; }
+        uint32_t value=0;
+        for (int i=0;i<4;i++) value|=(uint32_t)(unsigned char)raw.data[at++]<<(8*i);
+        return value;
+    };
+    uint32_t count=number();
+    auto strict=Newznab::BuildQueries(job.name,pick.meta.count("imdb")?pick.meta.at("imdb"):"",pick.meta.count("tvdb")?pick.meta.at("tvdb"):"");
+    for (uint32_t i=0;i<count && i<8;i++)
+    {
+        uint32_t len=number();
+        if (at>raw.len || len>raw.len-at) break;
+        std::string q(raw.data+at,len);at+=len;
+        bool duplicate=std::any_of(strict.begin(),strict.end(),[&](const Newznab::Params& params) {
+            return std::any_of(params.begin(),params.end(),[&](const auto& p) {return p.first=="q" && p.second==q;});
+        });
+        if (!q.empty() && !duplicate) queries.push_back({{"t","search"},{"q",q}});
+    }
+    nzbget_rs_free(raw);
+    Newznab::SearchStats searchStats;
+    auto wider=Newznab::Search(g_Options->GetDupeSearchUrl(),g_Options->GetDupeSearchApiKey(),queries,deadline,&searchStats);
+    std::vector<Newznab::Result> all=prior;
+    std::set<std::string> seen;
+    for (const auto& r:prior) seen.insert(r.link);
+    for (auto& r:wider) if (seen.insert(r.link).second) { results++;all.push_back(std::move(r)); }
+    unsigned long long estimate=DupeIdentity::WholeBytes(pick);
+    long long bytes=(long long)std::min(estimate,(unsigned long long)std::numeric_limits<long long>::max());
+    std::vector<Newznab::Result> accepted;
+    for (const auto& r:all)
+        if (!attempted.count(r.link) && DupeIdentity::Candidate(job.name,bytes,r.title,r.size)) accepted.push_back(r);
+    candidates+=(int)accepted.size();
+    auto order=Posting::OrderPostings(accepted,bytes,g_Options->GetDupeSearchMaxDonors());
+    postings+=(int)order.size();
+    Note(job.nzbId,Message::mkInfo,"DupeSearch: %s: failing pick has no whole backup; broader discovery (%i candidate(s))",job.name.c_str(),(int)accepted.size());
+    DupeIdentity::Identity mine;
+    bool readMine=false;
+    for (const auto& group:order)
+    {
+        if (IsStopped() || budget.Spent() || Util::CurrentTime()>=deadline) break;
+        for (const auto& r:group) attempted.insert(r.link);
+        NzbFetcher::Stats counts;
+        auto posting=m_fetcher.FetchPosting(group,deadline,counts,&budget);
+        stats.Add(counts);
+        if (posting.reason!=NzbFetcher::frOk || !DupeIdentity::OuterCompatible(job.name,posting.info.mainName)) continue;
+        // Known-release names retain the strict path. Everything else needs inner proof or a fully matching readable data name.
+        if (ReleaseName::SameRelease(job.name,posting.listing.title) &&
+            (!ReleaseName::Readable(posting.info.mainName) || ReleaseName::SameRelease(job.name,posting.info.mainName)))
+        { fetched.push_back(std::move(posting));continue; }
+        if (!readMine) { mine=DupeIdentity::Read(pick,deadline);readMine=true; }
+        auto theirs=DupeIdentity::Read(posting.info,deadline);
+        if (!DupeIdentity::Matches(job.name,posting.info.mainName,mine,theirs)) continue;
+        posting.lenient=true;
+        posting.sameInner=mine && theirs && mine.bytes==theirs.bytes && mine.extension==theirs.extension;
+        fetched.push_back(std::move(posting));
+    }
+#endif
+}
+
 void DupeSearch::Search(const Job& job)
 {
 	// search and fetch together are meant to fit in about this long
@@ -448,6 +689,15 @@ void DupeSearch::Search(const Job& job)
 			Note(job.nzbId, Message::mkDetail, "DupeSearch: could not read the nzb-file of %s", job.name.c_str());
 		}
 	}
+    if (job.rankOnly)
+    {
+        std::vector<NzbFetcher::Fetched> verified;
+        std::map<std::string,int> rejected;
+        Place(job,pick,verified,rejected,0,0,0);
+        return;
+    }
+    NzbFetcher::Budget budget(g_Options->GetDupeSearchMaxDonors());
+    std::set<std::string> attempted;
 	std::string imdb = pick.meta.count("imdb") ? pick.meta["imdb"] : "";
 	std::string tvdb = pick.meta.count("tvdb") ? pick.meta["tvdb"] : "";
 
@@ -491,22 +741,24 @@ void DupeSearch::Search(const Job& job)
 	NzbFetcher::Stats fetchStats;
 	std::vector<NzbFetcher::Fetched> fetched;
 	int notTried = 0;
-	for (size_t from = 0; from < order.size(); from += FetchParallel)
+	size_t parallel = g_Options->GetDupeSearchMaxDonors() > 0 ? 1 : FetchParallel;
+    for (size_t from = 0; from < order.size(); from += parallel)
 	{
-		if (IsStopped() || Util::CurrentTime() >= deadline)
+		if (IsStopped() || Util::CurrentTime() >= deadline || budget.Spent())
 		{
 			notTried = (int)(order.size() - from);
 			break;
 		}
 
-		size_t count = std::min((size_t)FetchParallel, order.size() - from);
+		size_t count = std::min(parallel, order.size() - from);
 		std::vector<NzbFetcher::Fetched> chunk(count);
 		std::vector<NzbFetcher::Stats> chunkStats(count);
 		std::vector<std::thread> threads;
 		for (size_t i = 0; i < count; i++)
 		{
+            for (const Newznab::Result& listing : order[from+i]) attempted.insert(listing.link);
 			threads.emplace_back([&, i]()
-				{ chunk[i] = m_fetcher.FetchPosting(order[from + i], deadline, chunkStats[i]); });
+				{ chunk[i] = m_fetcher.FetchPosting(order[from + i], deadline, chunkStats[i], &budget); });
 		}
 		for (std::thread& thread : threads)
 		{
@@ -523,6 +775,8 @@ void DupeSearch::Search(const Job& job)
 	}
 
 	knownReader.join();
+    int resultCount=(int)results.size(), candidateCount=(int)candidates.size(), postingCount=(int)order.size();
+    Expand(job,pick,results,deadline,budget,fetched,attempted,fetchStats,resultCount,candidateCount,postingCount);
 
 	// what is worth keeping, in this order: another release (by the name of
 	// its largest data file, when that name is readable), a posting nzbget
@@ -536,7 +790,7 @@ void DupeSearch::Search(const Job& job)
 	{
 		Posting::Sketch sketch = Posting::MakeSketch(posting.info.messageIds);
 		const std::vector<std::string>& ids = posting.info.messageIds;
-		if (ReleaseName::Readable(posting.info.mainName) && !ReleaseName::SameRelease(job.name, posting.info.mainName))
+		if (!posting.lenient && ReleaseName::Readable(posting.info.mainName) && !ReleaseName::SameRelease(job.name, posting.info.mainName))
 		{
 			rejected["other-release"]++;
 		}
@@ -564,6 +818,7 @@ void DupeSearch::Search(const Job& job)
 	rejected["fetch"] += fetchStats.fetch;
 	rejected["parse"] += fetchStats.parse;
 	rejected["deadline"] += notTried;
+    rejected["budget"] += fetchStats.budget;
 
 	// a search that learned nothing - a query failed and nothing came back, or no
 	// posting could be fetched (indexers refusing, the deadline) - doesn't hold the
@@ -581,8 +836,8 @@ void DupeSearch::Search(const Job& job)
 
 	// what was fetched is kept until it is placed: a restart resumes from it
 	// without fetching again (every fetch costs a grab)
-	SavePending(job, verified);
-	Place(job, pick, verified, rejected, (int)results.size(), (int)candidates.size(), (int)order.size());
+	SavePending(job, pick, verified);
+	Place(job, pick, verified, rejected, resultCount, candidateCount, postingCount);
 }
 
 void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFetcher::Fetched>& verified,
@@ -690,7 +945,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 
 	auto twinOf = [&](const NzbFetcher::Fetched& f)
 		{ return DupeIdentity::SameData(pick, f.info); };
-	auto aliveOf = [&](const DonorHealth::Health& health) { return health.Alive(); };
+	auto aliveOf = [&](const DonorHealth::Health& health, const NzbSummary& summary) { return DupeIdentity::Alive(health, summary); };
 	auto entryOf = [&](size_t i, int score, double alive)
 		{
 			DonorScore::Entry entry;
@@ -745,7 +1000,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	for (size_t n = 0; n < fast; n++)
 	{
 		auto it = probe.find(live[n]);
-		place(live[n], it == probe.end() ? -1.0 : aliveOf(it->second), "fast");
+		place(live[n], it == probe.end() ? -1.0 : aliveOf(it->second, verified[live[n]].info), "fast");
 		fastSet.insert(live[n]);
 	}
 
@@ -766,7 +1021,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 				{
 					return;
 				}
-				double alive = aliveOf(health);
+				double alive = aliveOf(health, verified[i].info);
 				bool isDead = alive >= 0 && alive * 100 < g_Options->GetDupeMinAlive() &&
 					health.missing >= DonorHealth::MinKnown;
 				Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: %s [%s]: alive=%i%% (%i of %i articles)", job.name.c_str(),
@@ -893,7 +1148,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		for (const auto& entry : measured)
 		{
 			const NzbSummary& summary = summaries[entry.first];
-			double alive = aliveOf(entry.second);
+			double alive = aliveOf(entry.second, summary);
 			if (alive < 0)
 			{
 				continue;	// too few answers to judge: its score stays
@@ -995,6 +1250,36 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		std::lock_guard<std::mutex> guard(m_mutex);
 		m_sent.erase(job.nzbId);
 	}
+    // Empty searches are retryable while the pick remains queued; no new grabs for a completed key.
+    bool usableBackup=std::any_of(placed.begin(),placed.end(),[](const auto& item) {
+        return item.second.entry.score>DonorScore::Dead && item.second.entry.alive>=0.999;
+    });
+    bool retryWanted=!job.rankOnly;
+    if (job.rankOnly)
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        auto state=m_searched.find(LowerKey(job.dupeKey));
+        retryWanted=state!=m_searched.end() && state->second.retryable;
+    }
+    if (usableBackup)
+    {
+        { std::lock_guard<std::mutex> guard(m_mutex);
+          auto state=m_searched.find(LowerKey(job.dupeKey));
+          if (state!=m_searched.end()) state->second.retryable=false; }
+        if (!g_Options->GetDupeSearchDryRun()) SaveState();
+    }
+    if (retryWanted && !usableBackup && added == 0 && !IsStopped())
+    {
+        GuardedDownloadQueue queue=DownloadQueue::Guard();
+        NzbInfo* current=queue->GetQueue()->Find(job.nzbId);
+        if (current && !current->GetDeleting() && current->GetDeleteStatus()==NzbInfo::dsNone &&
+            !current->GetPostInfo() && LowerKey(EffectiveKey(current))==LowerKey(job.dupeKey) &&
+            ReleaseName::Normalize(current->GetName())==ReleaseName::Normalize(job.name))
+        {
+            ForgetSearch(job.dupeKey);
+            Schedule(job.nzbId,Util::CurrentTime()+900);
+        }
+    }
 }
 
 std::string DupeSearch::PickGone(const Job& job)
@@ -1012,6 +1297,10 @@ std::string DupeSearch::PickGone(const Job& job)
 	{
 		return "the duplicate key of the pick changed";
 	}
+    if (ReleaseName::Normalize(pick->GetName()) != ReleaseName::Normalize(job.name))
+    {
+        return "the name of the pick changed";
+    }
 	return "";
 }
 
@@ -1201,14 +1490,16 @@ void DupeSearch::MarkSearching(int nzbId)
 	}
 }
 
-void DupeSearch::SavePending(const Job& job, const std::vector<NzbFetcher::Fetched>& verified)
+void DupeSearch::SavePending(const Job& job, const NzbSummary& pick, const std::vector<NzbFetcher::Fetched>& verified)
 {
 	if (g_Options->GetDupeSearchDryRun())
 	{
 		return;
 	}
 	std::string dir = PendingDir(job.nzbId);
-	bool ok = true;
+    bool ok = DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "pick-title", ReleaseName::Normalize(job.name)) &&
+        DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "pick-key", LowerKey(job.dupeKey)) &&
+        DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "pick-posting", pick.Fingerprint());
 	for (size_t i = 0; i < verified.size() && ok; i++)
 	{
 		const Newznab::Result& listing = verified[i].listing;
@@ -1216,7 +1507,8 @@ void DupeSearch::SavePending(const Job& job, const std::vector<NzbFetcher::Fetch
 		std::stringstream meta;
 		meta << listing.title << '\t' << listing.indexer << '\t' << listing.grabs << '\t' << listing.size << '\t'
 			<< (long long)listing.date << "\t\n";
-		ok = DupeUtil::WriteAtomic(base + ".nzb", verified[i].data) && DupeUtil::WriteAtomic(base + ".meta", meta.str());
+		ok = DupeUtil::WriteAtomic(base + ".nzb", verified[i].data) && DupeUtil::WriteAtomic(base + ".meta", meta.str()) &&
+            DupeUtil::WriteAtomic(base + ".inner", verified[i].sameInner ? "1\n" : "0\n");
 	}
 	if (!ok || !DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "phase", "fetched\n"))
 	{
@@ -1279,6 +1571,19 @@ void DupeSearch::ResumePending()
 		Note(job.nzbId, Message::mkInfo, "DupeSearch: resuming the search of %s after a restart", job.name.c_str());
 		NzbSummary pick;
 		NzbReader::Parse(DupeUtil::ReadAll(job.queuedFile), pick);
+        // Proof belongs to the original pick. Old state without that binding is
+        // searched again rather than assigning its donors to an unknown release.
+        if (!FileSystem::FileExists((dir + PATH_SEPARATOR + "pick-title").c_str()) ||
+            DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-title") != ReleaseName::Normalize(job.name) ||
+            DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-key") != LowerKey(job.dupeKey) ||
+            DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-posting") != pick.Fingerprint())
+        {
+            Note(job.nzbId, Message::mkInfo, "DupeSearch: saved search identity changed; searching the current pick again");
+            RemoveDir(dir);
+            ForgetSearch(job.dupeKey);
+            Schedule(job.nzbId, Util::CurrentTime() + g_Options->GetDupeSearchDelay());
+            continue;
+        }
 		std::vector<Posting::Sketch> known;
 		for (const std::string& path : job.knownFiles)
 		{
@@ -1324,6 +1629,7 @@ void DupeSearch::ResumePending()
 				continue;
 			}
 			posting.reason = NzbFetcher::frOk;
+            posting.sameInner = DupeUtil::ReadAll(base + ".inner") == "1\n";
 			// the postings added before the restart are in nzbget now (ranked with
 			// the key's other duplicates), or were deleted by the user since
 			Posting::Sketch sketch = Posting::MakeSketch(posting.info.messageIds);
@@ -1363,6 +1669,10 @@ void DupeSearch::LoadState()
 			Searched searched;
 			searched.score = atoi(score.c_str());
 			searched.time = (time_t)atoll(time.c_str());
+            std::getline(stream, searched.title, '\t');
+            std::string retry;
+            std::getline(stream,retry,'\t');
+            searched.retryable=retry=="1";
 			if (now - searched.time < StateTtlSec)
 			{
 				m_searched[key] = searched;
@@ -1375,7 +1685,12 @@ void DupeSearch::ForgetSearch(const std::string& dupeKey)
 {
 	{
 		std::lock_guard<std::mutex> guard(m_mutex);
+#ifdef NZBGET_USE_RUST
+        auto found=m_searched.find(LowerKey(dupeKey));
+        if (found!=m_searched.end()) found->second.retryable=true;
+#else
 		m_searched.erase(LowerKey(dupeKey));
+#endif
 	}
 	if (!g_Options->GetDupeSearchDryRun())
 	{
@@ -1393,7 +1708,7 @@ void DupeSearch::SaveState()
 		{
 			if (now - entry.second.time < StateTtlSec)
 			{
-				text << entry.first << '\t' << entry.second.score << '\t' << (long long)entry.second.time << "\t\n";
+				text << entry.first << '\t' << entry.second.score << '\t' << (long long)entry.second.time << '\t' << entry.second.title << '\t' << (entry.second.retryable ? 1 : 0) << "\t\n";
 			}
 		}
 	}

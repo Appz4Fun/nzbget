@@ -4104,6 +4104,285 @@ def _ds_group(api, name):
     return next((g for g in api.listgroups() if g['NZBName'] == name), None)
 
 
+
+def scenario_dupesearchlenientinner(daemon, t):
+    """A damaged native pick discovers a digest listing only through the bare
+    query, then proves its packed media identity. Wrong inner episode/size
+    cannot borrow that proof; extra parity does not defeat the data-size hint."""
+    import struct
+    title = DS_TITLE
+    pick_ids = ['li-pick-%d@x' % i for i in range(40)]
+    listed_bytes, inner_bytes = 400_000, 1_000_000
+    candidates = {
+        'good': ('abcdef1234567801', title + '.mkv', inner_bytes, 10),
+        'episode': ('abcdef1234567802', 'Show.S01E02.1080p.WEB.H264-GRP.mkv', inner_bytes, 11),
+        'size': ('abcdef1234567803', title + '.mkv', inner_bytes + 1, 12),
+    }
+    donor_ids = {tag: ['li-%s-%d@x' % (tag, i) for i in range(40)] for tag in candidates}
+
+    def article(inner_name, size, outer_name):
+        name = inner_name.encode()
+        header = bytearray(32)
+        struct.pack_into('<BHHII', header, 2, 0x74, 0x8000, 32 + len(name), 0, size)
+        struct.pack_into('<H', header, 26, len(name))
+        data = b'Rar!\x1a\x07\0' + bytes(header) + name
+        encoded = bytearray()
+        for byte in data:
+            c = (byte + 42) & 255
+            encoded.extend(b'=' + bytes([(c + 64) & 255]) if c in (0, 10, 13, 61) else bytes([c]))
+        return (('=ybegin part=1 total=40 line=128 size=%d name=%s\r\n'
+                 '=ypart begin=1 end=%d\r\n' % (listed_bytes, outer_name, len(data))).encode()
+                + bytes(encoded) + b'\r\n=yend size=%d part=1 pcrc32=%08x\r\n'
+                % (len(data), zlib.crc32(data) & 0xffffffff))
+
+    fake = daemon.fake_nntp
+    fake.alive = {pick_ids[0]} | {mid for ids in donor_ids.values() for mid in ids} | {'li-parity@x'}
+    fake.bodies_by_id[pick_ids[0]] = article(title + '.mkv', inner_bytes, title + '.part01.rar')
+    nzbs, results = {}, []
+    for tag, (digest, inner_name, size, day) in candidates.items():
+        fake.bodies_by_id[donor_ids[tag][0]] = article(inner_name, size, digest + '.part01.rar')
+        nzb = _fake_nzb_ids(donor_ids[tag], listed_bytes, digest + '.part01.rar')
+        extra = 0
+        if tag == 'good':
+            # Within the inclusive 1% listing gate, but different total bytes/file
+            # count. DupeSameSize must compare only the single archive data file.
+            parity = _fake_nzb_ids(['li-parity@x'], 4_000, digest + '.par2')
+            nzb = nzb.replace(b'</nzb>', parity[parity.index(b'<file '):])
+            extra = 4_000
+        nzbs[tag] = nzb
+        results.append({'title': digest, 'link': 'http://127.0.0.1:%d/getnzb/%s' % (daemon.newznab.port, tag),
+                        'size': listed_bytes + extra, 'grabs': 50 - day, 'indexer': 'Inner' + tag,
+                        'date': 'Tue, %d Jun 2025 01:10:05 +0000' % day})
+    results.append(dict(results[0]))  # duplicate listing must not duplicate its grab
+    results.append({'title': 'Show.S01E02.1080p.WEB.H264-GRP',
+                    'link': 'http://127.0.0.1:%d/getnzb/wrong-listing' % daemon.newznab.port,
+                    'size': listed_bytes, 'grabs': 100, 'indexer': 'WrongEpisode'})
+
+    def respond(params, path):
+        if path.startswith('/getnzb/'):
+            tag = path.rsplit('/', 1)[-1]
+            return (200, nzbs[tag]) if tag in nzbs else (404, b'')
+        return 200, newznab_xml(results if params.get('q') == 'show s01e01' else [])
+
+    daemon.newznab.respond = respond
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, title, _fake_nzb_ids(pick_ids, listed_bytes, title + '.part01.rar').decode(), '', 0)
+    deadline = time.time() + 75
+    while time.time() < deadline and _grep_log(t, ' added=') == 0:
+        time.sleep(0.25)
+    time.sleep(2)
+    requests = list(daemon.newznab.requests)
+    queries = [r for r in requests if r.get('q')]
+    wanted = {'show s01e01 1080p web h264 grp', 'show s01e01 1080p',
+              'show s01e01 1080p grp', 'show', 'show s01e01'}
+    counts = {q: sum(r.get('q') == q for r in queries) for q in wanted}
+    grabs = {tag: sum(r['_path'] == '/getnzb/' + tag for r in requests)
+             for tag in list(candidates) + ['wrong-listing']}
+    donors = [g for g in api.history() + api.listgroups()
+              if g.get('NZBID') != pick_id and g.get('NZBName') in [c[0] for c in candidates.values()]]
+    good = [g for g in donors if g['NZBName'] == candidates['good'][0]]
+    params = {p['Name']: p['Value'] for p in good[0].get('Parameters', [])} if len(good) == 1 else {}
+    pick = _ds_group(api, title)
+    searched = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % title)
+    query_args = all(r.get('t') == 'search' and r.get('apikey') == 'k' and
+                     r.get('offset') == '0' and r.get('limit') == '100' for r in queries)
+    elapsed = max((r['_time'] for r in requests), default=0) - min((r['_time'] for r in requests), default=0)
+    ok = (set(r.get('q') for r in queries) == wanted and all(n == 1 for n in counts.values()) and
+          query_args and searched == 1 and grabs == {'good': 1, 'episode': 1, 'size': 1, 'wrong-listing': 0} and
+          sum(grabs.values()) <= 3 * 4 and elapsed < 60 and len(donors) == 1 and
+          params.get('DupeSameInner') == '1' and params.get('DupeSameSize') == '1' and
+          bool(pick) and good[0]['DupeKey'] == pick['DupeKey'])
+    return ('dupesearchlenientinner', ok, 'queries=%s grabs=%s donors=%d same_inner=%s same_size=%s '
+            'searches=%d query_args=%s request_span=%.2fs bodies=%d' %
+            (counts, grabs, len(donors), params.get('DupeSameInner'), params.get('DupeSameSize'),
+             searched, query_args, elapsed, fake.bodies))
+
+
+def scenario_dupesearchwatchrename(daemon, t):
+    """Renaming a queued native managed pick updates its auto key and runs one
+    new search for the changed release, without an immediate repeat."""
+    renamed = 'Other.S02E03.2024.720p.WEB.H264-GRP'
+    ids = ['wr-pick-%d@x' % i for i in range(40)]
+    daemon.fake_nntp.alive = set(ids)
+    daemon.newznab.respond = lambda params, path: (200, newznab_xml([]))
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(ids, 400_000).decode(), '', 0)
+    deadline = time.time() + 30
+    while time.time() < deadline and _grep_log(t, 'DupeSearch: %s: results=' % DS_TITLE) == 0:
+        time.sleep(0.25)
+    before = _ds_group(api, DS_TITLE)
+    original_requests = list(daemon.newznab.requests)
+    edited = api.editqueue('GroupSetName', 0, renamed, [pick_id])
+    deadline = time.time() + 30
+    while time.time() < deadline and _grep_log(t, 'DupeSearch: %s: results=' % renamed) == 0:
+        time.sleep(0.25)
+    time.sleep(4)  # four delay periods: a completed new search must not requeue itself
+    after = _ds_group(api, renamed)
+    queries = [r for r in daemon.newznab.requests if r.get('q')]
+    old_queries = {'show s01e01 1080p web h264 grp', 'show s01e01 1080p', 'show s01e01 1080p grp'}
+    new_queries = {'other s02e03 2024 720p web h264 grp', 'other s02e03 720p', 'other s02e03 720p grp'}
+    counts = {q: sum(r.get('q') == q for r in queries) for q in old_queries | new_queries}
+    old_searches = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % DS_TITLE)
+    new_searches = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % renamed)
+    query_args = all(r.get('t') == 'search' and r.get('apikey') == 'k' and
+                     r.get('offset') == '0' and r.get('limit') == '100' for r in queries)
+    old_key = before.get('DupeKey') if before else None
+    new_key = after.get('DupeKey') if after else None
+    ok = (edited and old_key == 'dupes:show.s01e01.1080p.web.h264.grp' and
+          new_key == 'dupes:other.s02e03.2024.720p.web.h264.grp' and
+          old_searches == 1 and new_searches == 1 and len(original_requests) == 3 and
+          set(r.get('q') for r in queries) == old_queries | new_queries and
+          all(n == 1 for n in counts.values()) and query_args)
+    return ('dupesearchwatchrename', ok, 'edited=%s old_key=%s new_key=%s searches=%d/%d queries=%s args=%s'
+            % (edited, old_key, new_key, old_searches, new_searches, counts, query_args))
+
+
+
+def scenario_dupesearchwatchbackup(daemon, t):
+    """A failing pick with a healthy existing whole backup does not broaden an
+    empty search or retain a retryable stamp. The persisted stamp checks the
+    900-second retry suppression without a 15-minute test wait."""
+    ids = lambda tag: ['wb-%s-%d@x' % (tag, i) for i in range(40)]
+    daemon.fake_nntp.alive = set(ids('backup'))
+    daemon.newznab.respond = lambda params, path: (200, newznab_xml([]))
+    api = daemon.wait_ready()
+    _ds_append(api, DS_TITLE, _fake_nzb_ids(ids('pick'), 400_000).decode(), DS_KEY, DS_PICK)
+    backup_name = 'Show S01E01 1080p WEB H264-GRP'
+    backup_id = _ds_append(api, backup_name, _fake_nzb_ids(ids('backup'), 410_000).decode(), DS_KEY, DS_PICK - 1)
+    deadline = time.time() + 40
+    while time.time() < deadline and _grep_log(t, 'DupeSearch: %s: results=' % DS_TITLE) == 0:
+        time.sleep(0.25)
+    time.sleep(4)
+    requests = list(daemon.newznab.requests)
+    wanted = {'show s01e01 1080p web h264 grp', 'show s01e01 1080p', 'show s01e01 1080p grp'}
+    counts = {q: sum(r.get('q') == q for r in requests) for q in wanted}
+    backups = [g for g in api.history() if g.get('NZBID') == backup_id]
+    params = {p['Name']: p['Value'] for p in backups[0].get('Parameters', [])} if len(backups) == 1 else {}
+    state_path = os.path.join('main', 'queue', 'dupesearch')
+    state = t.read_file(state_path).decode(errors='replace') if t.exists(state_path) else ''
+    stamp = next((line.split('\t') for line in state.splitlines() if line.split('\t')[0] == DS_KEY.lower()), [])
+    completed = len(stamp) >= 5 and stamp[3] == 'show.s01e01.1080p.web.h264.grp' and stamp[4] == '0'
+    searches = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % DS_TITLE)
+    query_args = all(r.get('t') == 'search' and r.get('apikey') == 'k' and
+                     r.get('offset') == '0' and r.get('limit') == '100' for r in requests)
+    ok = (len(requests) == 3 and all(n == 1 for n in counts.values()) and query_args and searches == 1 and
+          params.get('DupeHealth') == '100' and len(backups) == 1 and
+          backups[0]['DupeScore'] > DS_PICK - 1000 + 1 and completed)
+    return ('dupesearchwatchbackup', ok, 'queries=%s requests=%d searches=%d backup_health=%s '
+            'backup_score=%s completed_stamp=%s retryable=%s' %
+            (counts, len(requests), searches, params.get('DupeHealth'), backups[0].get('DupeScore') if backups else None,
+             completed, stamp[4] if len(stamp) >= 5 else None))
+
+
+
+def scenario_dupesearchwatchfetchrename(daemon, t):
+    """Manual rename during a fetched NZB request cannot place an old-title
+    donor under the still-explicit key. Events make the race deterministic."""
+    renamed = 'Other.S02E03.2024.720p.WEB.H264-GRP'
+    ids = lambda tag: ['wf-%s-%d@x' % (tag, i) for i in range(40)]
+    daemon.fake_nntp.alive = set(ids('pick')) | set(ids('donor'))
+    fetched, release = threading.Event(), threading.Event()
+    listing = {'title': DS_TITLE, 'link': 'http://127.0.0.1:%d/getnzb/stale' % daemon.newznab.port,
+               'size': 410_000, 'grabs': 1, 'indexer': 'StaleFetch'}
+
+    def respond(params, path):
+        if path == '/getnzb/stale':
+            fetched.set()
+            release.wait(25)
+            return 200, _fake_nzb_ids(ids('donor'), 410_000, DS_TITLE + '.mkv')
+        return 200, newznab_xml([listing] if params.get('q') == 'show s01e01 1080p web h264 grp' else [])
+
+    daemon.newznab.respond = respond
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(ids('pick'), 400_000).decode(), DS_KEY, DS_PICK)
+    started = fetched.wait(20)
+    edited = api.editqueue('GroupSetName', 0, renamed, [pick_id]) if started else False
+    release.set()
+    deadline = time.time() + 30
+    while time.time() < deadline and _grep_log(t, 'DupeSearch: %s: results=' % DS_TITLE) == 0:
+        time.sleep(0.25)
+    deadline = time.time() + 15
+    while time.time() < deadline and _grep_log(t, 'DupeSearch: %s: results=' % renamed) == 0:
+        time.sleep(0.25)
+    time.sleep(2)
+    donors = [g for g in api.history() + api.listgroups()
+              if g.get('NZBID') != pick_id and g.get('NZBName') == DS_TITLE]
+    current = _ds_group(api, renamed)
+    grabs = sum(r['_path'] == '/getnzb/stale' for r in daemon.newznab.requests)
+    completed = _grep_log(t, 'DupeSearch: %s: results=' % DS_TITLE)
+    placed = _grep_log(t, 'added %s [StaleFetch]' % DS_TITLE)
+    new_searches = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % renamed)
+    new_completed = _grep_log(t, 'DupeSearch: %s: results=' % renamed)
+    wanted = {'other s02e03 2024 720p web h264 grp', 'other s02e03 720p', 'other s02e03 720p grp'}
+    new_queries = [r for r in daemon.newznab.requests if r.get('q', '').startswith('other')]
+    counts = {q: sum(r.get('q') == q for r in new_queries) for q in wanted}
+    query_args = all(r.get('t') == 'search' and r.get('apikey') == 'k' and
+                     r.get('offset') == '0' and r.get('limit') == '100' for r in new_queries)
+    prompt_search = (new_searches == 1 and new_completed == 1 and len(new_queries) == 3 and
+                     all(n == 1 for n in counts.values()) and query_args)
+    ok = (started and edited and completed == 1 and grabs == 1 and not donors and placed == 0 and
+          current is not None and current['DupeKey'] == DS_KEY and prompt_search)
+    return ('dupesearchwatchfetchrename', ok, 'fetch_started=%s renamed=%s completed=%d grabs=%d '
+            'stale_donors=%d stale_add_logs=%d explicit_key_preserved=%s new_searches=%d new_completed=%d '
+            'new_queries=%s prompt_search=%s' %
+            (started, edited, completed, grabs, len(donors), placed, current is not None and current['DupeKey'] == DS_KEY,
+             new_searches, new_completed, counts, prompt_search))
+
+
+def scenario_dupesearchwatchrestart(daemon, t):
+    """Fetched old-title donors saved before a crash cannot be rebound to a
+    renamed pick on restart. Only this scratch daemon is interrupted."""
+    renamed = 'Other.S02E03.2024.720p.WEB.H264-GRP'
+    ids = lambda tag: ['ws-%s-%d@x' % (tag, i) for i in range(40)]
+    daemon.fake_nntp.alive = set(ids('pick')) | set(ids('donor'))
+    daemon.fake_nntp.delays['ws-donor-'] = 0.4
+    listing = {'title': DS_TITLE, 'link': 'http://127.0.0.1:%d/getnzb/saved' % daemon.newznab.port,
+               'size': 410_000, 'grabs': 1, 'indexer': 'StaleRestart'}
+
+    def respond(params, path):
+        if path == '/getnzb/saved':
+            return 200, _fake_nzb_ids(ids('donor'), 410_000, DS_TITLE + '.mkv')
+        return 200, newznab_xml([listing] if params.get('q') == 'show s01e01 1080p web h264 grp' else [])
+
+    daemon.newznab.respond = respond
+    api = daemon.wait_ready()
+    pick_id = _ds_append(api, DS_TITLE, _fake_nzb_ids(ids('pick'), 400_000).decode(), DS_KEY, DS_PICK)
+    pending = os.path.join('main', 'queue', 'dupesearch-pending', str(pick_id))
+    deadline = time.time() + 30
+    saved = False
+    while time.time() < deadline:
+        phase = os.path.join(pending, 'phase')
+        if t.exists(phase) and t.read_file(phase).strip() == b'fetched':
+            saved = True
+            break
+        time.sleep(0.1)
+    if not saved:
+        return ('dupesearchwatchrestart', False, 'fetched_pending_not_observed')
+    edited = api.editqueue('GroupSetName', 0, renamed, [pick_id])
+    before = _grep_log(t, 'added %s [StaleRestart]' % DS_TITLE)
+    # LocalTarget tracks only processes it spawned for this scenario.
+    t.procs[-1].kill()
+    t.procs[-1].wait()
+    daemon.fake_nntp.delays.clear()
+    daemon.start()
+    api = daemon.wait_ready()
+    deadline = time.time() + 30
+    while time.time() < deadline and t.exists(pending):
+        time.sleep(0.25)
+    time.sleep(2)
+    donors = [g for g in api.history() + api.listgroups()
+              if g.get('NZBID') != pick_id and g.get('NZBName') == DS_TITLE]
+    current = _ds_group(api, renamed)
+    placed = _grep_log(t, 'added %s [StaleRestart]' % DS_TITLE)
+    grabs = sum(r['_path'] == '/getnzb/saved' for r in daemon.newznab.requests)
+    pending_left = t.exists(pending)
+    ok = (saved and edited and before == 0 and current is not None and current['DupeKey'] == DS_KEY and
+          not donors and placed == 0 and grabs == 1 and not pending_left)
+    return ('dupesearchwatchrestart', ok, 'saved=%s renamed=%s stale_adds_before=%d after=%d stale_donors=%d '
+            'grabs=%d pending_left=%s renamed_pick_loaded=%s' %
+            (saved, edited, before, placed, len(donors), grabs, pending_left, current is not None))
+
+
 def scenario_dupesearchtrigger(daemon, t):
     """DupeSearch decides which downloads it searches: the pick of a client
     that also submits two backups of its own (scored one and two below) is
@@ -10153,6 +10432,11 @@ def _log_before(t, first, second):
 
 
 SCENARIOS = {
+    'dupesearchwatchfetchrename': scenario_dupesearchwatchfetchrename,
+    'dupesearchwatchrestart': scenario_dupesearchwatchrestart,
+    'dupesearchwatchbackup': scenario_dupesearchwatchbackup,
+    'dupesearchlenientinner': scenario_dupesearchlenientinner,
+    'dupesearchwatchrename': scenario_dupesearchwatchrename,
     'complementary': scenario_complementary,
     'redownloadresetsrecovered': scenario_redownloadresetsrecovered,
     'recheckfailed': scenario_recheckfailed,
@@ -10509,6 +10793,16 @@ EXPECTED_HISTORY_STATUS = {
 _SEVENZIP_OPTION = ['SevenZipCmd=%s' % generators.SEVENZIP_PATH] if generators.HAVE_7Z else []
 
 SCENARIO_OPTIONS = {
+    'dupesearchwatchfetchrename': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k',
+                                 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchwatchrestart': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k',
+                             'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchwatchbackup': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=2', 'DupeSearchApiKey=k',
+                            'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchlenientinner': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k',
+                             'DupeSearchMaxDonors=4', 'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
+    'dupesearchwatchrename': ['DupeArticleFallback=no', 'DupeSearch=yes', 'DupeSearchDelay=1', 'DupeSearchApiKey=k',
+                            'DupeFastDonors=0', 'DupeBodyChecks=0', 'DupeHealthMin=40', 'DupeHealthMax=40'],
     # JSON-P is off by default; these scenarios call /jsonprpc, and apiformat checks
     # that a server password stays hidden there
     'apiformat': ['DupeArticleFallback=yes', 'JsonP=yes', 'Server1.Password=harness-secret'],
@@ -10876,13 +11170,13 @@ SCENARIO_EXTENSIONS = {'dupesearchpickgoneadd': {'deletepick.py': DELETE_PICK_EX
 SCENARIO_FIRST_FAIL_PROXY = {'recheckfailed': ((b'?5=', b'?10=', b'?15='),)}
 
 # scenarios with a FakeNewznab indexer (DupeSearchUrl points to it)
-SCENARIO_NEWZNAB = {'dupesearchbareurl', 'dupesearchgzip', 'dupesearchrestart', 'dupesearchsearch', 'dupesearchfetch', 'dupesearchfetcherror', 'dupesearchfilters', 'dupesearchdonors',
+SCENARIO_NEWZNAB = {'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'dupesearchbareurl', 'dupesearchgzip', 'dupesearchrestart', 'dupesearchsearch', 'dupesearchfetch', 'dupesearchfetcherror', 'dupesearchfilters', 'dupesearchdonors',
                    'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun',
                    'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchresume', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged',
                    'dupesearchresumedeleted'}
 
 # scenarios with a FakeNntp news server in place of nserv
-SCENARIO_FAKE_NNTP = {'uucache', 'stallquit', 'joingroupreconnect', 'joingroupnogroups', 'fleetparallel', 'fleetduringpost', 'fleetslowurlfirst', 'fleetwide', 'fleetsamekey', 'fleetscoremax', 'fleetmerged', 'fleetslowurl', 'fleetpaused', 'fleetmostlydead', 'fleetlarge', 'fleetcopy', 'fleetbusy', 'fleetdeadtwins', 'fleetfailover', 'fleetaddbackup', 'fleetresendslow', 'fleetresend', 'fleetallerror', 'fleetotherkey', 'fleetnokey', 'fleetdeadfirst', 'fleettwins', 'fleettimeout', 'fleetone', 'fleetalldead', 'fleetshutdown', 'dupesearchresumedeleted', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged', 'dupesearchresume', 'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchdonors', 'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun'}
+SCENARIO_FAKE_NNTP = {'dupesearchwatchfetchrename', 'dupesearchwatchrestart', 'dupesearchwatchbackup', 'dupesearchlenientinner', 'dupesearchwatchrename', 'uucache', 'stallquit', 'joingroupreconnect', 'joingroupnogroups', 'fleetparallel', 'fleetduringpost', 'fleetslowurlfirst', 'fleetwide', 'fleetsamekey', 'fleetscoremax', 'fleetmerged', 'fleetslowurl', 'fleetpaused', 'fleetmostlydead', 'fleetlarge', 'fleetcopy', 'fleetbusy', 'fleetdeadtwins', 'fleetfailover', 'fleetaddbackup', 'fleetresendslow', 'fleetresend', 'fleetallerror', 'fleetotherkey', 'fleetnokey', 'fleetdeadfirst', 'fleettwins', 'fleettimeout', 'fleetone', 'fleetalldead', 'fleetshutdown', 'dupesearchresumedeleted', 'dupesearchpickdeleted', 'dupesearchpickgoneadd', 'dupesearchquickstop', 'dupesearchresubmit', 'dupesearchkeychanged', 'dupesearchresume', 'dupesearchgroup', 'dupesearchrerank', 'dupesearchfailedfirst', 'dupesearchfailedrestart', 'dupesearchtwopicks', 'dupesearchindexerdown', 'dupesearchquerydrop', 'dupesearchalldead', 'dupesearchtwinmember', 'dupesearchambiguous', 'dupesearchrestartcheck', 'dupesearchdonors', 'dupesearchfastdead', 'dupesearchrescorefail', 'dupesearchdryrun'}
 
 
 # --------------------------------------------------------------------------- #
