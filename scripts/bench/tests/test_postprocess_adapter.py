@@ -40,7 +40,10 @@ class PostprocessAdapterTests(unittest.TestCase):
         self.manifest.write_text(json.dumps({
             "schema_version": 1, "base_sha": "a" * 40, "candidate_sha": "b" * 40,
             "testbed": "offline-parser-fixture", "toolchain": {"compiler": "fixture"},
-            "fixtures": [{"id": "caller", "sha256": "c" * 64, "scope": "complete_caller"}],
+            "fixtures": [{"id": "caller", "sha256": "c" * 64, "scope": "complete_caller",
+                          "rust_preservation_applicability": "not_applicable",
+                          "provenance": {"rust_preservation_rationale":
+                                         "Controlled synthetic first-port parser fixture with no existing Rust caller; not historical evidence."}}],
             "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
         }))
         self.output = self.root / "out"
@@ -270,6 +273,50 @@ class PostprocessAdapterTests(unittest.TestCase):
                                              "--output-dir", str(output)], capture_output=True, text=True)
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertTrue(ancestor.is_symlink(), "original traversal ancestors must remain immutable")
+                    self.assertEqual(original.read_text(), text)
+
+    def test_outer_input_symlink_targets_preserve_intermediate_output_links(self):
+        for input_kind in ("source", "manifest", "metadata"):
+            for target_route in ("direct", "dotdot", "dotdot-escape"):
+                with self.subTest(input_kind=input_kind, target_route=target_route):
+                    case = self.root / f"target-{input_kind}-{target_route}"
+                    case.mkdir()
+                    output = case / "out"
+                    output.mkdir()
+                    real = case / "real"
+                    real.mkdir()
+                    original_parent = real
+                    if target_route == "dotdot-escape":
+                        original_parent = case / "elsewhere"
+                        original_parent.mkdir()
+                    original = original_parent / "input"
+                    text = "bad,header\n" if input_kind == "source" else '{}\n'
+                    original.write_text(text)
+                    intermediate = output / "summary.json"
+                    intermediate.symlink_to(real, target_is_directory=True)
+                    outer = case / "outer"
+                    target = intermediate / "input"
+                    if target_route == "dotdot":
+                        target = intermediate / ".." / "real" / "input"
+                    elif target_route == "dotdot-escape":
+                        target = intermediate / ".." / "elsewhere" / "input"
+                    outer.symlink_to(target)
+                    self.assertEqual(outer.resolve(), original.resolve())
+                    source = outer if input_kind == "source" else case / "bad.csv"
+                    manifest = outer if input_kind == "manifest" else case / "metadata.json"
+                    if input_kind != "source":
+                        source.write_text("bad,header\n")
+                    if input_kind != "manifest":
+                        manifest.write_text('{}')
+                    command = [sys.executable, str(ADAPTER), "--format", "article-crc",
+                               "--manifest", str(manifest), "--source", str(source), "--output-dir", str(output)]
+                    if input_kind == "metadata":
+                        command += ["--metadata", str(outer)]
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(intermediate.is_symlink(), "input target intermediates must remain immutable")
+                    self.assertTrue(outer.is_symlink())
+                    self.assertTrue(outer.exists(), "immutable input link must still reach its original bytes")
                     self.assertEqual(original.read_text(), text)
 
     def test_valid_reimport_rejects_reuse_without_losing_raw_archive(self):
@@ -528,6 +575,27 @@ class PostprocessAdapterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         summary = json.loads((self.output / "summary.json").read_text())
         self.assertIn("kernel_cannot_qualify_runtime", summary["cases"][0]["reasons"])
+
+    def test_native_missing_preservation_decision_holds_otherwise_sufficient_synthetic_proof(self):
+        self.native_rows()  # Require the actual shared validator in composition.
+        manifest = json.loads(self.manifest.read_text())
+        del manifest["fixtures"][0]["rust_preservation_applicability"]
+        manifest["qualification_policy"] = {"min_processes": 2, "min_rounds": 2,
+                                             "min_each_order": 1, "max_relative_ci_width": 0.1}
+        self.manifest.write_text(json.dumps(manifest))
+        rows = []
+        for process in range(2):
+            for round_id in range(2):
+                for variant, elapsed, order in (("cpp_current", 100, round_id),
+                                                ("rust_candidate", 90, 1 - round_id)):
+                    rows.append({"case": "caller", "variant": variant, "process": process,
+                                 "round": round_id, "order": order, "elapsed_ns": elapsed,
+                                 "iterations": 2, "observable_digest": "d" * 64})
+        result, _ = self.run_adapter("v1", "".join(json.dumps(r) + "\n" for r in rows), "samples.jsonl")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertEqual(summary["cases"][0]["reasons"], ["missing_rust_preservation_applicability"])
+        self.assertEqual(json.loads((self.output / "qualification.json").read_text())["status"], "HOLD")
 
 
 if __name__ == "__main__":

@@ -365,21 +365,37 @@ def check_aliases(output, inputs):
         # may traverse OUT/manifest.json (a directory symlink) while output is
         # named through another symlink to OUT. Resolving only the leaf loses
         # the ancestor entry that generated-artifact cleanup would unlink.
-        # Preserve '..' in the original traversal: removing it before following
-        # symlinks can erase an input ancestor that cleanup would mutate.
-        original_source = source.absolute()
-        for ancestor in (original_source, *original_source.parents):
-            entry = ancestor.parent.resolve() / ancestor.name
-            if entry == destination or destination in entry.parents:
-                raise AliasError("input ancestor traverses the output directory; refusing mutation")
+        # Preserve '..' in original paths and symlink targets. A final resolve
+        # can hide intermediate generated links even when '..' later escapes
+        # their target directory. Bound expansion and fail without cleanup.
+        pending, visited = [source.absolute()], set()
+        while pending:
+            traversal = pending.pop()
+            if traversal in visited:
+                continue
+            if len(visited) >= 256:
+                raise AliasError("input symlink traversal budget exceeded; refusing mutation")
+            visited.add(traversal)
+            for ancestor in (traversal, *traversal.parents):
+                entry = ancestor.parent.resolve() / ancestor.name
+                if entry == destination or destination in entry.parents:
+                    raise AliasError("input ancestor traverses the output directory; refusing mutation")
+                if ancestor.is_symlink():
+                    target = ancestor.readlink()
+                    pending.append((target if target.is_absolute() else ancestor.parent / target).absolute())
         resolved = source.resolve()
         if resolved == destination or destination in resolved.parents:
             raise AliasError("input/output paths overlap; refusing mutation")
         for name in GENERATED:
             artifact = output / name
-            if (artifact.exists() or artifact.is_symlink()) and (artifact.resolve() == resolved or
-                                      (artifact.exists() and source.exists() and artifact.samefile(source))):
-                raise AliasError("input/output artifact alias; refusing mutation")
+            if artifact.exists() or artifact.is_symlink():
+                target = artifact.resolve()
+                # An outer input symlink can target a directory symlink among
+                # generated artifacts. Its final file resolves outside output,
+                # but unlinking that intermediate would still break the input.
+                if (target == resolved or target in resolved.parents or
+                        (artifact.exists() and source.exists() and artifact.samefile(source))):
+                    raise AliasError("input/output artifact alias; refusing mutation")
     if output.exists() and not output.is_dir():
         raise AliasError("output path is not a directory")
 
