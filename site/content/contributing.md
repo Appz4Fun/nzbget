@@ -43,7 +43,7 @@ The inherited build and test workflows are turned off while the test suite is re
 ```bash
 cmake -B build -DENABLE_TESTS=ON
 cmake --build build -j 8
-cd build && ctest
+(cd build && ctest)
 ```
 
 The duplicate-fleet features have a functional harness in `tests/functional/dupefallback/`, which runs real downloads against a local test news server. Point it at a copy of the binary, so a rebuild during the run can't change it:

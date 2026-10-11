@@ -1,7 +1,8 @@
 # Builds the documentation site from site/ and deploys it to GitHub Pages.
-# Runs on GitHub-hosted runners only when main (or the current default
-# branch) receives a push, which includes every merged pull request, or when
-# started by hand from the Actions tab.
+# Runs on GitHub-hosted runners only when main or the current default branch
+# receives a push, which includes every merged pull request, or when started
+# by hand from the Actions tab. Only a build of the repository's default
+# branch deploys; a push to the other branch is checked but not published.
 name: docs
 
 on:
@@ -68,6 +69,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     permissions:
       pages: write

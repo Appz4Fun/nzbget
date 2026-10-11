@@ -145,10 +145,10 @@ if (searchInput && results) {
     else if (event.key === 'Enter') {
       const link = results.querySelectorAll('a')[Math.max(0, selected)];
       if (link) { event.preventDefault(); window.location.href = link.href; }
-    } else if (event.key === 'Escape') { results.hidden = true; searchInput.blur(); }
+    } else if (event.key === 'Escape') { renderSeq += 1; results.hidden = true; searchInput.blur(); }
   });
   document.addEventListener('click', (event) => {
-    if (!event.target.closest('.search')) results.hidden = true;
+    if (!event.target.closest('.search')) { renderSeq += 1; results.hidden = true; }
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) {

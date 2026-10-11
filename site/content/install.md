@@ -84,12 +84,12 @@ To run it as your own user instead of as a service, give yourself a private copy
 
 The test keeps an existing `~/.nzbget` when you run the steps again for an upgrade.
 
-To install into your home directory instead, without `sudo`, set the prefix when you configure and use the paths under it:
+To install into your home directory instead, without `sudo`, configure a separate build directory with the prefix, and use the paths under it. A build directory remembers the paths it first wrote into its copy of `nzbget.conf`, so don't reuse `build`:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/usr"
-cmake --build build -j 8
-cmake --install build
+cmake -B build-home -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/usr"
+cmake --build build-home -j 8
+cmake --install build-home
 [ -e ~/.nzbget ] || install -m 600 ~/usr/share/nzbget/nzbget.conf ~/.nzbget
 ~/usr/bin/nzbget -D
 ```

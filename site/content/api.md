@@ -29,7 +29,7 @@ The API listens on the web interface's port, 6789 by default, at three paths:
 | XML-RPC | `/xmlrpc` |
 | JSON-P | `/jsonprpc` |
 
-Send credentials with HTTP basic authentication, or in the path, as in `http://user:pass@host:6789/jsonrpc`. Three accounts set what a client may do:
+Send credentials with HTTP basic authentication, or as the first part of the path, as in `http://host:6789/user:pass/jsonrpc`. Three accounts set what a client may do:
 
 | Account | Options | Access |
 |---|---|---|
