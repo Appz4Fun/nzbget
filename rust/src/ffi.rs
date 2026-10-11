@@ -3731,27 +3731,32 @@ pub unsafe extern "C" fn nzbget_rs_binrpc_is_url(content: *const c_char) -> c_in
     crate::binrpc::is_url(input(content)) as c_int
 }
 
-/// UrlDownloader::ProcessHeader's X-DNZB headers: 1 with `first` set to
-/// X-DNZB-Category's trimmed value, 2 with `first` the parameter's name and
-/// `value` its value, 0 (outputs untouched) for another line.
+/// UrlDownloader::ProcessHeader's X-DNZB headers: 1 with `*start` and
+/// `*length` the trimmed value of X-DNZB-Category in `line` (nothing is
+/// allocated), 2 with `name` the parameter's name and `value` its value, 0
+/// (outputs untouched) for another line.
 ///
 /// # Safety
-/// `line` is null (empty) or NUL-terminated; `first` and `value` are null
-/// or writable.
+/// `line` is null (empty) or NUL-terminated; the outputs are null or
+/// writable.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_url_dnzb_header(line: *const c_char, first: *mut RsBuf, value: *mut RsBuf) -> c_int {
+pub unsafe extern "C" fn nzbget_rs_url_dnzb_header(line: *const c_char, start: *mut usize, length: *mut usize,
+    name: *mut RsBuf, value: *mut RsBuf) -> c_int {
     use crate::urlcoord::Dnzb;
     match crate::urlcoord::dnzb_header(input(line)) {
         Dnzb::None => 0,
-        Dnzb::Category(category) => {
-            if !first.is_null() {
-                *first = into_buf(category);
+        Dnzb::Category(from, to) => {
+            if !start.is_null() {
+                *start = from;
+            }
+            if !length.is_null() {
+                *length = to - from;
             }
             1
         }
-        Dnzb::Param(name, text) => {
-            if !first.is_null() {
-                *first = into_buf(name);
+        Dnzb::Param(n, text) => {
+            if !name.is_null() {
+                *name = into_buf(n);
             }
             if !value.is_null() {
                 *value = into_buf(text);

@@ -7,8 +7,9 @@
 pub enum Dnzb {
     /// Not an X-DNZB header, or one without a colon.
     None,
-    /// X-DNZB-Category's value, trimmed of CR, LF, space and tab.
-    Category(Vec<u8>),
+    /// X-DNZB-Category's value, trimmed of CR, LF, space and tab: its start
+    /// and end in the line.
+    Category(usize, usize),
     /// Another X-DNZB- header: its parameter name ("*DNZB:" and the
     /// header's name, cut to 99 bytes as BString<100> cut it) and its value
     /// (from after the colon's spaces, right-trimmed, Latin-1 to UTF-8).
@@ -18,7 +19,8 @@ pub enum Dnzb {
 pub fn dnzb_header(line: &[u8]) -> Dnzb {
     if let Some(value) = line.strip_prefix(b"X-DNZB-Category:") {
         let (start, end) = crate::util::trim_line(value);
-        return Dnzb::Category(value[start..end].to_vec());
+        let prefix = line.len() - value.len();
+        return Dnzb::Category(prefix + start, prefix + end);
     }
     if !line.starts_with(b"X-DNZB-") {
         return Dnzb::None;
@@ -79,8 +81,9 @@ mod tests {
 
     #[test]
     fn headers() {
-        assert_eq!(dnzb_header(b"X-DNZB-Category: \tTV \r\n"), Dnzb::Category(b"TV".to_vec()));
-        assert_eq!(dnzb_header(b"X-DNZB-Category:"), Dnzb::Category(vec![]));
+        assert_eq!(dnzb_header(b"X-DNZB-Category: \tTV \r\n"), Dnzb::Category(18, 20));
+        assert_eq!(dnzb_header(b"X-DNZB-Category:"), Dnzb::Category(16, 16));
+        assert_eq!(dnzb_header(b"X-DNZB-Category: \r\n"), Dnzb::Category(16, 16));
         assert_eq!(dnzb_header(b"X-DNZB-Name:  Some Show \r\n"), param(b"*DNZB:Name", b"Some Show"));
         // a tab after the spaces stays: only spaces are skipped on the left
         assert_eq!(dnzb_header(b"X-DNZB-Name: \tx"), param(b"*DNZB:Name", b"\tx"));
