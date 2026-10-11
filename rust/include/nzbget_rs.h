@@ -1214,6 +1214,13 @@ typedef struct {
     const char* key;
     size_t key_len;
 } NzbgetRsDupeWatchPeer;
+// Same decision with no peers, an existing stamp and unchanged identity.
+// Only scalar arguments are read; no queue record needs to be constructed.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((const, nothrow))
+#endif
+int nzbget_rs_dupe_watch_stamped(uint32_t flags, int32_t score, int64_t now,
+    int32_t previousScore, int64_t previousTime);
 // Return 0 skip, 1 retry post-processing, 2 search. Inputs caller-owned/readable.
 /* This decision function only reads its valid snapshot inputs and cannot unwind. */
 #if defined(__GNUC__) || defined(__clang__)

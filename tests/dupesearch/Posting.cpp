@@ -288,6 +288,75 @@ BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
 }
 #endif
 
+BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentKeepsLastTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='50'>old@x</segment>"
+        "<segment number='2' bytes='200'>second@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.totalBytes, 300);
+    BOOST_CHECK_EQUAL(info.dataBytes, 300);
+    BOOST_CHECK_EQUAL(info.listedParts, 2);
+    BOOST_CHECK_EQUAL(info.declaredParts, 2);
+    BOOST_CHECK_EQUAL(info.messageIds.size(), 2);
+    BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "old@x") == info.messageIds.end());
+    BOOST_REQUIRE_EQUAL(info.heads.size(), 1);
+    BOOST_CHECK_EQUAL(info.heads[0].messageId, "last@x");
+
+    // Repeated XML entries are one unique part, not evidence for tail inference.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='100'>old@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.listedParts, 1);
+    BOOST_CHECK_EQUAL(info.declaredParts, 1);
+}
+
+BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentInvalidLastTest)
+{
+    NzbSummary info;
+    for (const std::string& last : { std::string("<segment number='1' bytes='100'>invalid id@x</segment>"),
+        std::string("<segment number='1' bytes='0'>last@x</segment>") })
+    {
+        std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+            "<segment number='1' bytes='100'>old@x</segment>"
+            "<segment number='2' bytes='200'>second@x</segment>" + last + "</segments></file></nzb>";
+        BOOST_REQUIRE(NzbReader::Parse(xml, info));
+        BOOST_CHECK_EQUAL(info.dataBytes, 0);
+        BOOST_CHECK(info.heads.empty());
+        BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "old@x") == info.messageIds.end());
+        BOOST_CHECK_EQUAL(info.totalBytes, 200);
+    }
+    // An invalid overwritten occurrence is absent from the queued file.
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='0'>invalid id@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 100);
+    BOOST_REQUIRE_EQUAL(info.heads.size(), 1);
+    BOOST_CHECK_EQUAL(info.heads[0].messageId, "last@x");
+}
+
+BOOST_AUTO_TEST_CASE(NativeIndependentParityCollectionsUnknownTest)
+{
+    for (bool reverse : { false, true })
+    {
+        NzbSummary info;
+        std::vector<NzbFile> files = {
+            { "first.par2", { 100 } }, { "first.vol00+01.par2", { 200 } },
+            { "second.par2", { 300 } }, { "second.vol00+01.par2", { 400 } },
+            { "first.mkv", { 1000 } }, { "second.mkv", { 2000 } }
+        };
+        if (reverse) std::reverse(files.begin(), files.end());
+        BOOST_REQUIRE(NzbReader::Parse(MakeNzb(files, "par-sets"), info));
+        BOOST_CHECK_EQUAL(info.dataBytes, 3000);
+        BOOST_CHECK(info.parIndex.messageId.empty());
+        BOOST_CHECK(info.recoveryBytes.empty());
+    }
+}
+
 BOOST_AUTO_TEST_CASE(NativeParityIndexByFilenameTest)
 {
     NzbSummary info;

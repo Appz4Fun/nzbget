@@ -120,13 +120,13 @@ public:
 			m_firstId.clear();
 			m_subject = XmlReader::Attr(attrs, "subject");
 			m_parts.clear();
+			m_segments.clear();
 			m_validParts = 0;
 		}
 		else if (name == "segment" && m_inFile)
 		{
 			m_segmentBytes = atoll(XmlReader::Attr(attrs, "bytes").c_str());
 			m_segmentNumber = atoll(XmlReader::Attr(attrs, "number").c_str());
-			m_parts.push_back({ m_segmentNumber, m_segmentBytes });
 			m_inSegment = true;
 		}
 	}
@@ -140,24 +140,9 @@ public:
 		}
 		else if (name == "segment" && m_inSegment)
 		{
-			// a message-id with a line break, a space or brackets inside would
-			// write more than one command into the STAT batch: the replies came
-			// out of step on a connection that went back to the pool
-			std::string id = Trim(m_text);
-			if (ValidMessageId(id))
-			{
-				sizes[m_name] += m_segmentBytes;
-				ids.insert(id);
-                m_validParts++;
-                if (!IsParName(m_name) && m_segmentBytes > 0) articleSizes.push_back((uint64_t)m_segmentBytes);
-				if (m_segmentBytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - m_segmentBytes)
-				{
-					m_fileBytes += m_segmentBytes;
-				}
-				else if (!IsParName(m_name)) geometryValid = false;
-				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
-			}
-			else if (!IsParName(m_name)) geometryValid = false;
+            // Keep the ID and size together until duplicate part numbers have
+            // been resolved with the queue parser's keep-last policy.
+            m_segments.push_back({ m_segmentNumber, m_segmentBytes, Trim(m_text) });
 			m_inSegment = false;
 		}
 		else if (name == "group" && m_inFile)
@@ -170,6 +155,29 @@ public:
 		}
 		else if (name == "file")
 		{
+            std::stable_sort(m_segments.begin(), m_segments.end(),
+                [](const Segment& a, const Segment& b) { return a.number < b.number; });
+            for (size_t i = 0; i < m_segments.size(); i++)
+            {
+                const Segment& segment = m_segments[i];
+                if (i + 1 < m_segments.size() && m_segments[i + 1].number == segment.number) continue;
+                m_parts.push_back({ segment.number, segment.bytes });
+                // Invalid retained data still makes geometry unknown. Never
+                // resurrect an earlier valid duplicate in place of this ID.
+                if (!ValidMessageId(segment.id))
+                {
+                    if (!IsParName(m_name)) geometryValid = false;
+                    continue;
+                }
+                sizes[m_name] += segment.bytes;
+                ids.insert(segment.id);
+                m_validParts++;
+                if (!IsParName(m_name) && segment.bytes > 0) articleSizes.push_back((uint64_t)segment.bytes);
+                if (segment.bytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - segment.bytes)
+                    m_fileBytes += segment.bytes;
+                else if (!IsParName(m_name)) geometryValid = false;
+                if (segment.number == 1) m_firstId = segment.id;
+            }
             uint64_t listed = m_parts.size(), declared = listed;
 #ifdef NZBGET_USE_RUST
             std::vector<NzbgetRsDupePart> raw;
@@ -230,6 +238,13 @@ private:
 	std::string m_subject;
 	uint64_t m_validParts = 0;
 	std::vector<std::pair<long long,long long>> m_parts;
+    struct Segment
+    {
+        long long number;
+        long long bytes;
+        std::string id;
+    };
+    std::vector<Segment> m_segments;
 	bool m_inFile = false;
 	bool m_inSegment = false;
 };
@@ -283,8 +298,15 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
         if (ParParser::ParseParFilename(head.name.c_str(), true, &baseLen, nullptr) &&
             baseLen >= 0 && (size_t)baseLen + 5 == head.name.size())
         {
-            summary.parIndex = head;
-            break;
+            if (!summary.parIndex.messageId.empty() &&
+                !ParParser::SameParCollection(summary.parIndex.name.c_str(), head.name.c_str(), true))
+            {
+                // Whole-NZB dataBytes cannot be paired with one independent
+                // PAR collection's capacity. Keep feasibility unknown.
+                summary.parIndex = NzbSummary::Head();
+                break;
+            }
+            if (summary.parIndex.messageId.empty()) summary.parIndex = head;
         }
     }
     if (!summary.parIndex.messageId.empty())

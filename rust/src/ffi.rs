@@ -6297,6 +6297,15 @@ pub struct DupeWatchPeer {
     pub key_len: usize,
 }
 
+/// Eligibility with an unchanged identity and an existing search stamp, before
+/// peer snapshots are needed. This scalar boundary does not read queue memory.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_watch_stamped(flags: u32, score: i32, now: i64,
+    previous_score: i32, previous_time: i64) -> c_int {
+    crate::dupewatch::decide(flags, score, None, now,
+        Some(crate::dupewatch::SearchStamp { score: previous_score, time: previous_time }), false) as c_int
+}
+
 #[inline(never)]
 unsafe fn dupe_watch_has_higher(pick: &DupeWatchPeer, peers: *const DupeWatchPeer, count: usize) -> bool {
     use crate::dupewatch::{self, Snapshot};

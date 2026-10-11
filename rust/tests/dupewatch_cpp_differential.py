@@ -129,6 +129,14 @@ __attribute__((noinline,pure,nothrow)) int CppWatchMeasure(const NzbgetRsDupeWat
  return CppWatchPolicy(p,peers,count,now,score,time,previous,changed);
 }
 '''
+CPP_STAMPED = r'''
+// Counterfactual scalar contract: stamped, unchanged identity, no peer records.
+__attribute__((const,nothrow)) static inline int CppStamped(uint32_t flags,int32_t score,int64_t now,int32_t previousScore,int64_t previousTime) {
+ NzbgetRsDupeWatchPeer pick{0,score,flags,nullptr,0};
+ return CppWatchPolicy(&pick,nullptr,0,now,previousScore,previousTime,1,0);
+}
+'''
+
 FAIR_DRIVER = r'''
 static void SeedFair(Fixture& f,int test) {
  f.pick.name="The.Show.S01E02.2025.1080p.WEB-DL.H264-GRP";f.pick.parameters.owner.value.clear();
@@ -210,6 +218,9 @@ static bool ExtraParity() {
   const int b=nzbget_rs_dupe_watch(&pick,nullptr,0,now,1000000,before,1,0);
   const int c=cpp_opaque_watch(&pick,nullptr,0,now,1000000,before,1,0);
   if(a!=b||a!=c||a!=(expected?0:2)){puts("FAIL random-i64 stamp policy parity");return false;}
+  const int scalarCpp=CppStamped(pick.flags,pick.score,now,1000000,before);
+  const int scalarRust=nzbget_rs_dupe_watch_stamped(pick.flags,pick.score,now,1000000,before);
+  if(a!=scalarCpp||a!=scalarRust){puts("FAIL scalar-stamped random-i64 parity");return false;}
  }
  printf("PASS: %zu faithful normalization inputs; 7 benchmark states; raw-name/fleet/history/byte/time contracts; 20000 random i64 timestamp pairs\n",names.size());
  return true;
@@ -222,12 +233,22 @@ int OpaqueBench() {
   const int count=test?3:0;const int previous=test==2;
   if(cpp_opaque_watch(&pick,peers,count,100,1000000,99,previous,0)!=nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0)){puts("FAIL snapshot equality");return 1;}
   constexpr int loops=2000000;volatile uint64_t sum=0;
+  double oldNs,newNs;
+  if(!reverseOrder){
   auto a=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+cpp_opaque_watch(&pick,peers,count,100,1000000,99,previous,0);}
   auto b=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0);}
   auto c=std::chrono::steady_clock::now();
-  double oldNs=std::chrono::duration<double,std::nano>(b-a).count()/loops,newNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  oldNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;newNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  }else{
+  auto a=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0);}
+  auto b=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+cpp_opaque_watch(&pick,peers,count,100,1000000,99,previous,0);}
+  auto c=std::chrono::steady_clock::now();
+  oldNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;newNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;
+  }
   printf("Opaque-equivalent prebuilt-snapshot policy %s: peers=%i C++ %.3f ns/call Rust %.3f ns/call change %+.2f%% checksum %llu\n",test==0?"eligible-empty":test==1?"eligible-peers":"cooldown-peers",count,oldNs,newNs,100*(newNs/oldNs-1),(unsigned long long)sum);
  }
  return 0;
@@ -241,12 +262,22 @@ int FairBench() {
   const int count=test?3:0;const int previous=test==2;
   if(CppWatchPolicy(&pick,peers,count,100,1000000,99,previous,0)!=nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0)){puts("FAIL snapshot equality");return 1;}
   constexpr int loops=2000000;volatile uint64_t sum=0;
+  double oldNs,newNs;
+  if(!reverseOrder){
   auto a=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+CppWatchPolicy(&pick,peers,count,100,1000000,99,previous,0);}
   auto b=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0);}
   auto c=std::chrono::steady_clock::now();
-  double oldNs=std::chrono::duration<double,std::nano>(b-a).count()/loops,newNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  oldNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;newNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  }else{
+  auto a=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+nzbget_rs_dupe_watch(&pick,peers,count,100,1000000,99,previous,0);}
+  auto b=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){asm volatile(""::"m"(pick),"m"(peers):"memory");sum=sum+CppWatchPolicy(&pick,peers,count,100,1000000,99,previous,0);}
+  auto c=std::chrono::steady_clock::now();
+  oldNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;newNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;
+  }
   printf("Equivalent prebuilt-snapshot policy %s: peers=%i C++ %.3f ns/call Rust %.3f ns/call change %+.2f%% checksum %llu\n",test==0?"eligible-empty":test==1?"eligible-peers":"cooldown-peers",count,oldNs,newNs,100*(newNs/oldNs-1),(unsigned long long)sum);
  }
  for(int test=0;test<7;test++) {
@@ -258,12 +289,22 @@ int FairBench() {
   // Cold restart state is identically reset before every measured call.
   if(f.equivalent()!=f.native()){puts("FAIL fair timed-state decisions");return 1;}
   const int loops=test<3?10000:200000;volatile uint64_t sum=0;
+  double cppNs,rustNs;
+  if(!reverseOrder){
   auto a=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){if(cppCold)cppCold->clear();sum=sum+f.equivalent();}
   auto b=std::chrono::steady_clock::now();
   for(int i=0;i<loops;i++){if(rustCold)rustCold->clear();sum=sum+f.native();}
   auto c=std::chrono::steady_clock::now();
-  double cppNs=std::chrono::duration<double,std::nano>(b-a).count()/loops,rustNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  cppNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;rustNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;
+  }else{
+  auto a=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){if(rustCold)rustCold->clear();sum=sum+f.native();}
+  auto b=std::chrono::steady_clock::now();
+  for(int i=0;i<loops;i++){if(cppCold)cppCold->clear();sum=sum+f.equivalent();}
+  auto c=std::chrono::steady_clock::now();
+  cppNs=std::chrono::duration<double,std::nano>(c-b).count()/loops;rustNs=std::chrono::duration<double,std::nano>(b-a).count()/loops;
+  }
   printf("Counterfactual same-contract controller %s: queue=%zu history=%zu loops=%i C++ %.3f ns/call Rust %.3f ns/call change %+.2f%% checksum %llu\n",
    test==0?"cold-eligible-small":test==1?"cold-eligible-peers":test==2?"restart-cooldown-peers":test==3?"warm-eligible-small":test==4?"warm-eligible-peers":test==5?"warm-cooldown-small":"warm-cooldown-peers",f.queue.queue.size(),f.queue.history.size(),loops,cppNs,rustNs,100*(rustNs/cppNs-1),(unsigned long long)sum);
  }
@@ -272,7 +313,9 @@ int FairBench() {
 '''
 
 DRIVER = r'''
+static bool reverseOrder=false;
 int FairBench();int OpaqueBench();
+extern "C" __attribute__((const,nothrow)) int nzbget_rs_dupe_watch_stamped(uint32_t,int32_t,int64_t,int32_t,int64_t);
 extern "C" __attribute__((pure,nothrow)) int cpp_opaque_watch(const NzbgetRsDupeWatchPeer*,const NzbgetRsDupeWatchPeer*,size_t,int64_t,int,int64_t,int,int);
 struct Fixture {
  NzbInfo extra[4];HistoryInfo extraHistory[2]{{&extra[2]},{&extra[3]}};
@@ -300,6 +343,8 @@ struct Fixture {
 ''' + FAIR_DRIVER + r'''
 int main(int argc,char**argv) {
  std::setlocale(LC_CTYPE,"");
+ reverseOrder=argc>2&&std::string(argv[2])=="--reverse";
+ if(argc>1)printf("Measurement order: %s\n",reverseOrder?"Rust then CPP":"CPP then Rust");
  if(argc>1&&std::string(argv[1])=="--bench") return FairBench();
  if(argc>1&&std::string(argv[1])=="--bench-opaque")return OpaqueBench();
  if(argc>1&&std::string(argv[1])=="--bench-legacy") {
@@ -349,6 +394,10 @@ int main(int argc,char**argv) {
   NzbgetRsDupeWatchPeer purePick{1,s[0],flags,"key",3},purePeer{2,s[1],uint32_t(rsDupePresent|rsDupeNzb|rsDupeDeleteNone),"key",3};
   int opaque=cpp_opaque_watch(&purePick,&purePeer,1,t[0],t[2],t[1],t[1]>=0,0);
   if(opaque!=b){printf("FAIL opaque CPP legacy fixture %llu CPP %i Rust %i\n",(unsigned long long)count,opaque,b);return 1;}
+  const int stampedExpected=CppWatchPolicy(&purePick,nullptr,0,t[0],t[2],t[1],1,0);
+  const int stampedCpp=CppStamped(flags,s[0],t[0],t[2],t[1]);
+  const int stampedRust=nzbget_rs_dupe_watch_stamped(flags,s[0],t[0],t[2],t[1]);
+  if(stampedExpected!=stampedCpp||stampedExpected!=stampedRust){printf("FAIL scalar-stamped flags/edge fixture %llu CPP %i scalar %i Rust %i\n",(unsigned long long)count,stampedExpected,stampedCpp,stampedRust);return 1;}
   if(equivalent!=native){printf("FAIL equivalent CPP controller fixture %llu CPP %i Rust %i\n",(unsigned long long)count,equivalent,native);return 1;}
   if(a!=native){printf("FAIL native caller fixture %llu old %i new %i\n",(unsigned long long)count,a,native);return 1;}
   if(a!=b){printf("FAIL fixture %llu flags %u C++ %i Rust %i\n",(unsigned long long)count,flags,a,b);return 1;}
@@ -407,12 +456,12 @@ def emit(directory, candidate):
     helper_stop=cpp_util.index('\tinline std::string ReadAll(',helper_start)
     cpp_normalizer='namespace cpp_reference {\n'+cpp_util[helper_start:helper_stop]+cpp_decl+cpp_body+'\n}\n'
     cpp_keys=exact_keys.replace('EffectiveKey(', 'EffectiveKeyCpp(').replace('MakeDupeKey(', 'MakeDupeKeyCpp(').replace('ReleaseName::Normalize', 'cpp_reference::ReleaseName::Normalize')
-    cpp_prefix=native_prefix.replace('DupeSearch::PrepareNative(', 'DupeSearch::PrepareCppControl(').replace('EffectiveKey(', 'EffectiveKeyCpp(').replace('ReleaseName::Normalize', 'cpp_reference::ReleaseName::Normalize').replace('nzbget_rs_dupe_watch(', 'CppWatchPolicy(')
+    cpp_prefix=native_prefix.replace('DupeSearch::PrepareNative(', 'DupeSearch::PrepareCppControl(').replace('EffectiveKey(', 'EffectiveKeyCpp(').replace('ReleaseName::Normalize', 'cpp_reference::ReleaseName::Normalize').replace('nzbget_rs_dupe_watch(', 'CppWatchPolicy(').replace('nzbget_rs_dupe_watch_stamped(', 'CppStamped(')
     (directory/'cpp_normalizer_extracted.cpp').write_text(cpp_normalizer)
     (directory/'cpp_policy_control.cpp').write_text(CPP_POLICY)
     opaque_policy=CPP_POLICY[:CPP_POLICY.index('__attribute__((noinline,pure,nothrow)) int CppWatchMeasure')].replace('static inline int CppWatchPolicy(', 'extern "C" __attribute__((pure,nothrow)) int cpp_opaque_watch(')
     (directory/'cpp_opaque_watch.cpp').write_text('#include <algorithm>\n#include <cstdint>\n#include <cstddef>\n'+declarations+opaque_policy)
-    (directory/'oracle.cpp').write_text('#define NZBGET_USE_RUST\n#include <cstdint>\n#include <cstddef>\n'+declarations+stub+cpp_normalizer+CPP_POLICY+exact_keys+cpp_keys+prefix+native_prefix+cpp_prefix+DRIVER)
+    (directory/'oracle.cpp').write_text('#define NZBGET_USE_RUST\n#include <cstdint>\n#include <cstddef>\n'+declarations+stub+cpp_normalizer+CPP_POLICY+CPP_STAMPED+exact_keys+cpp_keys+prefix+native_prefix+cpp_prefix+DRIVER)
     (directory/'wrapper.rs').write_text('''mod bytes;mod releasename;mod dupewatch;
 #[no_mangle] pub extern "C" fn rust_decide(flags:u32,score:i32,higher:i32,now:i64,previous_time:i64,previous_score:i32,changed:i32)->i32 {
  let previous=if previous_time<0 {None}else{Some(dupewatch::SearchStamp{score:previous_score,time:previous_time})};
@@ -440,7 +489,7 @@ def build(directory):
     subprocess.run([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--edition=2021','--crate-type=staticlib','-O','-Awarnings',str(directory/'wrapper.rs'),'-o',str(directory/'policy.a')],check=True)
     for name,flags in [('sanitized',['-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer']),('optimized',['-O3'])]:
         subprocess.run(['g++','-std=c++17',*flags,str(directory/'oracle.cpp'),str(directory/'cpp_opaque_watch.cpp'),str(directory/'policy.a'),'-lpthread','-ldl','-lm','-o',str(directory/name)],check=True)
-    toolchain={'rustc':subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--version'],text=True).strip(),'g++':subprocess.check_output(['g++','--version'],text=True).splitlines()[0],'rust_flags':['--edition=2021','--crate-type=staticlib','-O'],'cpp_optimized_flags':['-std=c++17','-O3'],'cpp_sanitized_flags':['-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer'],'sample_method':'5 fresh process samples; fixed C++ then Rust order; steady_clock; 2 million calls per identical prebuilt snapshot case; 10000 cold controller or 200000 warm controller calls; volatile checksums; faithful respective normalization inside cold loops; identical cache/prefilter and state; externally held exclusive common benchmark lock released between samples; historical non-equivalent metrics excluded from gating'}
+    toolchain={'rustc':subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--version'],text=True).strip(),'g++':subprocess.check_output(['g++','--version'],text=True).splitlines()[0],'rust_flags':['--edition=2021','--crate-type=staticlib','-O'],'cpp_optimized_flags':['-std=c++17','-O3'],'cpp_sanitized_flags':['-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer'],'sample_method':'5 fresh process samples; alternate CPP-first and Rust-first by passing --reverse on samples 2 and 4; steady_clock; 2 million calls per identical prebuilt snapshot case; 10000 cold controller or 200000 warm controller calls; volatile checksums; faithful respective normalization inside cold loops; identical cache/prefilter and state; externally held exclusive common benchmark lock released between samples; historical non-equivalent metrics excluded from gating'}
     (directory/'toolchain.json').write_text(json.dumps(toolchain,indent=2)+'\n')
     print('Built C++ ASan/UBSan and optimized C++/Rust policy harnesses')
 

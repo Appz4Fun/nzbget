@@ -950,7 +950,11 @@ bool HistoryCoordinator::HistorySetName(HistoryInfo* historyInfo, const char* te
 
 	if (historyInfo->GetKind() == HistoryInfo::hkNzb || historyInfo->GetKind() == HistoryInfo::hkUrl)
 	{
+		std::string previous = historyInfo->GetNzbInfo()->GetName();
 		historyInfo->GetNzbInfo()->SetName(text);
+        if (historyInfo->GetKind()==HistoryInfo::hkNzb && g_DupeSearch &&
+            previous != historyInfo->GetNzbInfo()->GetName())
+            g_DupeSearch->NotifyNameChanged(historyInfo->GetNzbInfo()->GetId());
 	}
 	else if (historyInfo->GetKind() == HistoryInfo::hkDup)
 	{

@@ -479,22 +479,22 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     };
     uint32_t pickFlags = flags(pick, history);
     time_t now = Util::CurrentTime();
-    NzbgetRsDupeWatchPeer snapshot{ nzbId, pick->GetDupeScore(), pickFlags, lowerKey.data(), lowerKey.size() };
-    const uint32_t preliminaryFlags = snapshot.flags;
+    const uint32_t preliminaryFlags = pickFlags;
     int preliminary = -1;
     if (cachedName && havePrevious && !previous.retryable && !rankOnly)
     {
         // A known unchanged title can be suppressed before building snapshots.
         // Any higher peer/fleet could only suppress it too; a Search still needs
         // the complete peer check below. Post-process retry precedes peer rules.
-        preliminary = nzbget_rs_dupe_watch(&snapshot, nullptr, 0, (int64_t)now,
-            previous.score, (int64_t)previous.time, true, false);
+        preliminary = nzbget_rs_dupe_watch_stamped(pickFlags, pick->GetDupeScore(),
+            (int64_t)now, previous.score, (int64_t)previous.time);
         if (preliminary == 0) return false;
         if (preliminary == 1) {
             Schedule(nzbId, now + std::max(PostProcessRetrySec, g_Options->GetDupeSearchDelay()));
             return false;
         }
     }
+    NzbgetRsDupeWatchPeer snapshot{ nzbId, pick->GetDupeScore(), pickFlags, lowerKey.data(), lowerKey.size() };
     std::vector<NzbInfo*> others;
     std::vector<bool> histories;
     auto retain = [&](NzbInfo* item, bool inHistory) {
@@ -636,7 +636,7 @@ void DupeSearch::Collect(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, Job& jo
 }
 
 void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior,
-    time_t deadline, NzbFetcher::Budget& budget, std::vector<NzbFetcher::Fetched>& fetched,
+    const std::vector<Posting::Sketch>& known, time_t deadline, NzbFetcher::Budget& budget, std::vector<NzbFetcher::Fetched>& fetched,
     std::set<std::string>& attempted, NzbFetcher::Stats& stats, Newznab::SearchStats& queryStats, int& results, int& candidates, int& postings)
 {
 #ifdef NZBGET_USE_RUST
@@ -667,7 +667,7 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
         alive=DupeIdentity::Alive(health,pick);
         long long combined=(long long)health.missing+DupeIdentity::UnlistedMissing(health,pick);
         missing=(int)std::min(combined,(long long)std::numeric_limits<int>::max());
-        if (alive>=0.85 && health.missing>=DonorHealth::MinKnown)
+        if (alive>=0.85 && missing>=DonorHealth::MinKnown)
             doomed=DupeIdentity::ParDoomed(pick,alive,deadline);
     }
     if (!nzbget_rs_dupe_should_expand(alive,missing,job.failed || doomed,false)) return;
@@ -682,7 +682,14 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
         return DupeIdentity::Alive(h,info)>=0.999;
     };
     for (const auto& posting : fetched)
+    {
+        // Anything rejected as already held or known-dead later cannot be a
+        // newly usable backup. Eligible held backups are checked below.
+        Posting::Sketch sketch=Posting::MakeSketch(posting.info.messageIds);
+        if (m_dead.IsDead(sketch) || std::any_of(known.begin(),known.end(),
+            [&](const Posting::Sketch& k) { return Posting::SameSketch(sketch,k); })) continue;
         if ((!ReleaseName::Readable(posting.info.mainName) || ReleaseName::SameRelease(job.name,posting.info.mainName)) && whole(posting.info)) return;
+    }
     for (const auto& member : job.members)
     {
         NzbSummary info;
@@ -858,7 +865,7 @@ void DupeSearch::Search(const Job& job)
 
 	knownReader.join();
     int resultCount=(int)results.size(), candidateCount=(int)candidates.size(), postingCount=(int)order.size();
-    Expand(job,pick,results,deadline,budget,fetched,attempted,fetchStats,stats,resultCount,candidateCount,postingCount);
+    Expand(job,pick,results,known,deadline,budget,fetched,attempted,fetchStats,stats,resultCount,candidateCount,postingCount);
 
 	// what is worth keeping, in this order: another release (by the name of
 	// its largest data file, when that name is readable), a posting nzbget
@@ -1029,6 +1036,12 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	auto twinOf = [&](const NzbFetcher::Fetched& f)
 		{ return DupeIdentity::SameData(pick, f.info); };
 	auto aliveOf = [&](const DonorHealth::Health& health, const NzbSummary& summary) { return DupeIdentity::Alive(health, summary); };
+    auto cacheableLoss = [&](DonorHealth::Health health) {
+        // Only confirmed article loss may invalidate overlapping postings.
+        // Structural gaps and provider errors belong to this NZB's score.
+        health.error=0;
+        return DupeIdentity::IsDead(health,NzbSummary{},g_Options->GetDupeMinAlive());
+    };
 	auto entryOf = [&](size_t i, int score, double alive)
 		{
 			DonorScore::Entry entry;
@@ -1135,7 +1148,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 						donor.entry.alive = alive;
 						if (isDead)
 						{
-							m_dead.Add(Posting::MakeSketch(verified[i].info.messageIds), 0, !g_Options->GetDupeSearchDryRun());
+							if (cacheableLoss(health)) m_dead.Add(Posting::MakeSketch(verified[i].info.messageIds), 0, !g_Options->GetDupeSearchDryRun());
 							dead++;
 						}
 					}
@@ -1154,7 +1167,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 				}
 				else if (isDead)
 				{
-					m_dead.Add(Posting::MakeSketch(verified[i].info.messageIds), 0, !g_Options->GetDupeSearchDryRun());
+					if (cacheableLoss(health)) m_dead.Add(Posting::MakeSketch(verified[i].info.messageIds), 0, !g_Options->GetDupeSearchDryRun());
 					dead++;
 					Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: dropping dead posting %s: alive=%i%%", job.name.c_str(),
 						verified[i].listing.title.c_str(), (int)std::lround(100 * alive));
@@ -1238,7 +1251,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 			bool isDead = DupeIdentity::IsDead(entry.second, summary, g_Options->GetDupeMinAlive());
 			if (isDead)
 			{
-				m_dead.Add(Posting::MakeSketch(summary.messageIds), 0, !g_Options->GetDupeSearchDryRun());
+				if (cacheableLoss(entry.second)) m_dead.Add(Posting::MakeSketch(summary.messageIds), 0, !g_Options->GetDupeSearchDryRun());
 			}
 			Placed member;
 			member.id = job.members[entry.first].first;
