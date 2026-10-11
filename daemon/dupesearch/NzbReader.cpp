@@ -46,6 +46,14 @@ std::string NameOfSubject(const std::string& subject)
 			return Trim(subject.substr(open + 1, close - open - 1));
 		}
 	}
+    // Standard unquoted yEnc subjects decorate the filename with a part count.
+    // Strip only that terminal decoration, so volume-like media names stay data.
+    static const std::regex tail(R"(\s+yEnc(?:\s+\([0-9]+/[0-9]+\))?\s*$)", std::regex::icase);
+    std::smatch match;
+    if (std::regex_search(subject, match, tail))
+    {
+        return Trim(subject.substr(0, (size_t)match.position()));
+    }
 	return Trim(subject);
 }
 

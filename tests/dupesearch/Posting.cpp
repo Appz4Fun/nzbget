@@ -213,6 +213,20 @@ BOOST_AUTO_TEST_CASE(NativeIdentityParitySuffixTest)
     BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
 }
 
+BOOST_AUTO_TEST_CASE(NativeIdentityUnquotedParityTest)
+{
+    NzbSummary donor;
+    std::string nzb = "<nzb><file subject='ordinary.mkv yEnc (1/1)'><segments>"
+        "<segment number='1' bytes='200'>data@x</segment></segments></file>"
+        "<file subject='rel.vol001+002.PAR2 yEnc (1/20)'><segments>"
+        "<segment number='1' bytes='500'>par@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(nzb, donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 200);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 1);
+    BOOST_CHECK_EQUAL(donor.mainName, "ordinary.mkv");
+    BOOST_CHECK_EQUAL(donor.heads.size(), 1);
+}
+
 BOOST_AUTO_TEST_CASE(NativeIdentityInvalidIdsTest)
 {
     NzbSummary pick, donor;
