@@ -21,6 +21,9 @@ establish complete-caller scope. Only --format v1 consumes already recorded v1
 raw samples, using the shared summarize.py validator unchanged. Harness scope
 and build/event freshness remain responsibilities of the evidence producer.
 No harness is run, no metadata is inferred, and no legacy evidence is promoted.
+An output directory containing an input/evidence archive cannot be reused:
+reimports require a fresh directory. Rejected imports invalidate derived
+qualification and metrics while preserving earlier archives byte for byte.
 """
 
 import argparse
@@ -52,8 +55,9 @@ LIMITATIONS = [
     "Legacy evidence lacks complete v1 process/round/order blocks and SHA-256 verified output digests.",
     "Legacy rows are HOLD-only; source hashes preserve bytes but do not verify harness scope or build freshness.",
 ]
-GENERATED = {"manifest.json", "samples.jsonl", "summary.json", "bencher.json",
-             "qualification.json", "adapter-evidence.json", "report.md", "legacy-metadata.json"}
+ARCHIVED = {"manifest.json", "samples.jsonl", "adapter-evidence.json", "legacy-metadata.json"}
+DERIVED = {"summary.json", "bencher.json", "qualification.json", "report.md"}
+GENERATED = ARCHIVED | DERIVED
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_ROWS = 100_000
@@ -370,9 +374,14 @@ def check_aliases(output, inputs):
         raise AliasError("output path is not a directory")
 
 
-def clear_generated(output):
+def reject_archive_reuse(output):
+    if any((output / name).exists() or (output / name).is_symlink() for name in ARCHIVED):
+        raise EvidenceError("output contains an immutable archive; use a fresh output directory")
+
+
+def clear_derived(output):
     if output.is_dir():
-        for name in GENERATED:
+        for name in DERIVED:
             artifact = output / name
             if artifact.is_file() or artifact.is_symlink():
                 artifact.unlink()
@@ -391,6 +400,7 @@ def main(argv=None):
             check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
         except (OSError, RuntimeError) as error:
             raise AliasError("cannot safely resolve input/output aliases; refusing mutation") from error
+        reject_archive_reuse(args.output_dir)
         manifest_source = read_source(args.manifest, MAX_MANIFEST_BYTES)
         manifest = load_json(manifest_source["text"])
         result = adapt(args.format, args.source, manifest, args.metadata, manifest_source)
@@ -420,10 +430,14 @@ def main(argv=None):
         else:
             contents["report.md"] += ("\nLegacy HOLD archive metadata SHA256: `" + hashes["metadata_sha256"] +
                                       "`. Original source and metadata bytes/hashes are retained in adapter-evidence.json.\n")
-        clear_generated(args.output_dir)
+        clear_derived(args.output_dir)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         for name, content in contents.items():
-            (args.output_dir / name).write_text(content, encoding="utf-8")
+            # Exclusive creation also prevents overwriting an archive that
+            # appears after the reuse preflight. Never truncate preserved raw
+            # evidence, including during a failed write or concurrent import.
+            with (args.output_dir / name).open("x" if name in ARCHIVED else "w", encoding="utf-8") as stream:
+                stream.write(content)
         print(status)
         return 0
     except AliasError as error:
@@ -431,7 +445,7 @@ def main(argv=None):
         return 2
     except (ValueError, OSError, UnicodeError, csv.Error, TypeError, OverflowError, RecursionError) as error:
         try:
-            clear_generated(args.output_dir)
+            clear_derived(args.output_dir)
         except OSError:
             pass
         print(f"postprocess adapter: {error}", file=sys.stderr)
