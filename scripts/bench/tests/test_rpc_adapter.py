@@ -611,6 +611,82 @@ class RpcAdapterTests(unittest.TestCase):
         self.assertTrue(hasattr(self.adapter, "canonical_root_identity"), "root identity normalization is missing")
         self.assertIs(self.adapter.canonical_root_identity(unc), unc)
 
+    def test_cli_accepts_canonical_remote_client_caller_provenance(self):
+        # Canonical C++ identities, verified from RemoteClient.cpp; these
+        # controlled records exercise import/classification, never performance.
+        for caller in ("RemoteClient::RequestServerLog", "RemoteClient::RequestPostQueue",
+                       "RemoteClient::RequestHistory"):
+            with self.subTest(caller=caller), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = manifest()
+                proof["fixtures"][0]["caller"] = caller
+                metadata = root / "proof.json"
+                source = root / "source.jsonl"
+                output = root / "out"
+                metadata.write_text(json.dumps(proof))
+                source.write_bytes(jsonl(samples()))
+                run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                      "--source", str(source), "--output-dir", str(output)],
+                                     capture_output=True, text=True, timeout=2)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                status = json.loads((output / "adapter-status.json").read_text())
+                reasons = " ".join(status["reasons"])
+                self.assertNotIn("complete RPC caller provenance missing", reasons)
+                self.assertEqual(status["status"], "HOLD", "controlled records must not qualify real performance")
+                self.assertEqual((output / "source.raw").read_bytes(), source.read_bytes())
+                if (ADAPTER.parent.parent / "summarize.py").exists():
+                    exported = [json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()]
+                    self.assertEqual(exported, samples())
+                    self.assertEqual(json.loads((output / "manifest.json").read_text())["fixtures"][0]["caller"], caller)
+                else:
+                    self.assertIn("summarize.py unavailable", reasons)
+                    self.assertFalse((output / "samples.jsonl").exists())
+
+    def test_cli_refuses_obsolete_remote_client_aliases(self):
+        for caller in ("RemoteClient::Log", "RemoteClient::PostQueue", "RemoteClient::History"):
+            with self.subTest(caller=caller), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = manifest()
+                proof["fixtures"][0]["caller"] = caller
+                metadata = root / "proof.json"
+                source = root / "source.jsonl"
+                output = root / "out"
+                metadata.write_text(json.dumps(proof))
+                source.write_bytes(jsonl(samples()))
+                run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                      "--source", str(source), "--output-dir", str(output)],
+                                     capture_output=True, text=True, timeout=2)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                status = json.loads((output / "adapter-status.json").read_text())
+                self.assertEqual(status["status"], "HOLD")
+                self.assertIn("complete RPC caller provenance missing", " ".join(status["reasons"]))
+                self.assertEqual(status["exported_rows"], 0)
+                self.assertFalse((output / "manifest.json").exists())
+                self.assertFalse((output / "samples.jsonl").exists())
+                self.assertEqual((output / "source.raw").read_bytes(), source.read_bytes())
+
+    def test_cli_refuses_recorded_caller_contradicting_canonical_manifest(self):
+        for recorded in ("RemoteClient::RequestHistory", "RemoteClient::Log"):
+            with self.subTest(recorded=recorded), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = manifest()
+                proof["fixtures"][0]["caller"] = "RemoteClient::RequestServerLog"
+                rows = samples()
+                rows[0]["caller"] = recorded
+                metadata = root / "manifest.json"
+                source = root / "source.jsonl"
+                output = root / "out"
+                metadata.write_text(json.dumps(proof))
+                raw = jsonl(rows)
+                source.write_bytes(raw)
+                run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                      "--source", str(source), "--output-dir", str(output)],
+                                     capture_output=True, text=True, timeout=2)
+                self.assertEqual(run.returncode, 2)
+                self.assertIn("recorded caller contradicts fixture provenance", run.stderr)
+                self.assertFalse(output.exists())
+                self.assertEqual(source.read_bytes(), raw)
+
 
 if __name__ == "__main__":
     unittest.main()
