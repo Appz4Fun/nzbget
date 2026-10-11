@@ -1676,6 +1676,41 @@ pub unsafe extern "C" fn nzbget_rs_rpc_envelope(
     *tail = into_buf(t);
 }
 
+/// XmlRpcProcessor::Access: the access a request runs with (rpcroute::access).
+#[no_mangle]
+pub extern "C" fn nzbget_rs_rpc_access(protocol: c_int, access: c_int) -> c_int {
+    crate::rpcroute::access(protocol, access)
+}
+
+/// XmlRpcProcessor::Decide: 0 runs the command, 1 answers with an error inside
+/// the JSON-P callback, 2 answers with a plain error; `code` and `text` get
+/// that error (0 and null when it runs). Null outputs discard that result.
+/// `text` is static.
+///
+/// # Safety
+/// Nonnull `code` and `text` must be aligned and valid for writes of their
+/// respective types, and their storage must not overlap. The returned text
+/// is NUL-terminated and must not be modified or freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rpc_decide(
+    protocol: c_int,
+    http_method: c_int,
+    safe: c_int,
+    error: c_int,
+    jsonp: c_int,
+    code: *mut c_int,
+    text: *mut *const c_char,
+) -> c_int {
+    let d = crate::rpcroute::decide(protocol, http_method, safe != 0, error != 0, jsonp != 0);
+    if !code.is_null() {
+        code.write(d.code);
+    }
+    if !text.is_null() {
+        text.write(d.text.map_or(std::ptr::null(), CStr::as_ptr));
+    }
+    d.dispatch
+}
+
 /// `len` bytes at `data` (empty when null or zero).
 unsafe fn span<'a>(data: *const c_char, len: usize) -> &'a [u8] {
     if data.is_null() || len == 0 { &[] } else { std::slice::from_raw_parts(data.cast::<u8>(), len) }
@@ -1862,6 +1897,16 @@ pub unsafe extern "C" fn nzbget_rs_validate_option_name(
     }
     let mut ask = || predefined.is_some_and(|f| f(ctx, name) != 0);
     crate::options::validate_option_name(CStr::from_ptr(name), &mut ask) as c_int
+}
+
+/// Options::OptEntry::Restricted: 1 when the option's value is protected.
+///
+/// # Safety
+/// `name` is null (not protected), or points to a readable NUL-terminated
+/// string in one allocation, unchanged for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_option_restricted(name: *const c_char, signed_char: c_int) -> c_int {
+    (!name.is_null() && crate::options::option_restricted(CStr::from_ptr(name), signed_char != 0)) as c_int
 }
 
 /// Options::ConvertOldOption: the current name and value; free both with
@@ -4824,6 +4869,9 @@ mod tests {
             assert_eq!(nzbget_rs_has_script(std::ptr::null(), std::ptr::null()), 0);
             assert_eq!(nzbget_rs_has_script(c"a.py".as_ptr(), std::ptr::null()), 0);
             assert_eq!(nzbget_rs_parse_category_source(std::ptr::null()), 1);
+            assert_eq!(nzbget_rs_option_restricted(std::ptr::null(), 1), 0);
+            assert_eq!(nzbget_rs_option_restricted(c"Server1.Password".as_ptr(), 1), 1);
+            assert_eq!(nzbget_rs_option_restricted(c"Server1.Host".as_ptr(), 1), 0);
         }
     }
 
@@ -4965,6 +5013,22 @@ mod tests {
             assert_eq!(id, request.as_ptr().add(5));
             assert_eq!(len, 0); // CString::Set will echo the suffix for length zero.
             assert_eq!(&method[..3], &[0x55, b'"', 0]);
+        }
+    }
+
+    #[test]
+    fn rpc_decide_outputs() {
+        unsafe {
+            assert_eq!(nzbget_rs_rpc_access(3, 0), 1);
+            assert_eq!(nzbget_rs_rpc_access(2, 0), 0);
+            let mut code = -1;
+            let mut text = c"sentinel".as_ptr();
+            assert_eq!(nzbget_rs_rpc_decide(3, 1, 0, 0, 1, &mut code, &mut text), 1);
+            assert_eq!((code, CStr::from_ptr(text)),
+                (4, c"Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead"));
+            assert_eq!(nzbget_rs_rpc_decide(2, 0, 0, 0, 0, &mut code, &mut text), 0);
+            assert!(code == 0 && text.is_null());
+            assert_eq!(nzbget_rs_rpc_decide(3, 0, 1, 0, 0, std::ptr::null_mut(), std::ptr::null_mut()), 1);
         }
     }
 

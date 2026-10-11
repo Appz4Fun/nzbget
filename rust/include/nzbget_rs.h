@@ -370,15 +370,27 @@ int nzbget_rs_rpc_next_param(char** request, int get, int json, int what, int* i
 // name (into a 100-byte buffer), where the parameters start (*params, into url
 // for GET, else request) and the JSON-RPC id (*id, *idLen; null if none or its
 // legacy C-int length exceeds 4096). Inputs may be NULL (empty), otherwise
-// they are NUL-terminated. All output pointers must be non-NULL, writable,
+// they are NUL-terminated. route's output pointers must be non-NULL, writable,
 // and disjoint; methodName has at least 100 bytes. params/id borrow the
 // caller's input storage; do not free them or retain them beyond its lifetime.
 // envelope: BuildResponse's text before (head) and after (tail) the response;
+// head and tail must be non-NULL, aligned, writable and disjoint.
 // each result owns its buffer, independently of the inputs. Free both exactly
 // once with nzbget_rs_free. Panics abort; unwinding never crosses the ABI.
+// access: EUserAccess (0 control, 1 restricted, 2 add); JSON-P changes control
+// to restricted and leaves other access unchanged. protocol is ERpcProtocol
+// (0 undefined, 1 XML-RPC, 2 JSON-RPC, 3 JSON-P).
+// decide: 0 runs the command, 1 answers with an error inside the JSON-P
+// callback, 2 answers with a plain error; *code and *text get that error (0
+// and NULL when it runs). httpMethod is EHttpMethod (0 POST, 1 GET); safe,
+// error and jsonp are true when nonzero. NULL outputs discard that result.
+// Non-NULL outputs must be aligned, writable and disjoint. The returned text
+// is a static NUL-terminated string; do not modify or free it.
 int nzbget_rs_rpc_protocol(const char* url);
 void nzbget_rs_rpc_route(const char* url, const char* request, int get, int protocol, char* methodName, const char** params, const char** id, int* idLen);
 void nzbget_rs_rpc_envelope(int protocol, int fault, const char* callback, const char* id, NzbgetRsBuf* head, NzbgetRsBuf* tail);
+int nzbget_rs_rpc_access(int protocol, int access);
+int nzbget_rs_rpc_decide(int protocol, int httpMethod, int safe, int error, int jsonp, int* code, const char** text);
 
 // Util text helpers (rust/src/util.rs). split_command_line: the words, each
 // NUL-terminated, back to back (len covers all). trim_line: TrimRight(char*)
@@ -433,9 +445,15 @@ void nzbget_rs_volume_add(int64_t* seconds, size_t secondsLen, int64_t* minutes,
 // The callback must not unwind or modify/invalidate name; ctx is caller-owned.
 // has_script: NULL inputs mean empty. parse_category_source: NULL means NZBFile.
 // parse_category_source: FeedInfo::CategorySource (0 Auto, 1 NZBFile, 2 FeedFile).
+// option_restricted: OptEntry::Restricted, 1 when the value is protected; NULL is 0.
+// signedChar is nonzero when the caller's plain char is signed, including
+// compiler overrides such as -funsigned-char; Rust's target default may differ.
+// A non-NULL name must be readable and NUL-terminated within one allocation,
+// and remain unchanged for the duration of the call.
 int nzbget_rs_parse_time(const char* time, int* hours, int* minutes);
 int nzbget_rs_parse_week_days(const char* weekDays, int* bits);
 int nzbget_rs_validate_option_name(const char* name, int (*predefined)(void* ctx, const char* name), void* ctx);
+int nzbget_rs_option_restricted(const char* name, int signedChar);
 void nzbget_rs_convert_old_option(const char* option, const char* value, NzbgetRsBuf* newOption, NzbgetRsBuf* newValue);
 int nzbget_rs_has_script(const char* list, const char* name);
 int nzbget_rs_parse_category_source(const char* value);

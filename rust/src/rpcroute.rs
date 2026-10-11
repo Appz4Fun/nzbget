@@ -1,7 +1,9 @@
 //! XmlRpcProcessor's request routing and response envelope (XmlRpc.cpp):
 //! the protocol from the URL (Execute), the method name, where the
 //! parameters start and the JSON request id (Dispatch), and the text around
-//! a command's response (BuildResponse), as the C++ did them.
+//! a command's response (BuildResponse), as the C++ did them. Also the access
+//! a request runs with (Access) and whether Dispatch runs a command or
+//! answers with an error (Decide).
 
 use crate::webutil::{json_find_field, xml_find_tag};
 
@@ -137,6 +139,51 @@ pub fn envelope(protocol: i32, fault: bool, callback: Option<&[u8]>, id: Option<
     (head, tail)
 }
 
+/// XmlRpcProcessor::EHttpMethod
+pub const HM_POST: i32 = 0;
+/// XmlRpcProcessor::EUserAccess
+pub const UA_CONTROL: i32 = 0;
+pub const UA_RESTRICTED: i32 = 1;
+
+/// XmlRpcProcessor::EDispatch: run the command, answer an error through the
+/// JSON-P callback, or answer an error without a callback.
+pub const DP_EXECUTE: i32 = 0;
+pub const DP_REFUSE_IN_CALLBACK: i32 = 1;
+pub const DP_REFUSE: i32 = 2;
+
+/// Access: JSON-P changes control access to restricted; other access is unchanged.
+pub fn access(protocol: i32, access: i32) -> i32 {
+    if protocol == RP_JSONP_RPC && access == UA_CONTROL {
+        UA_RESTRICTED
+    } else {
+        access
+    }
+}
+
+/// Decide's answer: what Dispatch does, and for an error its code and text.
+#[derive(Debug, PartialEq)]
+pub struct Decision {
+    pub dispatch: i32,
+    pub code: i32,
+    pub text: Option<&'static std::ffi::CStr>,
+}
+
+/// Decide: JSON-P runs only with option JsonP; a safe (reading) method, a
+/// POST or an error command runs; any other method answers error 4, through
+/// the callback for JSON-P.
+pub fn decide(protocol: i32, http_method: i32, safe: bool, error: bool, jsonp: bool) -> Decision {
+    let refuse = |dispatch, code, text| Decision { dispatch, code, text: Some(text) };
+    if protocol == RP_JSONP_RPC && !jsonp {
+        refuse(DP_REFUSE_IN_CALLBACK, 403, c"JSON-P is turned off (option JsonP). Use JSON-RPC or XML-RPC instead")
+    } else if safe || http_method == HM_POST || error {
+        Decision { dispatch: DP_EXECUTE, code: 0, text: None }
+    } else if protocol == RP_JSONP_RPC {
+        refuse(DP_REFUSE_IN_CALLBACK, 4, c"Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead")
+    } else {
+        refuse(DP_REFUSE, 4, c"Not safe procedure for HTTP-Method GET. Use Method POST instead")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +227,39 @@ mod tests {
         let (h, t) = envelope(RP_JSONP_RPC, false, Some(b"cb"), None);
         assert_eq!(h, b"cb({\n\"version\" : \"1.1\",\n\"result\" : ");
         assert_eq!(t, b"\n})");
+    }
+
+    #[test]
+    fn access_of_jsonp() {
+        for protocol in [RP_UNDEFINED, RP_XML_RPC, RP_JSON_RPC, RP_JSONP_RPC, -1, 4] {
+            for user in [UA_CONTROL, UA_RESTRICTED, 2, -1, 3] {
+                let expected = if protocol == RP_JSONP_RPC && user == UA_CONTROL { UA_RESTRICTED } else { user };
+                assert_eq!(access(protocol, user), expected, "protocol {protocol} access {user}");
+            }
+        }
+    }
+
+    #[test]
+    fn decisions() {
+        // every input: JSON-P only with option JsonP; then safe, POST or error runs
+        for protocol in [RP_UNDEFINED, RP_XML_RPC, RP_JSON_RPC, RP_JSONP_RPC, -1, 7] {
+            for http_method in [HM_POST, 1, -1, 2] {
+                for bits in 0..8 {
+                    let (safe, error, jsonp) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0);
+                    let d = decide(protocol, http_method, safe, error, jsonp);
+                    let runs = safe || http_method == HM_POST || error;
+                    if protocol == RP_JSONP_RPC && !jsonp {
+                        assert_eq!((d.dispatch, d.code), (DP_REFUSE_IN_CALLBACK, 403));
+                    } else if runs {
+                        assert_eq!(d, Decision { dispatch: DP_EXECUTE, code: 0, text: None });
+                    } else {
+                        let callback = protocol == RP_JSONP_RPC;
+                        assert_eq!((d.dispatch, d.code), (if callback { DP_REFUSE_IN_CALLBACK } else { DP_REFUSE }, 4));
+                    }
+                }
+            }
+        }
+        assert_eq!(decide(RP_JSON_RPC, 1, false, false, false).text,
+            Some(c"Not safe procedure for HTTP-Method GET. Use Method POST instead"));
     }
 }

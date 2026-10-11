@@ -75,6 +75,18 @@ private:
 	bool m_safeMethod = false;
 	bool m_jsonP = false;
 
+	// what Dispatch does with a command: run it, or answer with an error, inside the
+	// JSON-P callback or plain
+	enum EDispatch
+	{
+		dpExecute,
+		dpRefuseInCallback,
+		dpRefuse
+	};
+
+	static EUserAccess Access(ERpcProtocol protocol, EUserAccess userAccess);
+	static EDispatch Decide(ERpcProtocol protocol, EHttpMethod httpMethod, bool safeMethod, bool error,
+		bool jsonP, int* errCode, const char** errText);
 	void Dispatch();
 	std::unique_ptr<XmlCommand> CreateCommand(const char* methodName);
 	void MutliCall();

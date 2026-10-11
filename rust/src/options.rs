@@ -1,6 +1,7 @@
 //! Options' value parsers (Options.cpp): ParseTime and ParseWeekDays (the
 //! scheduler's task times), ValidateOptionName's classification of option
-//! names, ConvertOldOption's renames, HasScript and ParseCategorySource.
+//! names, ConvertOldOption's renames, HasScript and ParseCategorySource, and
+//! OptEntry::Restricted's protected option names.
 //! Names are compared with the C library's strcasecmp/strncasecmp and numbers
 //! read with atoi/strtol, in the current locale, as the C++ did.
 
@@ -11,6 +12,7 @@ extern "C" {
     fn strtol(s: *const c_char, end: *mut *mut c_char, base: c_int) -> c_long;
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
+    fn tolower(c: c_int) -> c_int;
 }
 
 fn eq(a: &CStr, b: &CStr) -> bool {
@@ -291,6 +293,35 @@ pub fn parse_category_source(value: Option<&CStr>) -> i32 {
     }
 }
 
+/// OptEntry::Restricted's options whose value is protected, compared with strcasecmp.
+const PROTECTED: [&CStr; 13] = [
+    c"ControlIP", c"ControlPort", c"FormAuth", c"JsonP", c"SecureControl", c"SecurePort", c"SecureCert",
+    c"SecureKey", c"CertStore", c"CertCheck", c"AuthorizedIP", c"DaemonUsername", c"UMask",
+];
+
+/// Options::OptEntry::Restricted: whether an option's value is protected (shown
+/// as "***" to the restricted user): the options above, extension options (a
+/// ':' in the name), and names holding "username", "password" or "apikey".
+/// Those are searched in the first 1023 bytes (BString<1024>), lowercased with
+/// the C library's tolower on each char, as the C++ did. signed_char describes
+/// the C++ caller's plain char, which compiler flags can change independently
+/// of Rust's c_char target default.
+pub fn option_restricted(name: &CStr, signed_char: bool) -> bool {
+    let bytes = name.to_bytes();
+    // Leave locale-dependent matching to the same C function as the C++.
+    if PROTECTED.iter().any(|known| eq(name, known)) || bytes.contains(&b':') {
+        return true;
+    }
+    let mut buf = [0u8; 1023];
+    let lower = &mut buf[..bytes.len().min(1023)];
+    for (l, &b) in lower.iter_mut().zip(bytes) {
+        let c = if signed_char { b as i8 as c_int } else { b as c_int };
+        *l = unsafe { tolower(c) } as u8;
+    }
+    [&b"username"[..], b"password", b"apikey"].iter()
+        .any(|needle| lower.windows(needle.len()).any(|w| w == *needle))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,5 +377,27 @@ mod tests {
         assert_eq!(convert_old_option(c"Decode", c"NO").1.as_bytes(), b"yes");
         assert!(has_script(b"a.py, B.sh", c"b.SH"));
         assert_eq!(parse_category_source(Some(c"FeedFile")), 2);
+    }
+
+    #[test]
+    fn restricted_options() {
+        for name in [c"ControlPassword", c"Server1.Username", c"server2.PASSWORD", c"DupeSearchApiKey", c"JsonP",
+            c"jsonp", c"UMASK", c"AuthorizedIP", c"Ext:Option", c":"] {
+            assert!(option_restricted(name, c_char::MIN < 0), "{name:?}");
+        }
+        for name in [c"DupeSearchUrl", c"DupeCheck", c"ControlIPs", c"JsonPx", c"Server1.Host", c""] {
+            assert!(!option_restricted(name, c_char::MIN < 0), "{name:?}");
+        }
+        // only the first 1023 bytes are searched for the words; a ':' anywhere counts
+        let mut long = vec![b'a'; 1020];
+        long.extend_from_slice(b"password");
+        assert!(!option_restricted(&CString::new(long.clone()).unwrap(), c_char::MIN < 0));
+        long.truncate(1015);
+        long.extend_from_slice(b"password");
+        assert!(option_restricted(&CString::new(long.clone()).unwrap(), c_char::MIN < 0));
+        long = vec![b'b'; 3023];
+        assert!(!option_restricted(&CString::new(long.clone()).unwrap(), c_char::MIN < 0));
+        long.push(b':');
+        assert!(option_restricted(&CString::new(long).unwrap(), c_char::MIN < 0));
     }
 }

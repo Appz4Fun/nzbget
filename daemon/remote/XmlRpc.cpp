@@ -609,14 +609,6 @@ void XmlRpcProcessor::Execute()
 		return;
 	}
 
-	// any web page can make the browser send a JSON-P request, with the login it keeps
-	// for nzbget, and read the answer: it gets no more than the restricted user sees
-	// (user names, passwords, API keys and the other protected options as "***")
-	if (m_protocol == rpJsonPRpc && m_userAccess == uaControl)
-	{
-		m_userAccess = uaRestricted;
-	}
-
 	Dispatch();
 }
 
@@ -686,6 +678,8 @@ void XmlRpcProcessor::Dispatch()
 
 	debug("MethodName=%s", *methodName);
 
+	m_userAccess = Access(m_protocol, m_userAccess);
+
 	if (!strcasecmp(methodName, "system.multicall") && m_protocol == rpXmlRpc && m_httpMethod == hmPost)
 	{
 		MutliCall();
@@ -699,30 +693,93 @@ void XmlRpcProcessor::Dispatch()
 		command->SetUserAccess(m_userAccess);
 		command->PrepareParams();
 		m_safeMethod = command->IsSafeMethod();
-		// JSON-P is a GET that any web page can make the browser send (a <script> tag),
-		// with the login the browser keeps for nzbget: like a plain GET it runs only the
-		// reading methods. It ran every method, so a page could edit the queue, change
-		// the settings or shut nzbget down.
-		bool safeToExecute = m_safeMethod || m_httpMethod == XmlRpcProcessor::hmPost;
-		if (m_protocol == rpJsonPRpc && !m_jsonP)
+		int errCode = 0;
+		const char* errText = nullptr;
+		switch (Decide(m_protocol, m_httpMethod, m_safeMethod, command->IsError(), m_jsonP, &errCode, &errText))
 		{
-			BuildJsonPRefusal(command.get(), 403, "JSON-P is turned off (option JsonP). Use JSON-RPC or XML-RPC instead", requestId);
-		}
-		else if (safeToExecute || command->IsError())
-		{
-			command->Execute();
-			BuildResponse(command->GetResponse(), command->GetCallbackFunc(), command->GetFault(), requestId);
-		}
-		else if (m_protocol == rpJsonPRpc)
-		{
-			BuildJsonPRefusal(command.get(), 4, "Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead", requestId);
-		}
-		else
-		{
-			BuildErrorResponse(4, "Not safe procedure for HTTP-Method GET. Use Method POST instead");
+			case dpExecute:
+				command->Execute();
+				BuildResponse(command->GetResponse(), command->GetCallbackFunc(), command->GetFault(), requestId);
+				break;
+
+			case dpRefuseInCallback:
+				BuildJsonPRefusal(command.get(), errCode, errText, requestId);
+				break;
+
+			case dpRefuse:
+				BuildErrorResponse(errCode, errText);
+				break;
 		}
 	}
 }
+
+#ifdef NZBGET_USE_RUST
+XmlRpcProcessor::EUserAccess XmlRpcProcessor::Access(ERpcProtocol protocol, EUserAccess userAccess)
+{
+	// rust/src/rpcroute.rs
+	return (EUserAccess)nzbget_rs_rpc_access(protocol, userAccess);
+}
+#else
+XmlRpcProcessor::EUserAccess XmlRpcProcessor::Access(ERpcProtocol protocol, EUserAccess userAccess)
+{
+	// JSON-P changes control access to restricted access; other access stays as given
+	if (protocol == rpJsonPRpc && userAccess == uaControl)
+	{
+		return uaRestricted;
+	}
+	return userAccess;
+}
+#endif
+
+#ifdef NZBGET_USE_RUST
+XmlRpcProcessor::EDispatch XmlRpcProcessor::Decide(ERpcProtocol protocol, EHttpMethod httpMethod,
+	bool safeMethod, bool error, bool jsonP, int* errCode, const char** errText)
+{
+	// rust/src/rpcroute.rs
+	return (EDispatch)nzbget_rs_rpc_decide(protocol, httpMethod, safeMethod, error, jsonP, errCode, errText);
+}
+#else
+XmlRpcProcessor::EDispatch XmlRpcProcessor::Decide(ERpcProtocol protocol, EHttpMethod httpMethod,
+	bool safeMethod, bool error, bool jsonP, int* errCode, const char** errText)
+{
+	// JSON-P answers only with the option JsonP. A reading method, a POST or
+	// the error command runs; other requests answer error 4.
+	EDispatch dispatch = dpExecute;
+	int code = 0;
+	const char* text = nullptr;
+	if (protocol == rpJsonPRpc && !jsonP)
+	{
+		dispatch = dpRefuseInCallback;
+		code = 403;
+		text = "JSON-P is turned off (option JsonP). Use JSON-RPC or XML-RPC instead";
+	}
+	else if (safeMethod || httpMethod == hmPost || error)
+	{
+		dispatch = dpExecute;
+	}
+	else if (protocol == rpJsonPRpc)
+	{
+		dispatch = dpRefuseInCallback;
+		code = 4;
+		text = "Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead";
+	}
+	else
+	{
+		dispatch = dpRefuse;
+		code = 4;
+		text = "Not safe procedure for HTTP-Method GET. Use Method POST instead";
+	}
+	if (errCode)
+	{
+		*errCode = code;
+	}
+	if (errText)
+	{
+		*errText = text;
+	}
+	return dispatch;
+}
+#endif
 
 void XmlRpcProcessor::MutliCall()
 {

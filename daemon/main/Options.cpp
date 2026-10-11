@@ -62,6 +62,13 @@ void Options::OptEntry::SetValue(const char* value)
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+bool Options::OptEntry::Restricted()
+{
+	// rust/src/options.rs
+	return nzbget_rs_option_restricted(m_name, (char)-1 < 0) != 0;
+}
+#else
 bool Options::OptEntry::Restricted()
 {
 	BString<1024> loName = *m_name;
@@ -87,6 +94,7 @@ bool Options::OptEntry::Restricted()
 
 	return restricted;
 }
+#endif
 
 Options::OptEntry* Options::OptEntries::FindOption(const char* name)
 {
