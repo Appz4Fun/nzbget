@@ -8,9 +8,9 @@
 //! rust-par2), fingerprints, the per-posting file lists kept in the queue
 //! directory, labels, and picking a duplicate's file by content.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Cursor, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::sync::Mutex;
 
 /// One file of a par2 set: what identifies its bytes.
@@ -20,6 +20,132 @@ pub struct FileSig {
     pub length: u64,
     /// MD5 of the whole file, lower-case hex
     pub md5: String,
+}
+
+/// PAR2 packet types the walk reads (the 16 bytes after the set id).
+const TYPE_MAIN: &[u8; 16] = b"PAR 2.0\0Main\0\0\0\0";
+const TYPE_FILE_DESC: &[u8; 16] = b"PAR 2.0\0FileDesc";
+const PACKET_MAGIC: &[u8; 8] = b"PAR2\0PKT";
+
+// File IDs come from untrusted PAR2 packets: use the standard keyed,
+// randomized hasher and include every byte of each ID.
+type IdMap<V> = HashMap<[u8; 16], V>;
+
+/// The first packet magic in `hay`: memchr for its first byte (SIMD, and
+/// rare in par2 data), then the other 7 compared.
+fn find_magic(hay: &[u8]) -> Option<usize> {
+    let mut at = 0;
+    while let Some(p) = crate::bytes::find_byte(&hay[at..], PACKET_MAGIC[0]) {
+        let start = at + p;
+        match hay.get(start..start + 8) {
+            Some(window) if window == PACKET_MAGIC => return Some(start),
+            Some(_) => at = start + 1,
+            None => return None,
+        }
+    }
+    None
+}
+
+/// What the walk of a par2-file's packets found: the Main packet's block
+/// size and file ids, and the FileDesc packets' files by file id.
+struct Walked {
+    slice_size: u64,
+    file_order: Vec<[u8; 16]>,
+    files: IdMap<FileSig>,
+}
+
+/// The packets of a par2-file, framed and read as rust-par2's parser
+/// (parse_par2_reader) reads them: the packet magic found wherever it is,
+/// lengths a multiple of 4 and at least 64, a damaged packet (its MD5 not
+/// the one in its header) skipped by its length, a Main packet's block size
+/// and all file ids taken from the last intact one (including non-recoverable
+/// ids after the recoverable count), a FileDesc packet from the
+/// first intact one of its file id. Only the packets that make the result
+/// get their MD5 checked: the parser also read and hashed every IFSC,
+/// recovery and creator packet, and megabytes of recovery blocks, for
+/// nothing in the result. `files` is false when only the block size is
+/// wanted. None where the parser had an error: no intact Main packet, or a
+/// packet cut short inside its header. A packet whose length runs past the
+/// data ends the walk. The flag is whether a packet magic was seen at all.
+fn walk(data: &[u8], files: bool) -> (Option<Walked>, bool) {
+    use md5::{Digest, Md5};
+    let mut walked = Walked { slice_size: 0, file_order: Vec::new(), files: IdMap::default() };
+    let mut have_main = false;
+    let mut seen = false;
+    let mut pos = 0usize;
+    while pos < data.len() {
+        // the magic; elsewhere, the next one
+        let Some(magic) = data.get(pos..pos + 8) else { break };
+        if magic != PACKET_MAGIC {
+            match find_magic(&data[pos + 8..]) {
+                Some(at) => {
+                    pos += 8 + at;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        seen = true;
+        let Some(length) = data.get(pos + 8..pos + 16) else { break };
+        let length = u64::from_le_bytes(length.try_into().unwrap());
+        pos += 16;
+        if length < 64 || length % 4 != 0 {
+            continue;
+        }
+        let rest = (data.len() - pos) as u64;
+        if length - 16 > 10 * 1024 * 1024 {
+            // a recovery slice's size: only its header is read, then it is skipped
+            if rest < 48 {
+                return (None, true);
+            }
+            if length - 16 > rest {
+                break;
+            }
+            pos += (length - 16) as usize;
+            continue;
+        }
+        // the header's MD5, and the rest of the packet
+        if rest < 16 {
+            return (None, true);
+        }
+        if length - 16 > rest {
+            break;
+        }
+        let stored = &data[pos..pos + 16];
+        let packet = &data[pos + 16..pos + (length - 16) as usize];
+        pos += (length - 16) as usize;
+        let kind = &packet[16..32];
+        let main = kind == TYPE_MAIN;
+        if !main && !(files && kind == TYPE_FILE_DESC) {
+            continue;
+        }
+        if Md5::digest(packet).as_slice() != stored {
+            continue;
+        }
+        if main {
+            if packet.len() < 44 {
+                continue;
+            }
+            // The count field covers recoverable files only. Non-recoverable
+            // IDs follow them and also require FileDesc packets for completeness.
+            let count = (packet.len() - 44) / 16;
+            walked.slice_size = u64::from_le_bytes(packet[32..40].try_into().unwrap());
+            walked.file_order = (0..count).map(|i| packet[44 + 16 * i..60 + 16 * i].try_into().unwrap()).collect();
+            have_main = true;
+        } else if packet.len() >= 88 {
+            let id: [u8; 16] = packet[32..48].try_into().unwrap();
+            walked.files.entry(id).or_insert_with(|| {
+                let name = &packet[88..];
+                let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
+                FileSig {
+                    name: String::from_utf8_lossy(name).into_owned(),
+                    length: u64::from_le_bytes(packet[80..88].try_into().unwrap()),
+                    md5: hex(&packet[48..64]),
+                }
+            });
+        }
+    }
+    (have_main.then_some(walked), seen)
 }
 
 /// The files the FileDesc packets in `data` describe (a par2-file, or the part
@@ -34,17 +160,10 @@ pub fn par2_sigs(data: &[u8]) -> Vec<FileSig> {
 /// Main packet arrived and every file it names has its FileDesc packet. A
 /// partial list proves nothing about a file it doesn't name.
 pub fn par2_set(data: &[u8]) -> (Vec<FileSig>, bool) {
-    let len = data.len() as u64;
-    let mut reader = Cursor::new(data);
-    let (mut sigs, complete) = match rust_par2::parse_par2_reader(&mut reader, len) {
-        Ok(set) if !set.files.is_empty() => {
+    let (mut sigs, complete) = match walk(data, true).0 {
+        Some(set) if !set.files.is_empty() => {
             let complete = !set.file_order.is_empty() && set.file_order.iter().all(|id| set.files.contains_key(id));
-            let sigs = set
-                .files
-                .values()
-                .map(|f| FileSig { name: f.filename.clone(), length: f.size, md5: hex(&f.hash) })
-                .collect();
-            (sigs, complete)
+            (set.files.into_values().collect(), complete)
         }
         // its Main packet lost (the first article of the par2-file missing): the
         // FileDesc packets that arrived still tell the files, but maybe not all
@@ -103,12 +222,15 @@ fn scan_file_descs(data: &[u8]) -> Vec<FileSig> {
 
 /// The block size of the par2 set in `data` (its Main packet), 0 if none.
 pub fn block_size(data: &[u8]) -> u64 {
-    let mut reader = Cursor::new(data);
-    if let Ok(set) = rust_par2::parse_par2_reader(&mut reader, data.len() as u64) {
+    let (set, seen) = walk(data, false);
+    if let Some(set) = set {
         if set.slice_size > 0 {
             return set.slice_size;
         }
     }
+    // the walk saw no packet magic: it looks from the 9th byte on, so only a
+    // magic in the first 8 bytes' shadow (at 4) is left for the scan below
+    let data = if seen { data } else { &data[..data.len().min(80)] };
     // the set didn't parse: the Main packet alone may still be there
     let mut pos = 0usize;
     while pos + 72 <= data.len() {
@@ -122,33 +244,84 @@ pub fn block_size(data: &[u8]) -> u64 {
 
 /// The recovery blocks a par2-volume's name gives ("x.vol03+04.par2": 4), None if none.
 pub fn volume_blocks(filename: &str) -> Option<u32> {
-    let name = filename.to_ascii_lowercase();
-    let at = name.rfind(".vol")?;
-    let plus = name[at..].find('+')? + at;
-    let digits: String = name[plus + 1..].chars().take_while(char::is_ascii_digit).collect();
-    digits.parse().ok()
+    volume_blocks_bytes(filename.as_bytes())
+}
+
+/// `volume_blocks` over the name's bytes (no copy: the last ".vol", in any
+/// case, then the first '+' after it, then the digits that follow).
+pub fn volume_blocks_bytes(name: &[u8]) -> Option<u32> {
+    let at = (0..name.len().checked_sub(3)?).rev().find(|&i| name[i] == b'.' && name[i + 1..i + 4].eq_ignore_ascii_case(b"vol"))?;
+    let plus = at + crate::bytes::find_byte(&name[at..], b'+')?;
+    let mut blocks: u32 = 0;
+    let mut any = false;
+    for &b in &name[plus + 1..] {
+        if !b.is_ascii_digit() {
+            break;
+        }
+        blocks = blocks.checked_mul(10)?.checked_add(u32::from(b - b'0'))?;
+        any = true;
+    }
+    any.then_some(blocks)
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(DIGITS[(b >> 4) as usize] as char);
+        out.push(DIGITS[(b & 15) as usize] as char);
+    }
+    out
 }
 
 /// The posting's fingerprint: equal for postings of byte-identical files,
 /// whatever their names. FNV-1a over the sorted "md5:length" lines, so the
 /// values TwinCheck stored before (in C++) stay valid. "" for no files.
 pub fn fingerprint(sigs: &[FileSig]) -> String {
-    let files: BTreeSet<String> = sigs.iter().map(|s| format!("{}:{}", s.md5, s.length)).collect();
-    if files.is_empty() {
+    fingerprint_of(sigs.iter().map(|s| (s.md5.as_str(), s.length)))
+}
+
+/// `fingerprint` over (md5, length) pairs: the sorted, distinct "md5:length"
+/// lines hashed, without a string for each.
+pub fn fingerprint_of<'a>(files: impl Iterator<Item = (&'a str, u64)>) -> String {
+    fingerprint_cow(files.map(|(md5, length)| (std::borrow::Cow::Borrowed(md5), length)))
+}
+
+pub fn fingerprint_cow<'a>(files: impl Iterator<Item = (std::borrow::Cow<'a, str>, u64)>) -> String {
+    let mut arena: Vec<u8> = Vec::new();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for (md5, length) in files {
+        let mut digits = [0u8; 20];
+        let mut at = digits.len();
+        let mut rest = length;
+        loop {
+            at -= 1;
+            digits[at] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        let start = arena.len();
+        arena.extend_from_slice(md5.as_bytes());
+        arena.push(b':');
+        arena.extend_from_slice(&digits[at..]);
+        spans.push((start, arena.len()));
+    }
+    // the sorted, distinct "md5:length" lines, as a BTreeSet<String> held them
+    spans.sort_unstable_by(|a, b| arena[a.0..a.1].cmp(&arena[b.0..b.1]));
+    spans.dedup_by(|a, b| arena[a.0..a.1] == arena[b.0..b.1]);
+    if spans.is_empty() {
         return String::new();
     }
     let mut hash: u64 = 14695981039346656037;
-    for file in &files {
-        for byte in file.bytes().chain(std::iter::once(b'\n')) {
+    for &(start, end) in &spans {
+        for &byte in arena[start..end].iter().chain(std::iter::once(&b'\n')) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(1099511628211);
         }
     }
-    format!("{hash:016x}-{}", files.len())
+    format!("{hash:016x}-{}", spans.len())
 }
 
 /// How many of `primary`'s files `dupe` holds (by MD5 and length), each file
@@ -492,9 +665,25 @@ fn message_id(raw: &str) -> String {
     format!("<{id}>")
 }
 
+/// The crate's parser, as par2_set and block_size used it before the walk
+/// (the comparison tests below).
+#[cfg(test)]
+type CrateSet = (u64, Vec<[u8; 16]>, Vec<(String, u64, String)>);
+
+#[cfg(test)]
+fn crate_set(data: &[u8]) -> Option<CrateSet> {
+    let mut reader = std::io::Cursor::new(data);
+    let set = rust_par2::parse_par2_reader(&mut reader, data.len() as u64).ok()?;
+    let mut files: Vec<(String, u64, String)> =
+        set.files.values().map(|f| (f.filename.clone(), f.size, hex(&f.hash))).collect();
+    files.sort();
+    Some((set.slice_size, set.file_order, files))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     fn sig(name: &str, md5: &str, length: u64) -> FileSig {
         FileSig { name: name.into(), md5: md5.into(), length }
@@ -724,5 +913,378 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         assert_eq!(pruned.get(8, &third.print), &third);
         assert!(pruned.get(7, &second.print).sigs.is_empty());
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// fingerprint as it was before: a BTreeSet of "md5:length" strings.
+    fn fingerprint_before(sigs: &[FileSig]) -> String {
+        let files: BTreeSet<String> = sigs.iter().map(|s| format!("{}:{}", s.md5, s.length)).collect();
+        if files.is_empty() {
+            return String::new();
+        }
+        let mut hash: u64 = 14695981039346656037;
+        for file in &files {
+            for byte in file.bytes().chain(std::iter::once(b'\n')) {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(1099511628211);
+            }
+        }
+        format!("{hash:016x}-{}", files.len())
+    }
+
+    #[test]
+    fn fingerprint_is_the_one_stored_before() {
+        // values the C++ stored for these lists (and the first version of this port)
+        let sig = |md5: &str, length| FileSig { name: String::new(), length, md5: md5.to_string() };
+        assert_eq!(fingerprint(&[]), "");
+        let mut rng = Rng(0xD1B54A32D192ED03);
+        for round in 0..20000 {
+            let n = rng.below(40) as usize;
+            let sigs: Vec<FileSig> = (0..n)
+                .map(|_| {
+                    // md5 texts of 32 hex digits, short and long ones, repeated and prefix-sharing, lengths of 1 to 20 digits
+                    let width = [32, 32, 32, 1, 2, 3, 31, 33, 40, 60, 70][rng.below(11) as usize];
+                    let md5: String = (0..width).map(|_| b"0123456789abcdef:"[rng.below(if width > 3 { 16 } else { 17 }) as usize] as char).collect();
+                    let md5 = if rng.below(4) == 0 { md5[..md5.len().min(2)].to_string() } else { md5 };
+                    let length = [0u64, 9, 10, 99, 100, 1000, rng.next(), rng.next() >> 40, u64::MAX][rng.below(9) as usize];
+                    sig(&md5, length)
+                })
+                .collect();
+            let mut doubled = sigs.clone();
+            if rng.below(3) == 0 {
+                doubled.extend(sigs.iter().take(5).cloned());
+            }
+            assert_eq!(fingerprint(&doubled), fingerprint_before(&doubled), "round {round}");
+        }
+        // sorted as text: "9" after "10" under one md5
+        let same = [sig("aa", 9), sig("aa", 10), sig("aa", 100)];
+        assert_eq!(fingerprint(&same), fingerprint_before(&same));
+    }
+
+    #[test]
+    fn main_non_recoverable_files_require_descriptions() {
+        let mut rng = Rng(1);
+        let mut data = main_packet(65536, &[1, 2], 1);
+        data.extend(file_desc(1, "movie.mkv", 1024, &mut rng));
+        let (sigs, complete) = par2_set(&data);
+        assert_eq!(sigs.len(), 1);
+        assert!(!complete, "the non-recoverable file description is missing");
+        assert_eq!(walk(&data, true).0.unwrap().file_order, vec![[1; 16], [2; 16]]);
+        data.extend(file_desc(2, "release.nfo", 128, &mut rng));
+        let (sigs, complete) = par2_set(&data);
+        assert_eq!(sigs.len(), 2);
+        assert!(complete);
+
+        let mut data = main_packet(65536, &[2], 0);
+        data.extend(file_desc(2, "release.nfo", 128, &mut rng));
+        assert!(par2_set(&data).1, "a set with only non-recoverable files is complete");
+    }
+
+    #[test]
+    fn file_id_hashing_uses_every_byte_and_randomized_state() {
+        use std::hash::BuildHasher;
+        let map: IdMap<()> = IdMap::default();
+        let hashes: std::collections::HashSet<_> = (0..256u32).map(|i| {
+            let mut id = [7u8; 16];
+            id[8..12].copy_from_slice(&i.to_le_bytes());
+            map.hasher().hash_one(id)
+        }).collect();
+        assert_eq!(hashes.len(), 256, "distinct IDs must use their second half");
+        let hashes: std::collections::HashSet<_> = (0..8).map(|_| {
+            IdMap::<()>::default().hasher().hash_one([7u8; 16])
+        }).collect();
+        assert!(hashes.len() > 1, "independent maps must use randomized hash state");
+    }
+
+    // ---- the walk against rust-par2's parser ----
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    fn packet(set_id: [u8; 16], kind: &[u8; 16], body: &[u8]) -> Vec<u8> {
+        use md5::{Digest, Md5};
+        let mut data = set_id.to_vec();
+        data.extend_from_slice(kind);
+        data.extend_from_slice(body);
+        let mut out = b"PAR2\0PKT".to_vec();
+        out.extend_from_slice(&((data.len() + 32) as u64).to_le_bytes());
+        out.extend_from_slice(&Md5::digest(&data));
+        out.extend_from_slice(&data);
+        out
+    }
+
+    fn file_desc(id: u8, name: &str, size: u64, rng: &mut Rng) -> Vec<u8> {
+        let mut body = vec![id; 16];
+        body.extend((0..32).map(|_| rng.next() as u8));
+        body.extend_from_slice(&size.to_le_bytes());
+        body.extend_from_slice(name.as_bytes());
+        body.resize(body.len().div_ceil(4) * 4, 0);
+        packet([7; 16], TYPE_FILE_DESC, &body)
+    }
+
+    fn main_packet(slice: u64, ids: &[u8], count: u32) -> Vec<u8> {
+        let mut body = slice.to_le_bytes().to_vec();
+        body.extend_from_slice(&count.to_le_bytes());
+        for &id in ids {
+            body.extend_from_slice(&[id; 16]);
+        }
+        packet([7; 16], TYPE_MAIN, &body)
+    }
+
+    fn random_set(rng: &mut Rng) -> Vec<u8> {
+        let files = 1 + rng.below(6) as u8;
+        let ids: Vec<u8> = (1..=files).collect();
+        let mut packets: Vec<Vec<u8>> = Vec::new();
+        packets.push(main_packet(1 << (10 + rng.below(8)), &ids, files as u32 + rng.below(2) as u32));
+        for &id in &ids {
+            let name = ["a.mkv", "b.rar", "caf\u{e9}.nfo", "x y.part01.rar", ""][rng.below(5) as usize];
+            packets.push(file_desc(id, name, rng.next() >> 20, rng));
+            let mut body = vec![id; 16];
+            body.extend((0..20 * rng.below(5)).map(|_| rng.next() as u8));
+            packets.push(packet([7; 16], b"PAR 2.0\0IFSC\0\0\0\0", &body));
+        }
+        for _ in 0..rng.below(4) {
+            let mut body = vec![0u8; 4];
+            body.extend((0..4 * (1 + rng.below(300))).map(|_| rng.next() as u8));
+            packets.push(packet([7; 16], b"PAR 2.0\0RecvSlic", &body));
+        }
+        packets.push(packet([7; 16], b"PAR 2.0\0Creator\0", b"test\0\0\0\0"));
+        // mutations
+        for _ in 0..rng.below(4) {
+            let n = rng.below(packets.len() as u64) as usize;
+            let kind = rng.below(9);
+            if matches!(kind, 0 | 1 | 6 | 7) && packets[n].len() < 64 {
+                continue; // junk inserted earlier: nothing to damage
+            }
+            match kind {
+                0 => {
+                    let at = 16 + rng.below(16) as usize;
+                    packets[n][at] ^= 1 + rng.below(255) as u8; // header MD5 wrong
+                }
+                1 => {
+                    let at = 32 + rng.below(packets[n].len() as u64 - 32) as usize;
+                    packets[n][at] ^= 1 + rng.below(255) as u8; // body damaged
+                }
+                2 => packets.insert(n, vec![0x55; rng.below(30) as usize]), // junk between
+                3 => packets.insert(n, b"PAR2\0PKT".to_vec()), // a magic with nothing after
+                4 => {
+                    let dup = packets[n].clone();
+                    packets.insert(n, dup); // a duplicate packet
+                }
+                5 => {
+                    // the same packet again, other values: a second Main or FileDesc
+                    packets.push(if rng.below(2) == 0 {
+                        main_packet(1 << (10 + rng.below(8)), &ids[..(rng.below(files as u64) as usize + 1)], files as u32)
+                    } else {
+                        file_desc(ids[rng.below(files as u64) as usize], "dup.bin", 1, rng)
+                    });
+                }
+                6 => {
+                    let len = [0u64, 8, 63, 65, 66, 100, 4096, 1 << 30, 1 << 40][rng.below(9) as usize];
+                    packets[n][8..16].copy_from_slice(&len.to_le_bytes()); // a wrong length
+                }
+                7 => {
+                    // a huge declared length with the header's bytes after it
+                    let mut p = packets[n].clone();
+                    p[8..16].copy_from_slice(&(10 * 1024 * 1024 + 64 + 4 * rng.below(100)).to_le_bytes());
+                    p.truncate(16 + rng.below(80) as usize);
+                    packets.insert(n, p);
+                }
+                _ => {
+                    packets.remove(n);
+                }
+            }
+        }
+        let mut data: Vec<u8> = packets.concat();
+        if rng.below(3) == 0 && !data.is_empty() {
+            data.truncate(rng.below(data.len() as u64 + 1) as usize); // cut short anywhere
+        }
+        if rng.below(4) == 0 {
+            data.splice(0..0, (0..rng.below(20)).map(|_| 0x11u8)); // junk first
+        }
+        data
+    }
+
+    #[test]
+    fn walk_matches_the_crate() {
+        let mut rng = Rng(0x9E3779B97F4A7C15);
+        let (mut ok, mut err) = (0, 0);
+        for round in 0..20000 {
+            let data = random_set(&mut rng);
+            let expected = crate_set(&data);
+            for files in [true, false] {
+                let got = walk(&data, files).0;
+                match (&expected, &got) {
+                    (None, None) => {}
+                    (Some((slice, order, sigs)), Some(w)) => {
+                        assert_eq!((*slice, order), (w.slice_size, &w.file_order), "round {round}");
+                        if files {
+                            let mut mine: Vec<_> = w.files.values().map(|f| (f.name.clone(), f.length, f.md5.clone())).collect();
+                            mine.sort();
+                            assert_eq!(sigs, &mine, "round {round}");
+                        }
+                    }
+                    _ => panic!("round {round}: crate {:?}, walk {:?}", expected.is_some(), got.is_some()),
+                }
+            }
+            if expected.is_some() { ok += 1 } else { err += 1 }
+        }
+        assert!(ok > 3000 && err > 3000, "{ok} sets parsed, {err} didn't");
+    }
+
+    /// par2_set and block_size as they were with rust-par2's parser.
+    fn par2_set_before(data: &[u8]) -> (Vec<FileSig>, bool) {
+        let (mut sigs, complete) = {
+            let mut reader = std::io::Cursor::new(data);
+            match rust_par2::parse_par2_reader(&mut reader, data.len() as u64) {
+                Ok(set) if !set.files.is_empty() => {
+                    let complete = !set.file_order.is_empty() && set.file_order.iter().all(|id| set.files.contains_key(id));
+                    let sigs = set
+                        .files
+                        .values()
+                        .map(|f| FileSig { name: f.filename.clone(), length: f.size, md5: hex(&f.hash) })
+                        .collect();
+                    (sigs, complete)
+                }
+                _ => (scan_file_descs(data), false),
+            }
+        };
+        sigs.sort_by(|a, b| (&a.name, a.length, &a.md5).cmp(&(&b.name, b.length, &b.md5)));
+        (sigs, complete)
+    }
+
+    fn block_size_before(data: &[u8]) -> u64 {
+        let mut reader = std::io::Cursor::new(data);
+        if let Ok(set) = rust_par2::parse_par2_reader(&mut reader, data.len() as u64) {
+            if set.slice_size > 0 {
+                return set.slice_size;
+            }
+        }
+        let mut pos = 0usize;
+        while pos + 72 <= data.len() {
+            if &data[pos..pos + 8] == b"PAR2\0PKT" && &data[pos + 48..pos + 64] == b"PAR 2.0\0Main\0\0\0\0" {
+                return u64::from_le_bytes(data[pos + 64..pos + 72].try_into().unwrap());
+            }
+            pos += 4;
+        }
+        0
+    }
+
+    #[test]
+    fn par2_set_and_block_size_are_as_before() {
+        let mut rng = Rng(0xA0761D6478BD642F);
+        let mut sizes = 0;
+        for round in 0..30000 {
+            let mut data = random_set(&mut rng);
+            if rng.below(6) == 0 {
+                // a packet at a 4-byte offset in the shadow of the first 8 bytes, or past junk
+                let junk = [4usize, 1, 2, 3, 5, 6, 7, 8, 12][rng.below(9) as usize];
+                data.splice(0..0, std::iter::repeat_n(0x22u8, junk));
+            }
+            if rng.below(8) == 0 {
+                data.splice(0..0, std::iter::repeat_n(0u8, 4 * rng.below(40) as usize)); // zeros, as lost articles leave
+            }
+            let (mut sigs, complete) = par2_set(&data);
+            sigs.sort_by(|a, b| (&a.name, a.length, &a.md5).cmp(&(&b.name, b.length, &b.md5)));
+            assert_eq!((sigs, complete), par2_set_before(&data), "par2_set, round {round}");
+            let size = block_size(&data);
+            assert_eq!(size, block_size_before(&data), "block_size, round {round}");
+            if size > 0 {
+                sizes += 1;
+            }
+        }
+        assert!(sizes > 8000, "{sizes} sets with a block size");
+    }
+
+    #[test]
+    fn walk_ends_at_a_length_past_the_data() {
+        // a length that wraps negative ended in a loop in the crate
+        let mut data = main_packet(4096, &[1], 1);
+        let mut bad = b"PAR2\0PKT".to_vec();
+        bad.extend_from_slice(&0xFFFF_FFFF_FFFF_FFC0u64.to_le_bytes());
+        bad.extend_from_slice(&[0u8; 64]);
+        data.extend_from_slice(&bad);
+        data.extend_from_slice(&file_desc(1, "a", 1, &mut Rng(1)));
+        let set = walk(&data, true).0.unwrap();
+        assert_eq!(set.slice_size, 4096);
+        assert!(set.files.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod timing {
+    use super::*;
+    use std::time::Instant;
+
+    fn best(f: impl Fn()) -> f64 {
+        let mut best = f64::MAX;
+        for _ in 0..21 {
+            let t = Instant::now();
+            for _ in 0..200 {
+                f();
+            }
+            best = best.min(t.elapsed().as_secs_f64() / 200.0);
+        }
+        best * 1e9
+    }
+
+    #[test]
+    #[ignore]
+    fn par2_timing() {
+        let dir = "/tmp/claude-1000/perf-a/";
+        for name in ["par2_small.bin", "par2_idx.bin", "par2_vol.bin"] {
+            let data = std::fs::read(format!("{dir}{name}")).unwrap();
+            let walk_files = best(|| drop(std::hint::black_box(walk(&data, true).0)));
+            let walk_main = best(|| drop(std::hint::black_box(walk(&data, false).0)));
+            let set = best(|| drop(std::hint::black_box(par2_set(&data))));
+            let sigs = par2_set(&data).0;
+            let text = best(|| {
+                let t: String = sigs.iter().map(|s| format!("{}\t{}\t{}\n", s.length, s.md5, s.name)).collect();
+                std::hint::black_box(t);
+            });
+            let md5_only = best(|| {
+                use md5::{Digest, Md5};
+                let mut pos = 0;
+                let mut n = 0;
+                while pos + 16 <= data.len() {
+                    let len = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap()) as usize;
+                    if len < 64 || pos + len > data.len() {
+                        break;
+                    }
+                    if &data[pos + 48..pos + 64] == TYPE_FILE_DESC {
+                        std::hint::black_box(Md5::digest(&data[pos + 32..pos + len]));
+                        n += 1;
+                    }
+                    pos += len;
+                }
+                std::hint::black_box(n);
+            });
+            let sigs0 = par2_set(&data).0;
+            if sigs0.len() == 30 {
+                let fp = best(|| drop(std::hint::black_box(fingerprint(&sigs0))));
+                let text: String = sigs0.iter().map(|s| format!("{}\t{}\n", s.length, s.md5)).collect();
+                let parse = best(|| {
+                    let files = text.lines().filter_map(|line| {
+                        let mut parts = line.splitn(3, '\t');
+                        let length: u64 = parts.next()?.parse().ok()?;
+                        Some((parts.next()?, length))
+                    });
+                    std::hint::black_box(files.count());
+                });
+                eprintln!("fingerprint of 30: {fp:.0} ns, parsing its lines: {parse:.0} ns");
+            }
+            eprintln!("md5 of the FileDesc packets: {md5_only:.0} ns");
+            eprintln!("{name}: walk(files) {walk_files:.0} ns, walk(main) {walk_main:.0} ns, par2_set {set:.0} ns, text {text:.0} ns");
+        }
     }
 }

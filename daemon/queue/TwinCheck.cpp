@@ -72,21 +72,32 @@ bool OpenStore()
 
 std::vector<TwinCheck::FileSig> SigLines(const std::string& text)
 {
+	// "length\tmd5\tname" lines
 	std::vector<TwinCheck::FileSig> sigs;
-	std::istringstream lines(text);
-	std::string line;
-	while (std::getline(lines, line))
+	const char* p = text.c_str();
+	const char* end = p + text.size();
+	while (p < end)
 	{
-		size_t a = line.find('\t'), b = line.find('\t', a + 1);
-		if (a == std::string::npos || b == std::string::npos)
+		const char* eol = (const char*)memchr(p, '\n', end - p);
+		const char* lineEnd = eol ? eol : end;
+		const char* a = (const char*)memchr(p, '\t', lineEnd - p);
+		const char* b = a ? (const char*)memchr(a + 1, '\t', lineEnd - a - 1) : nullptr;
+		if (a && b)
 		{
-			continue;
+			TwinCheck::FileSig sig;
+			char* numberEnd;
+			sig.length = strtoull(p, &numberEnd, 10);
+			// getline used to terminate a whitespace-only line before the next
+			// line's number. strtoull can otherwise skip across that newline.
+			if (numberEnd > lineEnd)
+			{
+				sig.length = 0;
+			}
+			sig.md5.assign(a + 1, b);
+			sig.name.assign(b + 1, lineEnd);
+			sigs.push_back(std::move(sig));
 		}
-		TwinCheck::FileSig sig;
-		sig.length = strtoull(line.c_str(), nullptr, 10);
-		sig.md5 = line.substr(a + 1, b - a - 1);
-		sig.name = line.substr(b + 1);
-		sigs.push_back(std::move(sig));
+		p = lineEnd + 1;
 	}
 	return sigs;
 }
@@ -474,12 +485,17 @@ std::string TwinCheck::MatchByContent(int ownId, const char* ownPrint, const cha
 
 std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
 {
-	std::string lines;
+	// the md5 texts and lengths: the names aren't part of it
+	std::vector<const char*> md5s;
+	std::vector<unsigned long long> lengths;
+	md5s.reserve(sigs.size());
+	lengths.reserve(sigs.size());
 	for (const FileSig& sig : sigs)
 	{
-		lines += std::to_string(sig.length) + "\t" + sig.md5 + "\t" + sig.name + "\n";
+		md5s.push_back(sig.md5.c_str());
+		lengths.push_back(sig.length);
 	}
-	return RsString(nzbget_rs_twin_fingerprint(lines.c_str()));
+	return RsString(nzbget_rs_twin_fingerprint(md5s.data(), lengths.data(), sigs.size()));
 }
 #else
 // Without the Rust parts the twin check (labels, content matching) doesn't run,

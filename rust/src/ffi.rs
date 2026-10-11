@@ -42,10 +42,26 @@ pub unsafe extern "C" fn nzbget_rs_xml_encode(raw: *const c_char) -> RsBuf {
 // ---- twins and alts (twin.rs); lists cross the ABI as text lines ----
 
 fn sigs_text(sigs: &[crate::twin::FileSig]) -> Vec<u8> {
-    let mut v = Vec::new();
+    let mut v = Vec::with_capacity(sigs.iter().map(|s| s.name.len() + s.md5.len() + 24).sum());
     for s in sigs {
-        let name = s.name.replace(['\n', '\t', '\r'], "_");
-        v.extend_from_slice(format!("{}\t{}\t{}\n", s.length, s.md5, name).as_bytes());
+        let mut digits = [0u8; 20];
+        let mut at = digits.len();
+        let mut rest = s.length;
+        loop {
+            at -= 1;
+            digits[at] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        v.extend_from_slice(&digits[at..]);
+        v.push(b'\t');
+        v.extend_from_slice(s.md5.as_bytes());
+        v.push(b'\t');
+        // the line's own separators in a name are made "_" (in UTF-8 text, byte by byte)
+        v.extend(s.name.bytes().map(|b| if matches!(b, b'\n' | b'\t' | b'\r') { b'_' } else { b }));
+        v.push(b'\n');
     }
     v
 }
@@ -158,26 +174,20 @@ pub unsafe extern "C" fn nzbget_rs_twin_par2_sigs(data: *const u8, len: usize) -
     into_buf(sigs_text(&crate::twin::par2_sigs(bytes_arg(data, len))))
 }
 
-fn parse_sigs_text(text: &[u8]) -> Vec<crate::twin::FileSig> {
-    String::from_utf8_lossy(text)
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            let length = parts.next()?.parse().ok()?;
-            let md5 = parts.next()?.to_string();
-            let name = parts.next()?.to_string();
-            Some(crate::twin::FileSig { name, length, md5 })
-        })
-        .collect()
-}
-
-/// The fingerprint of a file list given as "length\tmd5\tname" lines.
+/// The fingerprint of `count` files given as md5 texts and lengths (the
+/// names are not part of it).
 ///
 /// # Safety
-/// `lines` is null or a valid NUL-terminated string.
+/// `md5s` points to `count` valid NUL-terminated strings (null entries are
+/// empty) and `lengths` to `count` values; both may be null for 0.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_twin_fingerprint(lines: *const c_char) -> RsBuf {
-    into_buf(crate::twin::fingerprint(&parse_sigs_text(input(lines))).into_bytes())
+pub unsafe extern "C" fn nzbget_rs_twin_fingerprint(md5s: *const *const c_char, lengths: *const u64, count: usize)
+    -> RsBuf {
+    if count > 0 && (md5s.is_null() || lengths.is_null()) {
+        return into_buf(Vec::new());
+    }
+    let files = (0..count).map(|i| (String::from_utf8_lossy(input(*md5s.add(i))), *lengths.add(i)));
+    into_buf(crate::twin::fingerprint_cow(files).into_bytes())
 }
 
 /// The block size of the par2 set in the data, 0 if none.
@@ -195,7 +205,7 @@ pub unsafe extern "C" fn nzbget_rs_par2_block_size(data: *const u8, len: usize) 
 /// `filename` is null or a valid NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_par2_volume_blocks(filename: *const c_char) -> i32 {
-    crate::twin::volume_blocks(&str_arg(filename)).map_or(-1, |b| i32::try_from(b).unwrap_or(i32::MAX))
+    crate::twin::volume_blocks_bytes(input(filename)).map_or(-1, |b| i32::try_from(b).unwrap_or(i32::MAX))
 }
 
 /// The label of download `dupe` against `primary` (each by id and fingerprint):
@@ -4239,6 +4249,23 @@ pub unsafe extern "C" fn nzbget_rs_binrpc_entry(buf: *mut BinBuf, ints: *const u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn twin_fingerprint_takes_arrays() {
+        unsafe {
+            let md5s = [b"abc\0".as_ptr().cast(), std::ptr::null(), b"abc\0".as_ptr().cast()];
+            let lengths = [1u64, 7, 1];
+            let result = nzbget_rs_twin_fingerprint(md5s.as_ptr(), lengths.as_ptr(), 3);
+            let expected = crate::twin::fingerprint_of([("abc", 1), ("", 7)].into_iter());
+            assert_eq!(input(result.data), expected.as_bytes()); // the repeated one counts once
+            nzbget_rs_free(result);
+            for (m, l, n) in [(std::ptr::null(), std::ptr::null(), 0), (std::ptr::null(), lengths.as_ptr(), 1)] {
+                let empty = nzbget_rs_twin_fingerprint(m, l, n);
+                assert_eq!(input(empty.data), b"");
+                nzbget_rs_free(empty);
+            }
+        }
+    }
 
     #[test]
     fn fsdelete_null_ops_initialize_outputs() {
