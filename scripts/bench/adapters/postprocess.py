@@ -352,6 +352,15 @@ def adapt(kind, paths, manifest, metadata_paths=(), manifest_source=None):
             "qualification": qualification, "adapter-evidence": evidence, "_report": report}
 
 
+def filesystem_root(anchor):
+    # POSIX permits implementation-defined '//'. Collapse only when the actual
+    # filesystem reports the same root identity; never reinterpret Windows UNC
+    # anchors. Compare before traversed-entry containment, including targets.
+    if os.name == "posix" and anchor == "//" and os.path.samefile("/", "//"):
+        return "/"
+    return anchor
+
+
 def bounded_path(path, budget, cache):
     """Return the canonical path and traversed entries without resolve().
 
@@ -363,7 +372,7 @@ def bounded_path(path, budget, cache):
     if absolute in cache:
         return cache[absolute]
     pending = deque(absolute.parts[1:])
-    current = Path(absolute.anchor)
+    current = Path(filesystem_root(absolute.anchor))
     entries = []
     while pending:
         budget["components"] += 1
@@ -384,7 +393,7 @@ def bounded_path(path, budget, cache):
             target = Path(os.readlink(entry))
             parts = target.parts
             if target.is_absolute():
-                current = Path(target.anchor)
+                current = Path(filesystem_root(target.anchor))
                 parts = parts[1:]
             pending.extendleft(reversed(parts))
         else:
