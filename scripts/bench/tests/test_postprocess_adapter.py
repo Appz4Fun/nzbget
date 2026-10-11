@@ -381,6 +381,57 @@ class PostprocessAdapterTests(unittest.TestCase):
                 self.assertEqual(original.read_text(), ARTICLE)
                 self.assertFalse(self.output.exists())
 
+    @unittest.skipUnless(os.name == "posix", "POSIX double-slash root identity")
+    def test_equivalent_double_slash_roots_preserve_dangling_input_entries(self):
+        if not os.path.samefile("/", "//"):
+            self.skipTest("filesystem distinguishes the POSIX double-slash root")
+        for input_kind in ("source", "manifest", "metadata"):
+            for link_kind in ("leaf", "parent", "outer-leaf", "outer-parent"):
+                with self.subTest(input_kind=input_kind, link_kind=link_kind):
+                    case = self.root / f"double-root-{input_kind}-{link_kind}"
+                    case.mkdir()
+                    output = case / "out"
+                    output.mkdir()
+                    entry = output / "summary.json"
+                    parent_link = link_kind.endswith("parent")
+                    entry.symlink_to(Path("../missing-source"), target_is_directory=parent_link)
+                    original = entry / "input" if parent_link else entry
+                    double = Path("//" + str(original).lstrip("/"))
+                    exposed = double
+                    if link_kind.startswith("outer"):
+                        exposed = case / "outer"
+                        exposed.symlink_to(double)
+                    source = exposed if input_kind == "source" else case / "source.csv"
+                    manifest = exposed if input_kind == "manifest" else case / "manifest.json"
+                    if input_kind != "source":
+                        source.write_text(ARTICLE)
+                    if input_kind != "manifest":
+                        manifest.write_text('{"historical":true}')
+                    command = [sys.executable, str(ADAPTER), "--format", "article-crc",
+                               "--source", str(source), "--manifest", str(manifest), "--output-dir", str(output)]
+                    if input_kind == "metadata":
+                        command += ["--metadata", str(exposed)]
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(entry.is_symlink(), "equivalent root spelling must not hide an immutable input")
+                    self.assertEqual(entry.readlink(), Path("../missing-source"))
+                    if link_kind.startswith("outer"):
+                        self.assertTrue(exposed.is_symlink())
+
+    def test_root_canonicalization_requires_posix_filesystem_equivalence(self):
+        spec = importlib.util.spec_from_file_location("postprocess_root_fixture", ADAPTER)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        with patch.object(adapter.os, "name", "posix"):
+            with patch.object(adapter.os.path, "samefile", return_value=True):
+                self.assertEqual(adapter.filesystem_root("//"), "/")
+            with patch.object(adapter.os.path, "samefile", return_value=False):
+                self.assertEqual(adapter.filesystem_root("//"), "//")
+        with patch.object(adapter.os, "name", "nt"):
+            with patch.object(adapter.os.path, "samefile", side_effect=AssertionError("UNC root comparison")):
+                self.assertEqual(adapter.filesystem_root("//server/share/"), "//server/share/")
+                self.assertEqual(adapter.filesystem_root("//"), "//")
+
     def test_valid_reimport_rejects_reuse_without_losing_raw_archive(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
         archived = (self.output / "adapter-evidence.json").read_bytes()
