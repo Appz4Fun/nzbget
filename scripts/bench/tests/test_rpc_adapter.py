@@ -24,6 +24,7 @@ def manifest():
             "id": "rpc/log-10", "sha256": "c" * 64,
             "scope": "complete_caller", "caller": "LogBinCommand::Execute",
             "required_variants": ["cpp_current", "rust_current", "rust_candidate"],
+            "rust_preservation_applicability": "required",
         }],
         "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
     }
@@ -364,6 +365,52 @@ class RpcAdapterTests(unittest.TestCase):
             self.assertEqual(run.returncode, 2)
             self.assertTrue(ancestor.is_symlink(), "dangling input ancestor was deleted")
             self.assertIn("collision", run.stderr)
+
+    def test_outer_symlink_targets_preserve_owned_intermediate_links(self):
+        for argument in ("manifest", "source"):
+            for route in ("direct", "dotdot_to_sibling"):
+                with self.subTest(argument=argument, route=route), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    output = root / "out"
+                    output.mkdir()
+                    real = root / "real"
+                    real.mkdir()
+                    sibling = root / "sibling"
+                    sibling.mkdir()
+                    real_input = real / "input.json"
+                    sibling_input = sibling / "input.json"
+                    for path in (real_input, sibling_input):
+                        path.write_text('{"malformed":')
+                    intermediate = output / "manifest.json"
+                    intermediate.symlink_to(real, target_is_directory=True)
+                    target = intermediate / "input.json"
+                    if route == "dotdot_to_sibling":
+                        # The final input is outside the intermediate link's
+                        # resolved target. Target-parent containment alone
+                        # cannot detect this traversed input link.
+                        target = intermediate / ".." / "sibling/input.json"
+                    outer = root / "outer"
+                    outer.symlink_to(target)
+                    proof = root / "proof.json"
+                    proof.write_text('{"historical":true}')
+                    source = root / "source.samples"
+                    source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    marker = output / "adapter-status.json"
+                    marker.write_text('{"adapter":"rpc","status":"READY"}')
+                    inputs = {"manifest": proof, "source": source}
+                    inputs[argument] = outer
+                    run = subprocess.run([sys.executable, str(ADAPTER),
+                                          "--manifest", str(inputs["manifest"]),
+                                          "--source", str(inputs["source"]),
+                                          "--output-dir", str(output)], capture_output=True, text=True, timeout=1)
+                    self.assertEqual(run.returncode, 2)
+                    self.assertTrue(intermediate.is_symlink(), "traversed symlink target ancestor was deleted")
+                    self.assertTrue(outer.is_symlink())
+                    self.assertTrue(outer.exists(), "input pathname was broken by deleting its intermediate target")
+                    self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+                    self.assertEqual(real_input.read_text(), '{"malformed":')
+                    self.assertEqual(sibling_input.read_text(), '{"malformed":')
+                    self.assertIn("collision", run.stderr)
 
     def test_invalid_deep_json_clears_status_even_with_damaged_export(self):
         with tempfile.TemporaryDirectory() as directory:
