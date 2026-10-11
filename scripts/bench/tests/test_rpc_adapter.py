@@ -3,7 +3,7 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import stat
 import sys
@@ -568,6 +568,48 @@ class RpcAdapterTests(unittest.TestCase):
                     self.assertTrue(all(link.is_symlink() for link in links))
                     self.assertEqual(leaf.read_text(), '{"malformed":')
                     self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+
+    def test_equivalent_double_slash_inputs_survive_alias_rejection(self):
+        for argument in ("manifest", "source"):
+            for kind in ("dangling_leaf", "dangling_parent", "directory_parent"):
+                with self.subTest(argument=argument, kind=kind), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    output = root / "out"
+                    output.mkdir()
+                    proof = root / "proof.json"
+                    proof.write_text('{"historical":true}')
+                    source = root / "source.samples"
+                    source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    link = output / "manifest.json"
+                    selected = link
+                    if kind == "dangling_leaf":
+                        link.symlink_to("../missing-input")
+                    elif kind == "dangling_parent":
+                        link.symlink_to("../missing-directory", target_is_directory=True)
+                        selected = link / "input.json"
+                    else:
+                        real = root / "real"
+                        real.mkdir()
+                        (real / "input.json").write_text('{"malformed":')
+                        link.symlink_to("../real", target_is_directory=True)
+                        selected = link / "input.json"
+                    marker = output / "adapter-status.json"
+                    marker.write_text('{"adapter":"rpc","status":"READY"}')
+                    inputs = {"manifest": str(proof), "source": str(source)}
+                    inputs[argument] = "//" + str(selected).lstrip("/")
+                    run = subprocess.run([sys.executable, str(ADAPTER),
+                                          "--manifest", inputs["manifest"], "--source", inputs["source"],
+                                          "--output-dir", str(output)], capture_output=True, text=True, timeout=1)
+                    self.assertEqual(run.returncode, 2)
+                    self.assertTrue(link.is_symlink(), "equivalent // input link was deleted")
+                    self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+                    self.assertIn("collision", run.stderr)
+
+    def test_windows_unc_anchor_is_not_posix_double_slash(self):
+        self.assertTrue(self.available, "RPC adapter has not been implemented")
+        unc = PureWindowsPath("//server/share/input.json")
+        self.assertTrue(hasattr(self.adapter, "canonical_root_identity"), "root identity normalization is missing")
+        self.assertIs(self.adapter.canonical_root_identity(unc), unc)
 
 
 if __name__ == "__main__":
