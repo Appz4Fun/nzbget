@@ -239,6 +239,73 @@ class RpcAdapterTests(unittest.TestCase):
             self.assertIn("alias collision", run.stderr)
             self.assertEqual(source.read_bytes(), jsonl(samples()))
 
+    def test_dangling_input_symlinks_inside_output_survive_rejection(self):
+        for argument in ("manifest", "source"):
+            with self.subTest(argument=argument), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = root / "proof.json"
+                source = root / "source.samples"
+                output = root / "out"
+                output.mkdir()
+                proof.write_text('{"historical":true}')
+                source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                marker = output / "adapter-status.json"
+                marker.write_text('{"adapter":"rpc","status":"READY"}')
+                dangling = output / "manifest.json"
+                dangling.symlink_to(root / "missing-external-input")
+                inputs = {"manifest": proof, "source": source}
+                inputs[argument] = dangling
+                run = subprocess.run([sys.executable, str(ADAPTER),
+                                      "--manifest", str(inputs["manifest"]),
+                                      "--source", str(inputs["source"]),
+                                      "--output-dir", str(output)], capture_output=True, text=True)
+                self.assertEqual(run.returncode, 2)
+                self.assertTrue(dangling.is_symlink(), "input symlink was deleted by rejection cleanup")
+                self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+                self.assertIn("collision", run.stderr)
+
+    def test_dangling_output_alias_to_external_input_survives_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proof = root / "proof.json"
+            source = root / "source.samples"
+            output = root / "out"
+            output.mkdir()
+            proof.write_text('{"historical":true}')
+            source.symlink_to(root / "missing-external-input")
+            artifact = output / "manifest.json"
+            artifact.symlink_to(root / "missing-external-input")
+            marker = output / "adapter-status.json"
+            marker.write_text('{"adapter":"rpc","status":"READY"}')
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(proof),
+                                  "--source", str(source), "--output-dir", str(output)],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 2)
+            self.assertTrue(source.is_symlink())
+            self.assertTrue(artifact.is_symlink(), "aliased artifact was deleted by rejection cleanup")
+            self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
+            self.assertIn("alias collision", run.stderr)
+
+    def test_unrelated_dangling_artifact_still_allows_invalid_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proof = root / "proof.json"
+            source = root / "source.jsonl"
+            output = root / "out"
+            output.mkdir()
+            proof.write_text(json.dumps(manifest()))
+            source.write_text('{"case":"rpc/log-10"}\n')
+            artifact = output / "manifest.json"
+            artifact.symlink_to(root / "unrelated-missing-file")
+            marker = output / "adapter-status.json"
+            marker.write_text('{"adapter":"rpc","status":"READY"}')
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(proof),
+                                  "--source", str(source), "--output-dir", str(output)],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 2)
+            self.assertFalse(marker.exists(), "unrelated dangling output bypassed invalid-proof cleanup")
+            self.assertEqual(source.read_text(), '{"case":"rpc/log-10"}\n')
+
     def test_invalid_deep_json_clears_status_even_with_damaged_export(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
