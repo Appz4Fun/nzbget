@@ -1217,6 +1217,11 @@ bool FileSystem::IsLink(const char* filename)
 /* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
 bool FileSystem::DeleteDirectory(const char* dirFilename)
 {
+	if (!dirFilename)
+	{
+		errno = EFAULT;
+		return false;
+	}
 	// rust/src/fsdelete.rs
 	RsFsOps ops;
 	return ops.Finish(nzbget_rs_delete_directory(&ops.ops, dirFilename, PATH_SEPARATOR)) == 1;
@@ -1256,18 +1261,48 @@ namespace
 // and the paths below them longer than the path buffers are refused, never cut.
 constexpr size_t MaxDeletePath = 1023;
 
+bool DeleteSeparator(char c)
+{
+#ifdef WIN32
+	return c == PATH_SEPARATOR || c == ALT_PATH_SEPARATOR;
+#else
+	return c == PATH_SEPARATOR;
+#endif
+}
+
 std::string DeleteRoot(const char* dirFilename)
 {
 	std::string root = dirFilename;
+	size_t minimum = 1;
+#ifdef WIN32
+	// Preserve rooted drive paths, including extended drive and volume roots.
+	if (root.size() >= 3 && root[1] == ':' && DeleteSeparator(root[2]))
+	{
+		minimum = 3;
+	}
+	else if (root.size() >= 2 && DeleteSeparator(root[0]) && DeleteSeparator(root[1]))
+	{
+		minimum = 2;
+		if (root.size() >= 4 && (root[2] == '?' || root[2] == '.') && DeleteSeparator(root[3]))
+		{
+			size_t end = root.find_first_of("\\/", 4);
+			if (end != std::string::npos &&
+				(root[end - 1] == ':' || root.compare(4, 7, "Volume{") == 0))
+			{
+				minimum = end + 1;
+			}
+		}
+	}
+#endif
 	for (;;)
 	{
-		if (root.size() > 1 && root.back() == PATH_SEPARATOR)
+		if (root.size() > minimum && DeleteSeparator(root.back()))
 		{
 			root.pop_back();
 		}
-		else if (root.size() > 2 && root[root.size() - 2] == PATH_SEPARATOR && root.back() == '.')
+		else if (root.size() > minimum && root.size() >= 2 && DeleteSeparator(root[root.size() - 2]) && root.back() == '.')
 		{
-			root.resize(root.size() - 2);
+			root.pop_back();
 		}
 		else
 		{
@@ -1278,23 +1313,42 @@ std::string DeleteRoot(const char* dirFilename)
 
 bool DeletePathFits(const char* dirFilename, const char* filename)
 {
-	return strlen(dirFilename) + 1 + strlen(filename) <= MaxDeletePath;
-}
+	size_t dirLength = strlen(dirFilename);
+	return dirLength < MaxDeletePath && strlen(filename) <= MaxDeletePath - dirLength - 1;
 }
 
-/* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
-bool FileSystem::DeleteDirectory(const char* givenDirFilename)
+// strerror_r returns either a status or the message, depending on the libc.
+[[maybe_unused]] const char* DeleteErrorText(int, const char* buffer)
 {
-	// a NULL root is passed on as before (the calls fail with EFAULT)
-	std::string root = givenDirFilename ? DeleteRoot(givenDirFilename) : std::string();
-	const char* dirFilename = givenDirFilename ? root.c_str() : nullptr;
+	return buffer;
+}
+
+[[maybe_unused]] const char* DeleteErrorText(char* message, const char*)
+{
+	return message;
+}
+
+CString DeleteLengthError()
+{
+	BString<1024> message;
+	return DeleteErrorText(strerror_r(ENAMETOOLONG, message, message.Capacity()), message);
+}
+
+bool DeleteDirectoryWithContentImpl(const char* givenDirFilename, CString& errmsg, bool& tooLong);
+
+/* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
+bool DeleteDirectoryImpl(const char* givenDirFilename, bool& tooLong)
+{
+	std::string root = DeleteRoot(givenDirFilename);
+	const char* dirFilename = root.c_str();
 	if (root.size() > MaxDeletePath)
 	{
+		tooLong = true;
 		errno = ENAMETOOLONG;
 		return false;
 	}
 
-	if (RemoveDirectory(dirFilename))
+	if (FileSystem::RemoveDirectory(dirFilename))
 	{
 		return true;
 	}
@@ -1313,6 +1367,7 @@ bool FileSystem::DeleteDirectory(const char* givenDirFilename)
 		{
 			if (!DeletePathFits(dirFilename, filename))
 			{
+				tooLong = true;
 				errno = ENAMETOOLONG;
 			}
 			else
@@ -1322,7 +1377,7 @@ bool FileSystem::DeleteDirectory(const char* givenDirFilename)
 				// Recursivly remove empty folder, useful in case of abort with direct rename and hardlinking
 				// lstat: a link to a folder elsewhere (from an archive) was followed and
 				// that folder's empty subfolders and hidden files deleted
-				if (GetPathTypeNoFollow(fullFilename) == PathType::Directory && DeleteDirectory(fullFilename))
+				if (GetPathTypeNoFollow(fullFilename) == PathType::Directory && DeleteDirectoryImpl(fullFilename, tooLong))
 				{
 					continue;
 				}
@@ -1331,31 +1386,31 @@ bool FileSystem::DeleteDirectory(const char* givenDirFilename)
 			if (*filename != '.')
 			{
 				// calling RemoveDirectory to set correct errno
-				return RemoveDirectory(dirFilename);
+				return FileSystem::RemoveDirectory(dirFilename);
 			}
 		}
 	} // make sure "DirBrowser dir" is destroyed (and has closed its handle) before we trying to delete the directory
 
 	CString errmsg;
-	if (!DeleteDirectoryWithContent(dirFilename, errmsg))
+	if (!DeleteDirectoryWithContentImpl(dirFilename, errmsg, tooLong))
 	{
 		// calling RemoveDirectory to set correct errno
-		return RemoveDirectory(dirFilename);
+		return FileSystem::RemoveDirectory(dirFilename);
 	}
 
 	return true;
 }
 
-bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CString& errmsg)
+bool DeleteDirectoryWithContentImpl(const char* givenDirFilename, CString& errmsg, bool& tooLong)
 {
 	errmsg.Clear();
-	// a NULL root is passed on as before (the calls fail with EFAULT)
-	std::string root = givenDirFilename ? DeleteRoot(givenDirFilename) : std::string();
-	const char* dirFilename = givenDirFilename ? root.c_str() : nullptr;
+	std::string root = DeleteRoot(givenDirFilename);
+	const char* dirFilename = root.c_str();
 	if (root.size() > MaxDeletePath)
 	{
+		tooLong = true;
 		errno = ENAMETOOLONG;
-		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *DeleteLengthError());
 		return false;
 	}
 	PathType rootType = GetPathTypeNoFollow(dirFilename);
@@ -1365,12 +1420,12 @@ bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CStrin
 		{
 			return true;
 		}
-		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *FileSystem::GetLastErrorMessage());
 		return false;
 	}
 	if (rootType != PathType::Directory)
 	{
-		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *FileSystem::GetLastErrorMessage());
 		return false;
 	}
 
@@ -1383,11 +1438,12 @@ bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CStrin
 		{
 			if (!DeletePathFits(dirFilename, filename))
 			{
+				tooLong = true;
 				errno = ENAMETOOLONG;
 				ok = false;
 				if (errmsg.Empty())
 				{
-					errmsg.Format("could not delete %s%c%s: %s", dirFilename, PATH_SEPARATOR, filename, *GetLastErrorMessage());
+					errmsg.Format("could not delete %s%c%s: %s", dirFilename, PATH_SEPARATOR, filename, *DeleteLengthError());
 				}
 				continue;
 			}
@@ -1396,7 +1452,15 @@ bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CStrin
 
 			if (pathType == PathType::Directory)
 			{
-				del = DeleteDirectoryWithContent(fullFilename, errmsg);
+				if (tooLong && !errmsg.Empty())
+				{
+					CString nestedError;
+					del = DeleteDirectoryWithContentImpl(fullFilename, nestedError, tooLong);
+				}
+				else
+				{
+					del = DeleteDirectoryWithContentImpl(fullFilename, errmsg, tooLong);
+				}
 			}
 			else if (pathType == PathType::Link || pathType == PathType::DirectoryLink)
 			{
@@ -1404,23 +1468,59 @@ bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CStrin
 			}
 			else
 			{
-				del = pathType == PathType::File && DeleteFile(fullFilename);
+				del = pathType == PathType::File && FileSystem::DeleteFile(fullFilename);
 			}
 			ok &= del;
 			if (!del && errmsg.Empty())
 			{
-				errmsg.Format("could not delete %s: %s", *fullFilename, *GetLastErrorMessage());
+				errmsg.Format("could not delete %s: %s", *fullFilename, *FileSystem::GetLastErrorMessage());
 			}
 		}
 	} // make sure "DirBrowser dir" is destroyed (and has closed its handle) before we trying to delete the directory
 
-	del = RemoveDirectory(dirFilename);
+	del = FileSystem::RemoveDirectory(dirFilename);
 	ok &= del;
 	if (!del && errmsg.Empty())
 	{
-		errmsg = GetLastErrorMessage();
+		errmsg = FileSystem::GetLastErrorMessage();
 	}
 	return ok;
+}
+
+}
+
+bool FileSystem::DeleteDirectory(const char* dirFilename)
+{
+	if (!dirFilename)
+	{
+		errno = EFAULT;
+		return false;
+	}
+	bool tooLong = false;
+	bool result = DeleteDirectoryImpl(dirFilename, tooLong);
+	if (tooLong)
+	{
+		errno = ENAMETOOLONG;
+	}
+	return result && !tooLong;
+}
+
+bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& errmsg)
+{
+	if (!dirFilename)
+	{
+		errmsg.Clear();
+		errno = EFAULT;
+		errmsg.Format("could not delete (null): %s", *GetLastErrorMessage());
+		return false;
+	}
+	bool tooLong = false;
+	bool result = DeleteDirectoryWithContentImpl(dirFilename, errmsg, tooLong);
+	if (tooLong)
+	{
+		errno = ENAMETOOLONG;
+	}
+	return result && !tooLong;
 }
 
 #endif

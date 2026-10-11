@@ -36,6 +36,9 @@ def region(src, start, end_marker):
 
 old_region = region(old_src, "std::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
 new_region = region(new_src, "#ifdef NZBGET_USE_RUST\nstd::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
+win_roots = new_src[new_src.index("bool DeleteSeparator("):new_src.index("bool DeletePathFits(")]
+win_roots = win_roots.replace("#ifdef WIN32", "#if 1").replace("ALT_PATH_SEPARATOR", "'/'").replace("PATH_SEPARATOR", "'\\\\'")
+
 fallback_region = new_region.replace("#if defined(NZBGET_USE_RUST) && !defined(WIN32)", "#if 0").replace(
     "#ifdef NZBGET_USE_RUST\nstd::optional", "#if 0\nstd::optional")
 
@@ -91,7 +94,7 @@ main = r'''
 #include <sys/statvfs.h>
 #include <unistd.h>
 #include <vector>
-''' + globals_block + impl("oldimpl", old_region) + impl("newimpl", new_region) + impl("fallbackimpl", fallback_region) + r'''
+''' + globals_block + impl("oldimpl", old_region) + impl("newimpl", new_region) + impl("fallbackimpl", fallback_region) + "namespace winroots {\n" + win_roots + "}\n" + r'''
 namespace stdfs = std::filesystem;
 
 // where an exception that escapes a comparison came from
@@ -392,7 +395,7 @@ template <class FS> static std::string BackupLinks(const stdfs::path& box, int v
 // a link) and roots at the path buffers' limit next to a folder that shares
 // their leading part: the Rust branch and the fallback agree, and nothing but
 // the root's own content changes.
-template <class FS> static std::string Roots(const stdfs::path& box, int variant, std::string& kept)
+template <class FS> static std::string Roots(const stdfs::path& box, int variant, std::string& kept, bool content)
 {
 	Clean(box);
 	stdfs::create_directories(box / "outside" / "inner");
@@ -424,7 +427,8 @@ template <class FS> static std::string Roots(const stdfs::path& box, int variant
 	kept = Snapshot(box / "outside");
 	CString output = "previous";
 	errno = 1234;
-	bool ok = variant % 2 ? FS::DeleteDirectory(path.c_str()) : FS::DeleteDirectoryWithContent(path.c_str(), output);
+	bool ok = content ? FS::DeleteDirectoryWithContent(path.c_str(), output) : FS::DeleteDirectory(path.c_str());
+	if (variant < 12 && ok != content) throw std::runtime_error("root spelling result");
 	int saved = errno;
 	std::string result = std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n";
 	if (Snapshot(box / "outside") != kept)
@@ -433,6 +437,64 @@ template <class FS> static std::string Roots(const stdfs::path& box, int variant
 		exit(1);
 	}
 	return result + Snapshot(box);
+}
+
+
+template <class FS> static std::string ChildBoundary(const stdfs::path& box, int variant)
+{
+	Clean(box);
+	bool content = variant & 1;
+	bool hidden = variant & 2;
+	bool nested = variant & 4;
+	int kind = (variant / 8) % 3;
+	size_t length = 1022 + variant / 24;
+	stdfs::path dir = box;
+	while (dir.string().size() < 1000)
+		dir /= std::string(std::min<size_t>(180, 1000 - dir.string().size() - 1), 'd');
+	stdfs::create_directories(dir);
+	std::string name(length - 1001, 'a');
+	if (hidden) name[0] = '.';
+	stdfs::path child = dir / name;
+	if (kind == 0) std::ofstream(child) << "file";
+	else if (kind == 1) stdfs::create_directory(child);
+	else stdfs::create_symlink("missing", child);
+	stdfs::create_directory(dir / ".short");
+	std::string root = (nested ? dir.parent_path() : dir).string();
+	CString error = "previous";
+	errno = 1234;
+	bool ok = content ? FS::DeleteDirectoryWithContent(root.c_str(), error) : FS::DeleteDirectory(root.c_str());
+	int saved = errno;
+	bool remains = stdfs::exists(stdfs::symlink_status(child));
+	bool expected = length <= 1023 && (content || hidden || kind == 1);
+	if (ok != expected || remains == expected || (length > 1023 && saved != ENAMETOOLONG))
+		throw std::runtime_error("child boundary result " + std::to_string(variant));
+	if (length > 1023 && content && std::string(*error) != "could not delete " + child.string() + ": " + strerror(ENAMETOOLONG))
+		throw std::runtime_error("child boundary message " + std::to_string(variant));
+	return std::to_string(ok) + " [" + (error ? *error : "(null)") + "] errno " + std::to_string(saved) + "\n" + Snapshot(box);
+}
+
+template <class FS> static void RootBoundary(const stdfs::path& box)
+{
+	for (size_t length : {1022, 1023, 1024})
+	for (bool content : {false, true})
+	for (const char* suffix : {"", "/", "//", "/.", "/./", "/././/"})
+	{
+		Clean(box);
+		stdfs::path root = box;
+		while (root.string().size() < length)
+			root /= std::string(std::min<size_t>(180, length - root.string().size() - 1), 'r');
+		stdfs::create_directories(root);
+		std::string path = root.string() + suffix;
+		CString error = "previous";
+		errno = 1234;
+		bool ok = content ? FS::DeleteDirectoryWithContent(path.c_str(), error) : FS::DeleteDirectory(path.c_str());
+		int saved = errno;
+		if (ok != (length <= 1023) || stdfs::exists(root) == ok || (length > 1023 && saved != ENAMETOOLONG))
+			throw std::runtime_error("root boundary result");
+		if (length > 1023 && content && std::string(*error) != "could not delete " + path + ": " + strerror(ENAMETOOLONG))
+			throw std::runtime_error("root boundary message");
+	}
+	Clean(box);
 }
 
 int main(int argc, char** argv)
@@ -475,33 +537,20 @@ int main(int argc, char** argv)
 	}
 	Clean(temp / "backup-links");
 
-	for (int variant = 0; variant < 3; variant++)
+	for (bool content : {false, true})
 	{
-		// The platform's lstat(NULL) behavior is checked only without UBSan:
-		// libc headers may declare its path nonnull. DeleteDirectory(NULL)
-		// is excluded because the legacy opendir(NULL) can crash.
-		if (variant == 2 && argc < 4)
-		{
-			CString error = "previous";
-			errno = 1234;
-			if (newimpl::FileSystem::DeleteDirectoryWithContent(nullptr, error) || errno != EFAULT ||
-				!error || strncmp(*error, "could not delete (null): ", 24))
-			{
-				fprintf(stderr, "NULL delete in Rust branch failed\n");
-				return 1;
-			}
-			continue;
-		}
-		bool content = variant != 0;
-		const char* path = variant == 2 ? nullptr : "";
-		std::string a = EmptyDelete<oldimpl::FileSystem>(content, path);
-		std::string b = EmptyDelete<newimpl::FileSystem>(content, path);
-		std::string c = EmptyDelete<fallbackimpl::FileSystem>(content, path);
-		if (a != b || a != c)
-		{
-			fprintf(stderr, "empty/NULL delete %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
-			return 1;
-		}
+		std::string a = EmptyDelete<oldimpl::FileSystem>(content, "");
+		std::string b = EmptyDelete<newimpl::FileSystem>(content, "");
+		std::string c = EmptyDelete<fallbackimpl::FileSystem>(content, "");
+		if (a != b || a != c) throw std::runtime_error("empty root mismatch");
+		b = EmptyDelete<newimpl::FileSystem>(content, nullptr);
+		c = EmptyDelete<fallbackimpl::FileSystem>(content, nullptr);
+		if (b != c || b.find("0 [") != 0 || b.find("errno " + std::to_string(EFAULT)) == std::string::npos)
+			throw std::runtime_error("NULL root mismatch");
+		if (content && b.find("could not delete (null): ") == std::string::npos)
+			throw std::runtime_error("NULL root message");
+		if (content && argc >= 4 && EmptyDelete<oldimpl::FileSystem>(content, nullptr) != b)
+			throw std::runtime_error("NULL root reference mismatch");
 	}
 
 	// GetFileExtension
@@ -560,11 +609,12 @@ int main(int argc, char** argv)
 	Clean(temp / "null-backup");
 
 	for (int variant = 0; variant < 16; variant++)
+	for (bool content : {false, true})
 	{
 		std::string kept;
 		g_phase = "roots " + std::to_string(variant);
-		std::string b = Roots<newimpl::FileSystem>(temp / "roots", variant, kept);
-		std::string c = Roots<fallbackimpl::FileSystem>(temp / "roots", variant, kept);
+		std::string b = Roots<newimpl::FileSystem>(temp / "roots", variant, kept, content);
+		std::string c = Roots<fallbackimpl::FileSystem>(temp / "roots", variant, kept, content);
 		if (b != c)
 		{
 			fprintf(stderr, "roots %d mismatch\n--- rust:\n%s\n--- fallback:\n%s\n", variant, b.c_str(), c.c_str());
@@ -577,6 +627,27 @@ int main(int argc, char** argv)
 		}
 	}
 	Clean(temp / "roots");
+
+	for (const auto& pair : std::vector<std::pair<std::string, std::string>>{
+		{"C:\\", "C:\\"}, {"C:\\.\\", "C:\\"}, {"C:/./", "C:/"},
+		{"C:\\dir\\.\\", "C:\\dir"}, {"C:/dir/./", "C:/dir"},
+		{"\\\\?\\C:\\.\\", "\\\\?\\C:\\"}, {"\\\\server\\share\\.\\", "\\\\server\\share"},
+		{"\\\\?\\Volume{abc}\\.\\", "\\\\?\\Volume{abc}\\"}, {"/.", "/"}, {"\\.\\", "\\"}})
+		if (winroots::DeleteRoot(pair.first.c_str()) != pair.second)
+			throw std::runtime_error("Windows root spelling");
+	if (fallbackimpl::DeleteRoot("/.") != "/" || fallbackimpl::DeleteRoot("/.//./") != "/")
+		throw std::runtime_error("POSIX root spelling");
+	RootBoundary<newimpl::FileSystem>(temp / "root-boundary");
+	RootBoundary<fallbackimpl::FileSystem>(temp / "root-boundary");
+	for (int variant = 0; variant < 72; variant++)
+	{
+		std::string b = ChildBoundary<newimpl::FileSystem>(temp / "child-boundary", variant);
+		std::string c = ChildBoundary<fallbackimpl::FileSystem>(temp / "child-boundary", variant);
+		if (b != c) throw std::runtime_error("child boundary mismatch " + std::to_string(variant));
+		if (variant < 48 && ChildBoundary<oldimpl::FileSystem>(temp / "child-boundary", variant) != b)
+			throw std::runtime_error("child boundary reference mismatch " + std::to_string(variant));
+	}
+	Clean(temp / "child-boundary");
 
 	long counts[3] = {0, 0, 0};
 	unsigned long long seed = 88172645463325252ull;

@@ -3625,6 +3625,40 @@ mod tests {
     }
 
     #[test]
+    fn fsdelete_long_callback_and_abort() {
+        unsafe extern "C" fn too_long(ctx: *mut std::ffi::c_void) -> c_int {
+            let calls = &mut *ctx.cast::<i32>();
+            *calls += 1;
+            if *calls < 0 { -1 } else { 0 }
+        }
+        let mut calls = 0;
+        let ops = FsOps {
+            ctx: (&mut calls as *mut i32).cast(), path_type: None, remove_dir: None,
+            delete_file: None, delete_link: None, list: None, file_exists: None,
+            dir_exists: None, move_file: None, last_error: None, too_long: Some(too_long),
+        };
+        let path = nul(&vec![b'a'; 1024]);
+        unsafe {
+            let mut error = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, path.as_ptr().cast(), b'/' as c_char, error.as_mut_ptr()), 0);
+            let error = error.assume_init();
+            assert_eq!(input(error.data), [&b"could not delete "[..], &path[..1024], b": "].concat());
+            assert!(calls > 0);
+            nzbget_rs_free(error);
+            calls = -2;
+            assert_eq!(nzbget_rs_delete_directory(&ops, path.as_ptr().cast(), b'/' as c_char), -1);
+            assert_eq!(calls, -1);
+            calls = -2;
+            let mut aborted = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, path.as_ptr().cast(), b'/' as c_char, aborted.as_mut_ptr()), -1);
+            let aborted = aborted.assume_init();
+            assert_eq!(calls, -1);
+            assert_eq!(aborted.len, 0);
+            nzbget_rs_free(aborted);
+        }
+    }
+
+    #[test]
     fn fsdelete_borrowed_buffers_and_callback_abort() {
         use std::ptr::{null, null_mut};
         struct State { calls: Vec<Vec<u8>>, abort: bool }
