@@ -537,6 +537,16 @@ typedef struct NzbgetRsCmdlineSink
 } NzbgetRsCmdlineSink;
 int nzbget_rs_cmdline_parse(int argc, char** argv, int useLong, const NzbgetRsCmdlineSink* sink);
 
+// FileSystem's file operations (rust/src/fsops.rs, POSIX). error_message:
+// the text of an errno value into a 1024-byte buffer. force_directories: 1, or
+// 0 with *errmsg. The buffers returned are freed with nzbget_rs_free.
+void nzbget_rs_error_message(int errnum, char* buf);
+int nzbget_rs_file_exists(const char* path);
+int nzbget_rs_directory_exists(const char* path);
+int nzbget_rs_force_directories(const char* path, NzbgetRsBuf* errmsg);
+NzbgetRsBuf nzbget_rs_make_unique_filename(const char* dir, const char* basename);
+NzbgetRsBuf nzbget_rs_expand_home_path(const char* filename, const char* home);
+
 #ifdef __cplusplus
 }
 #endif

@@ -11,6 +11,8 @@ pub mod escape;
 pub mod extload;
 pub mod feedfilter;
 pub mod filetypes;
+#[cfg(unix)]
+pub mod fsops;
 pub mod nntp;
 pub mod options;
 pub mod paths;
