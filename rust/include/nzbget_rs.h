@@ -996,6 +996,39 @@ int nzbget_rs_binrpc_log_line(uint32_t kind, const char* text, NzbgetRsBuf* line
 NzbgetRsBuf nzbget_rs_binrpc_post_queue_line(uint32_t id, uint32_t stage, uint32_t progress, const char* infoName);
 int nzbget_rs_binrpc_history_line(uint32_t id, uint32_t kind, const char* nicename, uint32_t fileCount, uint32_t sizeHi,
 	uint32_t sizeLo, uint32_t parStatus, uint32_t scriptStatus, uint32_t urlStatus, NzbgetRsBuf* line);
+// NzbFile (rust/src/nzbfile.rs), under the C library's ctype: classes are
+// isspace/isdigit's classes of bytes 0..255 (masks space and digit), lower
+// is tolower's table of -128..255 at index 0, charSigned whether char is
+// signed (glibc's __ctype_b_loc/__ctype_tolower_loc tables fit). file_totals:
+// a file's count segments (parts and sizes in the nzb's order) as AddFileInfo
+// makes them: 1 with the kept segments' indexes in part order (of two with
+// one number the later) in order[0..totals->kept], the subject's declared
+// tail counted when the nzb plainly stops short (cutShort), and the sizes;
+// 0 (outputs untouched) when no segment is left. duplicate_filenames:
+// HasDuplicateFilenames over count names and subjects (NULL entries empty).
+// declared_parts: DeclaredParts, the "(1/N)" count ending a subject or 0.
+typedef struct
+{
+	const unsigned short* classes;
+	unsigned short space;
+	unsigned short digit;
+	const int* lower;
+	int charSigned;
+} NzbgetRsCtype;
+typedef struct
+{
+	size_t kept;
+	int totalArticles;
+	int missedArticles;
+	int64_t size;
+	int64_t remainingSize;
+	int64_t missedSize;
+	int cutShort;
+} NzbgetRsFileTotals;
+int nzbget_rs_nzb_file_totals(const char* subject, const int* parts, const int64_t* sizes, size_t count,
+	const NzbgetRsCtype* ct, size_t* order, NzbgetRsFileTotals* totals);
+int nzbget_rs_nzb_declared_parts(const char* subject, const NzbgetRsCtype* ct);
+int nzbget_rs_nzb_duplicate_filenames(const char* const* names, const char* const* subjects, size_t count);
 
 // UrlCoordinator (rust/src/urlcoord.rs). dnzb_header: UrlDownloader's
 // X-DNZB headers; 1 with *first X-DNZB-Category's trimmed value, 2 with

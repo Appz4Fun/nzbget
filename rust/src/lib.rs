@@ -20,6 +20,7 @@ pub mod fsops;
 pub mod json;
 pub mod manifest;
 pub mod nntp;
+pub mod nzbfile;
 pub mod options;
 pub mod parparser;
 pub mod parrenamer;

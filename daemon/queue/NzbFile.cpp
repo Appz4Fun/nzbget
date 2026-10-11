@@ -29,6 +29,9 @@
 #include "Util.h"
 #include "FileSystem.h"
 #include "Deobfuscation.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 NzbFile::NzbFile(const char* fileName, const char* category) 
 	: m_fileName{ fileName ? fileName : "" }
@@ -55,6 +58,81 @@ ArticleInfo* NzbFile::AddArticle(FileInfo* fileInfo, std::unique_ptr<ArticleInfo
 	return fileInfo->GetArticles()->back().get();
 }
 
+#ifdef NZBGET_USE_RUST
+// The C library's character classes and lower case under the daemon's
+// locale, as the C++ took them (isspace, isdigit, tolower)
+static NzbgetRsCtype RsCtype()
+{
+#ifdef __GLIBC__
+	return {*__ctype_b_loc(), (unsigned short)_ISspace, (unsigned short)_ISdigit,
+		reinterpret_cast<const int*>(*__ctype_tolower_loc()), CHAR_MIN < 0};
+#else
+	static thread_local unsigned short classes[256];
+	static thread_local int lower[384];
+	for (int c = 0; c < 256; c++)
+	{
+		classes[c] = (isspace(c) ? 1 : 0) | (isdigit(c) ? 2 : 0);
+	}
+	for (int c = -128; c < 256; c++)
+	{
+		lower[c + 128] = tolower(c);
+	}
+	return {classes, 1, 2, lower + 128, CHAR_MIN < 0};
+#endif
+}
+
+int NzbFile::DeclaredParts(const char* subject)
+{
+	// rust/src/nzbfile.rs
+	NzbgetRsCtype ct = RsCtype();
+	return nzbget_rs_nzb_declared_parts(subject, &ct);
+}
+
+void NzbFile::AddFileInfo(std::unique_ptr<FileInfo> fileInfo)
+{
+	// rust/src/nzbfile.rs: the segments in part-number order (of two with one
+	// number the later counts), the parts the subject declares past the last
+	// one when the nzb plainly cut the file short, and the file's sizes
+	ArticleList* articles = fileInfo->GetArticles();
+	std::vector<int> parts;
+	std::vector<int64> sizes;
+	parts.reserve(articles->size());
+	sizes.reserve(articles->size());
+	for (std::unique_ptr<ArticleInfo>& article : *articles)
+	{
+		parts.push_back(article->GetPartNumber());
+		sizes.push_back(article->GetSize());
+	}
+	std::vector<size_t> order(articles->size());
+	NzbgetRsCtype ct = RsCtype();
+	NzbgetRsFileTotals totals;
+	if (!nzbget_rs_nzb_file_totals(fileInfo->GetSubject(), parts.data(), sizes.data(), parts.size(), &ct,
+		order.data(), &totals))
+	{
+		return;
+	}
+
+	ArticleList kept;
+	kept.reserve(totals.kept);
+	for (size_t k = 0; k < totals.kept; k++)
+	{
+		kept.push_back(std::move((*articles)[order[k]]));
+	}
+	*articles = std::move(kept);
+
+	if (totals.cutShort)
+	{
+		m_cutShortFiles.insert(fileInfo.get());
+	}
+	fileInfo->SetNzbInfo(m_nzbInfo.get());
+	fileInfo->SetSize(totals.size);
+	fileInfo->SetRemainingSize(totals.remainingSize);
+	fileInfo->SetMissedSize(totals.missedSize);
+	fileInfo->SetTotalArticles(totals.totalArticles);
+	fileInfo->SetMissedArticles(totals.missedArticles);
+	m_nzbInfo->GetFileList()->Add(std::move(fileInfo));
+}
+#else
 int NzbFile::DeclaredParts(const char* subject)
 {
 	// the part count posters put at the very end of the subject: "(1/N)"
@@ -189,6 +267,7 @@ void NzbFile::AddFileInfo(std::unique_ptr<FileInfo> fileInfo)
 	fileInfo->SetMissedArticles(missedArticles);
 	m_nzbInfo->GetFileList()->Add(std::move(fileInfo));
 }
+#endif
 
 void NzbFile::ParseSubject(FileInfo* fileInfo, bool TryQuotes)
 {
@@ -210,6 +289,23 @@ void NzbFile::ParseSubject(FileInfo* fileInfo, bool TryQuotes)
 	fileInfo->SetFilename(std::move(filename));
 }
 
+#ifdef NZBGET_USE_RUST
+bool NzbFile::HasDuplicateFilenames()
+{
+	// rust/src/nzbfile.rs: one pass, counting each name's and each name and
+	// subject's later files
+	std::vector<const char*> names;
+	std::vector<const char*> subjects;
+	names.reserve(m_nzbInfo->GetFileList()->size());
+	subjects.reserve(m_nzbInfo->GetFileList()->size());
+	for (FileInfo* fileInfo : m_nzbInfo->GetFileList())
+	{
+		names.push_back(fileInfo->GetFilename());
+		subjects.push_back(fileInfo->GetSubject());
+	}
+	return nzbget_rs_nzb_duplicate_filenames(names.data(), subjects.data(), names.size()) != 0;
+}
+#else
 bool NzbFile::HasDuplicateFilenames()
 {
 	for (FileList::iterator it = m_nzbInfo->GetFileList()->begin(); it != m_nzbInfo->GetFileList()->end(); ++it)
@@ -240,6 +336,7 @@ bool NzbFile::HasDuplicateFilenames()
 
 	return false;
 }
+#endif
 
 /**
  * Generate filenames from subjects and check if the parsing of subject was correct
