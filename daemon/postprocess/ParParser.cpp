@@ -22,6 +22,9 @@
 #include "nzbget.h"
 #include "FileSystem.h"
 #include "ParParser.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 bool ParParser::FindMainPars(const char* path, ParFileList* fileList)
 {
@@ -60,6 +63,13 @@ bool ParParser::FindMainPars(const char* path, ParFileList* fileList)
 	return fileList && !fileList->empty();
 }
 
+#ifdef NZBGET_USE_RUST
+bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
+{
+	// rust/src/parparser.rs
+	return nzbget_rs_same_par_collection(filename1, filename2, confirmedFilenames) != 0;
+}
+#else
 bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
 {
 	int baseLen1 = 0, baseLen2 = 0;
@@ -68,7 +78,15 @@ bool ParParser::SameParCollection(const char* filename1, const char* filename2, 
 		baseLen1 == baseLen2 &&
 		!strncasecmp(filename1, filename2, baseLen1);
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)
+{
+	// rust/src/parparser.rs
+	return nzbget_rs_parse_par_filename(parFilename, confirmedFilename, baseNameLen, blocks) != 0;
+}
+#else
 bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)
 {
 	BString<1024> filename = parFilename;
@@ -131,3 +149,4 @@ bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename
 
 	return true;
 }
+#endif

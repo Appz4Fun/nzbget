@@ -558,6 +558,10 @@ NzbgetRsBuf nzbget_rs_make_unique_filename(const char* dir, const char* basename
 // NULL filename means empty; NULL home leaves the filename unchanged.
 NzbgetRsBuf nzbget_rs_expand_home_path(const char* filename, const char* home);
 
+// ParParser's name checks (rust/src/parparser.rs).
+int nzbget_rs_parse_par_filename(const char* name, int confirmed, int* baseLen, int* blocks);
+int nzbget_rs_same_par_collection(const char* name1, const char* name2, int confirmed);
+
 #ifdef __cplusplus
 }
 #endif

@@ -2352,6 +2352,42 @@ pub unsafe extern "C" fn nzbget_rs_expand_home_path(filename: *const c_char, hom
     into_buf(crate::fsops::expand_home_path(filename, home))
 }
 
+/// ParParser::ParseParFilename: 1 for a par2 name (the outputs set when not
+/// null), else 0.
+///
+/// # Safety
+/// `name` is null (0) or NUL-terminated; the outputs are null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_parse_par_filename(name: *const c_char, confirmed: c_int, base_len: *mut c_int, blocks: *mut c_int) -> c_int {
+    if name.is_null() {
+        return 0;
+    }
+    match crate::parparser::parse_par_filename(input(name), confirmed != 0) {
+        Some((len, b)) => {
+            if !base_len.is_null() {
+                base_len.write(len as c_int);
+            }
+            if !blocks.is_null() {
+                blocks.write(b);
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// ParParser::SameParCollection (0 for null names).
+///
+/// # Safety
+/// `name1` and `name2` are null or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_same_par_collection(name1: *const c_char, name2: *const c_char, confirmed: c_int) -> c_int {
+    if name1.is_null() || name2.is_null() {
+        return 0;
+    }
+    crate::parparser::same_par_collection(CStr::from_ptr(name1), CStr::from_ptr(name2), confirmed != 0) as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
