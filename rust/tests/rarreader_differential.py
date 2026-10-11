@@ -7,7 +7,8 @@ truncations, insertions, deletions) - comparing the result, the volume state
 and every file's fields. Also covers synthetic integer/crypt-record boundaries,
 source exceptions (including crypt records), repeated reads, exhaustive short
 synthetic-archive truncations, overlong/overflowing vints, encrypted padding
-boundaries, and source call traces.
+boundaries, and source call traces. Non-advancing blocks are excluded from
+the old-reader comparison; Rust and the fallback are always compared.
 
 All three C++ readers are compiled as separate translation units with renamed
 classes and test-only access to the decrypt cache. This also instruments the
@@ -49,6 +50,14 @@ def renamed(src, hdr, prefix, fallback=False):
 
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/RarReader.cpp"], cwd=ROOT, text=True)
+# Stop the reference at the same block boundary without changing its results
+# for advancing inputs. Check the replacement counts so source drift fails.
+loop = "\twhile (!file.Eof())\n\t{"
+seek = "\t\tif (!file.Seek(skip, DiskFile::soCur))\n\t\t{\n\t\t\treturn false;\n\t\t}"
+assert old_src.count(loop) == 2 and old_src.count(seek) == 2
+old_src = "struct NonAdvancing {};\n" + old_src.replace(
+    loop, loop + "\n\t\tint64 blockStart = file.Position();").replace(
+    seek, seek + "\n\t\tif (file.Position() <= blockStart) throw NonAdvancing{};")
 new_src = (ROOT / "daemon/postprocess/RarReader.cpp").read_text()
 
 flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
@@ -76,6 +85,9 @@ main = r'''
 ''' + globals_block + r'''
 #undef NZBGET_USE_RUST
 ''' + decls + r'''
+
+struct NonAdvancing {};
+static size_t filtered = 0;
 
 struct MemSource : ContentSource
 {
@@ -151,16 +163,34 @@ template <class V> static std::string run(const std::string& data, const char* p
 	return result;
 }
 
-static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1, int fault = 0)
+static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1, int fault = 0, bool allowNonAdvancing = true)
 {
-	std::string a = run<OldRarVolume>(data, password, failAt, repeats, fault);
 	std::string b = run<PortRarVolume>(data, password, failAt, repeats, fault);
 	std::string c = run<FallbackRarVolume>(data, password, failAt, repeats, fault);
-	if (a != b || a != c)
+	if (b != c)
 	{
-		fprintf(stderr, "mismatch: %s (password %s)\nold:      %s\nrust:     %s\nfallback: %s\n", what.c_str(),
-			password ? password : "-", a.c_str(), b.c_str(), c.c_str());
+		fprintf(stderr, "mismatch: %s (password %s)\nrust:     %s\nfallback: %s\n", what.c_str(),
+			password ? password : "-", b.c_str(), c.c_str());
 		return false;
+	}
+	try
+	{
+		std::string a = run<OldRarVolume>(data, password, failAt, repeats, fault);
+		if (a != b)
+		{
+			fprintf(stderr, "mismatch: %s (password %s)\nold:      %s\nrust:     %s\n", what.c_str(),
+				password ? password : "-", a.c_str(), b.c_str());
+			return false;
+		}
+	}
+	catch (const NonAdvancing&)
+	{
+		if (!allowNonAdvancing)
+		{
+			fprintf(stderr, "non-advancing fixture: %s\n", what.c_str());
+			return false;
+		}
+		++filtered;
 	}
 	return true;
 }
@@ -222,7 +252,7 @@ static bool encryptedBoundaries()
 			std::string data = prefix + encrypted5(header) + std::string(packed, '\0') +
 				encrypted5(std::string(end, sizeof(end)));
 			std::string label = "encrypted name/data lengths " + std::to_string(length) + "/" + std::to_string(packed);
-			if (!check(data, "123", label, -1, 2)) return false;
+			if (!check(data, "123", label, -1, 2, 0, false)) return false;
 			if (packed == 0)
 			{
 				for (size_t cut = prefix.size(); cut < data.size(); ++cut)
@@ -245,8 +275,7 @@ int main(int argc, char** argv)
 #endif
 	if (!wrappingRead<OldRarSourceCursor>() || !wrappingRead<PortRarSourceCursor>() ||
 		!wrappingRead<FallbackRarSourceCursor>()) return 1;
-	// The old RAR3 parser can revisit a zero-sized header indefinitely. Bound
-	// the source calls to compare that quirk without hanging or exhausting RAM.
+	// Exercise the reference filter as well as agreement between both readers.
 	for (int wrapped = 0; wrapped < 2; ++wrapped)
 	{
 		std::string cycling("Rar!\x1a\x07\0", 7);
@@ -267,7 +296,8 @@ int main(int argc, char** argv)
 		for (const char* pw : {(const char*)nullptr, "123", "wrong"})
 		{
 			if (getenv("NZBGET_TEST_VERBOSE")) fprintf(stderr, "volume %s pw %s\n", argv[i], pw ? pw : "-");
-			if (!check(files.back(), pw, argv[i])) return 1;
+			if (!check(files.back(), pw, argv[i], -1, 1, 0,
+				std::string(argv[i]).find("synthetic-") != std::string::npos)) return 1;
 		}
 		// Synthetic archives are small and unencrypted, so exhaust every byte
 		// boundary and source failure without paying for password derivation.
@@ -329,7 +359,8 @@ int main(int argc, char** argv)
 		if (!check(data, pw, "mutated " + std::string(argv[2 + which]) + " round " + std::to_string(round))) return 1;
 		parsed++;
 	}
-	printf("%zu volumes and %ld mutations agree (reference %s)\n", files.size(), parsed, "''' + REFERENCE + r'''");
+	if (filtered == 0) return 1;
+	printf("%zu volumes and %ld mutations agree; %zu non-advancing comparisons filtered (reference %s)\n", files.size(), parsed, filtered, "''' + REFERENCE + r'''");
 }
 '''
 
@@ -364,6 +395,8 @@ def synthetic_volumes():
     for name in [b"", b"a", b"a\0ignored", b"\xff\x80", b"x" * 8192, b"x" * 8193]:
         body = b"\0" + vint((1 << 64) - 1) + vint((1 << 32) + 7) + vint(7 << 7) + b"\0" + vint(len(name)) + name
         yield sig5 + block5(258, 1 << 16, body) + end5
+    for distance in [0, 1, 8]:
+        yield sig5 + block5(3, 2, data=(1 << 64) - 17 - distance) + end5
     body = b"\0\0\0\0\0\1a"
     crypt = b"\0\1\0" + bytes(range(44))
     for length in range(len(crypt) + 1):
@@ -390,16 +423,12 @@ def synthetic_volumes():
     first = block5(2, 1, body, record(1, crypt))
     for tail in [record(1, b""), record(1, b"\0"), record(1, b"\0\1")]:
         yield sig5 + first + block5(2, 1, body, record(1, crypt) + tail) + end5
-    # RAR3 end flags and undersized/wrapping block headers are quirks rather
-    # than validation errors; check the whole reader as well as Rust's Block.
+    # RAR3 end flags and block-size boundaries, including the reference filter.
     sig3 = b"Rar!\x1a\x07\0"
     for flags in range(16):
         yield sig3 + struct.pack("<HBHHII", 0, 0x7b, flags, 15, 0x12345678, 0x87654321)
     for size in [0, 1, 6, 7, 10, 11, 65535]:
         for add in [0, 1, 0xfffffff0, 0xffffffff]:
-            # Zero total size revisits the same header forever in the reference.
-            if (size + add) & 0xffffffff == 0:
-                continue
             yield sig3 + struct.pack("<HBHHI", 0, 0x74, 0x8000, size, add) + bytes(32)
     for high in [None, 0, 1, 0x80000000, 0xffffffff]:
         for salt in [b"", bytes(range(8))]:

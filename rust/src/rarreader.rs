@@ -807,4 +807,58 @@ mod tests {
         assert!(!read_from(&mut volume, &mut source, &mut cipher, &mut files));
         assert_eq!(volume.version, 3);
     }
+
+    #[test]
+    fn progress_is_measured_from_the_block_start() {
+        for rar5 in [false, true] {
+            for encrypted in [false, true] {
+                for (trailsize, expected) in [(0u64.wrapping_sub(16), false), (0, true)] {
+                    let mut source = Bytes(vec![0; 64]);
+                    let mut volume = Volume { encrypted, decrypt_pos: 7, ..Volume::default() };
+                    let mut cipher = TestCipher::default();
+                    let mut files = Vec::new();
+                    let mut p = Parser {
+                        v: &mut volume,
+                        file: Cursor { source: &mut source, position: 32, eof: false },
+                        cipher: &mut cipher, files: &mut files,
+                    };
+                    assert_eq!(p.skip_to_next(&Block { trailsize, ..Block::default() }, rar5, 16), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rar5_non_advancing_blocks() {
+        for delta in [0u64, 1] {
+            let mut data = b"Rar!\x1a\x07\x01\0".to_vec();
+            data.extend([0, 0, 0, 0, 12, 3, 2]);
+            let mut size = 0u64.wrapping_sub(17 + delta);
+            while size >= 128 {
+                data.push((size as u8 & 127) | 128);
+                size >>= 7;
+            }
+            data.push(size as u8);
+            let mut source = Bytes(data);
+            let mut volume = Volume::default();
+            let mut cipher = TestCipher::default();
+            let mut files = Vec::new();
+            assert!(!read_from(&mut volume, &mut source, &mut cipher, &mut files));
+            assert_eq!(volume.version, 5);
+        }
+    }
+
+    #[test]
+    fn signature_and_terminal_blocks() {
+        for data in [
+            b"Rar!\x1a\x07\0\0\0\x73\0\0\x07\0\0\0\x7b\0\0\x07\0".as_slice(),
+            b"Rar!\x1a\x07\x01\0\0\0\0\0\x03\x01\0\0\0\0\0\0\x03\x05\0\0".as_slice(),
+        ] {
+            let mut source = Bytes(data.to_vec());
+            let mut volume = Volume::default();
+            let mut cipher = TestCipher::default();
+            let mut files = Vec::new();
+            assert!(read_from(&mut volume, &mut source, &mut cipher, &mut files));
+        }
+    }
 }
