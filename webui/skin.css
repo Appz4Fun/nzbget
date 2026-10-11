@@ -51,3 +51,635 @@ kbd,
 samp {
 	font-family: var(--font-mono);
 }
+
+/* ---------- Toolbar ---------- */
+/* The navbar becomes the floating glass toolbar. Its blocks are reordered
+   with flexbox, so the markup and the JS that measures it stay as they are. */
+
+#Navbar {
+	margin: 0;
+	padding: var(--space-2) var(--space-5) var(--space-3);
+}
+
+#Navbar .navbar-inner,
+body.navfixed.scrolled #Navbar .navbar-inner {
+	min-height: var(--size-toolbar);
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-xl);
+	background: var(--bg-glass);
+	background-image: none;
+	filter: none;
+	-webkit-backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+	backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+	box-shadow: var(--shadow-glass);
+}
+
+#Navbar #NavbarContainer {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-height: var(--size-toolbar);
+	padding: 0 var(--space-2) 0 var(--space-3);
+}
+
+#Navbar #NavbarContainer > * {
+	float: none;
+}
+
+/* Bootstrap's clearfix pseudo-elements would become empty flex items */
+#Navbar #NavbarContainer::before,
+#Navbar #NavbarContainer::after {
+	display: none;
+}
+
+/* brand */
+#Navbar #Logo {
+	order: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex: none;
+	width: auto;
+	height: auto;
+	margin: 0;
+}
+
+/* the icon's tile fills about 80% of its canvas, so 32px draws a 26px tile */
+.nzb-logo-icon {
+	display: block;
+	width: 32px;
+	height: 32px;
+	margin: -3px;
+}
+
+.nzb-logo-name {
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+/* tabs: a segmented control with shortcut chips */
+#Navbar #NavLinks {
+	order: 2;
+	margin: 0 !important; /* resizeNavbar() centres the tabs with an inline margin; flexbox places them now */
+}
+
+#Navbar #NavLinks > ul.nav {
+	display: flex;
+	gap: 2px;
+	margin: 0;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+#Navbar #NavLinks .nav > li {
+	float: none;
+}
+
+#Navbar #NavLinks .nav > li > a {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: calc(var(--size-control-md) - 4px);
+	padding: 0 var(--space-3);
+	border-radius: var(--radius-xs);
+	background: transparent;
+	box-shadow: none;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 500;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	text-shadow: none;
+	white-space: nowrap;
+}
+
+#Navbar #NavLinks .nav > li > a:hover,
+#Navbar #NavLinks .nav > li > a:focus {
+	background: var(--fill-quaternary);
+	color: var(--label-primary);
+}
+
+#Navbar #NavLinks .nav > li.active > a,
+#Navbar #NavLinks .nav > li.active > a:hover,
+#Navbar #NavLinks .nav > li.active > a:focus {
+	background: var(--accent-fill);
+	color: var(--on-accent);
+}
+
+#Navbar #NavLinks .nav > li.active .ng-kbd {
+	color: var(--on-accent);
+}
+
+#Navbar #NavLinks .badge {
+	min-width: 18px;
+	height: 18px;
+	box-sizing: border-box;
+	padding: 0 6px;
+	border-radius: var(--radius-full);
+	background: var(--fill-secondary);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 18px;
+	font-weight: 500;
+	letter-spacing: 0;
+	text-align: center;
+	text-shadow: none;
+}
+
+#Navbar #NavLinks .nav > li.active .badge {
+	background: var(--on-accent);
+	color: var(--accent-fill);
+}
+
+#Navbar #NavLinks .badge-empty,
+#Navbar #NavLinks .nav > li.active .badge-empty {
+	background: none;
+}
+
+#Navbar #NavLinks .system-health__err-icon {
+	color: var(--red);
+	font-size: 16px;
+}
+
+/* search */
+#Navbar #SearchBlock {
+	order: 3;
+	margin: 0 0 0 auto;
+}
+
+#Navbar #SearchBlock .navbar-search {
+	position: relative;
+	margin: 0;
+	float: none;
+}
+
+#Navbar #SearchBlock .search-query,
+#Navbar #SearchBlock .search-query:focus,
+#Navbar #SearchBlock .search-query.focused {
+	width: 200px;
+	height: var(--size-control-md);
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0 28px 0 30px;
+	border: 0;
+	border-radius: var(--radius-full);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 18px;
+}
+
+#Navbar #SearchBlock .search-query::placeholder {
+	color: var(--label-secondary);
+}
+
+#Navbar #SearchBlock .search-query:focus,
+#Navbar #SearchBlock .search-query.focused {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 0;
+}
+
+#Navbar #SearchBlock .search-caret-block {
+	top: 50%;
+	left: 6px;
+	transform: translateY(-50%);
+}
+
+#Navbar #SearchBlock .search-caret-button .caret {
+	border-top-color: var(--label-secondary);
+	opacity: 1;
+}
+
+#Navbar #SearchBlock .search-clear {
+	top: 50%;
+	right: 8px;
+	width: 16px;
+	height: 16px;
+	transform: translateY(-50%);
+	background: none;
+	opacity: 1;
+}
+
+#Navbar #SearchBlock .search-clear::before {
+	content: "close";
+	display: block;
+	color: var(--label-secondary);
+	font-family: "Material Icons";
+	font-size: 16px;
+	font-style: normal;
+	line-height: 16px;
+	font-feature-settings: "liga";
+	-webkit-font-smoothing: antialiased;
+}
+
+/* speed and time */
+#Navbar #InfoBlock {
+	order: 4;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	width: auto;
+	height: auto;
+	margin: 0;
+	padding: 0;
+}
+
+#Navbar #InfoBlock div {
+	margin: 0;
+	padding: 0;
+	height: auto;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	line-height: 14px;
+	font-weight: 400;
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+}
+
+#Navbar #InfoBlock div:first-child {
+	color: var(--label-primary);
+	font-size: 15px;
+	line-height: 20px;
+	font-weight: 500;
+	letter-spacing: -0.03em;
+}
+
+#Navbar #InfoBlock i {
+	display: none;
+}
+
+#Navbar #StatusTime.orange,
+#Navbar #StatusTime.orange:hover {
+	color: var(--yellow-text);
+}
+
+/* pause / resume: an icon button with its menu caret, and an activity light */
+#Navbar #PlayBlock {
+	order: 5;
+	position: relative;
+	display: flex;
+	align-items: center;
+	flex: none;
+	width: auto;
+	height: auto;
+}
+
+#Navbar #PlayBlock .PlayBlockInner {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: var(--size-control-md);
+	height: var(--size-control-md);
+	border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+#Navbar #PlayBlock .PlayBlockInner:hover {
+	background: var(--fill-secondary);
+}
+
+#Navbar #PlayButton .PlayBlockInner {
+	background: var(--yellow-soft);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--yellow) 35%, transparent);
+}
+
+#Navbar #PlayBlock .img-download-btn-active,
+#Navbar #PlayBlock .img-download-btn-pause {
+	display: grid;
+	place-items: center;
+	width: auto;
+	height: auto;
+	background: none;
+	opacity: 1;
+}
+
+#Navbar #PlayBlock .img-download-btn-active::before,
+#Navbar #PlayBlock .img-download-btn-pause::before {
+	color: var(--label-primary);
+	font-family: "Material Icons";
+	font-size: 20px;
+	line-height: 1;
+	font-feature-settings: "liga";
+	-webkit-font-smoothing: antialiased;
+}
+
+#Navbar #PlayBlock .img-download-btn-active::before {
+	content: "pause";
+}
+
+#Navbar #PlayBlock .img-download-btn-pause::before {
+	content: "play_arrow";
+	color: var(--yellow-text);
+}
+
+#Navbar #PlayCaretBlock {
+	position: relative;
+	top: auto;
+	left: auto;
+}
+
+#Navbar #PlayCaretButton {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: var(--size-control-md);
+	margin: 0 0 0 1px;
+	padding: 0;
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+#Navbar #PlayCaretButton:hover {
+	background: var(--fill-secondary);
+}
+
+#Navbar #PlayCaret {
+	margin: 0;
+	border-top-color: var(--label-secondary);
+	opacity: 1;
+}
+
+#Navbar #PlayAnimation {
+	position: absolute;
+	z-index: 4;
+	top: -3px;
+	left: calc(var(--size-control-md) - 6px);
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--green);
+	background-image: none;
+	box-shadow: 0 0 0 2px var(--bg-content);
+	pointer-events: none;
+	-webkit-animation: nzb-activity 1.6s ease-in-out infinite;
+	animation: nzb-activity 1.6s ease-in-out infinite;
+}
+
+#Navbar #PlayAnimation.pause {
+	background: var(--yellow);
+}
+
+@-webkit-keyframes nzb-activity {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.35; }
+}
+
+@keyframes nzb-activity {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	#Navbar #PlayAnimation {
+		-webkit-animation: none;
+		animation: none;
+	}
+}
+
+/* refresh and UI settings */
+#Navbar #RefreshBlockDesktop,
+#Navbar #RefreshBlockPhone {
+	order: 6;
+	padding: 0;
+}
+
+#Navbar #RefreshBlock {
+	display: flex;
+	margin: 0;
+}
+
+#Navbar #RefreshBlock .btn-group {
+	display: flex;
+	gap: 2px;
+	float: none;
+	padding: 0;
+}
+
+#Navbar #RefreshBlock .btn {
+	display: grid;
+	place-items: center;
+	width: var(--size-control-md);
+	height: var(--size-control-md);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	background-image: none;
+	box-shadow: none;
+	color: var(--label-primary);
+	text-shadow: none;
+	filter: none;
+}
+
+#Navbar #RefreshBlock .btn:hover,
+#Navbar #RefreshBlock .btn:focus,
+#Navbar #RefreshBlock .open > .btn {
+	background: var(--fill-tertiary);
+}
+
+#Navbar #RefreshBlock .btn .material-icon {
+	color: var(--label-primary);
+	font-size: 18px;
+	opacity: 1;
+}
+
+#Navbar #RefreshButton .icon-refresh {
+	display: grid;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	background: none;
+	opacity: 1;
+}
+
+#Navbar #RefreshButton .icon-refresh::before {
+	content: "refresh";
+	color: var(--label-primary);
+	font-family: "Material Icons";
+	font-size: 18px;
+	font-style: normal;
+	line-height: 1;
+	font-feature-settings: "liga";
+	-webkit-font-smoothing: antialiased;
+}
+
+/* narrower windows: drop the name, then the shortcut chips, then move the tabs to a second row */
+@media (max-width: 1280px) {
+	.nzb-logo-name,
+	#Navbar .nav-kbd {
+		display: none;
+	}
+}
+
+@media (max-width: 1040px) {
+	#Navbar {
+		padding: var(--space-2) 10px var(--space-3);
+	}
+
+	body:not(.phone) #Navbar #NavbarContainer {
+		flex-wrap: wrap;
+		row-gap: var(--space-2);
+		padding-top: 11px;
+		padding-bottom: 11px;
+	}
+
+	body:not(.phone) #Navbar #NavLinks {
+		order: 10;
+		flex-basis: 100%;
+	}
+
+	body:not(.phone) #Navbar #NavLinks > ul.nav {
+		box-sizing: border-box;
+		width: 100%;
+	}
+
+	body:not(.phone) #Navbar #NavLinks .nav > li {
+		flex: 1;
+	}
+
+	body:not(.phone) #Navbar #NavLinks .nav > li > a {
+		justify-content: center;
+	}
+}
+
+/* the tab panes fill the window below the toolbar; index.js measures it into --navbar-space */
+@media (min-width: 769px) {
+	#DownloadsTab,
+	#HistoryTab,
+	#StatisticsTab,
+	#MessagesTab,
+	.config__container {
+		box-sizing: border-box;
+		height: calc(100vh - var(--navbar-space, 72px));
+		padding-top: 0;
+	}
+}
+
+@media (max-width: 768px) {
+	#Navbar {
+		padding: var(--space-2) 5px var(--space-3);
+	}
+
+	/* below 769px the desktop layout uses the phone's rows: controls, search, tabs */
+	body:not(.phone) #Navbar #PlayBlock {
+		margin-left: auto;
+	}
+
+	body:not(.phone) #Navbar #InfoBlock {
+		align-items: flex-start;
+	}
+
+	body:not(.phone) #Navbar #SearchBlock {
+		order: 8;
+		width: 100%;
+		margin: 0;
+	}
+
+	body:not(.phone) #Navbar #SearchBlock .navbar-search,
+	body:not(.phone) #Navbar #SearchBlock .search-query,
+	body:not(.phone) #Navbar #SearchBlock .search-query:focus,
+	body:not(.phone) #Navbar #SearchBlock .search-query.focused {
+		width: 100%;
+	}
+
+	body:not(.phone) #Navbar #NavLinks .nav > li > a {
+		gap: 4px;
+		padding: 0 6px;
+		font-size: 11px;
+		letter-spacing: 0.02em;
+	}
+}
+
+/* phone: three rows - controls, search, tabs */
+.phone #Navbar {
+	padding: var(--space-2) var(--space-2) 0;
+}
+
+.phone #Navbar #NavbarContainer {
+	flex-wrap: wrap;
+	row-gap: var(--space-2);
+	padding: var(--space-2);
+}
+
+.phone #Navbar #Logo {
+	display: none;
+}
+
+.phone #Navbar #PlayBlock {
+	order: 1;
+}
+
+.phone #Navbar #InfoBlock {
+	order: 2;
+	align-items: flex-start;
+}
+
+.phone #Navbar #RefreshBlockPhone {
+	order: 3;
+	margin-left: auto;
+}
+
+.phone #Navbar #SearchBlock {
+	order: 4;
+	width: 100%;
+	margin: 0;
+}
+
+.phone #Navbar #SearchBlock .navbar-search,
+.phone #Navbar #SearchBlock .search-query,
+.phone #Navbar #SearchBlock .search-query:focus,
+.phone #Navbar #SearchBlock .search-query.focused {
+	width: 100%;
+	font-size: 16px; /* stops iOS zooming into the field */
+}
+
+.phone #Navbar #NavLinks {
+	order: 5;
+	width: 100%;
+}
+
+.phone #Navbar #NavLinks > ul.nav {
+	box-sizing: border-box;
+	width: 100%;
+}
+
+.phone #Navbar #NavLinks .nav > li {
+	flex: 1;
+	min-width: 0;
+}
+
+.phone #Navbar #NavLinks .nav > li > a {
+	flex-direction: column;
+	justify-content: center;
+	gap: 2px;
+	height: auto;
+	min-height: 40px;
+	padding: 4px 0;
+}
+
+.phone #Navbar #NavLinks .nav > li > a br {
+	display: none;
+}
+
+.phone #Navbar #NavLinks .material-icon {
+	font-size: 18px;
+}
