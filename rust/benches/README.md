@@ -19,7 +19,7 @@ frozen and source reviewed. That is tool setup evidence, not timing proof.
 | Existing `ports.rs` and three benchmark workflows | Present on the default branch; Rust-only definitions |
 | Shared v1 collection, validation and publication | Incoming foundation integration; availability follows its reviewed merge |
 | Criterion | Maintained 0.8.2, development dependency only; 12 kernel IDs covering RPC JSON parameters, JSON encode/decode and Base64 at 32, 4096 and 65536 actual input bytes |
-| Criterion incremental build/smoke | HOLD at the recorded handoff while resource locks were pending; `--test` never proves speed |
+| Criterion build/smoke | Build completed and all 12 prebuilt smoke cases passed; `--test` is not speed proof |
 | Bencher project/API configuration | Absent at preflight; publication `ready=false` |
 | GitHub publication identity | `BENCHMARK_GITHUB_TOKEN` must authenticate as `xbmc4lyfe`; a default `GITHUB_TOKEN` bot is insufficient |
 
@@ -151,6 +151,16 @@ Initial transport is an evidence commit signed by `xbmc4lyfe` with the fixed
 `benchmark-results` files. The trusted default workflow fetches data only and
 validates the reviewed collection receipt plus source/compiler/binary/input
 hashes. A signature proves commit identity, not measurement attestation.
+
+Create the collection receipt from captured references using the frozen CLI:
+
+```sh
+python3 scripts/bench/collect_receipt.py --manifest benchmark-results/manifest.json --samples benchmark-results/samples.jsonl --build-metadata BUILD_METADATA --time-metadata TIME_METADATA --bindings BINDINGS --review-record REVIEW_RECORD --output RECEIPT
+```
+
+Repeat `--build-metadata` and `--time-metadata` for multiple captured records.
+Bindings and the reviewed collection record must refer to the actual captured
+source, compiler, binary and input identities; do not invent missing references.
 
 Measured PR executables receive no publisher credentials. Authentication and
 Bencher publication happen after artifact validation in the trusted stage.
