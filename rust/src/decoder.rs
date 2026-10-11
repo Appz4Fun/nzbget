@@ -561,6 +561,87 @@ mod tests {
     unsafe extern "C" fn crc(_src: *const c_void, _len: usize, init: u32) -> u32 { init }
 
     #[test]
+    fn control_key_search_matches_strstr() {
+        extern "C" {
+            fn strstr(s: *const c_char, key: *const c_char) -> *const c_char;
+        }
+        for key in [b" size=".as_slice(), b" part=", b" name=", b" begin=", b" end=", b" crc32=", b" pcrc32="] {
+            let key_c = CString::new(key).unwrap();
+            let text = [b"=ybegin x".as_slice(), key, b"1\r\n", key, b"2"].concat();
+            for len in 0..=text.len() {
+                for nul in 0..=len {
+                    let mut s = text[..len].to_vec();
+                    s.push(0);
+                    s[nul] = 0;
+                    let p = unsafe { strstr(s.as_ptr().cast(), key_c.as_ptr()) };
+                    let expected = (!p.is_null()).then(|| p as usize - s.as_ptr() as usize);
+                    assert_eq!(cfind(&s[..len], key), expected, "len={len}, NUL={nul}, key={key:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn append_matches_copy_and_zero_padding() {
+        let mut buf = LineBuf::default();
+        let mut expected = Vec::new();
+        let mut len = 0;
+        for size in [0, 1, 7, 8192, 8193] {
+            for nul in [0, size / 2, size] {
+                let mut src = vec![b'x'; size];
+                if nul < size {
+                    src[nul] = 0;
+                }
+                let end = len + size;
+                expected.resize(expected.len().max(end + 1), 0);
+                expected[len..len + nul].copy_from_slice(&src[..nul]);
+                expected[len + nul..=end].fill(0);
+                buf.append(&src);
+                assert_eq!(buf.data, expected);
+                assert_eq!(buf.len, end);
+                // SetLength preserves stale bytes; the next append must still
+                // replace its terminator and zero-pad only the appended range.
+                len = end / 2;
+                buf.set_len(len);
+            }
+        }
+    }
+
+    #[test]
+    fn control_lines_keep_c_string_and_line_bounds() {
+        let mut d = Decoder::new(decode, crc);
+        let full = b"=ybegin part=1 size=\n42 name=late\0 size=99";
+        let len = full.iter().position(|&c| c == b'\n').unwrap() + 1;
+        d.process_yenc(full, len);
+        assert_eq!(d.size, 42); // atoll can skip the newline
+        assert!(d.part);
+        assert!(d.article_filename.is_empty()); // name key starts after len
+        d.size = 17;
+        d.process_yenc(full, len - 1);
+        assert_eq!(d.size, 17); // k + 6 == len is rejected
+        d.process_yenc(b"=ybegin \n part=1 size=99 name=late", 9);
+        assert!(!d.part); // k == len is rejected
+        d.parse_ypart(b"=ypart begin=12\0 end=99");
+        assert_eq!(d.begin_pos, 12);
+        assert_eq!(d.end_pos, 17); // end after NUL is invisible
+        d.parse_ypart(b"=ypart begin=\0");
+        assert_eq!(d.begin_pos, 0);
+
+        let full = b"=ybegin part=1 name=\r\nrest\0ignored";
+        d.process_yenc(full, 21);
+        assert_eq!(d.article_filename, b"\r\nrest");
+        let full = b"=ybegin name==ypart begin=7\r\n end=9\0 end=99";
+        d.process_yenc(full, 28);
+        assert_eq!(d.begin_pos, 7);
+        assert_eq!(d.end_pos, 9);
+        assert_eq!(d.article_filename, b"=ypart begin=7\r\n end=9");
+        assert_eq!(atoll(b" \t-12\0"), -12);
+        assert_eq!(atoll(b"\0 99"), 0);
+        assert_eq!(strtoul_hex(b"0x\0ff"), 0);
+        assert_eq!(strtoul_hex(b"-0xf\0ff"), 0u32.wrapping_sub(15));
+    }
+
+    #[test]
     fn raw_eof_state_zero_is_sticky() {
         let mut d = Decoder::new(decode, crc);
         d.process_raw(b"\r\n.\r\nx");

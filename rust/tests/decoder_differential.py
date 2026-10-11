@@ -181,6 +181,24 @@ static void regressions() {
         }
     }
     std::setlocale(LC_ALL, "C");
+    // Whole articles exercise the production read size; every split also
+    // checks keys, numbers and same-line =ypart across append boundaries.
+    for (const std::string& a : {
+        std::string("=ybegin size=\n42 name=late\r\n*\r\n=yend size=1 crc32=\n0\r\n"),
+        std::string("=ybegin \n part=1 size=99 name=late\r\n"),
+        std::string("=ybegin part=1 name==ypart begin=7\r\n end=9\r\n*\r\n=yend size=1 pcrc32=0\r\n"),
+        std::string("=ybegin part=1 size=1 name=\r\n=ypart begin=1 end=1\r\n*\r\n=yend size=1 pcrc32=0\r\n")}) {
+        regression({a});
+        for (size_t nul = 0; nul < a.size(); ++nul) {
+            std::string withNul = a;
+            withNul[nul] = '\0';
+            regression({withNul});
+            for (size_t split = 1; split < withNul.size(); ++split)
+                regression({withNul.substr(0, split), withNul.substr(split)});
+        }
+        for (size_t split = 1; split < a.size(); ++split)
+            regression({a.substr(0, split), a.substr(split)});
+    }
     // Buffer contents past a line are intentionally visible to the old parser.
     for (const std::string& a : {
         std::string("=ybegin part=1 name=\r\n=ypart begin=1 end=2\r\n**\r\n=yend size=2 pcrc32=0\r\n"),
