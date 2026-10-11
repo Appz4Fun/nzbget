@@ -163,6 +163,33 @@ class PipelineContractTests(unittest.TestCase):
             self.assertEqual(outputs["bencher.json"]["controlled/caller/" + variant]["latency"]["value"],
                              latencies[variant])
 
+    def test_current_rust_tie_allows_candidate_that_beats_optimized_cpp(self):
+        rows = controlled_rows()
+        for row in rows:
+            if row["variant"] == "rust_current":
+                row["elapsed_ns"] = 800 * 100
+        outputs = self.valid("PASS", rows=rows)
+        preservation = outputs["summary.json"]["cases"][0].get("rust_preservation")
+        self.assertIsInstance(preservation, dict, "Required current-Rust preservation needs separate evidence")
+        self.assertEqual(preservation["status"], "PASS")
+        self.assertAlmostEqual(preservation["ratio"]["upper"], 1.0)
+        self.assertEqual(outputs["qualification.json"]["cases"][0]["rust_preservation"]["status"], "PASS")
+
+    def test_optimized_cpp_tie_is_hold_despite_preserved_current_rust(self):
+        rows = controlled_rows(candidate_ns=1000)
+        for row in rows:
+            if row["variant"] == "rust_current":
+                row["elapsed_ns"] = 1000 * 100
+        outputs = self.valid("HOLD", rows=rows)
+        case = outputs["summary.json"]["cases"][0]
+        self.assertEqual(case["statistical_status"], "inconclusive")
+        self.assertAlmostEqual(case["ratio"]["estimate"], 1.0)
+        preservation = case.get("rust_preservation")
+        self.assertIsInstance(preservation, dict, "Required current-Rust preservation needs separate evidence")
+        self.assertEqual(preservation["status"], "PASS",
+                         "No confident C++ speedup is separate from a current-Rust regression")
+        self.assertEqual(outputs["qualification.json"]["cases"][0]["rust_preservation"]["status"], "PASS")
+
     def test_process_disagreement_is_held_despite_faster_pooled_values(self):
         self.valid("HOLD", rows=controlled_rows(candidate_ns=[500, 1300] * 4))
 
@@ -176,7 +203,11 @@ class PipelineContractTests(unittest.TestCase):
         control.update(id="controlled/unchanged", role="unchanged_control",
                        provenance={"attribution": "synthetic unchanged caller"})
         manifest["fixtures"].append(control)
-        rows = controlled_rows() + controlled_rows(candidate_ns=1000, case=control["id"])
+        control_rows = controlled_rows(candidate_ns=1000, case=control["id"])
+        for row in control_rows:
+            if row["variant"] == "rust_current":
+                row["elapsed_ns"] = 1000 * 100
+        rows = controlled_rows() + control_rows
         self.valid("PASS", manifest=manifest, rows=rows)
 
     def test_unchanged_control_drift_holds_changed_caller(self):
@@ -195,6 +226,26 @@ class PipelineContractTests(unittest.TestCase):
         manifest["fixtures"][0].update(role="unchanged_control",
                                       provenance={"attribution": "synthetic unchanged caller"})
         self.valid("HOLD", manifest=manifest, rows=controlled_rows(candidate_ns=1000))
+
+    def test_unchanged_control_current_rust_drift_holds_equal_cpp_control(self):
+        manifest = controlled_manifest()
+        control = copy.deepcopy(manifest["fixtures"][0])
+        control.update(id="controlled/unchanged", role="unchanged_control",
+                       provenance={"attribution": "synthetic unchanged caller"})
+        manifest["fixtures"].append(control)
+        for current_rust_latency in (500, 1200):
+            with self.subTest(current_rust_latency=current_rust_latency):
+                controls = controlled_rows(candidate_ns=1000, case=control["id"])
+                for row in controls:
+                    if row["variant"] == "rust_current":
+                        row["elapsed_ns"] = current_rust_latency * 100
+                outputs = self.valid("HOLD", manifest=manifest, rows=controlled_rows() + controls)
+                case = next(case for case in outputs["summary.json"]["cases"] if case["case"] == control["id"])
+                self.assertAlmostEqual(case["ratio"]["estimate"], 1.0)
+                self.assertEqual(case["rust_preservation"]["status"], "HOLD")
+                qualified = next(case for case in outputs["qualification.json"]["cases"]
+                                 if case["case"] == control["id"])
+                self.assertEqual(qualified["rust_preservation"]["status"], "HOLD")
 
     def test_unattributed_unchanged_control_is_rejected(self):
         manifest = controlled_manifest()
