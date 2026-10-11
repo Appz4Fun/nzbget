@@ -2,7 +2,7 @@
 title = "Duplicate fleets"
 description = "How RustyGet uses every copy of a release together: article fallback, twins and alts, par2 from a twin, stream repair, early failover, and fleet submission."
 eyebrow = "Features"
-lede = "NZBGet keeps duplicates as spare downloads: when one fails, the next starts from scratch. RustyGet treats all copies of a release as one fleet. A gap in one copy is filled from another, a dying copy hands over within seconds, and every borrowed byte is verified before it counts."
+lede = "NZBGet keeps duplicates as spare downloads: when one fails, the next starts from scratch. RustyGet treats all copies of a release as one fleet. A gap in one copy is filled from another, a dying copy hands over within seconds, and every borrowed article is checked before it counts."
 +++
 
 ## Vocabulary
@@ -56,11 +56,12 @@ RustyGet tries three ways to match a file in the primary to a file in a donor, i
 
 ### Making sure the bytes are right
 
-RustyGet checks a borrowed article three times before it counts:
+RustyGet checks a borrowed article before it counts:
 
 - Its yEnc header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written.
 - It's written to a staging file, never straight into the output, and the finished file must tile with no gaps or overlaps.
-- Its data must match the block checksums in the primary's own par2 set. RustyGet blocks a donor that fails for the rest of the download.
+- Its yEnc checksum must match, even with `CrcCheck=no`.
+- When the primary's par2 set describes the file, the article's data must match that set's block checksums. If the set doesn't list the file, or lists no usable checksums for it, this check can't run, and only the other checks apply. RustyGet blocks a donor that fails for the rest of the download.
 
 That's why article fallback needs par2: RustyGet doesn't borrow articles for a download that has no par2 files, and it never borrows par2 files themselves. It also stays off for downloads in force mode and with `RawArticle=yes`.
 

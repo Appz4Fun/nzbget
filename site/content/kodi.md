@@ -111,7 +111,7 @@ If the release is already on disk, nothing downloads. If another fleet for the s
 
 From here the fleet features take over:
 
-- An article that no server has is borrowed from a **twin**, a backup whose files are byte-identical, proven by par2 checksums.
+- An article that no server has is borrowed from a matching file in a backup. Matching by content comes first, so a **twin**, a backup whose files are byte-identical as proven by par2 checksums, is the first choice.
 - A copy that's dying fails over early to the best backup with `HealthCheck=dupe`.
 - An **alt**, the same release in another encode, serves as a failover backup only. Nothing is borrowed from it.
 

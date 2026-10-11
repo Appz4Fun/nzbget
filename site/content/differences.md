@@ -10,7 +10,7 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 | Area | NZBGet | RustyGet |
 |---|---|---|
 | Language | C++ | C++ moving to Rust module by module; [Rust port status](rust-port.md) lists the modules ported so far |
-| An article missing on every server | Lost; par2 repair or failure | Fetched from a matching file in another copy of the release, then verified against par2 |
+| An article missing on every server | Lost; par2 repair or failure | Fetched from a matching file in another copy of the release, then checked by its checksum, its place in the file, and par2 when the download's par2 set describes the file |
 | Duplicates | Spare downloads, tried one after another | One fleet: copies lend each other articles, bytes, and par2 volumes |
 | Proving two copies hold the same files | Not done | Par2 checksums prove twins; alts are told apart |
 | Not enough par2 blocks | Repair fails | Repairs with a twin's recovery volumes |
@@ -29,7 +29,7 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 
 | Feature | Setting | Summary |
 |---|---|---|
-| Article fallback | `DupeArticleFallback=article` | Missing articles come from matching files in other copies, matched by par2 content, name, or structure, and checked against the download's par2 block checksums. |
+| Article fallback | `DupeArticleFallback=article` | Missing articles come from matching files in other copies, matched by par2 content, name, or structure, and checked against the download's par2 block checksums when the download's par2 set describes the file. |
 | Cutover and lead rotation | Part of article fallback | After three recoveries in a file, RustyGet asks the lead duplicate first; after three misses in a row, the next duplicate leads. |
 | Twins and alts | Automatic with Rust | par2 file lists prove which copies are byte-identical (twins) and which are other encodes (alts). |
 | par2 from a twin | Automatic | When recovery blocks run short, RustyGet fetches and uses the fewest twin recovery volumes that cover the damage. |
