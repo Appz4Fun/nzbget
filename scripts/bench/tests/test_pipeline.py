@@ -20,6 +20,7 @@ import unittest
 
 ROOT = Path(os.environ.get("BENCH_PIPELINE_ROOT", Path(__file__).resolve().parents[3]))
 PUBLISHER_ROOT = Path(os.environ.get("BENCH_PUBLISHER_ROOT", ROOT))
+ASSEMBLER_ROOT = Path(os.environ.get("BENCH_ASSEMBLER_ROOT", ROOT))
 BASE_SHA = "1" * 40
 CANDIDATE_SHA = "2" * 40
 INPUT_DIGEST = hashlib.sha256(b"controlled integration input").hexdigest()
@@ -806,6 +807,168 @@ class PublisherIdentityContractTests(unittest.TestCase):
         changed_manifest = json.dumps(manifest).encode()
         receipt["manifest_sha256"] = hashlib.sha256(changed_manifest).hexdigest()
         self.validate_reviewed(changed_manifest, samples, receipt, "HOLD")
+
+
+class AssemblerPipelineContractTests(unittest.TestCase):
+    api_calls = PublisherIdentityContractTests.api_calls
+
+    def setUp(self):
+        PublisherIdentityContractTests.setUp(self)
+        # The assembler deliberately rejects symlinked output ancestors; use
+        # the physical test directory on macOS as well as GNU/Linux.
+        self.work = self.work.resolve()
+        self.output = self.work / "published-validation"
+        self.journal = self.work / "api-calls.jsonl"
+        self.github_output = self.work / "github-output"
+        self.receipt_output = self.work / "assembled-receipt.json"
+
+    def collection(self, first_port=False, mixed_kernel=False):
+        manifest = controlled_manifest()
+        variants, decision = VARIANTS, "required"
+        if first_port:
+            variants = tuple(variant for variant in VARIANTS if variant != "rust_current")
+            decision = "not_applicable"
+            manifest["fixtures"][0].update(required_variants=list(variants),
+                rust_preservation_applicability=decision, provenance={
+                    "rust_preservation_rationale": "Synthetic first-port collection has no declared current Rust variant."})
+        rows = controlled_rows(variants=variants)
+        if mixed_kernel:
+            kernel = copy.deepcopy(manifest["fixtures"][0])
+            kernel.update(id="controlled/kernel", scope="kernel")
+            kernel.pop("rust_preservation_applicability")
+            manifest["fixtures"].append(kernel)
+            rows += controlled_rows(variants=variants, case=kernel["id"])
+        manifest_raw = json.dumps(manifest).encode()
+        samples_raw = "".join(json.dumps(row) + "\n" for row in rows).encode()
+        assertions = synthetic_receipt(manifest_raw, samples_raw, variants, decision)
+        # These are fixed, explicit synthetic approvals supplied by the test,
+        # not approvals inferred from runner captures by the assembler.
+        review = copy.deepcopy(assertions["review"])
+        records = {"build": [], "time": []}
+        bindings = {"schema_version": 1, "variants": {}, "compilers": {
+            "controlled-compiler": {"phase": "build", "index": 0, "id": "tool-0"}}, "inputs": {}}
+        for index, variant in enumerate(variants):
+            source_sha = CANDIDATE_SHA if variant == "rust_candidate" else BASE_SHA
+            for phase in ("build", "time"):
+                binary = assertions["binary_hashes"][variant]
+                source = assertions["source_content_hashes"][variant]
+                compiler = assertions["compiler_hashes"]["controlled-compiler"]
+                runner = assertions["runner"]["implementation_sha256"]
+                captures = [{"id": "runner", "kind": "implementation", "sha256": runner},
+                    {"id": "executable", "kind": "executable", "sha256": binary},
+                    {"id": "fixture-0", "kind": "fixture", "sha256": source},
+                    {"id": "fixture-1", "kind": "fixture", "sha256": INPUT_DIGEST},
+                    {"id": "tool-0", "kind": "toolchain", "sha256": compiler}]
+                records[phase].append({"schema_version": 1, "capture_version": 1, "mode": phase,
+                    "testbed": manifest["testbed"], "lock_scope": "worker_default", "runner_sha256": runner,
+                    "checkout_sha": source_sha, "checkout_sha_before": source_sha, "checkout_sha_after": source_sha,
+                    "command": {"name": "controlled-caller", "sha256": binary,
+                                "argv_sha256": assertions["commands"][phase][0]["argv_sha256"]},
+                    "fixtures": [{"id": "fixture-0", "sha256": source}, {"id": "fixture-1", "sha256": INPUT_DIGEST}],
+                    "toolchain_binaries": [{"id": "tool-0", "sha256": compiler}],
+                    "captures": {"before": captures, "after": copy.deepcopy(captures)},
+                    "stability": {"status": "stable", "changed_ids": [], "reason_codes": []},
+                    "lock_modes": {"i7-heavy.lock": "exclusive", "nzbget-rust-benchmark.lock": "shared"}
+                                  if phase == "build" else {"nzbget-rust-benchmark.lock": "exclusive"},
+                    "time_prebuilt": phase == "time", "build_jobs": 3 if phase == "build" else None,
+                    "command_started": True, "outcome": "completed", "exit_code": 0})
+            bindings["variants"][variant] = {
+                "source": {"phase": "build", "index": index, "id": "fixture-0",
+                           "reason": "Explicit synthetic source archive binding, without an execution attestation."},
+                "binary": {"phase": "time", "index": index, "id": "executable"}}
+        for fixture in manifest["fixtures"]:
+            bindings["inputs"][fixture["id"]] = [{"phase": "time", "index": index, "id": "fixture-1"}
+                                                 for index in range(len(variants))]
+        return {"manifest": manifest, "samples": samples_raw, "bindings": bindings,
+                "review": review, "records": records}
+
+    def assemble(self, collection):
+        script = ASSEMBLER_ROOT / "scripts/bench/collect_receipt.py"
+        self.assertTrue(script.is_file(), f"Assembler dependency missing: {script}")
+        files = {}
+        for name in ("manifest", "bindings", "review"):
+            files[name] = self.work / f"assembly-{name}.json"
+            files[name].write_bytes(json.dumps(collection[name]).encode())
+        files["samples"] = self.work / "assembly-samples.jsonl"
+        files["samples"].write_bytes(collection["samples"])
+        arguments = [sys.executable, str(script), "--manifest", str(files["manifest"]),
+                     "--samples", str(files["samples"]), "--bindings", str(files["bindings"]),
+                     "--review-record", str(files["review"]), "--output", str(self.receipt_output)]
+        for phase in ("build", "time"):
+            for index, record in enumerate(collection["records"][phase]):
+                path = self.work / f"assembly-{phase}-{index}.json"
+                path.write_bytes(json.dumps(record).encode())
+                files[f"{phase}-{index}"] = path
+                arguments += ["--" + phase + "-metadata", str(path)]
+        original = {path: path.read_bytes() for path in files.values()}
+        result = subprocess.run(arguments, env={"PATH": os.environ.get("PATH", "")},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(original, {path: path.read_bytes() for path in files.values()})
+        return result, files["manifest"].read_bytes(), files["samples"].read_bytes()
+
+    def assert_rejected(self, collection):
+        sentinel = b"synthetic prior receipt, not publication evidence\n"
+        self.receipt_output.write_bytes(sentinel)
+        result, _, _ = self.assemble(collection)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.receipt_output.read_bytes(), sentinel, "Failed assembly overwrote prior receipt")
+
+    def test_assembler_required_and_first_port_receipts_reach_publisher(self):
+        for first_port in (False, True):
+            with self.subTest(first_port=first_port):
+                collection = self.collection(first_port=first_port)
+                result, manifest, samples = self.assemble(collection)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt_raw = self.receipt_output.read_bytes()
+                receipt = json.loads(receipt_raw)
+                variants = collection["manifest"]["fixtures"][0]["required_variants"]
+                self.assertEqual(set(receipt["source_content_hashes"]), set(variants))
+                self.assertEqual(receipt["source_content_hashes"], collection["review"]["source_content_hashes"])
+                self.assertEqual(receipt["review"], collection["review"], "Assembler must retain the supplied full review")
+                self.assertEqual(receipt["source_hashes"], {variant: CANDIDATE_SHA if variant == "rust_candidate" else BASE_SHA
+                                                         for variant in variants})
+                self.output = self.work / f"assembler-publisher-{first_port}"
+                published = PublisherIdentityContractTests.invoke(self, raw_manifest=manifest,
+                    raw_samples=samples, raw_receipt=receipt_raw)
+                self.assertEqual(published.returncode, 0, published.stderr)
+                qualification = json.loads((self.output / "qualification.json").read_text())
+                self.assertEqual(qualification["status"], "PASS")
+                self.assertIs(qualification["collection_provenance"]["signature_attests_execution"], False)
+
+    def test_assembler_review_map_excludes_kernel_fixture(self):
+        collection = self.collection(mixed_kernel=True)
+        result, _, _ = self.assemble(collection)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(self.receipt_output.read_bytes())
+        self.assertEqual(receipt["review"]["rust_preservation_applicability"], {"controlled/caller": "required"})
+        collection["review"]["rust_preservation_applicability"]["controlled/kernel"] = "required"
+        self.assert_rejected(collection)
+
+    def test_assembler_changed_capture_same_checkout_cannot_generate_review(self):
+        collection = self.collection()
+        original_review = copy.deepcopy(collection["review"])
+        for record in (collection["records"]["build"][-1], collection["records"]["time"][-1]):
+            self.assertEqual(record["checkout_sha_before"], CANDIDATE_SHA)
+            changed = hashlib.sha256(b"synthetic edited source at unchanged checkout").hexdigest()
+            record["fixtures"][0]["sha256"] = changed
+            for phase in ("before", "after"):
+                record["captures"][phase][2]["sha256"] = changed
+        self.assert_rejected(collection)
+        self.assertEqual(collection["review"], original_review)
+
+    def test_assembler_missing_capture_or_review_decision_is_rejected(self):
+        for missing in ("capture", "decision"):
+            with self.subTest(missing=missing):
+                collection = self.collection()
+                if missing == "capture":
+                    record = collection["records"]["build"][-1]
+                    record["fixtures"][0]["sha256"] = None
+                    for phase in ("before", "after"):
+                        record["captures"][phase][2]["sha256"] = None
+                        record["captures"][phase][2]["error_code"] = "timeout"
+                else:
+                    collection["review"].pop("rust_preservation_applicability")
+                self.assert_rejected(collection)
 
 
 if __name__ == "__main__":
