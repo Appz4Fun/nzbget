@@ -21,6 +21,7 @@ import urllib.request
 
 ACTOR = "xbmc4lyfe"
 BRANCH = "dupe-article-fallback"
+STATUS_CONTEXT = "paired caller qualification"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 FILES = {"benchmark-results/manifest.json": 1024 * 1024,
@@ -43,7 +44,7 @@ def digest(value, pattern=SHA256):
     return isinstance(value, str) and bool(pattern.fullmatch(value))
 
 
-def json_object(raw):
+def json_value(raw):
     def pairs(items):
         result = {}
         for key, value in items:
@@ -60,7 +61,18 @@ def json_object(raw):
         value = json.loads(raw, object_pairs_hook=pairs, parse_constant=nonfinite, parse_float=finite_float)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise PublicationError("invalid JSON data") from exc
+    return value
+
+
+def json_object(raw):
+    value = json_value(raw)
     require(isinstance(value, dict), "expected JSON object")
+    return value
+
+
+def json_array(raw):
+    value = json_value(raw)
+    require(isinstance(value, list), "expected JSON array")
     return value
 
 
@@ -76,7 +88,7 @@ class GitHub:
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def request(self, endpoint, payload=None, limit=48 * 1024 * 1024):
+    def request(self, endpoint, payload=None, limit=48 * 1024 * 1024, array=False):
         require(endpoint.startswith("/") and not endpoint.startswith("//"), "invalid API endpoint")
         data = json.dumps(payload).encode() if payload is not None else None
         request = urllib.request.Request("https://api.github.com" + endpoint, data=data,
@@ -90,13 +102,16 @@ class GitHub:
             # Response bodies, URLs, exception text and tokens are never printed.
             raise PublicationError("GitHub API request failed") from exc
         require(len(raw) <= limit, "GitHub API response exceeds limit")
-        return json_object(raw)
+        return json_array(raw) if array else json_object(raw)
 
     def get(self, endpoint):
         return self.request(endpoint)
 
     def post(self, endpoint, payload):
         return self.request(endpoint, payload)
+
+    def get_list(self, endpoint):
+        return self.request(endpoint, limit=8 * 1024 * 1024, array=True)
 
 
 def verified_github_actor(api):
@@ -176,8 +191,13 @@ def acquire_evidence(api, repository, evidence_sha):
 def validate_pr(pr, repository, number, base_sha, head_sha):
     require(pr.get("number") == number and pr.get("state") == "open", "pull request is no longer open")
     base = pr.get("base", {})
-    require(base.get("repo", {}).get("full_name") == repository and base.get("ref") == BRANCH, "pull request targets a different repository or branch")
-    require(base.get("sha") == base_sha and pr.get("head", {}).get("sha") == head_sha, "pull request base/head SHA is stale")
+    head = pr.get("head", {})
+    require(isinstance(base, dict) and isinstance(head, dict), "invalid pull request identity")
+    base_repo, head_repo = base.get("repo"), head.get("repo")
+    require(isinstance(base_repo, dict) and isinstance(head_repo, dict) and
+            base_repo.get("full_name") == repository and head_repo.get("full_name") == repository and
+            base.get("ref") == BRANCH, "pull request must use the same repository and canonical target branch")
+    require(base.get("sha") == base_sha and head.get("sha") == head_sha, "pull request base/head SHA is stale")
 
 
 def validate_current(api, repository, mode, base_sha, head_sha, number, controller_sha):
@@ -190,6 +210,86 @@ def validate_current(api, repository, mode, base_sha, head_sha, number, controll
     if mode == "pr":
         validate_pr(api.get(f"/repos/{repository}/pulls/{number}"), repository, number, base_sha, head_sha)
     return bool(branch.get("protected"))
+
+
+def canonical_pr_number(value):
+    require(isinstance(value, str) and bool(re.fullmatch(r"[1-9][0-9]{0,9}", value)), "PR number must use canonical positive decimal digits")
+    return int(value)
+
+
+def live_pr_context(api, repository, number, controller_sha, expected_head=None):
+    """Bind lifecycle writes to current state, independently of stale proof."""
+    require(repository == "Appz4Fun/nzbget" and type(number) is int and number > 0 and digest(controller_sha, SHA), "invalid lifecycle controller or PR identity")
+    require(api.get(f"/repos/{repository}").get("default_branch") == BRANCH, "trusted controller must use the canonical default branch")
+    branch = api.get(f"/repos/{repository}/branches/{BRANCH}")
+    base = branch.get("commit", {}).get("sha")
+    require(base == controller_sha, "trusted lifecycle controller SHA is stale")
+    pr = api.get(f"/repos/{repository}/pulls/{number}")
+    head = pr.get("head", {}).get("sha")
+    require(digest(head, SHA), "invalid lifecycle head SHA")
+    validate_pr(pr, repository, number, base, head)
+    if expected_head is not None:
+        require(expected_head == head, "requested lifecycle head SHA is stale")
+    return {"base_sha": base, "head_sha": head, "number": number}
+
+
+def latest_qualification(api, repository, head):
+    for page in range(1, 101):
+        statuses = api.get_list(f"/repos/{repository}/commits/{head}/statuses?per_page=100&page={page}")
+        require(isinstance(statuses, list) and len(statuses) <= 100 and all(isinstance(s, dict) for s in statuses), "invalid commit status listing")
+        for status in statuses:
+            if status.get("context") == STATUS_CONTEXT:
+                return status
+        if len(statuses) < 100:
+            return None
+    raise PublicationError("commit status listing exceeds lifecycle limit")
+
+
+def update_pr_status(api, repository, number, controller_sha, state, intent="manual", expected_head=None):
+    require(state in ("pending", "failure") and intent in ("manual", "automatic"), "invalid lifecycle status intent")
+    require(intent != "automatic" or state == "pending", "automatic lifecycle only invalidates qualification")
+    require(intent != "manual" or digest(expected_head, SHA), "manual lifecycle requires an immutable requested head")
+    verified_github_actor(api)
+    current = live_pr_context(api, repository, number, controller_sha, expected_head)
+    if intent == "automatic":
+        latest = latest_qualification(api, repository, current["head_sha"])
+        if (latest and latest.get("state") == "success" and isinstance(latest.get("creator"), dict) and
+                latest["creator"].get("login") == ACTOR and latest.get("description") == "PASS base:" + current["base_sha"]):
+            require(live_pr_context(api, repository, number, controller_sha, current["head_sha"]) == current, "lifecycle state changed")
+            return dict(current, status="skip_current_pass", written=False)
+    verified_github_actor(api)
+    require(live_pr_context(api, repository, number, controller_sha, current["head_sha"]) == current, "lifecycle state changed")
+    label = "Pending" if state == "pending" else "HOLD"
+    api.post(f"/repos/{repository}/statuses/{current['head_sha']}", {
+        "state": state, "context": STATUS_CONTEXT, "description": label + " base:" + current["base_sha"]})
+    return dict(current, status=state, written=True)
+
+
+def list_lifecycle_prs(api, repository, controller_sha, selected=None):
+    require(repository == "Appz4Fun/nzbget" and digest(controller_sha, SHA), "invalid lifecycle discovery identity")
+    require(api.get(f"/repos/{repository}").get("default_branch") == BRANCH and
+            api.get(f"/repos/{repository}/branches/{BRANCH}").get("commit", {}).get("sha") == controller_sha,
+            "lifecycle discovery controller is stale")
+    if selected is not None:
+        live_pr_context(api, repository, selected, controller_sha)
+        return [selected]
+    numbers = []
+    for page in range(1, 101):
+        prs = api.get_list(f"/repos/{repository}/pulls?state=open&base={BRANCH}&per_page=100&page={page}")
+        require(isinstance(prs, list) and len(prs) <= 100 and all(isinstance(p, dict) for p in prs), "invalid open pull request listing")
+        for pr in prs:
+            number = pr.get("number")
+            require(type(number) is int and 0 < number <= 9999999999, "invalid listed PR number")
+            try:
+                validate_pr(pr, repository, number, controller_sha, pr.get("head", {}).get("sha"))
+            except (PublicationError, AttributeError):
+                continue
+            require(number not in numbers, "duplicate listed PR number")
+            numbers.append(number)
+            require(len(numbers) <= 256, "open PR lifecycle matrix exceeds 256 targets")
+        if len(prs) < 100:
+            return numbers
+    raise PublicationError("open pull request listing exceeds lifecycle limit")
 
 
 def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
@@ -379,10 +479,12 @@ def publish_results(api, args, manifest, qualification, receipt_ok):
     if args.mode == "pr":
         validate_current(api, args.repository, "pr", manifest["base_sha"], manifest["candidate_sha"], args.pr, args.controller_sha)
         verified_github_actor(api)
+        validate_current(api, args.repository, "pr", manifest["base_sha"], manifest["candidate_sha"], args.pr, args.controller_sha)
         api.post(f"/repos/{args.repository}/statuses/{manifest['candidate_sha']}", {
-            "state": "success", "context": "paired caller qualification", "description": "Reviewed paired complete-caller evidence: PASS"})
+            "state": "success", "context": STATUS_CONTEXT, "description": "PASS base:" + manifest["base_sha"]})
         validate_current(api, args.repository, "pr", manifest["base_sha"], manifest["candidate_sha"], args.pr, args.controller_sha)
         verified_github_actor(api)
+        validate_current(api, args.repository, "pr", manifest["base_sha"], manifest["candidate_sha"], args.pr, args.controller_sha)
         # The report contains fixed controller prose and hashes, never receipt
         # argv arrays, raw input/provider contents, absolute paths or secrets.
         api.post(f"/repos/{args.repository}/issues/{args.pr}/comments", {"body":
@@ -395,6 +497,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-identity-only", action="store_true")
     parser.add_argument("--verify-archive-only", action="store_true")
+    parser.add_argument("--list-prs", action="store_true")
+    parser.add_argument("--set-pr-status", choices=("pending", "failure"))
+    parser.add_argument("--status-intent", choices=("manual", "automatic"), default="manual")
     parser.add_argument("--github-output")
     parser.add_argument("--mode", choices=("base", "pr"))
     parser.add_argument("--repository", default="Appz4Fun/nzbget")
@@ -403,17 +508,29 @@ def main(argv=None):
     parser.add_argument("--expected-head-sha")
     parser.add_argument("--controller-sha", default=os.environ.get("GITHUB_SHA"))
     parser.add_argument("--testbed")
-    parser.add_argument("--pr", type=int)
-    parser.add_argument("--pr-number", type=int)
+    parser.add_argument("--pr", type=canonical_pr_number)
+    parser.add_argument("--pr-number", type=canonical_pr_number)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args(argv)
     outputs_cleared = False
+    api = None
     try:
-        if not args.verify_identity_only and not args.verify_archive_only:
+        if not args.verify_identity_only and not args.verify_archive_only and not args.list_prs and not args.set_pr_status:
             clear_owned_outputs(args.output_dir)
             outputs_cleared = args.output_dir is not None
         api = GitHub(os.environ.get("BENCH_GITHUB_TOKEN", ""))
+        if args.list_prs:
+            prs = list_lifecycle_prs(api, args.repository, args.controller_sha, args.pr)
+            write_outputs(args.github_output, {"prs": json.dumps(prs, separators=(",", ":"))})
+            print(json.dumps({"prs": prs}))
+            return 0
+        if args.set_pr_status:
+            result = update_pr_status(api, args.repository, args.pr, args.controller_sha, args.set_pr_status,
+                                      args.status_intent, args.expected_head_sha)
+            write_outputs(args.github_output, {"status_written": str(result["written"]).lower(), "status": result["status"]})
+            print(json.dumps(result))
+            return 0
         if args.verify_archive_only:
             guard = archive_guard(api, args.repository, args.pr_number)
             write_outputs(args.github_output, {"ready": str(guard["ready"]).lower(), "actor": guard["actor"]})
@@ -424,6 +541,8 @@ def main(argv=None):
             print("GitHub identity verified: xbmc4lyfe")
             return 0
         require(args.repository == "Appz4Fun/nzbget", "evidence must belong to Appz4Fun/nzbget")
+        if args.publish and args.mode == "pr":
+            update_pr_status(api, args.repository, args.pr, args.controller_sha, "pending", expected_head=args.expected_head_sha)
         require(args.mode and args.output_dir and args.testbed, "mode, output directory and stable testbed are required")
         for value in (args.evidence_sha, args.expected_base_sha, args.controller_sha):
             require(isinstance(value, str) and SHA.fullmatch(value), "full immutable evidence/base/controller SHAs are required")
@@ -460,6 +579,7 @@ def main(argv=None):
         print(f"Collection validation: {qualification['status']}; publication ready: {str(ready).lower()}; canonical branch protected: {str(protected).lower()}")
         if args.publish:
             publish_results(api, args, manifest, qualification, not reasons)
+            write_outputs(args.github_output, {"published": "true"})
             print("Validated data published" + (" for baseline monitoring" if args.mode == "base" else " with paired caller qualification"))
         return 0
     except (PublicationError, OSError, subprocess.TimeoutExpired, TypeError, KeyError, AttributeError, RecursionError) as exc:
@@ -467,6 +587,11 @@ def main(argv=None):
         # are controlled strings, never API response or upstream process text.
         message = str(exc) if isinstance(exc, PublicationError) else "publisher validation failed"
         print("HOLD: " + message, file=sys.stderr)
+        if args.publish and args.mode == "pr" and api is not None:
+            try:
+                update_pr_status(api, args.repository, args.pr, args.controller_sha, "failure", expected_head=args.expected_head_sha)
+            except (PublicationError, OSError, TypeError, KeyError, AttributeError):
+                print("HOLD: live qualification status could not be invalidated safely", file=sys.stderr)
         if outputs_cleared:
             # Never leave yesterday's PASS behind after invalid/stale proof.
             for name in OUTPUT_FILES:
@@ -475,7 +600,7 @@ def main(argv=None):
                     path.unlink()
             (args.output_dir / "qualification.json").write_text(json.dumps({"schema_version": 1, "status": "HOLD", "reasons": [message]}) + "\n")
             (args.output_dir / "report.md").write_text("Publisher qualification: **HOLD**. " + message + "\n")
-        write_outputs(args.github_output, {"status": "HOLD", "ready": "false"})
+        write_outputs(args.github_output, {"status": "HOLD", "ready": "false", "published": "false"})
         return 2
 
 

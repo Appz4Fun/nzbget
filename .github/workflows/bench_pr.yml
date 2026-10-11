@@ -1,12 +1,16 @@
-# Trusted controller ingests signed reviewed collection data at an immutable SHA.
-# No PR checkout, measured executable or evidence code receives credentials.
+# Trusted controller only; PR/evidence code is never executed with credentials.
 name: bench pull request
 
 on:
+  push:
+    branches: [dupe-article-fallback]
+  pull_request_target:
+    branches: [dupe-article-fallback]
+    types: [opened, reopened, synchronize, edited]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Open pull request number
+        description: Open pull request number in canonical decimal digits
         required: true
         type: string
       evidence_sha:
@@ -28,16 +32,77 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
-# Archive uses the same group; publication additionally rechecks live PR state.
-concurrency:
-  group: bench-publication-pr-${{ inputs.pr_number }}
-  cancel-in-progress: false
-
+# Each writer job uses the archive's per-PR group. No workflow-level lock
+# nests that group: base pushes fan out to independently serialized writers.
 jobs:
+  targets:
+    name: Discover guarded lifecycle targets
+    if: >-
+      github.repository == 'Appz4Fun/nzbget' &&
+      ((github.event_name != 'pull_request_target' && github.ref == 'refs/heads/dupe-article-fallback') ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.targets.outputs.prs }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: targets
+        name: Read current same-repository open PR identities
+        env:
+          BENCH_GITHUB_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            python3 -I scripts/bench/publish.py --list-prs \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/bench/publish.py --list-prs --pr "$INPUT_PR" \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          else
+            python3 -I scripts/bench/publish.py --list-prs --pr "$EVENT_PR" \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          fi
+
+  lifecycle:
+    name: Invalidate outdated qualification
+    needs: targets
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.targets.outputs.prs || '[]') }}
+    concurrency:
+      group: bench-publication-pr-${{ matrix.pr }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify identity and invalidate against fresh live state
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ matrix.pr }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/bench/publish.py --set-pr-status pending --status-intent manual \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --expected-head-sha "$HEAD_SHA"
+          else
+            python3 -I scripts/bench/publish.py --set-pr-status pending --status-intent automatic \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER"
+          fi
+
   validate:
     name: Validate immutable paired caller evidence
-    if: github.repository == 'Appz4Fun/nzbget' && github.ref == 'refs/heads/dupe-article-fallback'
+    needs: lifecycle
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.proof.outputs.ready }}
@@ -89,6 +154,11 @@ jobs:
     needs: validate
     if: needs.validate.outputs.ready == 'true' && needs.validate.outputs.status == 'PASS'
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.publication.outputs.published }}
+    concurrency:
+      group: bench-publication-pr-${{ inputs.pr_number }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -114,6 +184,7 @@ jobs:
         with:
           version: 0.6.13
       - name: Revalidate and publish immutable evidence
+        id: publication
         if: steps.preflight.outputs.ready == 'true'
         env:
           BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT }}
@@ -130,7 +201,33 @@ jobs:
             --repository "$GITHUB_REPOSITORY" --evidence-sha "$EVIDENCE_SHA" \
             --expected-base-sha "$BASE_SHA" --expected-head-sha "$HEAD_SHA" \
             --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --testbed "$TESTBED" \
-            --output-dir benchmark-publish
+            --output-dir benchmark-publish --github-output "$GITHUB_OUTPUT"
       - name: Report inactive publication
         if: steps.preflight.outputs.ready != 'true'
         run: echo '::notice::Bencher publication unavailable; no project, credentials, testbed or services were provisioned'
+
+  hold:
+    name: Report uncompleted qualification as HOLD
+    needs: [targets, lifecycle, validate, publish]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      needs.targets.outputs.prs != '' && needs.publish.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: bench-publication-pr-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify identity and report HOLD without Bencher credentials
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          python3 -I scripts/bench/publish.py --set-pr-status failure --status-intent manual \
+            --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --expected-head-sha "$HEAD_SHA"
+          echo '::error::HOLD: qualification publication did not complete'
+          exit 1
