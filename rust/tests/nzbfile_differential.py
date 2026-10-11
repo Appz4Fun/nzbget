@@ -233,10 +233,16 @@ with tempfile.TemporaryDirectory(prefix="nzbget-nzbfile-") as temp:
     folder = temp / "nzbs"
     folder.mkdir()
     paths = random_nzbs(folder, COUNT, rnd)
-    sanitized = build(temp, "new-asan", new_src, True, ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"])
+    sanitize = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+    sanitized = build(temp, "new-asan", new_src, True, sanitize)
+    old_sanitized = build(temp, "old-asan", old_src, False, sanitize)
     failures = 0
     for locale in ("C", "C.UTF-8"):
         a, ta = run(old, paths, locale)
+        # the reference under ASan/UBSan too: its dump must not change either
+        bad = compare(a, run(old_sanitized, paths, locale)[0])
+        print(f"locale {locale}, old-asan: {len(paths) - len(bad)} of {len(paths)} nzbs identical to old")
+        failures += len(bad)
         for binary in (new, sanitized):
             b, tb = run(binary, paths, locale)
             bad = compare(a, b)

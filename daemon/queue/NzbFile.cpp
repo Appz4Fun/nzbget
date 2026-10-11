@@ -75,7 +75,9 @@ static NzbgetRsCtype RsCtype()
 	}
 	for (int c = -128; c < 256; c++)
 	{
-		lower[c + 128] = tolower(c);
+		// negative chars are outside the ctype API's unsigned char/EOF domain:
+		// left unchanged, as Darwin and musl leave them
+		lower[c + 128] = c < 0 ? c : tolower(c);
 	}
 	return {classes, 1, 2, lower + 128, CHAR_MIN < 0};
 #endif
