@@ -184,7 +184,10 @@ def validate_rows(manifest, rows):
     planned_selections = 0
     for fixture in manifest["fixtures"]:
         case = fixture["id"]
-        calls = len(observed[case]) + int(observed[case] == set(fixture.get("required_variants", pair)))
+        required = set(fixture.get("required_variants", pair))
+        complete = observed[case] == required
+        rust_pair = complete and "rust_current" in required and pair[1] != "rust_current"
+        calls = len(observed[case]) + int(complete) + int(rust_pair)
         planned_selections += REPLICATES * len(grouped[case]) * calls
     require(planned_selections <= MAX_BOOTSTRAP_SELECTIONS,
             "bootstrap work budget exceeded; split independent fixture sets")
@@ -208,6 +211,28 @@ def cluster_interval(values, statistic, rng):
     draws = sorted(statistic([values[rng.randrange(count)] for _ in range(count)])
                    for _ in range(REPLICATES))
     return percentile(draws, 0.025), percentile(draws, 0.975)
+
+
+def paired_measurement(processes, baseline, candidate, policy, rng):
+    process_logs = []
+    balanced = True
+    for _, rounds in sorted(processes.items()):
+        logs, orders = [], [0, 0]
+        for _, block in sorted(rounds.items()):
+            a, b = block[baseline], block[candidate]
+            # Subtract logs rather than dividing first: finite positive
+            # latencies may still overflow a direct ratio division.
+            logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
+            orders[int(a["order"] > b["order"])] += 1
+        process_logs.append(statistics.fmean(logs))
+        balanced &= min(orders) >= policy["min_each_order"]
+    try:
+        estimate = math.exp(statistics.fmean(process_logs))
+        low, high = cluster_interval(process_logs, lambda xs: math.exp(statistics.fmean(xs)), rng)
+    except OverflowError as error:
+        raise ValidationError("ratio exceeds finite output range") from error
+    require(estimate > 0 and low > 0 and high > 0, "ratio underflows finite output range")
+    return {"estimate": estimate, "lower": low, "upper": high}, balanced
 
 
 def summarize(manifest, rows):
@@ -236,7 +261,7 @@ def summarize(manifest, rows):
                    "outliers": "all retained; no trimming or independent round resampling",
                    "interpretation": "prospective conservative precision/sufficiency defaults; not statistical guarantees or a historical waiver",
                    "limits": "numerical eligibility only; independently verify git/build hashes, output correctness, testbed, process independence, and control attribution",
-                   "migration_rule": "all changed complete callers need upper ratio CI < 1; controls must include 1; kernels cannot qualify runtime"}
+                   "migration_rule": "all changed complete callers need upper selected-baseline ratio CI < 1; required current Rust needs upper preservation ratio CI <= 1; unchanged controls must include 1 against both baselines; kernels cannot qualify runtime"}
     summary = {**identity, "comparison": manifest["comparison"], "toolchain": manifest["toolchain"],
                "provenance": manifest.get("provenance", {}), "methodology": methodology, "cases": []}
     bmf = {}
@@ -251,7 +276,8 @@ def summarize(manifest, rows):
                 "fixture_sha256": fixture["sha256"], "provenance": fixture.get("provenance", {}),
                 "required_variants": required, "raw_count": sum(len(b) for p in processes.values() for b in p.values()),
                 "process_count": len(processes), "round_counts": {str(p): len(r) for p, r in sorted(processes.items())},
-                "variants": {}, "ratio": None, "statistical_status": "missing", "status": "HOLD", "reasons": []}
+                "variants": {}, "ratio": None, "rust_preservation": None,
+                "statistical_status": "missing", "status": "HOLD", "reasons": []}
         for variant in sorted(observed[case_id]):
             all_ns, medians = [], []
             for _, rounds in sorted(processes.items()):
@@ -266,25 +292,9 @@ def summarize(manifest, rows):
         if observed[case_id] != set(required):
             case["reasons"].append("missing_required_variants")
         else:
-            process_logs = []
-            balanced = True
-            for _, rounds in sorted(processes.items()):
-                logs, orders = [], [0, 0]
-                for _, block in sorted(rounds.items()):
-                    a, b = block[baseline], block[candidate]
-                    # Subtract logs rather than dividing first: finite positive
-                    # latencies may still overflow a direct ratio division.
-                    logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
-                    orders[int(a["order"] > b["order"])] += 1
-                process_logs.append(statistics.fmean(logs))
-                balanced &= min(orders) >= policy["min_each_order"]
-            try:
-                estimate = math.exp(statistics.fmean(process_logs))
-                low, high = cluster_interval(process_logs, lambda xs: math.exp(statistics.fmean(xs)), rng)
-            except OverflowError as error:
-                raise ValidationError("ratio exceeds finite output range") from error
-            require(estimate > 0 and low > 0 and high > 0, "ratio underflows finite output range")
-            case["ratio"] = {"estimate": estimate, "lower": low, "upper": high}
+            ratio, balanced = paired_measurement(processes, baseline, candidate, policy, rng)
+            case["ratio"] = ratio
+            estimate, low, high = (ratio[k] for k in ("estimate", "lower", "upper"))
             case["statistical_status"] = "faster" if high < 1 else "slower" if low > 1 else "inconclusive"
             if len(processes) < policy["min_processes"]:
                 case["reasons"].append("insufficient_processes")
@@ -299,6 +309,22 @@ def summarize(manifest, rows):
                     case["reasons"].append("unchanged_control_drift")
             elif high >= 1:
                 case["reasons"].append("not_confidently_faster")
+            if "rust_current" in required and candidate != "rust_current":
+                rust_ratio, rust_balanced = paired_measurement(processes, "rust_current", candidate, policy, rng)
+                rust_reasons = [r for r in case["reasons"] if r in ("insufficient_processes", "insufficient_rounds")]
+                if not rust_balanced:
+                    rust_reasons.append("unbalanced_pair_order")
+                if (rust_ratio["upper"] - rust_ratio["lower"]) / rust_ratio["estimate"] > policy["max_relative_ci_width"]:
+                    rust_reasons.append("noisy_ratio_interval")
+                if role == "unchanged_control" and not rust_ratio["lower"] <= 1 <= rust_ratio["upper"]:
+                    rust_reasons.append("unchanged_control_drift")
+                elif role != "unchanged_control" and rust_ratio["upper"] > 1:
+                    rust_reasons.append("not_preserved")
+                case["rust_preservation"] = {"baseline": "rust_current", "candidate": candidate,
+                                              "ratio": rust_ratio, "status": "HOLD" if rust_reasons else "PASS",
+                                              "reasons": rust_reasons}
+                if rust_reasons:
+                    case["reasons"].append("existing_rust_not_preserved")
         if fixture["scope"] == "kernel":
             case["reasons"].append("kernel_cannot_qualify_runtime")
         if not case["reasons"]:
@@ -312,7 +338,7 @@ def summarize(manifest, rows):
         reasons.append("complete_caller_cases_on_hold")
     qualification = {**identity, "status": "HOLD" if reasons else "PASS", "reasons": reasons,
                      "methodology": methodology,
-                     "cases": [{k: c[k] for k in ("case", "scope", "role", "status", "reasons", "ratio")}
+                     "cases": [{k: c[k] for k in ("case", "scope", "role", "status", "reasons", "ratio", "rust_preservation")}
                                for c in summary["cases"]]}
     return summary, bmf, qualification
 
@@ -342,6 +368,16 @@ def render_report(summary, qualification):
             lines.append("| " + " | ".join(markdown(x) for x in
                          (case["case"] + " / " + variant, f"{measured['process_median_ns']:.6g}",
                           f"[{bounds['lower']:.6g}, {bounds['upper']:.6g}]", measured["count"])) + " |")
+    preserved = [c for c in summary["cases"] if c.get("rust_preservation") is not None]
+    if preserved:
+        lines.extend(["", "| Case | Candidate / current Rust [95% CI] | Preservation status | Reasons |",
+                      "| --- | --- | --- | --- |"])
+        for case in preserved:
+            check = case["rust_preservation"]
+            ratio = check["ratio"]
+            lines.append("| " + " | ".join(markdown(x) for x in
+                         (case["case"], f"{ratio['estimate']:.6g} [{ratio['lower']:.6g}, {ratio['upper']:.6g}]",
+                          check["status"], ", ".join(check["reasons"]) or "preserved numerically")) + " |")
     lines.extend(["", "Each process contributes the mean log paired candidate/baseline ns/op ratio; processes receive equal weight. "
                   "The estimate exponentiates their mean. The percentile bootstrap resamples whole processes with replacement, "
                   "preserving every round in each selected cluster. Linear 2.5% and 97.5% quantiles form the interval.", "",
@@ -351,6 +387,12 @@ def render_report(summary, qualification):
                   "Prospective qualification policy: " + markdown(json.dumps(summary["methodology"]["policy"], sort_keys=True)) + ". "
                   "These conservative defaults are configurable and do not guarantee accuracy or reassess historical ports.", "",
                   "Changed complete callers need an upper ratio bound below 1. Every changed caller must pass, including tiny calls. "
+                  "A required current-Rust baseline also needs its candidate/current ratio upper bound at most 1, "
+                  "with balanced order and sufficient precise evidence. This allows equality for preservation while "
+                  "retaining the selected C++ baseline's strict speed gate. "
+                  "This preservation check applies to any different candidate implementation, including C++ candidates. "
+                  "For genuine unchanged controls, both baseline intervals must contain 1 with the same evidence quality; "
+                  "significant drift in either direction holds the control. "
                   "Genuine unchanged controls require an interval containing 1; drift in either direction holds the result. "
                   "A control declaration requires external attribution. Kernel results cannot qualify a runtime replacement. "
                   "The existing 10% CI regression alert is not a migration waiver.", "",
@@ -396,9 +438,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     targets = [args.output_dir / name for name in OUTPUTS]
     try:
-        inputs = {args.manifest.resolve(), args.samples.resolve()}
-        aliases = any(p.resolve() in inputs or any(p.exists() and i.exists() and p.samefile(i)
-                                                  for i in inputs) for p in targets)
+        # Preserve original traversal components before resolving: a symlink
+        # traversed before a later '..' is still needed to reach the input.
+        originals = [p if p.is_absolute() else Path.cwd() / p for p in (args.manifest, args.samples)]
+        protected = {ancestor for p in originals for ancestor in (p, *p.parents)}
+        resolved = {p.resolve() for p in protected}
+        aliases = any(p.resolve() in resolved or any(p.exists() and i.exists() and p.samefile(i)
+                                                    for i in protected) for p in targets)
         require(not aliases, "output path collides with immutable input")
     except (OSError, ValueError) as error:
         print(f"benchmark evidence rejected: {error}", file=sys.stderr)

@@ -246,10 +246,12 @@ class SummaryTests(unittest.TestCase):
         m = manifest()
         m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_candidate", "rust_current"]
         rows = samples()
+        for row in rows:
+            row["order"] = (0 if row["variant"] == "cpp_current" else 2) if row["round"] % 2 == 0 else (2 if row["variant"] == "cpp_current" else 0)
         for p in range(8):
             for r in range(10):
                 rows.append({"case": "tiny-control", "variant": "rust_current", "process": p,
-                             "round": r, "order": 2, "elapsed_ns": 9000, "iterations": 10,
+                             "round": r, "order": 1, "elapsed_ns": 9000, "iterations": 10,
                              "observable_digest": "d" * 64})
         summary, bmf, q = self.run_summary(m, rows)
         self.assertEqual(q["status"], "PASS")
@@ -257,6 +259,123 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("tiny-control/rust_current", bmf)
         with self.assertRaises(ValueError):
             self.run_summary(m, rows[:-1])
+
+    def test_cpp_gain_does_not_hide_existing_rust_regression(self):
+        m = manifest()
+        m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        for current_ns, want in [(5000, "HOLD"), (8000, "PASS"), (9000, "PASS")]:
+            rows = samples()
+            for p in range(8):
+                for r in range(10):
+                    # Whole-block reversal balances both comparison pairs.
+                    for row in rows:
+                        if row["process"] == p and row["round"] == r:
+                            row["order"] = (0 if row["variant"] == "cpp_current" else 2) if r % 2 == 0 else (2 if row["variant"] == "cpp_current" else 0)
+                    rows.append({"case": "tiny-control", "variant": "rust_current", "process": p,
+                                 "round": r, "order": 1, "elapsed_ns": current_ns, "iterations": 10,
+                                 "observable_digest": "d" * 64})
+            with self.subTest(current_ns=current_ns):
+                summary, _, q = self.run_summary(m, rows)
+                self.assertEqual(q["status"], want)
+                case = summary["cases"][0]
+                self.assertAlmostEqual(case["ratio"]["estimate"], 0.8)
+                self.assertAlmostEqual(case["rust_preservation"]["ratio"]["estimate"], 8000 / current_ns)
+                self.assertEqual(case["rust_preservation"]["status"], want)
+                self.assertEqual(q["cases"][0]["rust_preservation"], case["rust_preservation"])
+
+    def test_optimized_cpp_tie_stays_hold_when_current_rust_is_preserved(self):
+        m = manifest()
+        m["comparison"]["baseline"] = "cpp_optimized"
+        m["fixtures"][0]["required_variants"] = ["cpp_optimized", "rust_current", "rust_candidate"]
+        rows = samples()
+        for row in rows:
+            if row["variant"] == "cpp_current":
+                row.update(variant="cpp_optimized", elapsed_ns=8000)
+            row["order"] = (0 if row["variant"] == "cpp_optimized" else 2) if row["round"] % 2 == 0 else (2 if row["variant"] == "cpp_optimized" else 0)
+        for p in range(8):
+            for r in range(10):
+                rows.append({"case": "tiny-control", "variant": "rust_current", "process": p,
+                             "round": r, "order": 1, "elapsed_ns": 9000, "iterations": 10,
+                             "observable_digest": "d" * 64})
+        summary, _, q = self.run_summary(m, rows)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertIn("not_confidently_faster", summary["cases"][0]["reasons"])
+        self.assertEqual(summary["cases"][0]["rust_preservation"]["status"], "PASS")
+
+    def test_current_rust_gate_applies_to_cpp_candidate(self):
+        m = manifest()
+        m["comparison"]["candidate"] = "cpp_optimized"
+        m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "cpp_optimized"]
+        rows = self.rust_three_way_rows([5000] * 8)
+        for row in rows:
+            if row["variant"] == "rust_candidate":
+                row["variant"] = "cpp_optimized"
+        summary, _, q = self.run_summary(m, rows)
+        self.assertEqual(q["status"], "HOLD")
+        check = summary["cases"][0]["rust_preservation"]
+        self.assertEqual(check["candidate"], "cpp_optimized")
+        self.assertAlmostEqual(check["ratio"]["estimate"], 1.6)
+
+    @staticmethod
+    def rust_three_way_rows(current_elapsed, candidate_elapsed=8000):
+        rows = samples()
+        for row in rows:
+            if row["variant"] == "rust_candidate":
+                row["elapsed_ns"] = candidate_elapsed
+            row["order"] = (0 if row["variant"] == "cpp_current" else 2) if row["round"] % 2 == 0 else (2 if row["variant"] == "cpp_current" else 0)
+        for p in range(8):
+            for r in range(10):
+                rows.append({"case": "tiny-control", "variant": "rust_current", "process": p,
+                             "round": r, "order": 1, "elapsed_ns": current_elapsed[p], "iterations": 10,
+                             "observable_digest": "d" * 64})
+        return rows
+
+    def test_current_rust_overlap_above_one_holds_changed_case(self):
+        m = manifest()
+        m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        summary, _, q = self.run_summary(m, self.rust_three_way_rows([7920] * 4 + [8080] * 4))
+        check = summary["cases"][0]["rust_preservation"]
+        self.assertLess(check["ratio"]["lower"], 1)
+        self.assertGreater(check["ratio"]["upper"], 1)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertIn("not_preserved", check["reasons"])
+
+    def test_unchanged_rust_controls_include_one_and_hold_either_drift(self):
+        m = manifest()
+        m["fixtures"][0].update(role="unchanged_control", provenance={"attribution": "synthetic unchanged caller"},
+                                 required_variants=["cpp_current", "rust_current", "rust_candidate"])
+        for current, want in [([9900] * 4 + [10100] * 4, "PASS"), ([5000] * 8, "HOLD"), ([20000] * 8, "HOLD")]:
+            with self.subTest(current=current):
+                summary, _, q = self.run_summary(m, self.rust_three_way_rows(current, 10000))
+                case = summary["cases"][0]
+                self.assertEqual(case["status"], want)
+                self.assertEqual(case["rust_preservation"]["status"], want)
+                self.assertEqual(q["status"], "HOLD")  # controls never establish a changed caller's speedup
+                if want == "HOLD":
+                    self.assertIn("unchanged_control_drift", case["rust_preservation"]["reasons"])
+                report = self.mod.render_report(summary, q)
+                self.assertIn("Candidate / current Rust", report)
+
+    def test_extra_rust_comparison_counts_against_bootstrap_budget(self):
+        m = manifest()
+        m["fixtures"] = []
+        rows = []
+        for index in range(3):
+            case = f"rust-budget-{index}"
+            m["fixtures"].append({"id": case, "sha256": "c" * 64, "scope": "complete_caller",
+                                  "required_variants": ["cpp_current", "rust_current", "rust_candidate"]})
+            for row in samples(processes=64, rounds=2):
+                row["case"] = case
+                rows.append(row)
+            for p in range(64):
+                for r in range(2):
+                    rows.append({"case": case, "variant": "rust_current", "process": p, "round": r,
+                                 "order": 2, "elapsed_ns": 9000, "iterations": 10,
+                                 "observable_digest": "d" * 64})
+        # Three variant histories + selected CPP ratio are 3.84 million
+        # selections; the required current-Rust ratio raises it to 4.8 million.
+        with self.assertRaises(ValueError):
+            self.run_summary(m, rows)
 
     def test_all_outliers_and_controls_retained(self):
         m = manifest()
@@ -338,6 +457,30 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertTrue(alias.samefile(sf))
             self.assertEqual(before, sf.read_bytes())
+
+    def test_input_traversal_ancestor_symlink_is_never_unlinked(self):
+        for use_parent in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                real, out = tmp / "real", tmp / "out"
+                real.mkdir()
+                out.mkdir()
+                alias = out / "summary.json"
+                alias.symlink_to(real, target_is_directory=True)
+                mf, sf = real / "manifest.json", real / "samples.jsonl"
+                mf.write_text(json.dumps(manifest()))
+                sf.write_text("\n".join(json.dumps(r) for r in samples()) + "\n")
+                # Even a later '..' does not undo traversal through the symlink.
+                supplied = alias / "manifest.json"
+                if use_parent:
+                    supplied = alias / ".." / "real" / "manifest.json"
+                before = (mf.read_bytes(), sf.read_bytes())
+                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(supplied),
+                                         "--samples", str(sf), "--output-dir", str(out)], capture_output=True)
+                with self.subTest(use_parent=use_parent):
+                    self.assertEqual(result.returncode, 2)
+                    self.assertTrue(alias.is_symlink())
+                    self.assertEqual(before, (mf.read_bytes(), sf.read_bytes()))
 
 
 if __name__ == "__main__":
