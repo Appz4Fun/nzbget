@@ -3173,6 +3173,44 @@ pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize
     status
 }
 
+/// NzbgetRsTestServerParams.
+#[repr(C)]
+pub struct TestServerParams {
+    pub host: RsStr,
+    pub username: RsStr,
+    pub password: RsStr,
+    pub cipher: RsStr,
+    pub port: c_int,
+    pub timeout: c_int,
+    pub cert_verif_level: c_int,
+    pub encryption: c_int,
+}
+
+/// TestServerXmlCommand's JSON body: 1 parsed (`parsed` was called), 0 not
+/// JSON, -1 invalid parameters.
+///
+/// # Safety
+/// `request` is null (empty) or NUL-terminated. `parsed` (null: not called)
+/// gets parameters borrowed only for the call and must not unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_test_server_params(request: *const c_char, limits: crate::json::Limits, ctx: *mut std::ffi::c_void,
+    parsed: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const TestServerParams)>) -> c_int {
+    use crate::rpcparams::ServerParamsError;
+    match crate::rpcparams::test_server_params(input(request), limits) {
+        Ok(p) => {
+            if let Some(parsed) = parsed {
+                let out = TestServerParams { host: rs_str(&p.host), username: rs_str(&p.username), password: rs_str(&p.password),
+                    cipher: rs_str(&p.cipher), port: p.port, timeout: p.timeout, cert_verif_level: p.cert_verif_level,
+                    encryption: p.encryption as c_int };
+                parsed(ctx, &out);
+            }
+            1
+        }
+        Err(ServerParamsError::Json) => 0,
+        Err(ServerParamsError::Params) => -1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
