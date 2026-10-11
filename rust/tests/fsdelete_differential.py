@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Compare FileSystem::DeleteDirectory, DeleteDirectoryWithContent, RenameBak
+and GetFileExtension (rust/src/fsdelete.rs with the C++ of FileSystem.cpp's
+Rust branch) and their C++ fallback with the pre-port C++ on real trees:
+nested folders, hidden and visible files, empty folders, links to a folder
+outside the tree, to files and dangling ones, read-only and unreadable
+folders (failing deletes), taken backup names. Every version runs on the
+same tree, rebuilt at the same path; compares the result, the error message,
+errno afterwards, the tree left (link targets and modes included) and the
+folder outside, which must never change.
+
+Usage: fsdelete_differential.py BUILD_DIR [ROUNDS]
+"""
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+REFERENCE = "02c80b7b"
+BUILD = Path(sys.argv[1]).resolve()
+ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "3000"
+
+old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/FileSystem.cpp"], cwd=ROOT, text=True)
+new_src = (ROOT / "daemon/util/FileSystem.cpp").read_text()
+
+
+def region(src, start, end_marker):
+    i = src.index(start)
+    j = src.index(end_marker, src.index("bool FileSystem::RenameBak(", i))
+    return src[i:j + len(end_marker)]
+
+
+old_region = region(old_src, "std::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
+new_region = region(new_src, "#ifdef NZBGET_USE_RUST\nstd::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n#endif\n")
+fallback_region = new_region.replace("#if defined(NZBGET_USE_RUST) && !defined(WIN32)", "#if 0").replace(
+    "#ifdef NZBGET_USE_RUST\nstd::optional", "#if 0\nstd::optional")
+
+STAND_IN = r'''
+struct FileSystem : ::FileSystem
+{
+	static std::optional<std::string> GetFileExtension(std::string_view filename);
+	static bool IsLink(const char* filename);
+	static bool DeleteDirectory(const char* dirFilename);
+	static bool DeleteDirectoryWithContent(const char* dirFilename, CString& errmsg);
+	static int64 FileSize(const char* filename);
+	static bool RenameBak(const char* filename, const char* bakPart, bool removeOldExtension, CString& newName);
+};
+'''
+
+
+def drop_disk_state(text):
+    # unchanged, and its type is private to FileSystem
+    i = text.index("std::optional<FileSystem::DiskState> FileSystem::GetDiskState")
+    return text[:i] + text[text.index("\n}\n", i) + 3:]
+
+
+def impl(name, text):
+    text = drop_disk_state(text)
+    return f"namespace {name}\n{{\n{STAND_IN}\n{text}\n}}\n"
+
+
+flags = (BUILD / "CMakeFiles/libnzbget.dir/flags.make").read_text()
+get = lambda k: re.search(rf"^{k} = (.*)$", flags, re.M).group(1)
+if "-DNZBGET_USE_RUST" not in get("CXX_DEFINES"):
+    sys.exit("the build doesn't use Rust: nothing to compare")
+link = (BUILD / "CMakeFiles/nzbget.dir/link.txt").read_text().split()
+libs = link[link.index("liblibnzbget.a"):]
+tests_main = (ROOT / "tests/main.cpp").read_text()
+globals_block = tests_main[tests_main.index('#include "ServerPool.h"'):tests_main.index("void ExitProc(){}") + len("void ExitProc(){}")]
+
+main = r'''
+#include "nzbget.h"
+#include "FileSystem.h"
+#include "Util.h"
+#include "nzbget_rs.h"
+#include <cerrno>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
+#include <vector>
+''' + globals_block + impl("oldimpl", old_region) + impl("newimpl", new_region) + impl("fallbackimpl", fallback_region) + r'''
+namespace stdfs = std::filesystem;
+
+static unsigned long long state = 88172645463325252ull;
+static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
+static int below(int n) { return (int)(next() % n); }
+
+static void Unlock(const stdfs::path& dir)
+{
+	// each folder made accessible before it is listed
+	struct stat st;
+	if (lstat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return;
+	chmod(dir.c_str(), 0755);
+	std::error_code ec;
+	for (auto& entry : stdfs::directory_iterator(dir, ec))
+	{
+		Unlock(entry.path());
+	}
+}
+
+static void Clean(const stdfs::path& dir)
+{
+	Unlock(dir);
+	std::error_code ec;
+	stdfs::remove_all(dir, ec);
+	if (stdfs::exists(stdfs::symlink_status(dir, ec)))
+	{
+		fprintf(stderr, "could not clean %s\n", dir.c_str());
+		exit(2);
+	}
+}
+
+static std::vector<std::string> g_paths;
+
+static void Build(const stdfs::path& root, const stdfs::path& outside, int depth, std::vector<stdfs::path>& locked)
+{
+	stdfs::create_directories(root);
+	g_paths.push_back(root.string());
+	static const char* NAMES[] = {"a", "b.txt", ".hidden", ".h2", "sub", ".git", "c.nzb", "d.bak", "e.tar.gz", "f"};
+	for (int n = below(5); n > 0; --n)
+	{
+		std::string name = NAMES[below(10)];
+		if (below(3) == 0) name += std::to_string(below(3));
+		stdfs::path p = root / name;
+		if (stdfs::exists(stdfs::symlink_status(p))) continue;
+		int kind = below(10);
+		if (kind < 4) std::ofstream(p) << "x";
+		else if (kind < 7 && depth < 3) Build(p, outside, depth + 1, locked);
+		else if (kind == 7) stdfs::create_directory_symlink(outside, p);
+		else if (kind == 8) stdfs::create_symlink(outside / "file", p);
+		else stdfs::create_symlink(root / "missing", p);
+		g_paths.push_back(p.string());
+	}
+	if (depth > 0 && below(4) == 0) locked.push_back(root);
+}
+
+static std::string Snapshot(const stdfs::path& dir)
+{
+	std::map<std::string, std::string> entries;
+	std::error_code ec;
+	if (!stdfs::exists(stdfs::symlink_status(dir, ec))) return "(gone)\n";
+	for (auto it = stdfs::recursive_directory_iterator(dir, stdfs::directory_options::skip_permission_denied, ec);
+		it != stdfs::recursive_directory_iterator(); it.increment(ec))
+	{
+		std::string rel = stdfs::relative(it->path(), dir).string();
+		struct stat st;
+		lstat(it->path().c_str(), &st);
+		std::string what = S_ISLNK(st.st_mode) ? "link->" + stdfs::read_symlink(it->path()).string() : S_ISDIR(st.st_mode) ? "dir" : "file";
+		entries[rel] = what + " " + std::to_string(st.st_mode & 0777);
+	}
+	std::string out;
+	for (auto& [k, v] : entries) out += k + " " + v + "\n";
+	return out;
+}
+
+struct Op
+{
+	int kind;
+	std::string path;
+	bool removeExt;
+};
+
+template <class FS> static std::string Run(const stdfs::path& work, const stdfs::path& outside, unsigned long long seed, Op& op)
+{
+	// the box holds the tree and every name a backup rename can create beside it
+	Clean(work.parent_path());
+	Clean(outside);
+	stdfs::create_directories(outside / "inner");
+	std::ofstream(outside / "file") << "keep";
+	std::ofstream(outside / "inner" / ".hidden") << "keep";
+	state = seed;
+	g_paths.clear();
+	std::vector<stdfs::path> locked;
+	Build(work, outside, 0, locked);
+	// taken backup names
+	for (int n = below(3); n > 0; --n)
+	{
+		std::string p = g_paths[below(g_paths.size())];
+		std::string base = p;
+		if (below(2)) { size_t dot = base.rfind('.'); if (dot != std::string::npos) base.resize(dot); }
+		std::string taken = base + (below(2) ? ".bak" : "." + std::to_string(2 + below(2)) + ".bak");
+		std::error_code ec;
+		if (!stdfs::exists(stdfs::symlink_status(taken, ec)) && stdfs::exists(stdfs::path(taken).parent_path(), ec))
+			below(2) ? (void)(std::ofstream(taken) << "t") : (void)stdfs::create_directory(taken, ec);
+	}
+	op.kind = below(10);
+	op.path = below(12) == 0 ? (work / "missing").string() : g_paths[below(g_paths.size())];
+	op.removeExt = below(2);
+	// read-only (deletes fail), listable but not searchable (lstat fails), closed
+	static const mode_t MODES[] = {0555, 0444, 0};
+	for (const stdfs::path& dir : locked) chmod(dir.c_str(), MODES[below(3)]);
+
+	std::string result;
+	errno = 1000 + below(5);
+	try
+	{
+		if (op.kind < 4)
+		{
+			result = "DeleteDirectory " + std::to_string(FS::DeleteDirectory(op.path.c_str()));
+		}
+		else if (op.kind < 8)
+		{
+			CString errmsg = "previous";
+			bool ok = FS::DeleteDirectoryWithContent(op.path.c_str(), errmsg);
+			result = "DeleteDirectoryWithContent " + std::to_string(ok) + " [" + (errmsg ? *errmsg : "(null)") + "]";
+		}
+		else
+		{
+			CString newName;
+			bool ok = FS::RenameBak(op.path.c_str(), below(4) ? "bak" : "", op.removeExt, newName);
+			result = "RenameBak " + std::to_string(ok) + " [" + (newName ? *newName : "(null)") + "]";
+		}
+	}
+	catch (const std::exception& e)
+	{
+		result = std::string("exception ") + e.what();
+	}
+	result += " errno " + std::to_string(errno) + "\n";
+	Unlock(work.parent_path());
+	return result + Snapshot(work.parent_path()) + "outside:\n" + Snapshot(outside);
+}
+
+// a failing entry next to a folder deleted fine (the inner call clears the
+// message), in both listing orders, and the same one level down
+template <class FS> static std::string Fixed(const stdfs::path& work, int variant)
+{
+	Clean(work.parent_path());
+	const char* first = variant & 1 ? "a" : "b";
+	const char* second = variant & 1 ? "b" : "a";
+	stdfs::path base = variant & 2 ? work / "deeper" : work;
+	stdfs::create_directories(base / first / "inner");
+	std::ofstream(base / first / "inner" / "f") << "x";
+	stdfs::create_directories(base / second / "empty");
+	std::ofstream(base / second / "g") << "x";
+	chmod((base / first / "inner").c_str(), 0555);
+	errno = 1234;
+	CString errmsg = "previous";
+	bool ok = FS::DeleteDirectoryWithContent(work.c_str(), errmsg);
+	std::string result = std::to_string(ok) + " [" + (errmsg ? *errmsg : "(null)") + "] errno " + std::to_string(errno) + "\n";
+	Unlock(work.parent_path());
+	return result + Snapshot(work.parent_path());
+}
+
+int main(int argc, char** argv)
+{
+	long rounds = atol(argv[1]);
+	stdfs::path temp = argv[2];
+	stdfs::path work = temp / "box" / "work";
+	stdfs::path outside = temp / "outside";
+	if (geteuid() == 0) printf("note: running as root, permission failures don't happen\n");
+
+	// GetFileExtension
+	for (const char* s : {"", ".", "a", "a.", ".a", "a.b.c", "/d.x/a", "a.tar.gz", "..", "x/.y"})
+	{
+		auto a = oldimpl::FileSystem::GetFileExtension(s), b = newimpl::FileSystem::GetFileExtension(s),
+			c = fallbackimpl::FileSystem::GetFileExtension(s);
+		if (a != b || a != c) { fprintf(stderr, "GetFileExtension mismatch on [%s]\n", s); return 1; }
+	}
+
+	for (int variant = 0; variant < 4; variant++)
+	{
+		stdfs::path fixedWork = temp / "box" / "work";
+		std::string a = Fixed<oldimpl::FileSystem>(fixedWork, variant);
+		std::string b = Fixed<newimpl::FileSystem>(fixedWork, variant);
+		std::string c = Fixed<fallbackimpl::FileSystem>(fixedWork, variant);
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "fixed %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
+
+	long counts[3] = {0, 0, 0};
+	unsigned long long seed = 88172645463325252ull;
+	for (long round = 0; round < rounds; round++)
+	{
+		seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+		Op op{};
+		std::string a = Run<oldimpl::FileSystem>(work, outside, seed, op);
+		std::string b = Run<newimpl::FileSystem>(work, outside, seed, op);
+		std::string c = Run<fallbackimpl::FileSystem>(work, outside, seed, op);
+		counts[op.kind < 4 ? 0 : op.kind < 8 ? 1 : 2]++;
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "round %ld mismatch (%s)\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", round, op.path.c_str(), a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
+	Clean(work.parent_path());
+	Clean(outside);
+	printf("%ld trees agree: %ld DeleteDirectory, %ld DeleteDirectoryWithContent, %ld RenameBak (reference %s)\n",
+		rounds, counts[0], counts[1], counts[2], "''' + REFERENCE + r'''");
+}
+'''
+
+with tempfile.TemporaryDirectory(prefix="nzbget-fsdelete-") as temp:
+    temp = Path(temp)
+    (temp / "main.cpp").write_text(main)
+    binary = temp / "fsdelete"
+    subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")),
+                    *shlex.split(get("CXX_DEFINES")), "-UNZBGET_USE_RUST", *shlex.split(get("CXX_INCLUDES")), "-fsyntax-only",
+                    str(ROOT / "daemon/util/FileSystem.cpp")], check=True, cwd=BUILD)
+    for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], ["-O2"]):
+        print("C++ flags:", " ".join(extra), flush=True)
+        subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")),
+                        *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")), *extra, "-w",
+                        *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
+                        *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]],
+                       check=True, cwd=BUILD)
+        run = temp / "run"
+        run.mkdir(exist_ok=True)
+        subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", str(binary),
+                        str(max(1, int(ROUNDS) // 4)) if "-fsanitize=address,undefined" in extra else ROUNDS, str(run)], check=True)

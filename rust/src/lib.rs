@@ -13,6 +13,7 @@ pub mod extload;
 pub mod feedfilter;
 pub mod filetypes;
 #[cfg(unix)]
+pub mod fsdelete;
 pub mod fsops;
 pub mod json;
 pub mod manifest;
