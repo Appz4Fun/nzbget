@@ -190,9 +190,158 @@ pub fn latin1_to_utf8(s: &[u8], out: &mut Vec<u8>) {
     }
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+const LATIN1_PACK: [[u8; 17]; 256] = {
+    let mut masks = [[0x80u8; 17]; 256];
+    let mut bits = 0;
+    while bits < 256 {
+        let (mut i, mut out) = (0, 0);
+        while i < 8 {
+            masks[bits][out] = (2 * i) as u8;
+            out += 1;
+            if bits & (1 << i) != 0 { masks[bits][out] = (2 * i + 1) as u8; out += 1; }
+            i += 1;
+        }
+        masks[bits][16] = out as u8;
+        bits += 1;
+    }
+    masks
+};
+
+/// # Safety
+/// CPU supports SSSE3; dst is disjoint and writable for 2*s.len()+1 bytes.
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+#[target_feature(enable = "ssse3")]
+unsafe fn latin1_ssse3(s: &[u8], dst: *mut u8) -> usize {
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::*;
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::*;
+    let (mut i, mut output) = (0, dst);
+    while s.len() - i >= 8 {
+        // loadl reads exactly eight proven source bytes, including at the end.
+        let input = _mm_loadl_epi64(s.as_ptr().add(i).cast());
+        let high = _mm_cmplt_epi8(input, _mm_setzero_si128());
+        let bits = _mm_movemask_epi8(high) as usize & 255;
+        if bits == 0 {
+            _mm_storel_epi64(output.cast(), input);
+            output = output.add(8);
+        } else {
+            let lead = _mm_or_si128(_mm_set1_epi8(0xc2u8 as i8),
+                _mm_and_si128(_mm_srli_epi16::<6>(input), _mm_set1_epi8(1)));
+            let first = _mm_or_si128(_mm_and_si128(high, lead), _mm_andnot_si128(high, input));
+            let tail = _mm_or_si128(_mm_and_si128(input, _mm_set1_epi8(0x3f)), _mm_set1_epi8(0x80u8 as i8));
+            let pairs = _mm_unpacklo_epi8(first, tail);
+            let mask = &LATIN1_PACK[bits];
+            let packed = _mm_shuffle_epi8(pairs, _mm_loadu_si128(mask.as_ptr().cast()));
+            // Previously emitted <=2*i bytes, so this 16-byte store fits in
+            // 2*s.len() whenever the input has these eight bytes remaining.
+            _mm_storeu_si128(output.cast(), packed);
+            output = output.add(mask[16] as usize);
+        }
+        i += 8;
+    }
+    for &c in &s[i..] {
+        if c < 0x80 { *output = c; output = output.add(1); }
+        else {
+            *output = 0xc2 + (c > 0xbf) as u8;
+            *output.add(1) = (c & 0x3f) + 0x80;
+            output = output.add(2);
+        }
+    }
+    *output = 0;
+    output.offset_from(dst) as usize
+}
+
+/// # Safety
+/// raw is readable through its NUL; dst is disjoint and has worst-case room
+/// (two bytes per input byte, plus NUL). The portable loop is unchanged.
+unsafe fn latin1_scalar_cstr(raw: *const u8, dst: *mut u8) -> usize {
+    let (mut read, mut write) = (raw, dst);
+    loop {
+        let c = *read;
+        if c == 0 { break; }
+        *write = c;
+        write = write.add(1);
+        if c >= 0x80 {
+            *write.sub(1) = 0xc2 + (c > 0xbf) as u8;
+            *write = (c & 0x3f) + 0x80;
+            write = write.add(1);
+        }
+        read = read.add(1);
+    }
+    *write = 0;
+    write.offset_from(dst) as usize
+}
+
+/// The known C-string length avoids a second strlen. With worst-case room,
+/// the direct loop initializes only output bytes and its final NUL.
+///
+/// # Safety
+/// raw is readable through the first NUL at s.len(), and its bytes equal s.
+/// For empty s, raw may be null. dst is null or writable for cap bytes and
+/// does not overlap the input (including its NUL).
+pub unsafe fn latin1_known_into(s: &[u8], raw: *const u8, dst: *mut u8, cap: usize) -> usize {
+    if s.is_empty() {
+        if !dst.is_null() && cap > 0 { *dst = 0; }
+        return 0;
+    }
+    let Some(max) = s.len().checked_mul(2) else { return usize::MAX };
+    if dst.is_null() || cap <= max {
+        let n = s.len() + s.iter().filter(|&&c| c >= 0x80).count();
+        if dst.is_null() || n >= cap { return n; }
+        return latin1_scalar_cstr(raw, dst);
+    }
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    if s.len() >= 8 && std::arch::is_x86_feature_detected!("ssse3") { return latin1_ssse3(s, dst); }
+    latin1_scalar_cstr(raw, dst)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latin_blocks_all_masks_bytes_and_offsets() {
+        let check = |input: &[u8], source_offset: usize, output_offset: usize, cap: usize| {
+            let mut source = vec![b'!'; source_offset + input.len() + 1];
+            source[source_offset..source_offset + input.len()].copy_from_slice(input);
+            source[source_offset + input.len()] = 0;
+            let mut expected = Vec::new(); latin1_to_utf8(input, &mut expected);
+            let mut output = vec![std::mem::MaybeUninit::<u8>::uninit(); output_offset + cap + 16];
+            for byte in &mut output[..output_offset] { byte.write(0x55); }
+            for byte in &mut output[output_offset + cap..] { byte.write(0xaa); }
+            let span = &source[source_offset..source_offset + input.len()];
+            let n = unsafe { latin1_known_into(span, source.as_ptr().add(source_offset), output.as_mut_ptr().add(output_offset).cast(), cap) };
+            assert_eq!(n, expected.len());
+            if cap > n {
+                let bytes = unsafe { std::slice::from_raw_parts(output.as_ptr().add(output_offset).cast::<u8>(), n + 1) };
+                assert_eq!(&bytes[..n], expected); assert_eq!(bytes[n], 0);
+            }
+            if cap > 2 * input.len() {
+                let n = unsafe { latin1_scalar_cstr(source.as_ptr().add(source_offset), output.as_mut_ptr().add(output_offset).cast()) };
+                assert_eq!(n, expected.len());
+                let bytes = unsafe { std::slice::from_raw_parts(output.as_ptr().add(output_offset).cast::<u8>(), n + 1) };
+                assert_eq!(&bytes[..n], expected); assert_eq!(bytes[n], 0);
+            }
+            assert!(output[..output_offset].iter().all(|b| unsafe { b.assume_init() } == 0x55));
+            assert!(output[output_offset + cap..].iter().all(|b| unsafe { b.assume_init() } == 0xaa));
+            assert_eq!(&source[source_offset..source_offset + input.len()], input);
+        };
+        for bits in 0..256 {
+            let input: Vec<u8> = (0..8).map(|i| if bits & (1 << i) == 0 { b'a' + i } else { 0x80 + 17 * i }).collect();
+            for source_offset in 0..16 {
+                for output_offset in 0..16 { check(&input, source_offset, output_offset, 17); }
+            }
+        }
+        for len in [0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33] {
+            for byte in 1..=255u8 {
+                let input = vec![byte; len];
+                let required = len * if byte < 0x80 { 1 } else { 2 };
+                for cap in [0, required, required + 1, 2 * len + 1] { check(&input, 3, 5, cap); }
+            }
+        }
+    }
 
     fn inplace(f: impl Fn(&mut [u8]) -> usize, s: &[u8]) -> Vec<u8> {
         let mut v = s.to_vec();

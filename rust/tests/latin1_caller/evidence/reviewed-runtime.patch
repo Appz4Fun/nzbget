@@ -1,0 +1,405 @@
+diff --git a/daemon/util/Util.cpp b/daemon/util/Util.cpp
+index 81420fdb..82089102 100644
+--- a/daemon/util/Util.cpp
++++ b/daemon/util/Util.cpp
+@@ -2155,18 +2155,40 @@ BreakLoop:
+ #endif
+ 
+ #ifdef NZBGET_USE_RUST
+-CString WebUtil::Latin1ToUtf8(const char* str)
++namespace
+ {
+-	// rust/src/text.rs
+-	NzbgetRsBuf buf = nzbget_rs_latin1_to_utf8(str);
+-	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
++	// Caller-owned bounded encodings; Reserve allocates bound+1 bytes and
++	// the final NUL supplies CString's logical Length().
++	template <class Write>
++	CString RustEncodedKnownResult(size_t inputLen, size_t expansion, Write write)
+ 	{
+-		nzbget_rs_free(buf);
+-		std::abort();
++		if (inputLen > (static_cast<size_t>(std::numeric_limits<int>::max()) - 1) / expansion)
++		{
++			std::abort();
++		}
++		size_t bound = inputLen * expansion;
++		CString result;
++		result.Reserve(static_cast<int>(bound));
++		char* output = static_cast<char*>(result);
++		if (!output || write(output, bound + 1) > bound)
++		{
++			// Includes SIZE_MAX rejection; never request an unbounded retry.
++			std::abort();
++		}
++		return result;
+ 	}
+-	CString result(buf.data, static_cast<int>(buf.len));
+-	nzbget_rs_free(buf);
+-	return result;
++
++}
++#endif
++
++#ifdef NZBGET_USE_RUST
++CString WebUtil::Latin1ToUtf8(const char* str)
++{
++	// rust/src/text.rs
++	size_t inputLen = str ? strlen(str) : 0;
++	return RustEncodedKnownResult(inputLen, 2, [str, inputLen](char* out, size_t cap) {
++		return nzbget_rs_latin1_to_utf8_n(str, inputLen, out, cap);
++	});
+ }
+ #else
+ CString WebUtil::Latin1ToUtf8(const char* str)
+diff --git a/rust/include/nzbget_rs.h b/rust/include/nzbget_rs.h
+index 8c4dfaf5..7e4ad9e3 100644
+--- a/rust/include/nzbget_rs.h
++++ b/rust/include/nzbget_rs.h
+@@ -22,6 +22,15 @@ typedef struct
+ // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.
+ NzbgetRsBuf nzbget_rs_json_encode(const char* raw);
+ NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
++// Caller-owned output; input_len is the known first-NUL position, not measured
++// again. raw is readable through that NUL (NULL only when input_len==0).
++// out is NULL (measure; cap ignored) or writable for cap bytes. SIZE_MAX rejects
++// unrepresentable lengths/endpoints or overlap with input including its NUL,
++// before any borrow/write. Never retry SIZE_MAX. Otherwise n excludes NUL:
++// n<cap initializes result+NUL; insufficient output is unusable, retry with n+1.
++// Output may be uninitialized; Rust never allocates/frees it. Latin1 requires
++// at most 2*input_len bytes, plus one for NUL.
++size_t nzbget_rs_latin1_to_utf8_n(const char* raw, size_t input_len, char* out, size_t cap);
+ // Twins and alts (rust/src/twin.rs). Lists are text lines: a file list is
+ // "length\tmd5\tname" per file. A download is given by its id and its
+ // identity "fingerprint#posting" (DupeFiles and the posting's message-id
+diff --git a/rust/src/ffi.rs b/rust/src/ffi.rs
+index 90c48eed..11cf4e63 100644
+--- a/rust/src/ffi.rs
++++ b/rust/src/ffi.rs
+@@ -30,6 +30,35 @@ pub unsafe extern "C" fn nzbget_rs_json_encode(raw: *const c_char) -> RsBuf {
+     into_buf(v)
+ }
+ 
++type EncoderSpans<'a> = (&'a [u8], &'a mut [std::mem::MaybeUninit<u8>]);
++
++/// Validate all representability/endpoints/overlap before creating borrows.
++///
++/// # Safety
++/// For accepted ranges, raw is readable through its first NUL at input_len,
++/// and non-null out is writable for cap bytes. Empty/null ranges are handled
++/// without constructing null slices.
++unsafe fn known_encoder_spans<'a, const EXPANSION: usize>(raw: *const c_char, input_len: usize, out: *mut c_char, cap: usize) -> Option<EncoderSpans<'a>> {
++    if input_len > (isize::MAX as usize - 1) / EXPANSION || raw.is_null() && input_len != 0 {
++        return None;
++    }
++    let source_range = if raw.is_null() { None } else {
++        Some((raw as usize, (raw as usize).checked_add(input_len + 1)?))
++    };
++    if !out.is_null() {
++        if cap > isize::MAX as usize { return None; }
++        let begin = out as usize;
++        let end = begin.checked_add(cap)?;
++        if cap != 0 && source_range.is_some_and(|(s, e)| begin < e && s < end) { return None; }
++    }
++    let source = if input_len == 0 { &[] } else { std::slice::from_raw_parts(raw.cast::<u8>(), input_len) };
++    let output = if out.is_null() || cap == 0 { &mut [] } else {
++        std::slice::from_raw_parts_mut(out.cast::<std::mem::MaybeUninit<u8>>(), cap)
++    };
++    Some((source, output))
++}
++
++
+ /// # Safety
+ /// `raw` is null or a valid NUL-terminated string.
+ #[no_mangle]
+@@ -483,6 +512,22 @@ pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8(raw: *const c_char) -> RsBuf {
+     into_buf(v)
+ }
+ 
++/// Latin1 into caller-owned potentially uninitialized storage. Returns required
++/// bytes excluding NUL, or SIZE_MAX for rejected bounds or overlap. If n < cap,
++/// result and NUL are initialized; otherwise retry with n + 1. Null output
++/// measures with cap ignored. Rust never allocates or frees caller storage.
++///
++/// # Safety
++/// Source is null only at input_len zero, otherwise readable through its first
++/// NUL exactly at input_len. Non-null output is writable for cap bytes.
++#[no_mangle]
++pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8_n(raw: *const c_char, input_len: usize, out: *mut c_char, cap: usize) -> usize {
++    let Some((source, output)) = known_encoder_spans::<2>(raw, input_len, out, cap) else { return usize::MAX };
++    let capacity = output.len();
++    let dst = if capacity == 0 { std::ptr::null_mut() } else { output.as_mut_ptr().cast() };
++    crate::text::latin1_known_into(source, raw.cast(), dst, capacity)
++}
++
+ /// WebUtil::XmlFindTag: a pointer into `xml` and the value length, or null
+ /// (`value_length` untouched).
+ ///
+@@ -2478,6 +2523,68 @@ mod cmdline_tests {
+     }
+ 
+     // One test owns getopt globals throughout; no parallel parser tests.
++    type KnownEncoder = unsafe extern "C" fn(*const c_char, usize, *mut c_char, usize) -> usize;
++
++    #[test]
++    fn known_encoders_capacity_nul_and_retry() {
++        let inputs = [b"".as_slice(), b"plain", b" a\"b\\c/d\n\t ", b"\x80\xbf\xc0\xff",
++            b"\xc0\x80", b"\xf7\xbf\xbf\xbf", b"a\xe2\x82", "😀é".as_bytes()];
++        for input in inputs {
++            let source = [input, &[0]].concat();
++            for (encode, expansion) in [(nzbget_rs_latin1_to_utf8_n as KnownEncoder, 2)] {
++                let mut expected = Vec::new();
++                crate::text::latin1_to_utf8(input, &mut expected);
++                assert!(expected.len() <= expansion * input.len());
++                for cap in 0..=expansion * input.len() + 2 {
++                    let mut storage = vec![std::mem::MaybeUninit::<u8>::uninit(); cap + 2];
++                    storage[0].write(0x55); storage[cap + 1].write(0xaa);
++                    let n = unsafe { encode(source.as_ptr().cast(), input.len(), storage.as_mut_ptr().add(1).cast(), cap) };
++                    assert_eq!(n, expected.len());
++                    assert_eq!(unsafe { storage[0].assume_init() }, 0x55);
++                    assert_eq!(unsafe { storage[cap + 1].assume_init() }, 0xaa);
++                    if n < cap {
++                        let result = unsafe { std::slice::from_raw_parts(storage.as_ptr().add(1).cast::<u8>(), n + 1) };
++                        assert_eq!(&result[..n], expected); assert_eq!(result[n], 0);
++                    }
++                    assert_eq!(&source[..input.len()], input);
++                }
++                let n = unsafe { encode(source.as_ptr().cast(), input.len(), std::ptr::null_mut(), usize::MAX) };
++                assert_eq!(n, expected.len());
++                let mut exact = vec![0x55u8; n + 1];
++                assert_eq!(unsafe { encode(source.as_ptr().cast(), input.len(), exact.as_mut_ptr().cast(), exact.len()) }, n);
++                assert_eq!(&exact[..n], expected); assert_eq!(exact[n], 0);
++                let mut empty = [0x55u8];
++                assert_eq!(unsafe { encode(std::ptr::null(), 0, empty.as_mut_ptr().cast(), 1) }, 0);
++                assert_eq!(empty, [0]);
++                assert_eq!(unsafe { encode(std::ptr::null(), 0, std::ptr::null_mut(), 0) }, 0);
++            }
++        }
++
++    }
++
++    #[test]
++    fn known_encoders_reject_overlap_and_arithmetic_before_writes() {
++        for (encode, expansion) in [(nzbget_rs_latin1_to_utf8_n as KnownEncoder, 2)] {
++            let mut data = [b'#'; 48]; data[8..12].copy_from_slice(b"a b\0");
++            let original = data;
++            for (start, cap) in [(8, 8), (0, 10), (11, 8)] {
++                assert_eq!(unsafe { encode(data.as_ptr().add(8).cast(), 3, data.as_mut_ptr().add(start).cast(), cap) }, usize::MAX);
++                assert_eq!(data, original);
++            }
++            // Empty output ranges may measure even at the source address.
++            assert_ne!(unsafe { encode(data.as_ptr().add(8).cast(), 3, data.as_mut_ptr().add(8).cast(), 0) }, usize::MAX);
++            let output = data.as_mut_ptr().cast();
++            for input_len in [usize::MAX, (isize::MAX as usize - 1) / expansion + 1] {
++                assert_eq!(unsafe { encode(c"x".as_ptr(), input_len, output, 1) }, usize::MAX);
++            }
++            assert_eq!(unsafe { encode(std::ptr::null(), 1, output, 1) }, usize::MAX);
++            assert_eq!(unsafe { encode(c"x".as_ptr(), 1, output, usize::MAX) }, usize::MAX);
++            assert_eq!(unsafe { encode(usize::MAX as *const c_char, 0, output, 1) }, usize::MAX);
++            assert_eq!(unsafe { encode(c"x".as_ptr(), 1, usize::MAX as *mut c_char, 1) }, usize::MAX);
++            assert_eq!(data, original);
++        }
++    }
++
+     #[test]
+     fn cmdline_rejects_invalid_inputs_and_stops_at_each_failed_callback() {
+         let mut calls = Calls { count: 0, fail_at: usize::MAX, argv: std::ptr::null_mut() };
+diff --git a/rust/src/text.rs b/rust/src/text.rs
+index 53c3b3d8..80786623 100644
+--- a/rust/src/text.rs
++++ b/rust/src/text.rs
+@@ -190,10 +190,159 @@ pub fn latin1_to_utf8(s: &[u8], out: &mut Vec<u8>) {
+     }
+ }
+ 
++#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
++const LATIN1_PACK: [[u8; 17]; 256] = {
++    let mut masks = [[0x80u8; 17]; 256];
++    let mut bits = 0;
++    while bits < 256 {
++        let (mut i, mut out) = (0, 0);
++        while i < 8 {
++            masks[bits][out] = (2 * i) as u8;
++            out += 1;
++            if bits & (1 << i) != 0 { masks[bits][out] = (2 * i + 1) as u8; out += 1; }
++            i += 1;
++        }
++        masks[bits][16] = out as u8;
++        bits += 1;
++    }
++    masks
++};
++
++/// # Safety
++/// CPU supports SSSE3; dst is disjoint and writable for 2*s.len()+1 bytes.
++#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
++#[target_feature(enable = "ssse3")]
++unsafe fn latin1_ssse3(s: &[u8], dst: *mut u8) -> usize {
++    #[cfg(target_arch = "x86_64")]
++    use std::arch::x86_64::*;
++    #[cfg(target_arch = "x86")]
++    use std::arch::x86::*;
++    let (mut i, mut output) = (0, dst);
++    while s.len() - i >= 8 {
++        // loadl reads exactly eight proven source bytes, including at the end.
++        let input = _mm_loadl_epi64(s.as_ptr().add(i).cast());
++        let high = _mm_cmplt_epi8(input, _mm_setzero_si128());
++        let bits = _mm_movemask_epi8(high) as usize & 255;
++        if bits == 0 {
++            _mm_storel_epi64(output.cast(), input);
++            output = output.add(8);
++        } else {
++            let lead = _mm_or_si128(_mm_set1_epi8(0xc2u8 as i8),
++                _mm_and_si128(_mm_srli_epi16::<6>(input), _mm_set1_epi8(1)));
++            let first = _mm_or_si128(_mm_and_si128(high, lead), _mm_andnot_si128(high, input));
++            let tail = _mm_or_si128(_mm_and_si128(input, _mm_set1_epi8(0x3f)), _mm_set1_epi8(0x80u8 as i8));
++            let pairs = _mm_unpacklo_epi8(first, tail);
++            let mask = &LATIN1_PACK[bits];
++            let packed = _mm_shuffle_epi8(pairs, _mm_loadu_si128(mask.as_ptr().cast()));
++            // Previously emitted <=2*i bytes, so this 16-byte store fits in
++            // 2*s.len() whenever the input has these eight bytes remaining.
++            _mm_storeu_si128(output.cast(), packed);
++            output = output.add(mask[16] as usize);
++        }
++        i += 8;
++    }
++    for &c in &s[i..] {
++        if c < 0x80 { *output = c; output = output.add(1); }
++        else {
++            *output = 0xc2 + (c > 0xbf) as u8;
++            *output.add(1) = (c & 0x3f) + 0x80;
++            output = output.add(2);
++        }
++    }
++    *output = 0;
++    output.offset_from(dst) as usize
++}
++
++/// # Safety
++/// raw is readable through its NUL; dst is disjoint and has worst-case room
++/// (two bytes per input byte, plus NUL). The portable loop is unchanged.
++unsafe fn latin1_scalar_cstr(raw: *const u8, dst: *mut u8) -> usize {
++    let (mut read, mut write) = (raw, dst);
++    loop {
++        let c = *read;
++        if c == 0 { break; }
++        *write = c;
++        write = write.add(1);
++        if c >= 0x80 {
++            *write.sub(1) = 0xc2 + (c > 0xbf) as u8;
++            *write = (c & 0x3f) + 0x80;
++            write = write.add(1);
++        }
++        read = read.add(1);
++    }
++    *write = 0;
++    write.offset_from(dst) as usize
++}
++
++/// The known C-string length avoids a second strlen. With worst-case room,
++/// the direct loop initializes only output bytes and its final NUL.
++///
++/// # Safety
++/// raw is readable through the first NUL at s.len(), and its bytes equal s.
++/// For empty s, raw may be null. dst is null or writable for cap bytes and
++/// does not overlap the input (including its NUL).
++pub unsafe fn latin1_known_into(s: &[u8], raw: *const u8, dst: *mut u8, cap: usize) -> usize {
++    if s.is_empty() {
++        if !dst.is_null() && cap > 0 { *dst = 0; }
++        return 0;
++    }
++    let Some(max) = s.len().checked_mul(2) else { return usize::MAX };
++    if dst.is_null() || cap <= max {
++        let n = s.len() + s.iter().filter(|&&c| c >= 0x80).count();
++        if dst.is_null() || n >= cap { return n; }
++        return latin1_scalar_cstr(raw, dst);
++    }
++    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
++    if s.len() >= 8 && std::arch::is_x86_feature_detected!("ssse3") { return latin1_ssse3(s, dst); }
++    latin1_scalar_cstr(raw, dst)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn latin_blocks_all_masks_bytes_and_offsets() {
++        let check = |input: &[u8], source_offset: usize, output_offset: usize, cap: usize| {
++            let mut source = vec![b'!'; source_offset + input.len() + 1];
++            source[source_offset..source_offset + input.len()].copy_from_slice(input);
++            source[source_offset + input.len()] = 0;
++            let mut expected = Vec::new(); latin1_to_utf8(input, &mut expected);
++            let mut output = vec![std::mem::MaybeUninit::<u8>::uninit(); output_offset + cap + 16];
++            for byte in &mut output[..output_offset] { byte.write(0x55); }
++            for byte in &mut output[output_offset + cap..] { byte.write(0xaa); }
++            let span = &source[source_offset..source_offset + input.len()];
++            let n = unsafe { latin1_known_into(span, source.as_ptr().add(source_offset), output.as_mut_ptr().add(output_offset).cast(), cap) };
++            assert_eq!(n, expected.len());
++            if cap > n {
++                let bytes = unsafe { std::slice::from_raw_parts(output.as_ptr().add(output_offset).cast::<u8>(), n + 1) };
++                assert_eq!(&bytes[..n], expected); assert_eq!(bytes[n], 0);
++            }
++            if cap > 2 * input.len() {
++                let n = unsafe { latin1_scalar_cstr(source.as_ptr().add(source_offset), output.as_mut_ptr().add(output_offset).cast()) };
++                assert_eq!(n, expected.len());
++                let bytes = unsafe { std::slice::from_raw_parts(output.as_ptr().add(output_offset).cast::<u8>(), n + 1) };
++                assert_eq!(&bytes[..n], expected); assert_eq!(bytes[n], 0);
++            }
++            assert!(output[..output_offset].iter().all(|b| unsafe { b.assume_init() } == 0x55));
++            assert!(output[output_offset + cap..].iter().all(|b| unsafe { b.assume_init() } == 0xaa));
++            assert_eq!(&source[source_offset..source_offset + input.len()], input);
++        };
++        for bits in 0..256 {
++            let input: Vec<u8> = (0..8).map(|i| if bits & (1 << i) == 0 { b'a' + i } else { 0x80 + 17 * i }).collect();
++            for source_offset in 0..16 {
++                for output_offset in 0..16 { check(&input, source_offset, output_offset, 17); }
++            }
++        }
++        for len in [0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33] {
++            for byte in 1..=255u8 {
++                let input = vec![byte; len];
++                let required = len * if byte < 0x80 { 1 } else { 2 };
++                for cap in [0, required, required + 1, 2 * len + 1] { check(&input, 3, 5, cap); }
++            }
++        }
++    }
++
+     fn inplace(f: impl Fn(&mut [u8]) -> usize, s: &[u8]) -> Vec<u8> {
+         let mut v = s.to_vec();
+         let n = f(&mut v);
+diff --git a/rust/tests/text_differential.py b/rust/tests/text_differential.py
+index b93508d3..6469c6f4 100644
+--- a/rust/tests/text_differential.py
++++ b/rust/tests/text_differential.py
+@@ -57,6 +57,8 @@ harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
+                  "namespace\n{\n\t// Classify the byte")
+ harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
+                  "namespace\n{\n\t// Numeric XML references")
++harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
++                 "namespace\n{\n\t// Caller-owned bounded encodings")
+ harness += r'''
+ static unsigned state = 0x7e57da7a;
+ static unsigned next() { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; }
+@@ -85,6 +87,21 @@ static void check(const std::string& in) {
+         CString c = w ? WebUtil::UrlEncode(in.c_str()) : WebUtil::Latin1ToUtf8(in.c_str());
+         NzbgetRsBuf r = w ? nzbget_rs_url_encode(in.c_str()) : nzbget_rs_latin1_to_utf8(in.c_str());
+         if (strlen(c.p) != r.len || memcmp(c.p, r.data, r.len + 1)) fail(w ? "UrlEncode" : "Latin1ToUtf8", in);
++        if (!w) {
++            size_t input_len = strlen(in.c_str());
++            size_t len = strlen(c.p);
++            CString direct = RustEncodedKnownResult(input_len, 2, [&](char* out, size_t cap) {
++                return nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, out, cap);
++            });
++            if (strlen(direct.p) != len || memcmp(c.p, direct.p, len + 1)) fail("known Latin1", in);
++            for (size_t cap : {size_t(0), len, len + 1, 2 * input_len + 1}) {
++                std::vector<char> buffer(cap + 2, '#');
++                size_t n = nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, buffer.data() + 1, cap);
++                if (n != len || buffer.front() != '#' || buffer.back() != '#' ||
++                    (cap > n && memcmp(c.p, buffer.data() + 1, n + 1))) fail("known Latin1 capacity", in);
++            }
++            if (nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, nullptr, SIZE_MAX) != len) fail("known Latin1 measure", in);
++        }
+         nzbget_rs_free(r);
+     }
+ }

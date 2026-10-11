@@ -30,6 +30,35 @@ pub unsafe extern "C" fn nzbget_rs_json_encode(raw: *const c_char) -> RsBuf {
     into_buf(v)
 }
 
+type EncoderSpans<'a> = (&'a [u8], &'a mut [std::mem::MaybeUninit<u8>]);
+
+/// Validate all representability/endpoints/overlap before creating borrows.
+///
+/// # Safety
+/// For accepted ranges, raw is readable through its first NUL at input_len,
+/// and non-null out is writable for cap bytes. Empty/null ranges are handled
+/// without constructing null slices.
+unsafe fn known_encoder_spans<'a, const EXPANSION: usize>(raw: *const c_char, input_len: usize, out: *mut c_char, cap: usize) -> Option<EncoderSpans<'a>> {
+    if input_len > (isize::MAX as usize - 1) / EXPANSION || raw.is_null() && input_len != 0 {
+        return None;
+    }
+    let source_range = if raw.is_null() { None } else {
+        Some((raw as usize, (raw as usize).checked_add(input_len + 1)?))
+    };
+    if !out.is_null() {
+        if cap > isize::MAX as usize { return None; }
+        let begin = out as usize;
+        let end = begin.checked_add(cap)?;
+        if cap != 0 && source_range.is_some_and(|(s, e)| begin < e && s < end) { return None; }
+    }
+    let source = if input_len == 0 { &[] } else { std::slice::from_raw_parts(raw.cast::<u8>(), input_len) };
+    let output = if out.is_null() || cap == 0 { &mut [] } else {
+        std::slice::from_raw_parts_mut(out.cast::<std::mem::MaybeUninit<u8>>(), cap)
+    };
+    Some((source, output))
+}
+
+
 /// # Safety
 /// `raw` is null or a valid NUL-terminated string.
 #[no_mangle]
@@ -481,6 +510,22 @@ pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8(raw: *const c_char) -> RsBuf {
     let mut v = Vec::new();
     crate::text::latin1_to_utf8(input(raw), &mut v);
     into_buf(v)
+}
+
+/// Latin1 into caller-owned potentially uninitialized storage. Returns required
+/// bytes excluding NUL, or SIZE_MAX for rejected bounds or overlap. If n < cap,
+/// result and NUL are initialized; otherwise retry with n + 1. Null output
+/// measures with cap ignored. Rust never allocates or frees caller storage.
+///
+/// # Safety
+/// Source is null only at input_len zero, otherwise readable through its first
+/// NUL exactly at input_len. Non-null output is writable for cap bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_latin1_to_utf8_n(raw: *const c_char, input_len: usize, out: *mut c_char, cap: usize) -> usize {
+    let Some((source, output)) = known_encoder_spans::<2>(raw, input_len, out, cap) else { return usize::MAX };
+    let capacity = output.len();
+    let dst = if capacity == 0 { std::ptr::null_mut() } else { output.as_mut_ptr().cast() };
+    crate::text::latin1_known_into(source, raw.cast(), dst, capacity)
 }
 
 /// WebUtil::XmlFindTag: a pointer into `xml` and the value length, or null
@@ -2478,6 +2523,68 @@ mod cmdline_tests {
     }
 
     // One test owns getopt globals throughout; no parallel parser tests.
+    type KnownEncoder = unsafe extern "C" fn(*const c_char, usize, *mut c_char, usize) -> usize;
+
+    #[test]
+    fn known_encoders_capacity_nul_and_retry() {
+        let inputs = [b"".as_slice(), b"plain", b" a\"b\\c/d\n\t ", b"\x80\xbf\xc0\xff",
+            b"\xc0\x80", b"\xf7\xbf\xbf\xbf", b"a\xe2\x82", "😀é".as_bytes()];
+        for input in inputs {
+            let source = [input, &[0]].concat();
+            for (encode, expansion) in [(nzbget_rs_latin1_to_utf8_n as KnownEncoder, 2)] {
+                let mut expected = Vec::new();
+                crate::text::latin1_to_utf8(input, &mut expected);
+                assert!(expected.len() <= expansion * input.len());
+                for cap in 0..=expansion * input.len() + 2 {
+                    let mut storage = vec![std::mem::MaybeUninit::<u8>::uninit(); cap + 2];
+                    storage[0].write(0x55); storage[cap + 1].write(0xaa);
+                    let n = unsafe { encode(source.as_ptr().cast(), input.len(), storage.as_mut_ptr().add(1).cast(), cap) };
+                    assert_eq!(n, expected.len());
+                    assert_eq!(unsafe { storage[0].assume_init() }, 0x55);
+                    assert_eq!(unsafe { storage[cap + 1].assume_init() }, 0xaa);
+                    if n < cap {
+                        let result = unsafe { std::slice::from_raw_parts(storage.as_ptr().add(1).cast::<u8>(), n + 1) };
+                        assert_eq!(&result[..n], expected); assert_eq!(result[n], 0);
+                    }
+                    assert_eq!(&source[..input.len()], input);
+                }
+                let n = unsafe { encode(source.as_ptr().cast(), input.len(), std::ptr::null_mut(), usize::MAX) };
+                assert_eq!(n, expected.len());
+                let mut exact = vec![0x55u8; n + 1];
+                assert_eq!(unsafe { encode(source.as_ptr().cast(), input.len(), exact.as_mut_ptr().cast(), exact.len()) }, n);
+                assert_eq!(&exact[..n], expected); assert_eq!(exact[n], 0);
+                let mut empty = [0x55u8];
+                assert_eq!(unsafe { encode(std::ptr::null(), 0, empty.as_mut_ptr().cast(), 1) }, 0);
+                assert_eq!(empty, [0]);
+                assert_eq!(unsafe { encode(std::ptr::null(), 0, std::ptr::null_mut(), 0) }, 0);
+            }
+        }
+
+    }
+
+    #[test]
+    fn known_encoders_reject_overlap_and_arithmetic_before_writes() {
+        for (encode, expansion) in [(nzbget_rs_latin1_to_utf8_n as KnownEncoder, 2)] {
+            let mut data = [b'#'; 48]; data[8..12].copy_from_slice(b"a b\0");
+            let original = data;
+            for (start, cap) in [(8, 8), (0, 10), (11, 8)] {
+                assert_eq!(unsafe { encode(data.as_ptr().add(8).cast(), 3, data.as_mut_ptr().add(start).cast(), cap) }, usize::MAX);
+                assert_eq!(data, original);
+            }
+            // Empty output ranges may measure even at the source address.
+            assert_ne!(unsafe { encode(data.as_ptr().add(8).cast(), 3, data.as_mut_ptr().add(8).cast(), 0) }, usize::MAX);
+            let output = data.as_mut_ptr().cast();
+            for input_len in [usize::MAX, (isize::MAX as usize - 1) / expansion + 1] {
+                assert_eq!(unsafe { encode(c"x".as_ptr(), input_len, output, 1) }, usize::MAX);
+            }
+            assert_eq!(unsafe { encode(std::ptr::null(), 1, output, 1) }, usize::MAX);
+            assert_eq!(unsafe { encode(c"x".as_ptr(), 1, output, usize::MAX) }, usize::MAX);
+            assert_eq!(unsafe { encode(usize::MAX as *const c_char, 0, output, 1) }, usize::MAX);
+            assert_eq!(unsafe { encode(c"x".as_ptr(), 1, usize::MAX as *mut c_char, 1) }, usize::MAX);
+            assert_eq!(data, original);
+        }
+    }
+
     #[test]
     fn cmdline_rejects_invalid_inputs_and_stops_at_each_failed_callback() {
         let mut calls = Calls { count: 0, fail_at: usize::MAX, argv: std::ptr::null_mut() };

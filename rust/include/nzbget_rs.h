@@ -22,6 +22,15 @@ typedef struct
 // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.
 NzbgetRsBuf nzbget_rs_json_encode(const char* raw);
 NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
+// Caller-owned output; input_len is the known first-NUL position, not measured
+// again. raw is readable through that NUL (NULL only when input_len==0).
+// out is NULL (measure; cap ignored) or writable for cap bytes. SIZE_MAX rejects
+// unrepresentable lengths/endpoints or overlap with input including its NUL,
+// before any borrow/write. Never retry SIZE_MAX. Otherwise n excludes NUL:
+// n<cap initializes result+NUL; insufficient output is unusable, retry with n+1.
+// Output may be uninitialized; Rust never allocates/frees it. Latin1 requires
+// at most 2*input_len bytes, plus one for NUL.
+size_t nzbget_rs_latin1_to_utf8_n(const char* raw, size_t input_len, char* out, size_t cap);
 // Twins and alts (rust/src/twin.rs). Lists are text lines: a file list is
 // "length\tmd5\tname" per file. A download is given by its id and its
 // identity "fingerprint#posting" (DupeFiles and the posting's message-id
