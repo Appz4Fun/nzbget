@@ -333,6 +333,8 @@ class RunnerTests(unittest.TestCase):
         argv = self.script("import json,os,sys\nprint(json.dumps(dict(os.environ)))\nprint(sys.argv[1:])\n")
         env = dict(os.environ, GITHUB_TOKEN="private-token", BENCHER_API_KEY="private-bencher",
                    MAKEFLAGS="-j99", CARGO_BUILD_JOBS="99")
+        env.pop("RUSTUP_HOME", None)
+        env.pop("CARGO_HOME", None)
         status, output, error = self.run_cli("build", argv + ["literal $(echo injected)", "private-argument"],
             ("--metadata", str(metadata), "--testbed", "fixture-worker", "--fixture", str(fixture)), env)
         self.assertEqual(status, 0, error)
@@ -357,6 +359,24 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(proof["time_prebuilt"])
         self.assertEqual(child_env["RUSTUP_HOME"], str(Path.home() / ".rustup"))
         self.assertEqual(child_env["CARGO_HOME"], str(Path.home() / ".cargo"))
+
+    @unittest.skipUnless(LINUX, "nested toolchain-cache environment tests are Linux-only")
+    def test_explicit_toolchain_caches_survive_nested_isolated_home(self):
+        outer_home, cargo_home, rustup_home = [self.root / name for name in
+                                              ("outer-isolated-home", "explicit-cargo-cache", "distinct-rustup-cache")]
+        for path in (outer_home, cargo_home, rustup_home):
+            path.mkdir()
+        env = dict(os.environ, HOME=str(outer_home), XDG_CONFIG_HOME=str(outer_home),
+                   CARGO_HOME=str(cargo_home), RUSTUP_HOME=str(rustup_home))
+        argv = self.script("import json,os\nprint(json.dumps(dict(os.environ)))\n")
+        status, output, error = self.run_cli("build", argv, env=env)
+        self.assertEqual(status, 0, error)
+        child_env = json.loads(output)
+        self.assertEqual(child_env["CARGO_HOME"], str(cargo_home))
+        self.assertEqual(child_env["RUSTUP_HOME"], str(rustup_home))
+        self.assertNotEqual(child_env["HOME"], str(outer_home))
+        self.assertEqual(child_env["XDG_CONFIG_HOME"], child_env["HOME"])
+        self.assertEqual(child_env["CARGO_BUILD_JOBS"], "3")
 
     @unittest.skipUnless(LINUX, "descendant supervision is Linux-only")
     def test_supervisor_internal_error_reaps_child_tree_before_unlock(self):
