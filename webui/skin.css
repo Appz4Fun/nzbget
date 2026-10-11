@@ -2984,7 +2984,7 @@ td:hover span.none-category {
 #ConfigContent .help-block pre.help-desc,
 #ConfigContent .config-static .controls { font-family: var(--font-sans); }
 
-#ConfigContent .config-server-row {
+#ConfigContent .config-list-row {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -2994,17 +2994,17 @@ td:hover span.none-category {
 	font-weight: 400;
 }
 
-.config-server-name { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
-.config-server-host { flex: 2 1 180px; min-width: 0; overflow-wrap: anywhere; color: var(--label-secondary); }
-.config-server-status,
-.config-server-connections { font-size: 12px; color: var(--label-secondary); }
-.config-server-health { color: var(--yellow-text); font-size: 12px; }
-#ConfigContent .config-server-edit { margin: 0 0 0 auto; flex: 0 0 auto; }
-#ConfigContent:not(.search) .config-server-detail.server-closed { display: none !important; }
-.phone #ConfigContent .config-server-row { gap: 6px 12px; }
-.phone #ConfigContent .config-server-name { flex-basis: calc(100% - 90px); }
-.phone #ConfigContent .config-server-host { flex-basis: 100%; }
-.phone #ConfigContent .config-server-edit { min-height: 40px; }
+.config-list-name { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.config-list-host { flex: 2 1 180px; min-width: 0; overflow-wrap: anywhere; color: var(--label-secondary); }
+.config-list-status,
+.config-list-connections { font-size: 12px; color: var(--label-secondary); }
+.config-list-health { color: var(--yellow-text); font-size: 12px; }
+#ConfigContent .config-list-edit { margin: 0 0 0 auto; flex: 0 0 auto; }
+#ConfigContent:not(.search) .config-list-detail.list-closed { display: none !important; }
+.phone #ConfigContent .config-list-row { gap: 6px 12px; }
+.phone #ConfigContent .config-list-name { flex-basis: calc(100% - 90px); }
+.phone #ConfigContent .config-list-host { flex-basis: 100%; }
+.phone #ConfigContent .config-list-edit { min-height: 40px; }
 .phone #ConfigContent .config-help-toggle { width: 36px; height: 40px; top: 0; }
 .phone #ConfigContent .control-group.config-has-help > .controls { padding-right: 40px; }
 

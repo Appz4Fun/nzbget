@@ -51,3 +51,4 @@ pub mod dupeidentity;
 
 pub mod streampatchparts;
 pub mod streamcompare;
+pub mod deadpostings;

@@ -21,11 +21,20 @@ const fs = require('node:fs');
       await page.goto(base);
       await page.locator('#ConfigTabLink').click();
       await page.locator('#ConfigNav a[href="#NEWS-SERVERS"]').press('Enter');
-      assert((await page.locator('.config-server-connections').first().innerText()).includes(entries.stat_server_connections));
-      const health = await page.locator('.config-server-health').first().innerText();
+      assert((await page.locator('.config-list-connections').first().innerText()).includes(entries.stat_server_connections));
+      const health = await page.locator('.config-list-health').first().innerText();
       if (health) assert(health.includes(entries.config_server_issues));
-      await page.locator('.config-server-edit').first().click();
+      await page.locator('.config-list-edit').first().click();
       assert((await page.locator('.NEWS-SERVERS .config-help-toggle').first().getAttribute('aria-label')).includes(entries.btn_quick_help));
+      for (const [section, key] of [['CATEGORIES', 'config_section_unpack'], ['RSS_FEEDS', 'config_unit_minutes']]) {
+        await page.locator(`#ConfigNav a[href="#${section}"]`).press('Enter');
+        await page.locator(`.config-add.${section}`).click();
+        const row = page.locator(`.config-list-row.${section}`).last();
+        assert((await row.locator('.config-list-status').innerText()).includes(entries[key]), `${locale}: ${section} summary translated`);
+        assert.equal(await row.locator('.config-list-edit').textContent(), entries.btn_close);
+        await row.locator('.config-list-edit').click();
+        assert.equal(await row.locator('.config-list-edit').textContent(), entries.btn_edit);
+      }
       await context.close();
       console.log(`${locale}: PASS`);
     }

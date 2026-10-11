@@ -756,7 +756,7 @@ var Config = (new function($)
 		$(window).bind('beforeunload', userLeavesPage);
 
 		$ConfigNav.on('click', 'li > a', navClick);
-		$ConfigData.on('input change', '.NEWS-SERVERS input', refreshServerRows);
+		$ConfigData.on('input change', '.config-list-detail input', refreshListRows);
 
 		$ConfigTable = $('#ConfigTable');
 		$ConfigTable.fasttable(
@@ -1085,7 +1085,7 @@ var Config = (new function($)
 		var i18nCaptionAttr = option.i18nCaption ? 'data-i18n="' + Util.textToAttr(option.i18nCaption) + '" ' : '';
 		var html =
 			'<div class="control-group ' + option.sectionId + (section.multi ? ' multiid' + option.multiid + ' multiset' : '') +
-				(section.id === 'NEWS-SERVERS' ? ' config-server-detail server-closed' : '') + (!compactMode ? ' help-expanded' : '') + '">'+
+				(listSectionPrefix(section.id) ? ' config-list-detail list-closed' : '') + (!compactMode ? ' help-expanded' : '') + '">'+
 				'<label class="control-label">' +
 				'<a class="option-name" id="label:' + option.formId + '" href="#" data-optid="' + option.formId + '" ' + i18nCaptionAttr +
 				'onclick="Config.scrollToOption(event, this)">' + caption + '</a>' +
@@ -1337,14 +1337,14 @@ var Config = (new function($)
 	{
 		var name = option.caption;
 		var setname = name.substr(0, name.indexOf('.')) || option.prefix + option.multiid;
-		if (section.id === 'NEWS-SERVERS')
+		if (listSectionPrefix(section.id))
 		{
-			return '<div class="config-settitle config-server-row ' + section.id + ' multiid' + multiid +
-				' multiset" data-multiid="' + multiid + '"><strong class="config-server-name"></strong>' +
-				'<span class="config-server-host"></span><span class="config-server-status"></span>' +
-				'<span class="config-server-connections"></span><span class="config-server-health"></span>' +
-				'<button type="button" class="btn config-button config-server-edit" data-multiid="' + multiid +
-				'" aria-expanded="false" onclick="Config.editServer(this)"></button></div>';
+			return '<div class="config-settitle config-list-row ' + section.id + ' multiid' + multiid +
+				' multiset" data-section="' + section.id + '" data-multiid="' + multiid + '"><strong class="config-list-name"></strong>' +
+				'<span class="config-list-host"></span><span class="config-list-status"></span>' +
+				'<span class="config-list-connections"></span><span class="config-list-health"></span>' +
+				'<button type="button" class="btn config-button config-list-edit" data-multiid="' + multiid +
+				'" aria-expanded="false" onclick="Config.editList(this)"></button></div>';
 		}
 		var html = '<div class="config-settitle ' + section.id + ' multiid' + multiid + ' multiset">' + setname + '</div>';
 		return html;
@@ -1360,7 +1360,7 @@ var Config = (new function($)
 		if (hasoptions)
 		{
 			html += '<div class="' + section.id + ' multiid' + multiid + ' multiset multiset-toolbar' +
-				(section.id === 'NEWS-SERVERS' ? ' config-server-detail server-closed' : '') + '">';
+				(listSectionPrefix(section.id) ? ' config-list-detail list-closed' : '') + '">';
 			html += '<button type="button" class="btn btn-default config-button config-delete" data-multiid="' + multiid + '" ' +
 				'onclick="Config.deleteSet(this, \'' + setname + '\',\'' + section.id + '\')">' +
 				'<span data-i18n="btn_delete"></span> ' + setname + multiid + '</button>';
@@ -1479,7 +1479,7 @@ var Config = (new function($)
 
 		I18n.translatePage($ConfigNav);
 		I18n.translatePage($ConfigData);
-		refreshServerRows();
+		refreshListRows();
 		$ConfigNav.toggleClass('long-list', $ConfigNav.children().length > 20);
 
 		Config.showSection('Config-Info', false);
@@ -1625,9 +1625,9 @@ var Config = (new function($)
 
 		// switch to tab and scroll the option into view
 		Config.showSection(option.sectionId, false);
-		if (option.sectionId === 'NEWS-SERVERS')
+		if (listSectionPrefix(option.sectionId))
 		{
-			setServerEditor(option.multiid, true);
+			setListEditor(option.sectionId, option.multiid, true);
 		}
 
 		var element = $('#' + option.formId);
@@ -1661,7 +1661,7 @@ var Config = (new function($)
 			}
 
 			tlsSwitchHelper(option)
-			refreshServerRows();
+			refreshListRows();
 		}
 	}
 
@@ -1899,7 +1899,7 @@ var Config = (new function($)
 			(hasOptions ? '<span data-i18n="label_another"></span> ' : '') +
 			setname);
 		I18n.translatePage(addButton);
-		refreshServerRows();
+		refreshListRows();
 	}
 
 	function reformatSet(section, setname, oldMultiId, newMultiId)
@@ -1914,8 +1914,8 @@ var Config = (new function($)
 				div.attr('id', setname + newMultiId);
 
 				// update captions
-				$('.config-settitle.' + section.id + '.multiid' + oldMultiId, $ConfigData).not('.config-server-row').text(setname + newMultiId);
-				$('.config-server-row.' + section.id + '.multiid' + oldMultiId, $ConfigData).attr('data-multiid', newMultiId);
+				$('.config-settitle.' + section.id + '.multiid' + oldMultiId, $ConfigData).not('.config-list-row').text(setname + newMultiId);
+				$('.config-list-row.' + section.id + '.multiid' + oldMultiId, $ConfigData).attr('data-multiid', newMultiId);
 				$('.' + section.id + '.multiid' + oldMultiId + ' .config-multicaption', $ConfigData).text(setname + newMultiId + '.');
 
 				var delBtn = $('.' + section.id + '.multiid' + oldMultiId + ' .config-delete', $ConfigData);
@@ -2007,9 +2007,9 @@ var Config = (new function($)
 		I18n.translatePage(div);
 		div.hide();
 		addButton.parent().before(div);
-		if (sectionId === 'NEWS-SERVERS')
+		if (listSectionPrefix(sectionId))
 		{
-			setServerEditor(multiid, true);
+			setListEditor(sectionId, multiid, true);
 		}
 
 		for (var j=0; j < addedOptions.length; j++)
@@ -2053,7 +2053,7 @@ var Config = (new function($)
 		reformatSet(section, setname, 10000 + id2, id1);
 
 		section.modified = true;
-		refreshServerRows();
+		refreshListRows();
 	}
 
 	this.viewMode = function()
@@ -2087,42 +2087,74 @@ var Config = (new function($)
 		$(control).attr('aria-expanded', expanded);
 	}
 
-	function refreshServerRows()
+	function refreshListRows()
 	{
-		$('.config-server-row', $ConfigData).each(function()
+		$('.config-list-row', $ConfigData).each(function()
 		{
 			var row = $(this);
 			var multiid = row.attr('data-multiid');
+			var sectionId = row.attr('data-section');
+			var prefix = listSectionPrefix(sectionId);
 			function value(name)
 			{
-				var option = findOptionByName('Server' + multiid + '.' + name);
+				var option = findOptionByName(prefix + multiid + '.' + name);
 				return option ? getOptionValue(option) || '' : '';
 			}
-			var name = value('Name') || 'Server' + multiid;
-			row.find('.config-server-name').text(name);
-			row.find('.config-server-host').text(value('Host') + (value('Port') ? ':' + value('Port') : ''));
-			row.find('.config-server-status').text(I18n.defaultValue(value('Active') === 'yes' ? 'label_active' : 'label_disabled', value('Active') === 'yes' ? 'Active' : 'Disabled'));
-			row.find('.config-server-connections').text(value('Connections') + ' ' + I18n.translate('stat_server_connections'));
-			var details = $('.config-server-detail.multiid' + multiid, $ConfigData);
+			var name = value('Name') || prefix + multiid;
+			var secondary = '', status = '', extra = '';
+			if (prefix === 'Server')
+			{
+				secondary = value('Host') + (value('Port') ? ':' + value('Port') : '');
+				status = I18n.translate(value('Active') === 'yes' ? 'label_active' : 'label_disabled');
+				extra = value('Connections') + ' ' + I18n.translate('stat_server_connections');
+			}
+			else if (prefix === 'Category')
+			{
+				secondary = value('Aliases');
+				status = I18n.translate('config_section_unpack') + ': ' + I18n.translate(value('Unpack') === 'yes' ? 'label_yes_cap' : 'label_no_cap');
+			}
+			else if (prefix === 'Feed')
+			{
+				secondary = value('Category');
+				status = value('Interval') + ' ' + I18n.translate('config_unit_minutes');
+			}
+			else if (prefix === 'Task')
+			{
+				secondary = value('Time');
+				status = value('WeekDays');
+				var command = findOptionByName(prefix + multiid + '.Command');
+				extra = command ? $('#' + command.formId + ' .btn-primary').val() || value('Command') : '';
+			}
+			row.find('.config-list-name').text(name);
+			row.find('.config-list-host').text(secondary).toggle(!!secondary);
+			row.find('.config-list-status').text(status).toggle(!!status);
+			row.find('.config-list-connections').text(extra).toggle(!!extra);
+			var details = $('.config-list-detail.' + sectionId + '.multiid' + multiid, $ConfigData);
 			var issues = details.find('.option-alert').length;
-			row.find('.config-server-health').text(issues ? issues + ' ' + I18n.translate('config_server_issues') : '').toggle(issues > 0);
-			var edit = row.find('.config-server-edit');
+			row.find('.config-list-health').text(issues ? issues + ' ' + I18n.translate('config_server_issues') : '').toggle(issues > 0);
+			var edit = row.find('.config-list-edit');
 			var caption = I18n.translate(edit.attr('aria-expanded') === 'true' ? 'btn_close' : 'btn_edit');
 			edit.text(caption).attr('aria-label', caption + ': ' + name);
 			edit.attr('aria-controls', details.find('input[id],.btn-switch[id]').map(function() { return this.id; }).get().join(' '));
 		});
 	}
 
-	function setServerEditor(multiid, expanded)
+	function listSectionPrefix(sectionId)
 	{
-		$('.config-server-row.multiid' + multiid + ' .config-server-edit', $ConfigData).attr('aria-expanded', expanded);
-		$('.config-server-detail.multiid' + multiid, $ConfigData).toggleClass('server-closed', !expanded);
-		refreshServerRows();
+		return {'NEWS-SERVERS': 'Server', CATEGORIES: 'Category', RSS_FEEDS: 'Feed', SCHEDULER: 'Task'}[sectionId];
 	}
 
-	this.editServer = function(control)
+	function setListEditor(sectionId, multiid, expanded)
 	{
-		setServerEditor($(control).attr('data-multiid'), $(control).attr('aria-expanded') !== 'true');
+		$('.config-list-row.' + sectionId + '.multiid' + multiid + ' .config-list-edit', $ConfigData).attr('aria-expanded', expanded);
+		$('.config-list-detail.' + sectionId + '.multiid' + multiid, $ConfigData).toggleClass('list-closed', !expanded);
+		refreshListRows();
+	}
+
+	this.editList = function(control)
+	{
+		var row = $(control).closest('.config-list-row');
+		setListEditor(row.attr('data-section'), row.attr('data-multiid'), $(control).attr('aria-expanded') !== 'true');
 	}
 
 	/*** OPTION SPECIFIC EDITORS *************************************************/

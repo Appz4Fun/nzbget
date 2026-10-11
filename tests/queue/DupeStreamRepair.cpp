@@ -20,6 +20,8 @@
 
 #include "nzbget.h"
 
+#include <limits>
+#include <random>
 #include <set>
 
 #include <boost/test/unit_test.hpp>
@@ -103,6 +105,51 @@ struct OptionsGuard
 	Options* m_prev = g_Options;
 	~OptionsGuard() { g_Options = m_prev; }
 };
+
+// Independent exhaustive oracle: exclude a hit and its index neighbors,
+// then select centered ranks from the remaining original indices.
+std::vector<int> ReferenceProbeParts(const StreamRangeList& donorRanges,
+	const StreamRangeList& holes, int probeCount)
+{
+	std::vector<bool> excluded(donorRanges.size(), false);
+	for (size_t i = 0; i < donorRanges.size(); i++)
+	{
+		for (const StreamRange& hole : holes)
+		{
+			if (donorRanges[i].Offset < hole.End() && hole.Offset < donorRanges[i].End())
+			{
+				excluded[i] = true;
+				if (i > 0)
+				{
+					excluded[i - 1] = true;
+				}
+				if (i + 1 < donorRanges.size())
+				{
+					excluded[i + 1] = true;
+				}
+				break;
+			}
+		}
+	}
+	std::vector<int> candidates;
+	for (size_t i = 0; i < excluded.size(); i++)
+	{
+		if (!excluded[i])
+		{
+			candidates.push_back((int)i);
+		}
+	}
+	if ((int)candidates.size() <= probeCount)
+	{
+		return candidates;
+	}
+	std::vector<int> probes;
+	for (int k = 0; k < probeCount; k++)
+	{
+		probes.push_back(candidates[candidates.size() * (2 * k + 1) / (2 * probeCount)]);
+	}
+	return probes;
+}
 
 } // namespace
 
@@ -255,6 +302,121 @@ BOOST_AUTO_TEST_CASE(StreamRepairSelectProbePartsTest)
 	std::vector<int> few = DupeStreamRepair::SelectProbeParts(donorRanges, bigHole, 2);
 	// hole covers parts 0-8; part 9's neighbor window includes part 8 -> no candidates
 	BOOST_CHECK(few.empty());
+}
+
+BOOST_AUTO_TEST_CASE(StreamRepairSelectProbePartsBoundaryAndSamplingTest)
+{
+	const StreamRangeList donors = {{0, 100}, {100, 100}, {200, 100}, {300, 100}, {400, 100}};
+	struct TestCase
+	{
+		StreamRangeList Donors;
+		StreamRangeList Holes;
+		int ProbeCount;
+		std::vector<int> Expected;
+	};
+	const std::vector<TestCase> cases = {
+		{{}, {{0, 100}}, 2, {}},
+		{{{0, 100}}, {}, 2, {0}},
+		{{{0, 100}}, {{100, 100}}, 2, {0}},
+		{{{0, 100}}, {{0, 100}}, 2, {}},
+		{donors, {}, 0, {}},
+		{donors, {}, -2, {}},
+		{donors, {}, 1, {2}},
+		{donors, {}, 2, {1, 3}},
+		{donors, {}, 5, {0, 1, 2, 3, 4}},
+		{donors, {}, 8, {0, 1, 2, 3, 4}},
+		{donors, {{-100, 100}, {500, 100}}, 5, {0, 1, 2, 3, 4}},
+		{donors, {{-100, 100}, {0, 50}}, 5, {2, 3, 4}},
+		{donors, {{100, 100}}, 5, {3, 4}},
+		{donors, {{0, 150}}, 3, {3, 4}},
+		{donors, {{400, 100}}, 5, {0, 1, 2}},
+		{donors, {{100, 0}}, 5, {0, 1, 2, 3, 4}},
+		{donors, {{150, 0}}, 5, {3, 4}}
+	};
+	for (const TestCase& testCase : cases)
+	{
+		std::vector<int> actual = DupeStreamRepair::SelectProbeParts(
+			testCase.Donors, testCase.Holes, testCase.ProbeCount);
+		BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.end(),
+			testCase.Expected.begin(), testCase.Expected.end());
+	}
+}
+
+BOOST_AUTO_TEST_CASE(StreamRepairSelectProbePartsIrregularGeometryTest)
+{
+	struct TestCase
+	{
+		StreamRangeList Donors;
+		StreamRangeList Holes;
+		std::vector<int> Expected;
+	};
+	const int64 end = std::numeric_limits<int64>::max();
+	const int64 start = std::numeric_limits<int64>::min();
+	const std::vector<TestCase> cases = {
+		// Neighbors follow article indices, even when offsets are unsorted.
+		{{{300, 100}, {0, 100}, {100, 100}, {400, 100}, {200, 100}}, {{150, 10}}, {0, 4}},
+		{{{0, 300}, {100, 20}, {500, 100}, {600, 100}, {700, 100}}, {{250, 10}}, {2, 3, 4}},
+		{{{0, 100}, {100, 100}, {200, 100}, {300, 100}, {400, 100}},
+			{{140, 60}, {170, 60}}, {4}},
+		{{{0, 100}, {100, 100}, {200, 100}, {300, 100}, {400, 100}, {500, 100},
+			{600, 100}, {700, 100}}, {{650, 10}, {150, 10}}, {3, 4}},
+		// The existing strict predicate treats an interior zero-size point as a hit.
+		{{{0, 100}, {150, 0}, {200, 100}, {300, 100}, {400, 100}}, {{100, 100}}, {3, 4}},
+		{{{0, 100}, {100, 0}, {200, 100}, {300, 100}, {400, 100}},
+			{{100, 100}}, {0, 1, 2, 3, 4}},
+		{{{0, 300}, {300, 100}, {400, 100}, {500, 100}}, {{200, -100}}, {2, 3}},
+		{{{end - 500, 100}, {end - 400, 100}, {end - 300, 100},
+			{end - 200, 100}, {end - 100, 100}}, {{end - 300, 100}}, {0, 4}},
+		// Empty holes and a failed first comparison never evaluate donor End().
+		{{{end, 1}, {end, 1}}, {}, {0, 1}},
+		{{{end, 1}, {end, 1}}, {{0, 1}}, {0, 1}},
+		// A preceding hit can short-circuit every check of an unsafe neighbor.
+		{{{0, 1}, {end - 10, 20}}, {{0, end}}, {}},
+		{{{start, -1}, {0, 100}}, {{start, 0}}, {0, 1}},
+		// Unordered or empty ranges must not hide a later unsafe endpoint.
+		{{{300, 1}, {0, 1}, {end - 10, 20}}, {{0, end}}, {}},
+		{{{0, 100}, {50, 100}, {end - 10, 20}}, {{0, end}}, {}},
+		{{{0, 0}, {100, 1}, {end - 10, 20}}, {{0, end}}, {}},
+		// Checked addition must distinguish exact limits from overflow on either sign.
+		{{{end - 1, 1}, {end, 0}}, {{end - 2, 1}}, {0, 1}},
+		{{{start + 1, -1}, {0, 100}}, {{start, 0}}, {0, 1}},
+		{{{start, 1}, {start, -1}}, {{start, 1}}, {}}
+	};
+	for (const TestCase& testCase : cases)
+	{
+		std::vector<int> actual = DupeStreamRepair::SelectProbeParts(
+			testCase.Donors, testCase.Holes, (int)testCase.Donors.size());
+		BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.end(),
+			testCase.Expected.begin(), testCase.Expected.end());
+	}
+}
+
+BOOST_AUTO_TEST_CASE(StreamRepairSelectProbePartsDifferentialTest)
+{
+	std::mt19937 random(0x51ec7);
+	for (int iteration = 0; iteration < 2000; iteration++)
+	{
+		StreamRangeList donors;
+		StreamRangeList holes;
+		size_t donorCount = random() % 80;
+		size_t holeCount = random() % 25;
+		for (size_t i = 0; i < donorCount; i++)
+		{
+			donors.push_back(iteration % 2 == 0 ? StreamRange{(int64)i * 100, 100} :
+				StreamRange{(int64)(random() % 1000) - 50, (int64)(random() % 120) - 10});
+		}
+		for (size_t i = 0; i < holeCount; i++)
+		{
+			holes.push_back(iteration % 3 == 0 ? StreamRange{(int64)i * 250 + 50, 50} :
+				StreamRange{(int64)(random() % 1000) - 50, (int64)(random() % 120) - 10});
+		}
+		for (int probeCount : {0, -1, 1, 2, (int)donorCount, (int)donorCount + 1})
+		{
+			std::vector<int> expected = ReferenceProbeParts(donors, holes, probeCount);
+			std::vector<int> actual = DupeStreamRepair::SelectProbeParts(donors, holes, probeCount);
+			BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.end(), expected.begin(), expected.end());
+		}
+	}
 }
 
 BOOST_AUTO_TEST_CASE(StreamRepairSubtractCoveredTest)

@@ -1213,6 +1213,13 @@ int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* ma
 size_t nzbget_rs_stream_patch_parts(const void* donors, size_t donorCount,
     const void* holes, size_t holeCount, int32_t margin, int32_t* output);
 
+// Dead-posting persistence line parser (rust/src/deadpostings.rs).
+// data points to len bytes, or is null with len zero. visit receives one complete
+// sorted unique sketch, borrowed only during the callback. visit must not throw.
+// False means the entire line is invalid; no partial callback is made.
+bool nzbget_rs_deadpostings_parse(const uint8_t* data, size_t len, void* context,
+	void (*visit)(void* context, int64_t stamp, const uint32_t* hashes, size_t count));
+
 #ifdef __cplusplus
 }
 #endif
