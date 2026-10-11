@@ -1455,3 +1455,17 @@ tr.checked:nth-child(odd) .progress-block .progress {
 	width: var(--size-control-lg);
 	height: var(--size-control-lg);
 }
+
+/* disabled buttons stay neutral under hover and focus too: the variant
+   hover/focus rules (e.g. .btn.btn-primary:hover) would otherwise outrank
+   the plain disabled rule. The doubled class lifts these above them. */
+.btn.btn.disabled,
+.btn.btn[disabled],
+.btn.btn.disabled:hover,
+.btn.btn.disabled:focus,
+.btn.btn[disabled]:hover,
+.btn.btn[disabled]:focus {
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+}
