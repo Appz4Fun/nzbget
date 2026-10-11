@@ -84,9 +84,11 @@ pub fn make_valid_filename(name: &[u8], allow_slashes: bool) -> Vec<u8> {
     r.push(0);
     let reserved = RESERVED_DEVICE_NAMES.iter().any(|reserved| {
         let len = reserved.to_bytes().len();
-        let equal = unsafe { strncasecmp(r.as_ptr().cast(), reserved.as_ptr(), len) } == 0;
-        // result[len]: the NUL at the end counts
-        equal && matches!(r.get(len), Some(b'.' | 0))
+        // Check the required boundary first to avoid libc calls for ordinary
+        // names. This byte check is locale-independent; case folding is not.
+        // result[len]: the NUL at the end counts.
+        matches!(r.get(len), Some(b'.' | 0))
+            && unsafe { strncasecmp(r.as_ptr().cast(), reserved.as_ptr(), len) } == 0
     });
     r.pop();
     if reserved {
