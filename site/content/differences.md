@@ -10,7 +10,7 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 | Area | NZBGet | RustyGet |
 |---|---|---|
 | Language | C++ | C++ moving to Rust module by module; [Rust port status](rust-port.md) lists the modules ported so far |
-| An article missing on every server | Lost; par2 repair or failure | Fetched from a matching file in another copy of the release, then checked by its checksum, its place in the file, and par2 when the download's par2 set describes the file |
+| An article missing on every server | Lost; par2 repair or failure | Fetched from a matching file in another copy of the release, then checked by its place in the file, and by its checksum and par2 where those are available |
 | Duplicates | Spare downloads, tried one after another | One fleet: copies lend each other articles, bytes, and par2 volumes |
 | Proving two copies hold the same files | Not done | Par2 checksums prove twins; alts are told apart |
 | Not enough par2 blocks | Repair fails | Repairs with a twin's recovery volumes |

@@ -21,7 +21,7 @@ Over three months the pull request grew to cover the whole duplicate fleet:
 
 By October it held 385 commits and about 45,000 added lines, much of it tests, and it had run in daily use since July.
 
-On 2026-10-09 the NZBGet maintainers closed the pull request without merging it, together with the related bug reports. No code review took place, and no reason was given. Earlier, a maintainer had asked to wait for a stable build before testing, and on another pull request a maintainer had said that changes made with AI are hard to review. A change this size is a lot to ask of a volunteer team, and the work went on without them.
+On 2026-10-09 the NZBGet maintainers closed the pull request without merging it, together with the related bug reports. No formal review was submitted, and no reason was given. Early on, a maintainer asked how the direct-write path was tested; the question led to a test that found and fixed a bug. The same maintainer later asked to wait for a stable build before testing. On another pull request, a maintainer said that changes made with AI are hard to review. A change this size is a lot to ask of a volunteer team, and the work went on without them.
 
 ## Leaving the fork network
 

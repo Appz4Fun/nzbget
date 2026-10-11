@@ -28,7 +28,7 @@ RustyGet downloads files from Usenet using NZB files, the way NZBGet does: it fe
 
 What's new is how it treats duplicates. The same release usually exists as several postings: reposts, listings on other indexers, and other encodes. NZBGet keeps them as spares and starts the next one from scratch when a download fails. RustyGet uses them together:
 
-- An article missing on every server is fetched from a matching file in another copy. It must fit its place in the file and, by default, pass its checksum, and its data must match the download's par2 checksums when the download's par2 set describes the file.
+- An article missing on every server is fetched from a matching file in another copy. It must fit its place in the file, and it's checked against its checksum and the download's par2 data where those are available.
 - Copies with byte-identical files, called **twins**, are proven by par2 checksums and can lend articles and recovery volumes. Other encodes, called **alts**, serve only as backups.
 - Holes that articles can't fill are patched with verified bytes, even from copies that are split, packed, or encrypted differently.
 - A copy that can't complete hands over to the best backup within seconds.
