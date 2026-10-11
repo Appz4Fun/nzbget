@@ -3051,6 +3051,122 @@ pub unsafe extern "C" fn nzbget_rs_direct_need_rename_pars(pars: *const ParName,
     crate::directrenamer::need_rename_pars(&pars, &|b| fold(b as c_int) as u8) as c_int
 }
 
+/// NzbgetRsManifestSection.
+#[repr(C)]
+pub struct ManifestSection {
+    pub multi: c_int,
+    pub name: RsStr,
+    pub prefix: RsStr,
+}
+
+/// NzbgetRsManifestSelect: a number, or a string when is_string.
+#[repr(C)]
+pub struct ManifestSelect {
+    pub is_string: c_int,
+    pub number: f64,
+    pub string: RsStr,
+}
+
+/// NzbgetRsManifestOption.
+#[repr(C)]
+pub struct ManifestOptionOut {
+    pub section: ManifestSection,
+    pub name: RsStr,
+    pub display_name: RsStr,
+    pub description: *const RsStr,
+    pub description_count: usize,
+    pub value: ManifestSelect,
+    pub select: *const ManifestSelect,
+    pub select_count: usize,
+}
+
+/// NzbgetRsManifestCommand.
+#[repr(C)]
+pub struct ManifestCommandOut {
+    pub section: ManifestSection,
+    pub name: RsStr,
+    pub display_name: RsStr,
+    pub action: RsStr,
+    pub description: *const RsStr,
+    pub description_count: usize,
+}
+
+/// NzbgetRsManifest: the string fields in the order of manifest::FIELDS
+/// (`has` says which are set), the texts, options and commands.
+#[repr(C)]
+pub struct ManifestOut {
+    pub fields: [RsStr; 12],
+    pub has: [c_int; 12],
+    pub description: *const RsStr,
+    pub description_count: usize,
+    pub requirements: *const RsStr,
+    pub requirements_count: usize,
+    pub options: *const ManifestOptionOut,
+    pub option_count: usize,
+    pub commands: *const ManifestCommandOut,
+    pub command_count: usize,
+}
+
+fn rs_strs(v: &[Vec<u8>]) -> Vec<RsStr> {
+    v.iter().map(|s| rs_str(s)).collect()
+}
+
+fn manifest_section(s: &crate::manifest::Section) -> ManifestSection {
+    ManifestSection { multi: s.multi as c_int, name: rs_str(&s.name), prefix: rs_str(&s.prefix) }
+}
+
+fn manifest_select(s: &crate::manifest::Select) -> ManifestSelect {
+    match s {
+        crate::manifest::Select::Number(n) => ManifestSelect { is_string: 0, number: *n, string: rs_str(b"") },
+        crate::manifest::Select::String(s) => ManifestSelect { is_string: 1, number: 0.0, string: rs_str(s) },
+    }
+}
+
+/// ManifestFile::Load on the text the C++ read: 1 loaded (`loaded` was
+/// called), 0 refused, -1 a syntax error, -2 not a JSON object, -3 an option,
+/// command or section that isn't an object.
+///
+/// # Safety
+/// `text` is null (empty) or `len` readable bytes. `loaded` (null: not
+/// called) gets a manifest borrowed only for the call and must not unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_manifest_load(text: *const c_char, len: usize, ctx: *mut std::ffi::c_void,
+    loaded: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const ManifestOut)>) -> c_int {
+    use crate::manifest::Outcome;
+    let manifest = match crate::manifest::load(bytes_arg(text.cast(), len)) {
+        Outcome::Loaded(m) => m,
+        Outcome::Refused => return 0,
+        Outcome::Syntax => return -1,
+        Outcome::NotObject => return -2,
+        Outcome::ElementNotObject => return -3,
+    };
+    let Some(loaded) = loaded else { return 1 };
+    let description = rs_strs(&manifest.description);
+    let requirements = rs_strs(&manifest.requirements);
+    let option_texts: Vec<(Vec<RsStr>, Vec<ManifestSelect>)> = manifest.options.iter()
+        .map(|o| (rs_strs(&o.description), o.select.iter().map(manifest_select).collect())).collect();
+    let options: Vec<ManifestOptionOut> = manifest.options.iter().zip(&option_texts).map(|(o, (d, s))| ManifestOptionOut {
+        section: manifest_section(&o.section), name: rs_str(&o.name), display_name: rs_str(&o.display_name),
+        description: d.as_ptr(), description_count: d.len(), value: manifest_select(&o.value),
+        select: s.as_ptr(), select_count: s.len(),
+    }).collect();
+    let command_texts: Vec<Vec<RsStr>> = manifest.commands.iter().map(|c| rs_strs(&c.description)).collect();
+    let commands: Vec<ManifestCommandOut> = manifest.commands.iter().zip(&command_texts).map(|(c, d)| ManifestCommandOut {
+        section: manifest_section(&c.section), name: rs_str(&c.name), display_name: rs_str(&c.display_name),
+        action: rs_str(&c.action), description: d.as_ptr(), description_count: d.len(),
+    }).collect();
+    let out = ManifestOut {
+        fields: std::array::from_fn(|i| rs_str(manifest.fields[i].as_deref().unwrap_or(b""))),
+        has: std::array::from_fn(|i| manifest.fields[i].is_some() as c_int),
+        description: description.as_ptr(), description_count: description.len(),
+        requirements: requirements.as_ptr(), requirements_count: requirements.len(),
+        options: options.as_ptr(), option_count: options.len(),
+        commands: commands.as_ptr(), command_count: commands.len(),
+    };
+    loaded(ctx, &out);
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

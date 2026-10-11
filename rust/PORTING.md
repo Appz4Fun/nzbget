@@ -42,6 +42,7 @@ in `rust/include/nzbget_rs.h`.
 | `RarRenamer::RenameFiles` (sets, proper names, main file, new names; the regex, file checks and moves stay C++) | `rarrenamer` | port only |
 | DirectRenamer's `RenameContentAnalyzer` (PAR2 header and set id, MD5 of the first 16 KiB) | `renameanalyzer` | port only |
 | DirectRenamer's new names (`BuildNewRegularName`, `BuildNewParName`, `NeedRenamePars`) | `directrenamer` | port only |
+| `ManifestFile::Load` (an extension's manifest.json; with a Boost.JSON-compatible parser: strict grammar, depth 32, duplicate keys, Boost's imprecise numbers) | `manifest`, `json` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.

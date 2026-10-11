@@ -14,6 +14,8 @@ pub mod feedfilter;
 pub mod filetypes;
 #[cfg(unix)]
 pub mod fsops;
+pub mod json;
+pub mod manifest;
 pub mod nntp;
 pub mod options;
 pub mod parparser;

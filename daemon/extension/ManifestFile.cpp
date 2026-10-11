@@ -23,9 +23,165 @@
 #include "Json.h"
 #include "FileSystem.h"
 #include "Log.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include "nzbget_rs.h"
+#endif
 
 namespace ManifestFile
 {
+#ifdef NZBGET_USE_RUST
+	namespace
+	{
+		std::string Str(const NzbgetRsStr& str)
+		{
+			return std::string(str.data, str.len);
+		}
+
+		std::vector<std::string> Strs(const NzbgetRsStr* strs, size_t count)
+		{
+			std::vector<std::string> out;
+			out.reserve(count);
+			for (size_t i = 0; i < count; ++i)
+			{
+				out.push_back(Str(strs[i]));
+			}
+			return out;
+		}
+
+		SelectOption Select(const NzbgetRsManifestSelect& select)
+		{
+			if (select.isString)
+			{
+				return Str(select.string);
+			}
+			return select.number;
+		}
+
+		Section MakeSection(const NzbgetRsManifestSection& section)
+		{
+			return Section{section.multi != 0, Str(section.name), Str(section.prefix)};
+		}
+
+		void Copy(const NzbgetRsManifest& from, Manifest& manifest)
+		{
+			std::string* fields[] = {&manifest.author, &manifest.main, &manifest.homepage, &manifest.about,
+				&manifest.version, &manifest.name, &manifest.displayName, &manifest.kind, &manifest.license,
+				&manifest.taskTime, &manifest.queueEvents, &manifest.nzbgetMinVersion};
+			for (size_t i = 0; i < 12; ++i)
+			{
+				if (from.has[i])
+				{
+					*fields[i] = Str(from.fields[i]);
+				}
+			}
+
+			for (size_t i = 0; i < from.optionCount; ++i)
+			{
+				const NzbgetRsManifestOption& rsOption = from.options[i];
+				Option option{};
+				option.section = MakeSection(rsOption.section);
+				option.name = Str(rsOption.name);
+				option.displayName = Str(rsOption.displayName);
+				option.description = Strs(rsOption.description, rsOption.descriptionCount);
+				option.value = Select(rsOption.value);
+				for (size_t j = 0; j < rsOption.selectCount; ++j)
+				{
+					option.select.emplace_back(Select(rsOption.select[j]));
+				}
+				manifest.options.emplace_back(std::move(option));
+			}
+			manifest.options.shrink_to_fit();
+
+			for (size_t i = 0; i < from.commandCount; ++i)
+			{
+				const NzbgetRsManifestCommand& rsCommand = from.commands[i];
+				Command command{};
+				command.section = MakeSection(rsCommand.section);
+				command.name = Str(rsCommand.name);
+				command.displayName = Str(rsCommand.displayName);
+				command.action = Str(rsCommand.action);
+				command.description = Strs(rsCommand.description, rsCommand.descriptionCount);
+				manifest.commands.emplace_back(std::move(command));
+			}
+			manifest.commands.shrink_to_fit();
+
+			manifest.description = Strs(from.description, from.descriptionCount);
+			manifest.requirements = Strs(from.requirements, from.requirementsCount);
+		}
+	}
+
+	bool Load(Manifest& manifest, const char* directory)
+	{
+		std::string path = std::string(directory) + PATH_SEPARATOR + MANIFEST_FILE;
+		DiskFile file;
+		if (!file.Open(path.c_str(), DiskFile::omRead)) return false;
+
+		std::string jsonStr;
+		char buffer[BUFFER_SIZE];
+		while (file.ReadLine(buffer, BUFFER_SIZE))
+		{
+			jsonStr += buffer;
+		}
+
+		// rust/src/manifest.rs; copying the manifest happens in the callback,
+		// its exceptions are handled here as the C++ handled them
+		struct Context
+		{
+			Manifest* manifest;
+			std::exception_ptr error;
+		} context{&manifest, nullptr};
+		int loaded = nzbget_rs_manifest_load(jsonStr.data(), jsonStr.size(), &context,
+			[](void* ctx, const NzbgetRsManifest* from) noexcept
+			{
+				Context& context = *static_cast<Context*>(ctx);
+				try
+				{
+					Copy(*from, *context.manifest);
+				}
+				catch (...)
+				{
+					context.error = std::current_exception();
+				}
+			});
+
+		if (loaded == -1)
+		{
+			error("Failed to parse %s. Syntax error.", path.c_str());
+			return false;
+		}
+
+		// a value of another type than expected ("[]" for the whole file, a
+		// string among the commands) threw out of the extension loading and
+		// ended the daemon at start: the extension is refused instead
+		try
+		{
+			if (loaded == -2)
+			{
+				error("Failed to parse %s. The manifest isn't a JSON object.", path.c_str());
+				return false;
+			}
+			if (loaded == -3)
+			{
+				// the exception Boost.JSON throws for an entry that isn't an object
+				const Json::JsonValue notObject;
+				(void)notObject.as_object();
+			}
+			if (context.error)
+			{
+				std::rethrow_exception(context.error);
+			}
+		}
+		catch (const std::exception& e)
+		{
+			error("Failed to parse %s: %s", path.c_str(), e.what());
+			return false;
+		}
+
+		return loaded == 1;
+	}
+
+#else
 	bool Load(Manifest& manifest, const char* directory)
 	{
 		std::string path = std::string(directory) + PATH_SEPARATOR + MANIFEST_FILE;
@@ -72,6 +228,8 @@ namespace ManifestFile
 
 		return true;
 	}
+
+#endif
 
 	bool ValidateAndSet(const Json::JsonObject& json, Manifest& manifest)
 	{

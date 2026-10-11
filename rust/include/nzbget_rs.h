@@ -739,6 +739,64 @@ typedef struct NzbgetRsParName
 } NzbgetRsParName;
 int nzbget_rs_direct_need_rename_pars(const NzbgetRsParName* pars, size_t count, int (*fold)(int));
 
+// ManifestFile::Load (rust/src/manifest.rs, rust/src/json.rs: Boost.JSON's
+// parse with the default options) on the manifest text the C++ read: 1 when
+// loaded, after loaded got the manifest; 0 refused (a required key missing
+// or of another kind); -1 a syntax error; -2 not a JSON object; -3 an
+// option, command or section that isn't an object. The manifest and every
+// string in it are borrowed for the loaded call only; strings are not
+// NUL-terminated. fields are author, main, homepage, about, version, name,
+// displayName, kind, license, taskTime, queueEvents, nzbgetMinVersion; has[i]
+// says whether fields[i] was in the manifest. NULL text is empty; NULL loaded
+// is not called. loaded must not throw; panics abort.
+typedef struct NzbgetRsManifestSection
+{
+	int multi;
+	NzbgetRsStr name;
+	NzbgetRsStr prefix;
+} NzbgetRsManifestSection;
+typedef struct NzbgetRsManifestSelect
+{
+	int isString;
+	double number;
+	NzbgetRsStr string;
+} NzbgetRsManifestSelect;
+typedef struct NzbgetRsManifestOption
+{
+	NzbgetRsManifestSection section;
+	NzbgetRsStr name;
+	NzbgetRsStr displayName;
+	const NzbgetRsStr* description;
+	size_t descriptionCount;
+	NzbgetRsManifestSelect value;
+	const NzbgetRsManifestSelect* select;
+	size_t selectCount;
+} NzbgetRsManifestOption;
+typedef struct NzbgetRsManifestCommand
+{
+	NzbgetRsManifestSection section;
+	NzbgetRsStr name;
+	NzbgetRsStr displayName;
+	NzbgetRsStr action;
+	const NzbgetRsStr* description;
+	size_t descriptionCount;
+} NzbgetRsManifestCommand;
+typedef struct NzbgetRsManifest
+{
+	NzbgetRsStr fields[12];
+	int has[12];
+	const NzbgetRsStr* description;
+	size_t descriptionCount;
+	const NzbgetRsStr* requirements;
+	size_t requirementsCount;
+	const NzbgetRsManifestOption* options;
+	size_t optionCount;
+	const NzbgetRsManifestCommand* commands;
+	size_t commandCount;
+} NzbgetRsManifest;
+int nzbget_rs_manifest_load(const char* text, size_t len, void* ctx,
+	void (*loaded)(void* ctx, const NzbgetRsManifest* manifest));
+
 #ifdef __cplusplus
 }
 #endif
