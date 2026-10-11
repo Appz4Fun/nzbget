@@ -64,10 +64,27 @@ bool ParParser::FindMainPars(const char* path, ParFileList* fileList)
 }
 
 #ifdef NZBGET_USE_RUST
+namespace
+{
+	int ParFilenameFold(int byte)
+	{
+		// Use the C++ compiler's char signedness, including -funsigned-char.
+		int ch = static_cast<char>(byte);
+#ifdef __GLIBC__
+		// glibc defines tolower for negative signed chars (EOF stays distinct).
+		return tolower(ch);
+#else
+		// Darwin and musl leave negative chars unchanged. Keep them outside
+		// the standard ctype API's unsigned-char/EOF domain.
+		return ch < 0 ? ch : tolower(ch);
+#endif
+	}
+}
+
 bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
 {
 	// rust/src/parparser.rs
-	return nzbget_rs_same_par_collection(filename1, filename2, confirmedFilenames) != 0;
+	return nzbget_rs_same_par_collection(filename1, filename2, confirmedFilenames, ParFilenameFold) != 0;
 }
 #else
 bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
@@ -84,7 +101,7 @@ bool ParParser::SameParCollection(const char* filename1, const char* filename2, 
 bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)
 {
 	// rust/src/parparser.rs
-	return nzbget_rs_parse_par_filename(parFilename, confirmedFilename, baseNameLen, blocks) != 0;
+	return nzbget_rs_parse_par_filename(parFilename, confirmedFilename, baseNameLen, blocks, ParFilenameFold) != 0;
 }
 #else
 bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)

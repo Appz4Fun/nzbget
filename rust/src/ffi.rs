@@ -2352,17 +2352,35 @@ pub unsafe extern "C" fn nzbget_rs_expand_home_path(filename: *const c_char, hom
     into_buf(crate::fsops::expand_home_path(filename, home))
 }
 
-/// ParParser::ParseParFilename: 1 for a par2 name (the outputs set when not
-/// null), else 0.
+// Copy exactly the bounded input BString<1024>::Set read. CStr::from_ptr on
+// the original pointer would scan beyond that bound, possibly off its allocation.
+unsafe fn par_filename_input(name: *const c_char) -> [u8; crate::parparser::BSTRING_MAX + 1] {
+    let mut copy = [0; crate::parparser::BSTRING_MAX + 1];
+    for (i, byte) in copy[..crate::parparser::BSTRING_MAX].iter_mut().enumerate() {
+        *byte = name.add(i).read() as u8;
+        if *byte == 0 {
+            break;
+        }
+    }
+    copy
+}
+
+/// ParParser::ParseParFilename: 1 for a par2 name, else 0. Optional outputs
+/// are written only on success, base_len then blocks, even if they alias.
 ///
 /// # Safety
-/// `name` is null (0) or NUL-terminated; the outputs are null or writable.
+/// `name` is null or readable through the first NUL or 1023 bytes, whichever
+/// comes first. Outputs are null or aligned writable C ints. All storage stays
+/// caller-owned. `fold` takes a byte (0..=255), returns tolower of the caller's
+/// char, and must not unwind. A missing fold fails; panics cannot cross the ABI.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_parse_par_filename(name: *const c_char, confirmed: c_int, base_len: *mut c_int, blocks: *mut c_int) -> c_int {
+pub unsafe extern "C" fn nzbget_rs_parse_par_filename(name: *const c_char, confirmed: c_int, base_len: *mut c_int, blocks: *mut c_int, fold: Option<extern "C" fn(c_int) -> c_int>) -> c_int {
     if name.is_null() {
         return 0;
     }
-    match crate::parparser::parse_par_filename(input(name), confirmed != 0) {
+    let Some(fold) = fold else { return 0 };
+    let name = par_filename_input(name);
+    match crate::parparser::parse_par_filename(&name, confirmed != 0, &|b| fold(b as c_int) as u8) {
         Some((len, b)) => {
             if !base_len.is_null() {
                 base_len.write(len as c_int);
@@ -2379,18 +2397,52 @@ pub unsafe extern "C" fn nzbget_rs_parse_par_filename(name: *const c_char, confi
 /// ParParser::SameParCollection (0 for null names).
 ///
 /// # Safety
-/// `name1` and `name2` are null or NUL-terminated.
+/// Each name is null or readable through its first NUL or 1023 bytes. `fold`
+/// has the same contract as nzbget_rs_parse_par_filename. Inputs stay borrowed.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_same_par_collection(name1: *const c_char, name2: *const c_char, confirmed: c_int) -> c_int {
+pub unsafe extern "C" fn nzbget_rs_same_par_collection(name1: *const c_char, name2: *const c_char, confirmed: c_int, fold: Option<extern "C" fn(c_int) -> c_int>) -> c_int {
     if name1.is_null() || name2.is_null() {
         return 0;
     }
-    crate::parparser::same_par_collection(CStr::from_ptr(name1), CStr::from_ptr(name2), confirmed != 0) as c_int
+    let Some(fold) = fold else { return 0 };
+    let name1 = par_filename_input(name1);
+    let name2 = par_filename_input(name2);
+    // Each local copy has a trailing NUL, even when the input did not.
+    crate::parparser::same_par_collection(CStr::from_ptr(name1.as_ptr().cast()), CStr::from_ptr(name2.as_ptr().cast()), confirmed != 0,
+        &|b| fold(b as c_int) as u8) as c_int
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parparser_bounded_input_and_outputs() {
+        use std::ptr::{null, null_mut};
+        extern "C" fn fold(b: c_int) -> c_int { (b as u8).to_ascii_lowercase() as c_int }
+        unsafe {
+            let mut output = 77;
+            let p = &mut output as *mut c_int;
+            for name in [null(), c"bad".as_ptr()] {
+                assert_eq!(nzbget_rs_parse_par_filename(name, 1, p, p, Some(fold)), 0);
+                assert_eq!(output, 77);
+            }
+            assert_eq!(nzbget_rs_parse_par_filename(c"a.par2".as_ptr(), 1, p, p, None), 0);
+            assert_eq!(output, 77);
+            assert_eq!(nzbget_rs_parse_par_filename(c"a.vol+2.par2".as_ptr(), -1, p, p, Some(fold)), 1);
+            assert_eq!(output, -1); // blocks wins when outputs alias
+            assert_eq!(nzbget_rs_parse_par_filename(c"a.par2".as_ptr(), 1, null_mut(), null_mut(), Some(fold)), 1);
+            assert_eq!(nzbget_rs_same_par_collection(null(), c"a.par2".as_ptr(), 1, Some(fold)), 0);
+            assert_eq!(nzbget_rs_same_par_collection(c"a.par2".as_ptr(), null(), 1, Some(fold)), 0);
+            assert_eq!(nzbget_rs_same_par_collection(c"a.par2".as_ptr(), c"a.par2".as_ptr(), 1, None), 0);
+
+            let mut name = [b'a'; crate::parparser::BSTRING_MAX];
+            name[1018..].copy_from_slice(b".par2");
+            assert_eq!(nzbget_rs_parse_par_filename(name.as_ptr().cast(), 1, p, null_mut(), Some(fold)), 1);
+            assert_eq!(output, 1018);
+            assert_eq!(nzbget_rs_same_par_collection(name.as_ptr().cast(), name.as_ptr().cast(), 1, Some(fold)), 1);
+        }
+    }
 
     #[cfg(unix)]
     #[test]
