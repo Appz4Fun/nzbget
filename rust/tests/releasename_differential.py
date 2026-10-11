@@ -74,7 +74,7 @@ static std::string Take(NzbgetRsBuf buf) { std::string s(buf.data, buf.len); nzb
 static std::string Encode(const Attrs& a)
 {
 	std::string out;
-	auto u32 = [&](uint32_t v) { out.append((const char*)&v, 4); };
+	auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; i++) out += (char)(v >> (8 * i)); };  // little-endian
 	auto str = [&](const std::string& s) { u32((uint32_t)s.size()); out += s; };
 	for (const std::set<std::string>* set : {&a.resolution, &a.quality, &a.codec, &a.bitDepth, &a.audio, &a.channels,
 		&a.network, &a.edition, &a.hdr})

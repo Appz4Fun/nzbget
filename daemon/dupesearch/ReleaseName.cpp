@@ -49,7 +49,14 @@ struct Reader
 {
 	const char* p;
 	const char* end;
-	uint32_t U32() { uint32_t v = 0; if (end - p >= 4) { memcpy(&v, p, 4); p += 4; } else { p = end; } return v; }
+	// the Rust side writes little-endian whatever the host
+	uint32_t U32()
+	{
+		if (end - p < 4) { p = end; return 0; }
+		const unsigned char* b = (const unsigned char*)p;
+		p += 4;
+		return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
+	}
 	std::string Str() { uint32_t n = U32(); n = std::min<uint32_t>(n, end - p); std::string s(p, n); p += n; return s; }
 	int I32() { return (int)U32(); }
 	bool Byte() { return p < end ? *p++ != 0 : false; }
