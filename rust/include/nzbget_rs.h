@@ -34,7 +34,9 @@ int nzbget_rs_twin_has(int id, const char* print);
 // keeps the lists of the postings given as "id\tfingerprint" lines
 void nzbget_rs_twin_prune(const char* lines);
 NzbgetRsBuf nzbget_rs_twin_par2_sigs(const unsigned char* data, size_t len);
-NzbgetRsBuf nzbget_rs_twin_fingerprint(const char* lines);
+// The fingerprint of count files given as md5 texts (NULL entries empty) and
+// lengths; their names are not part of it.
+NzbgetRsBuf nzbget_rs_twin_fingerprint(const char* const* md5s, const unsigned long long* lengths, size_t count);
 unsigned long long nzbget_rs_par2_block_size(const unsigned char* data, size_t len);
 int nzbget_rs_par2_volume_blocks(const char* filename);
 NzbgetRsBuf nzbget_rs_twin_kind(int primary, const char* primaryPrint, int dupe, const char* dupePrint);
