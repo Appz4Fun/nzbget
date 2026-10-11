@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 SCRIPT = Path(__file__).resolve().parents[1] / "collect_receipt.py"
 BASE, HEAD = "1" * 40, "2" * 40
@@ -49,7 +50,9 @@ class CollectReceiptTests(unittest.TestCase):
         self.manifest = {"schema_version": 1, "base_sha": BASE, "candidate_sha": HEAD,
                          "testbed": "synthetic-worker", "toolchain": {"label": "synthetic"},
                          "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
-                         "fixtures": [{"id": "caller", "sha256": INPUT, "scope": "complete_caller"}]}
+                         "fixtures": [{"id": "caller", "sha256": INPUT, "scope": "complete_caller",
+                                       "rust_preservation_applicability": "not_applicable",
+                                       "provenance": {"rust_preservation_rationale": "Synthetic caller has no existing Rust path"}}]}
         self.samples = b'{"synthetic_only":true}\n'
         self.builds = [metadata("build"), metadata("build", HEAD, RUST)]
         self.times = [metadata("time"), metadata("time", HEAD, RUST)]
@@ -59,7 +62,9 @@ class CollectReceiptTests(unittest.TestCase):
             source = reference("build", index, "fixture-0")
             source["reason"] = "Synthetic source archive binding; not execution attestation"
             self.bindings["variants"][variant] = {"source": source, "binary": reference("time", index, "executable")}
-        self.review = {"actor": "xbmc4lyfe", "status": "reviewed"}
+        self.review = {"actor": "xbmc4lyfe", "status": "reviewed",
+                       "source_content_hashes": {"cpp_current": SOURCE, "rust_candidate": SOURCE},
+                       "rust_preservation_applicability": {"caller": "not_applicable"}}
         self.output = self.root / "receipt.json"
 
     def write(self, name, value):
@@ -94,6 +99,7 @@ class CollectReceiptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads(self.output.read_bytes())
         self.assertEqual(receipt["source_hashes"], {"cpp_current": BASE, "rust_candidate": HEAD})
+        self.assertEqual(receipt["source_content_hashes"], {"cpp_current": SOURCE, "rust_candidate": SOURCE})
         self.assertEqual(receipt["binary_hashes"], {"cpp_current": CPP, "rust_candidate": RUST})
         self.assertEqual(receipt["compiler_hashes"], {"c++": TOOL})
         self.assertEqual(receipt["input_hashes"], {"caller": INPUT})
@@ -104,6 +110,22 @@ class CollectReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["commands"]["time"][1], self.times[1]["command"])
         self.assertEqual(set(receipt["commands"]["time"][0]), {"name", "sha256", "argv_sha256"})
         self.assertEqual(receipt["review"], self.review)
+
+    def test_different_source_archives_at_same_checkout_retain_distinct_content(self):
+        self.manifest["candidate_sha"] = BASE
+        for records in (self.builds, self.times):
+            record = records[1]
+            for field in ("checkout_sha", "checkout_sha_before", "checkout_sha_after"):
+                record[field] = BASE
+            record["fixtures"][0]["sha256"] = "7" * 64
+            for phase in ("before", "after"):
+                record["captures"][phase][2]["sha256"] = "7" * 64
+        self.review["source_content_hashes"]["rust_candidate"] = "7" * 64
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(self.output.read_bytes())
+        self.assertEqual(receipt["source_hashes"], {"cpp_current": BASE, "rust_candidate": BASE})
+        self.assertEqual(receipt.get("source_content_hashes"), {"cpp_current": SOURCE, "rust_candidate": "7" * 64})
 
     def test_changed_or_unavailable_captures_cannot_be_called_stable(self):
         for value in ("0" * 64, None):
@@ -180,6 +202,7 @@ class CollectReceiptTests(unittest.TestCase):
         source["reason"] = "Reviewed synthetic optimized source"
         self.bindings["variants"]["cpp_optimized"] = {"source": source, "binary": reference("time", 2, "executable")}
         self.bindings["inputs"]["caller"].append(reference("time", 2, "fixture-1"))
+        self.review["source_content_hashes"]["cpp_optimized"] = SOURCE
         control = reference("build", 0, "fixture-0")
         control["reason"] = "Reviewed synthetic unchanged caller source"
         self.bindings["controls"] = {"caller": control}
@@ -311,6 +334,143 @@ class CollectReceiptTests(unittest.TestCase):
         self.builds[0]["checkout_sha"] = BASE
         del self.builds[0]["checkout_sha_before"]
         self.rejected()
+
+    def test_source_review_is_checked_before_publisher_validation(self):
+        self.review["source_content_hashes"]["rust_candidate"] = "0" * 64
+        spec = importlib.util.spec_from_file_location("receipt_own_gate", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # Isolate our capture gate from the separately tested publisher contract.
+        consumer = SimpleNamespace(receipt_reasons=lambda *args: [])
+        with mock.patch.dict(sys.modules, {"publish": consumer}):
+            with self.assertRaises(module.ReceiptError):
+                module.assemble(self.manifest, encoded(self.manifest), self.samples,
+                                {"build": self.builds, "time": self.times}, self.bindings, self.review)
+
+    def test_applicability_review_is_checked_before_publisher_validation(self):
+        self.review["rust_preservation_applicability"]["caller"] = "required"
+        spec = importlib.util.spec_from_file_location("receipt_own_gate", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        consumer = SimpleNamespace(receipt_reasons=lambda *args: [])
+        with mock.patch.dict(sys.modules, {"publish": consumer}):
+            with self.assertRaises(module.ReceiptError):
+                module.assemble(self.manifest, encoded(self.manifest), self.samples,
+                                {"build": self.builds, "time": self.times}, self.bindings, self.review)
+
+    def test_required_current_rust_is_checked_before_publisher_validation(self):
+        self.manifest["fixtures"][0]["rust_preservation_applicability"] = "required"
+        self.review["rust_preservation_applicability"]["caller"] = "required"
+        spec = importlib.util.spec_from_file_location("receipt_own_gate", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        consumer = SimpleNamespace(receipt_reasons=lambda *args: [])
+        with mock.patch.dict(sys.modules, {"publish": consumer}):
+            with self.assertRaises(module.ReceiptError):
+                module.assemble(self.manifest, encoded(self.manifest), self.samples,
+                                {"build": self.builds, "time": self.times}, self.bindings, self.review)
+
+    def test_manifest_source_content_is_checked_before_publisher_validation(self):
+        self.manifest["provenance"] = {"source_content_hashes": {"cpp_current": SOURCE, "rust_candidate": "0" * 64}}
+        spec = importlib.util.spec_from_file_location("receipt_own_gate", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        consumer = SimpleNamespace(receipt_reasons=lambda *args: [])
+        with mock.patch.dict(sys.modules, {"publish": consumer}):
+            with self.assertRaises(module.ReceiptError):
+                module.assemble(self.manifest, encoded(self.manifest), self.samples,
+                                {"build": self.builds, "time": self.times}, self.bindings, self.review)
+
+    def test_review_source_bytes_are_required_and_must_equal_actual_capture(self):
+        for value in ({}, None, {"cpp_current": SOURCE},
+                      {"cpp_current": SOURCE, "rust_candidate": "0" * 64},
+                      {"cpp_current": SOURCE, "rust_candidate": None},
+                      {"cpp_current": SOURCE, "rust_candidate": SOURCE, "extra": SOURCE}):
+            with self.subTest(value=value):
+                self.review["source_content_hashes"] = value
+                self.rejected()
+        del self.review["source_content_hashes"]
+        self.rejected()
+
+    def test_missing_or_unavailable_source_capture_cannot_be_replaced_by_review_hash(self):
+        record = self.builds[1]
+        record["fixtures"][0]["sha256"] = None
+        for phase in ("before", "after"):
+            record["captures"][phase][2]["sha256"] = None
+        self.rejected()
+
+    def test_source_content_provenance_is_bound_without_rewriting(self):
+        self.manifest["provenance"] = {"source_content_hashes": {"cpp_current": SOURCE, "rust_candidate": "0" * 64}}
+        self.rejected()
+
+    def test_missing_or_mismatched_applicability_review_is_rejected(self):
+        for value in ({}, None, {"caller": "required"}, {"caller": "not_applicable", "extra": "not_applicable"}):
+            with self.subTest(value=value):
+                self.review["rust_preservation_applicability"] = value
+                self.rejected()
+        del self.review["rust_preservation_applicability"]
+        self.rejected()
+
+    def test_complete_caller_requires_explicit_applicability_and_rationale(self):
+        fixture = self.manifest["fixtures"][0]
+        del fixture["rust_preservation_applicability"]
+        self.rejected()
+        fixture["rust_preservation_applicability"] = "not_applicable"
+        del fixture["provenance"]["rust_preservation_rationale"]
+        self.rejected()
+        for value in ("", "   ", None, 1):
+            fixture["provenance"]["rust_preservation_rationale"] = value
+            self.rejected()
+
+    def test_unknown_applicability_and_kernel_review_keys_are_rejected(self):
+        self.manifest["fixtures"][0]["rust_preservation_applicability"] = "unknown"
+        self.review["rust_preservation_applicability"]["caller"] = "unknown"
+        self.rejected()
+        fixture = self.manifest["fixtures"][0]
+        fixture["scope"] = "kernel"
+        del fixture["rust_preservation_applicability"]
+        self.review["rust_preservation_applicability"] = {"caller": "not_applicable"}
+        self.rejected()
+
+    def test_required_applicability_cannot_omit_current_rust(self):
+        self.manifest["fixtures"][0]["rust_preservation_applicability"] = "required"
+        self.review["rust_preservation_applicability"]["caller"] = "required"
+        self.rejected()
+
+    def test_current_rust_cannot_be_waived_and_required_gate_can_be_recorded(self):
+        fixture = self.manifest["fixtures"][0]
+        fixture["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        self.builds.append(metadata("build", BASE, "8" * 64))
+        self.times.append(metadata("time", BASE, "8" * 64))
+        source = reference("build", 2, "fixture-0")
+        source["reason"] = "Synthetic existing Rust source binding"
+        self.bindings["variants"]["rust_current"] = {"source": source, "binary": reference("time", 2, "executable")}
+        self.bindings["inputs"]["caller"].append(reference("time", 2, "fixture-1"))
+        self.review["source_content_hashes"]["rust_current"] = SOURCE
+        self.rejected()
+        fixture["rust_preservation_applicability"] = "required"
+        self.review["rust_preservation_applicability"]["caller"] = "required"
+        # Explicitly synthetic rows meet presence validation, not numerical qualification.
+        self.samples = b"".join(encoded({"case": "caller", "variant": variant,
+                                         "process": 0, "round": 0, "order": order,
+                                         "elapsed_ns": 1, "iterations": 1,
+                                         "observable_digest": "0" * 64})
+                                for order, variant in enumerate(("cpp_current", "rust_current", "rust_candidate")))
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(self.output.read_bytes())
+        self.assertEqual(receipt["review"]["rust_preservation_applicability"], {"caller": "required"})
+        self.assertEqual(set(receipt["source_content_hashes"]), {"cpp_current", "rust_current", "rust_candidate"})
+
+    def test_kernel_only_diagnostic_receipt_has_empty_applicability_map(self):
+        fixture = self.manifest["fixtures"][0]
+        fixture["scope"] = "kernel"
+        del fixture["rust_preservation_applicability"]
+        del fixture["provenance"]
+        self.review["rust_preservation_applicability"] = {}
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.output.read_bytes())["review"]["rust_preservation_applicability"], {})
 
 if __name__ == "__main__":
     unittest.main()

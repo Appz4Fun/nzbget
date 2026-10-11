@@ -5,7 +5,9 @@ No commands, Git operations, statistics or publication run here. A review record
 is the assertion already required by publish.py; neither that assertion nor a
 signature attests execution. Source bindings identify a recorded checkout and a
 stable captured source fixture with an explicit reviewed meaning. They do not
-prove cleanliness or compilation linkage.
+prove cleanliness or compilation linkage. The receipt retains each captured
+source-content SHA-256; its review record must bind those exact bytes and every
+complete-caller Rust-preservation applicability decision.
 
 Bindings v1:
   variants: {variant: {source: {phase: "build", index: N, id: "fixture-N",
@@ -16,6 +18,10 @@ Bindings v1:
   controls (optional): {fixture_id: {phase, index, id: "fixture-N", reason}}
 Record indices follow repeated --build-metadata/--time-metadata arguments.
 Bindings contain references and reasons, never replacement hashes or SHAs.
+Review JSON has exactly actor, status, source_content_hashes (variant -> SHA-256),
+and rust_preservation_applicability (each complete-caller ID -> required or
+not_applicable). It binds captured content and explicit manifest decisions;
+kernel fixtures are excluded. No source hashes or decisions are inferred.
 """
 import argparse
 import hashlib
@@ -152,7 +158,9 @@ def assemble(manifest, manifest_raw, samples_raw, records, bindings, review):
             and type(bindings["schema_version"]) is int and bindings["schema_version"] == 1,
             "unsupported binding shape")
     # This is the existing publisher assertion, never inferred from signatures.
-    require(review == {"actor": "xbmc4lyfe", "status": "reviewed"}, "unsupported recorded review assertion")
+    require(object_keys(review, {"actor", "status", "source_content_hashes", "rust_preservation_applicability"})
+            and review["actor"] == "xbmc4lyfe" and review["status"] == "reviewed",
+            "unsupported recorded review assertion")
     testbed = manifest.get("testbed")
     require(isinstance(testbed, str) and bool(NAME.fullmatch(testbed)), "invalid manifest testbed")
     observed = {}
@@ -168,15 +176,32 @@ def assemble(manifest, manifest_raw, samples_raw, records, bindings, review):
     fixtures = manifest.get("fixtures")
     require(isinstance(fixtures, list) and 1 <= len(fixtures) <= 256
             and all(isinstance(item, dict) and isinstance(item.get("id"), str)
-                    and digest(item.get("sha256")) for item in fixtures), "invalid manifest fixture identities")
+                    and digest(item.get("sha256")) and item.get("scope") in ("complete_caller", "kernel")
+                    for item in fixtures), "invalid manifest fixture identities")
     fixture_map = {item["id"]: item for item in fixtures}
     require(len(fixture_map) == len(fixtures), "duplicate manifest fixture identity")
     required = set(comparison.values())
+    applicability = {}
     for fixture in fixtures:
         variants = fixture.get("required_variants", list(comparison.values()))
         require(isinstance(variants, list) and bool(variants) and all(isinstance(v, str) and v in VARIANTS for v in variants),
                 "invalid required variants")
         required.update(variants)
+        if fixture["scope"] == "complete_caller":
+            decision = fixture.get("rust_preservation_applicability")
+            require(decision in ("required", "not_applicable"), "missing explicit Rust preservation decision")
+            applicability[fixture["id"]] = decision
+            if decision == "required":
+                require("rust_current" in variants, "required current Rust variant is missing")
+            else:
+                require("rust_current" not in variants, "declared current Rust cannot be waived")
+                provenance = fixture.get("provenance")
+                rationale = provenance.get("rust_preservation_rationale") if isinstance(provenance, dict) else None
+                require(isinstance(rationale, str) and bool(rationale.strip()),
+                        "nonapplicable preservation lacks explicit rationale")
+    require(isinstance(review["rust_preservation_applicability"], dict)
+            and review["rust_preservation_applicability"] == applicability,
+            "reviewed Rust preservation decisions differ from manifest")
     require(isinstance(bindings["variants"], dict) and set(bindings["variants"]) == required,
             "variant bindings differ from required variants")
 
@@ -194,16 +219,24 @@ def assemble(manifest, manifest_raw, samples_raw, records, bindings, review):
                     "missing explicit recorded binding reason")
         return records[mode][index], value[1]
 
-    sources, binaries, optimized, variant_times = {}, {}, {}, {}
+    sources, contents, binaries, optimized, variant_times = {}, {}, {}, {}, {}
     for variant, binding in bindings["variants"].items():
         require(object_keys(binding, {"source", "binary"}), "invalid variant binding")
-        record, _ = resolve(binding["source"], "fixture", "build", reason=True)
+        record, contents[variant] = resolve(binding["source"], "fixture", "build", reason=True)
         require(digest(record.get("checkout_sha_before"), SHA), "source lacks recorded checkout SHA")
         sources[variant] = record["checkout_sha_before"]
         _, binaries[variant] = resolve(binding["binary"], "executable", "time")
         variant_times[variant] = binding["binary"]["index"]
         if variant == "cpp_optimized":
             optimized[variant] = {"source_sha": sources[variant], "reason": binding["source"]["reason"]}
+
+    require(isinstance(review["source_content_hashes"], dict) and review["source_content_hashes"] == contents,
+            "reviewed source bytes differ from captured source fixtures")
+    provenance = manifest.get("provenance", {})
+    require(isinstance(provenance, dict), "invalid manifest provenance")
+    if "source_content_hashes" in provenance:
+        require(provenance["source_content_hashes"] == contents,
+                "manifest source content differs from captured fixtures")
 
     compiler_bindings = bindings["compilers"]
     require(isinstance(compiler_bindings, dict) and 1 <= len(compiler_bindings) <= 64
@@ -237,7 +270,7 @@ def assemble(manifest, manifest_raw, samples_raw, records, bindings, review):
                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
                "samples_sha256": hashlib.sha256(samples_raw).hexdigest(),
                "base_sha": manifest.get("base_sha"), "candidate_sha": manifest.get("candidate_sha"),
-               "testbed": testbed, "source_hashes": sources, "binary_hashes": binaries,
+               "testbed": testbed, "source_hashes": sources, "source_content_hashes": contents, "binary_hashes": binaries,
                "compiler_hashes": compilers, "input_hashes": inputs,
                "commands": {mode: [r["command"] for r in records[mode]] for mode in ("build", "time")},
                "runner": {"implementation_sha256": implementations.pop(), "lock_scope": "worker_default",
