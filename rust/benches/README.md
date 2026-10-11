@@ -41,6 +41,10 @@ Heavy work runs on the configured remote testbed. Build commands acquire
 the process temporary directory. Use at most three build jobs. Timing acquires
 only the benchmark lock exclusively, executes a prebuilt program, and never
 subsequently compiles or requests the heavy lock. Release between bounded suites.
+Cargo command-line `--config` overrides, including inline values and config
+files, are rejected before the program argument boundary so they cannot bypass
+the job cap. Program arguments after Cargo's `run`/`test`/`bench` `--` boundary
+remain available to the prebuilt or launched caller.
 
 From the repository root, using the shared runner:
 
