@@ -421,6 +421,34 @@ class PublisherTests(unittest.TestCase):
             self.assertFalse((output / "selected-bencher.json").exists())
             self.assertEqual([payload["state"] for _, payload in api.writes], ["pending", "failure"])
 
+    def test_derived_directory_or_directory_link_preserves_proof_and_cannot_leave_pass(self):
+        for linked in (False, True):
+            with self.subTest(linked=linked), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / "results"
+                output.mkdir()
+                raw = {"manifest.json": b"first manifest", "samples.jsonl": b"first samples", "collection-receipt.json": b"first receipt"}
+                for name, content in raw.items():
+                    (output / name).write_bytes(content)
+                target = Path(temp) / "preserved-directory" if linked else output / "summary.json"
+                target.mkdir()
+                (target / "sentinel").write_bytes(b"directory contents preserved")
+                if linked:
+                    (output / "summary.json").symlink_to(target, target_is_directory=True)
+                (output / "qualification.json").write_text('{"status":"PASS"}')
+                (output / "selected-bencher.json").write_text('{"old":"metric"}')
+                api = StatusAPI()
+                with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    result = publish.main(self.publication_arguments(output))
+                self.assertEqual(result, 2)
+                self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+                self.assertIn("HOLD", (output / "report.md").read_text())
+                self.assertFalse((output / "selected-bencher.json").exists())
+                self.assertEqual([payload["state"] for _, payload in api.writes], ["pending", "failure"])
+                for name, content in raw.items():
+                    self.assertEqual((output / name).read_bytes(), content)
+                self.assertEqual((target / "sentinel").read_bytes(), b"directory contents preserved")
+                self.assertEqual((output / "summary.json").is_symlink(), linked)
+
     def test_missing_mismatched_and_unreviewed_receipt_hold_publication(self):
         self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])
         self.assertTrue(publish.receipt_reasons(None, self.manifest(), b"manifest", b"samples"))

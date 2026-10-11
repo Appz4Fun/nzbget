@@ -469,7 +469,7 @@ def write_outputs(path, values):
                 output.write(f"{key}={value}\n")
 
 
-def clear_owned_outputs(output_dir):
+def initialize_owned_outputs(output_dir):
     if output_dir is None:
         return
     root = Path(__file__).resolve().parents[2]
@@ -477,11 +477,46 @@ def clear_owned_outputs(output_dir):
     require(resolved != root and resolved not in Path(__file__).resolve().parents and
             not output_dir.is_symlink(), "output directory collides with trusted controller inputs")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def clear_derived_outputs(output_dir, strict=True):
+    blocked = False
     for name in DERIVED_OUTPUT_FILES:
         path = output_dir / name
-        if path.exists() or path.is_symlink():
-            require(not path.is_dir(), "owned output path is a directory")
-            path.unlink()
+        try:
+            if path.is_dir() or (path.exists() and not path.is_file() and not path.is_symlink()):
+                blocked = True
+                continue
+            if path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError:
+            blocked = True
+    if strict:
+        require(not blocked, "owned derived output path is not a removable regular file")
+
+
+def clear_owned_outputs(output_dir):
+    if output_dir is not None:
+        initialize_owned_outputs(output_dir)
+        clear_derived_outputs(output_dir)
+
+
+def hold_derived_outputs(output_dir, message):
+    try:
+        initialize_owned_outputs(output_dir)
+        clear_derived_outputs(output_dir, strict=False)
+    except (PublicationError, OSError):
+        return False
+    contents = {"qualification.json": json.dumps({"schema_version": 1, "status": "HOLD", "reasons": [message]}) + "\n",
+                "report.md": "Publisher qualification: **HOLD**. " + message + "\n"}
+    complete = True
+    for name, text in contents.items():
+        try:
+            with (output_dir / name).open("x", encoding="utf-8") as output:
+                output.write(text)
+        except OSError:
+            complete = False
+    return complete
 
 
 def require_fresh_raw_outputs(output_dir):
@@ -580,12 +615,13 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args(argv)
-    outputs_cleared = False
+    owned_outputs_ready = False
+    manages_outputs = not (args.verify_identity_only or args.verify_archive_only or args.list_prs or args.set_pr_status)
     api = None
     try:
-        if not args.verify_identity_only and not args.verify_archive_only and not args.list_prs and not args.set_pr_status:
-            clear_owned_outputs(args.output_dir)
-            outputs_cleared = args.output_dir is not None
+        if manages_outputs:
+            initialize_owned_outputs(args.output_dir)
+            owned_outputs_ready = args.output_dir is not None
         api = GitHub(os.environ.get("BENCH_GITHUB_TOKEN", ""))
         if args.list_prs:
             prs = list_lifecycle_prs(api, args.repository, args.controller_sha, args.pr)
@@ -610,6 +646,8 @@ def main(argv=None):
         require(args.repository == "Appz4Fun/nzbget", "evidence must belong to Appz4Fun/nzbget")
         if args.publish and args.mode == "pr":
             update_pr_status(api, args.repository, args.pr, args.controller_sha, "pending", expected_head=args.expected_head_sha)
+        if manages_outputs:
+            clear_owned_outputs(args.output_dir)
         require(args.mode and args.output_dir and args.testbed, "mode, output directory and stable testbed are required")
         for value in (args.evidence_sha, args.expected_base_sha, args.controller_sha):
             require(isinstance(value, str) and SHA.fullmatch(value), "full immutable evidence/base/controller SHAs are required")
@@ -658,14 +696,8 @@ def main(argv=None):
                 update_pr_status(api, args.repository, args.pr, args.controller_sha, "failure", expected_head=args.expected_head_sha)
             except (PublicationError, OSError, TypeError, KeyError, AttributeError):
                 print("HOLD: live qualification status could not be invalidated safely", file=sys.stderr)
-        if outputs_cleared:
-            # Never leave yesterday's PASS behind after invalid/stale proof.
-            for name in DERIVED_OUTPUT_FILES:
-                path = args.output_dir / name
-                if path.exists() or path.is_symlink():
-                    path.unlink()
-            (args.output_dir / "qualification.json").write_text(json.dumps({"schema_version": 1, "status": "HOLD", "reasons": [message]}) + "\n")
-            (args.output_dir / "report.md").write_text("Publisher qualification: **HOLD**. " + message + "\n")
+        if owned_outputs_ready and not hold_derived_outputs(args.output_dir, message):
+            print("HOLD: derived diagnostic outputs could not all be updated safely", file=sys.stderr)
         write_outputs(args.github_output, {"status": "HOLD", "ready": "false", "published": "false"})
         return 2
 
