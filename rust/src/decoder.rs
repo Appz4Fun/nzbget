@@ -47,7 +47,7 @@ impl LineBuf {
         if self.data.len() < end + 1 {
             self.data.resize(end + 1, 0);
         }
-        let copy = src.iter().position(|&b| b == 0).unwrap_or(src.len());
+        let copy = find_byte(src, 0).unwrap_or(src.len());
         self.data[self.len..self.len + copy].copy_from_slice(&src[..copy]);
         self.data[self.len + copy..end].fill(0);
         self.data[end] = 0;
@@ -61,7 +61,7 @@ impl LineBuf {
     /// The C string at `at` (up to its NUL; Append keeps one at `len`).
     fn c_str_end(&self, at: usize) -> usize {
         let limit = self.data.len();
-        self.data[at.min(limit)..].iter().position(|&b| b == 0).map_or(limit, |k| at + k)
+        find_byte(&self.data[at.min(limit)..], 0).map_or(limit, |k| at + k)
     }
 }
 
@@ -97,25 +97,43 @@ pub struct Decoder {
 extern "C" {
     #[link_name = "atoll"]
     fn c_atoll(s: *const c_char) -> c_longlong;
+    #[link_name = "isspace"]
+    fn c_isspace(c: c_int) -> c_int;
     #[link_name = "strtoul"]
     fn c_strtoul(s: *const c_char, end: *mut *mut c_char, base: c_int) -> c_ulong;
 }
 
-fn number_string(s: &[u8]) -> CString {
-    CString::new(&s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())]).expect("NUL removed")
+/// The part of `s` (a C string: up to its NUL) that atoll / strtoul(16) can
+/// read - leading white space (the C library's isspace), a sign, "0x" for
+/// hex, the digits - as a C string: the same number without copying the rest
+/// of the text after it (the rest of a read piece, up to 64 KiB).
+fn number_string(s: &[u8], hex: bool) -> CString {
+    let at = |i: usize| s.get(i).copied().unwrap_or(0);
+    let mut i = 0;
+    while at(i) != 0 && unsafe { c_isspace(at(i) as c_int) } != 0 {
+        i += 1;
+    }
+    if matches!(at(i), b'+' | b'-') {
+        i += 1;
+    }
+    if hex && at(i) == b'0' && at(i + 1) | 0x20 == b'x' {
+        i += 2;
+    }
+    while if hex { at(i).is_ascii_hexdigit() } else { at(i).is_ascii_digit() } {
+        i += 1;
+    }
+    CString::new(&s[..i]).expect("no NUL in the number")
 }
 
 fn atoll(s: &[u8]) -> i64 {
-    unsafe { c_atoll(number_string(s).as_ptr()) as i64 }
+    unsafe { c_atoll(number_string(s, false).as_ptr()) as i64 }
 }
 
 fn strtoul_hex(s: &[u8]) -> u32 {
-    unsafe { c_strtoul(number_string(s).as_ptr(), std::ptr::null_mut(), 16) as u32 }
+    unsafe { c_strtoul(number_string(s, true).as_ptr(), std::ptr::null_mut(), 16) as u32 }
 }
 
-fn find(h: &[u8], n: &[u8]) -> Option<usize> {
-    h.windows(n.len()).position(|w| w == n)
-}
+use crate::bytes::{find, find_byte};
 
 /// UU_DECODE_CHAR.
 fn uu(c: u8) -> u8 {
@@ -232,9 +250,12 @@ impl Decoder {
                 // Ordinary lines must not scan/copy the whole remaining article.
                 let text = &self.line_buf.data[line..];
                 if text.starts_with(b"=ybegin ") || text.starts_with(b"=ypart ") || text.starts_with(b"=yend ") {
+                    // the line's C string runs on past its newline (strstr looked there);
+                    // read it in place instead of copying the rest of the piece
                     let cend = self.line_buf.c_str_end(line);
-                    let full = self.line_buf.data[line..cend].to_vec();
-                    self.process_yenc(&full, llen);
+                    let line_buf = std::mem::take(&mut self.line_buf);
+                    self.process_yenc(&line_buf.data[line..cend], llen);
+                    self.line_buf = line_buf;
                 }
                 if self.body {
                     let rest_at = nl + 1;
