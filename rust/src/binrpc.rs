@@ -128,22 +128,22 @@ pub fn edit_sizes_ok(ids: i32, names: i32, names_len: i32, text_len: i32, data_l
         && i64::from(ids) * 4 + i64::from(text_len) + i64::from(names_len) == i64::from(data_len)
 }
 
-/// EditQueue's trailing data after the size check: the text, then `ids`
-/// big-endian ids, then `names` NUL-terminated names to the data's end. The
-/// ids go to `ids_out` in host order and each name's offset into `data` to
-/// `names_out`; false when a part doesn't fit or a name doesn't end within
-/// the names' part.
-pub fn edit_split(data: &[u8], text_len: usize, ids_out: &mut [u32], names_out: &mut [usize]) -> bool {
+/// EditQueue's trailing data after the size check: the text, then
+/// `ids_out.len()` big-endian ids, then `names` NUL-terminated names to the
+/// data's end. Checks that the parts fit and that each name ends within the
+/// names' part, then writes the ids to `ids_out` in host order; false (with
+/// `ids_out` untouched) when they don't. Nothing is allocated, whatever the
+/// counts.
+pub fn edit_split(data: &[u8], text_len: usize, ids_out: &mut [u32], names: usize) -> bool {
     let Some(ids_end) = ids_out.len().checked_mul(4).and_then(|n| n.checked_add(text_len)) else { return false };
     let Some(id_bytes) = data.get(text_len..ids_end) else { return false };
+    let mut at = ids_end;
+    for _ in 0..names {
+        let Some(len) = data.get(at..).and_then(|rest| crate::bytes::find_byte(rest, 0)) else { return false };
+        at += len + 1;
+    }
     for (out, id) in ids_out.iter_mut().zip(id_bytes.as_chunks::<4>().0) {
         *out = u32::from_be_bytes(*id);
-    }
-    let mut at = ids_end;
-    for out in names_out.iter_mut() {
-        let Some(len) = data.get(at..).and_then(|rest| crate::bytes::find_byte(rest, 0)) else { return false };
-        *out = at;
-        at += len + 1;
     }
     true
 }
@@ -230,16 +230,17 @@ mod tests {
         assert!(!edit_sizes_ok(i32::MAX, 0, 0, i32::MAX, u32::MAX));
         assert!(edit_sizes_ok(0, 0, 0, 0, 0));
         let data = b"tx\0\0\0\0\0\x07\xff\xff\xff\xfeab\0\0c\0";
-        let (mut ids, mut names) = ([0u32; 2], [0usize; 3]);
-        assert!(edit_split(data, 4, &mut ids, &mut names));
+        let mut ids = [0u32; 2];
+        assert!(edit_split(data, 4, &mut ids, 3));
         assert_eq!(ids, [7, 0xffff_fffe]);
-        assert_eq!(names, [12, 15, 16]);
-        // a name running to the end, or past it
-        assert!(!edit_split(&data[..17], 4, &mut ids, &mut names));
-        assert!(!edit_split(data, 4, &mut ids, &mut [0usize; 4]));
-        assert!(!edit_split(&data[..8], 4, &mut ids, &mut []));
-        assert!(edit_split(b"", 0, &mut [], &mut []));
-        assert!(!edit_split(b"", 1, &mut [], &mut []));
+        // a name running to the end, or past it: the ids stay untouched
+        let mut ids = [1u32; 2];
+        assert!(!edit_split(&data[..17], 4, &mut ids, 3));
+        assert!(!edit_split(data, 4, &mut ids, 4));
+        assert!(!edit_split(&data[..8], 4, &mut ids, 0));
+        assert_eq!(ids, [1, 1]);
+        assert!(edit_split(b"", 0, &mut [], 0));
+        assert!(!edit_split(b"", 1, &mut [], 0));
     }
 
     #[test]

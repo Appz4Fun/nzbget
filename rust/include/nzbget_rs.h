@@ -967,16 +967,16 @@ void nzbget_rs_binrpc_entry(NzbgetRsBinBuf* buf, const uint32_t* ints, size_t ni
 	const size_t* fields, size_t nstrings, size_t padField);
 // EditQueue's trailing data (text, ids, names). edit_sizes: 1 when the
 // client's counts and lengths are non-negative, nrIds <= 10000000, nrNames <=
-// namesLen and nrIds*4 + textLen + namesLen == dataLen. edit_split: reads the
-// nrIds big-endian ids after the text into ids (host order) and each of the
-// nrNames names' offsets into data into nameAt; 0 (outputs untouched) when a
-// part doesn't fit in len or a name doesn't end within it. data is readable
-// for len bytes; ids and nameAt are writable for their counts (NULL for 0).
+// namesLen and nrIds*4 + textLen + namesLen == dataLen. edit_split: 1 when
+// the nrIds big-endian ids after the text and the nrNames names after them
+// fit in len, each name ending within it, with the ids written into ids
+// (host order); 0 (ids untouched) otherwise. Nothing is allocated. data is
+// readable for len bytes; ids is writable for nrIds (NULL for 0).
 // is_url: 1 when content starts with "http:/" or "https:/" in any case (NULL
 // is empty).
 int nzbget_rs_binrpc_edit_sizes(int32_t nrIds, int32_t nrNames, int32_t namesLen, int32_t textLen, uint32_t dataLen);
 int nzbget_rs_binrpc_edit_split(const char* data, size_t len, size_t textLen, size_t nrIds, size_t nrNames,
-	uint32_t* ids, size_t* nameAt);
+	uint32_t* ids);
 int nzbget_rs_binrpc_is_url(const char* content);
 
 #ifdef __cplusplus

@@ -1243,17 +1243,18 @@ void EditQueueBinCommand::Execute()
 #ifdef NZBGET_USE_RUST
 	static_assert(sizeof(IdList::value_type) == sizeof(uint32_t), "ids are 32 bits");
 	cIdList.resize(nrIdEntries);
-	std::vector<size_t> nameAt(nrNameEntries);
-	if (!nzbget_rs_binrpc_edit_split(buf, bufLength, textLen, nrIdEntries, nrNameEntries,
-		(uint32_t*)cIdList.data(), nameAt.data()))
+	if (!nzbget_rs_binrpc_edit_split(buf, bufLength, textLen, nrIdEntries, nrNameEntries, (uint32_t*)cIdList.data()))
 	{
 		error("Invalid struct size");
 		return;
 	}
+	// each name ends within the data: checked above
 	cNameList.reserve(nrNameEntries);
-	for (size_t at : nameAt)
+	const char* names = buf + textLen + nrIdEntries * sizeof(int32);
+	for (int i = 0; i < nrNameEntries; i++)
 	{
-		cNameList.push_back(buf + at);
+		cNameList.push_back(names);
+		names += strlen(names) + 1;
 	}
 #else
 	int32* ids = (int32*)(buf + textLen);

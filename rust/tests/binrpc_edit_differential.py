@@ -116,15 +116,17 @@ int main(int argc, char** argv)
 			IdList oldIds; NameList oldNames;
 			bool c = OldSplit(data.data(), textLen, nrIds, nrNames, namesLen, oldIds, oldNames);
 			std::vector<uint32_t> ids(nrIds, 0x5a5a5a5a);
-			std::vector<size_t> at(nrNames, 77);
-			bool d = nzbget_rs_binrpc_edit_split(data.data(), bufLength, textLen, nrIds, nrNames, ids.data(), at.data()) != 0;
+			bool d = nzbget_rs_binrpc_edit_split(data.data(), bufLength, textLen, nrIds, nrNames, ids.data()) != 0;
 			splits++;
 			if (c != d) { printf("split mismatch round %ld: %d %d\n", round, c, d); failures++; }
 			else if (c)
 			{
 				accepted++;
 				for (int i = 0; i < nrIds; i++) if (oldIds[i] != (int)ids[i]) { printf("id mismatch\n"); failures++; }
-				for (int i = 0; i < nrNames; i++) if (oldNames[i] != std::string(data.data() + at[i])) { printf("name mismatch\n"); failures++; }
+				// the names as Execute walks them after the check
+				const char* names = data.data() + textLen + nrIds * 4;
+				for (int i = 0; i < nrNames; i++, names += strlen(names) + 1)
+					if (oldNames[i] != std::string(names)) { printf("name mismatch\n"); failures++; }
 			}
 			else
 			{
@@ -140,7 +142,7 @@ int main(int argc, char** argv)
 		if (OldUrl(content.c_str()) != (nzbget_rs_binrpc_is_url(content.c_str()) != 0)) { printf("url mismatch '%s'\n", content.c_str()); failures++; }
 		if (failures > 5) return 1;
 	}
-	if (nzbget_rs_binrpc_edit_split(nullptr, 0, 0, 1, 0, nullptr, nullptr) != 0) { printf("null ids\n"); return 1; }
+	if (nzbget_rs_binrpc_edit_split(nullptr, 0, 0, 1, 0, nullptr) != 0) { printf("null ids\n"); return 1; }
 	printf("%ld rounds agree, %ld splits (%ld accepted) (reference %s)\n", rounds, splits, accepted, "''' + REFERENCE + r'''");
 	return failures ? 1 : 0;
 }
