@@ -2998,9 +2998,13 @@ pub unsafe extern "C" fn nzbget_rs_direct_regular_name(old_name: *const c_char, 
 /// The names are null (empty) or NUL-terminated; `vol` is null (counting
 /// from 1, not written back) or a valid int. `exists` (null: nothing exists)
 /// gets a borrowed NUL-terminated full path and must not unwind.
+/// `format` is null (classic formatting) or writes a borrowed candidate
+/// buffer and length, valid until the next callback, and returns 1; 0 stops
+/// the search. Neither callback may unwind or access `vol` during the call.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_direct_par_name(old_name: *const c_char, dest_dir: *const c_char, set_id: *const c_char,
     separator: c_char, vol: *mut c_int, exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    format: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *mut *const c_char, *mut usize) -> c_int>,
     ctx: *mut std::ffi::c_void) -> RsBuf {
     let mut local = 1;
     let vol = if vol.is_null() { &mut local } else { &mut *vol };
@@ -3010,7 +3014,16 @@ pub unsafe extern "C" fn nzbget_rs_direct_par_name(old_name: *const c_char, dest
         path.push(0);
         exists(ctx, path.as_ptr().cast()) != 0
     };
-    into_buf(crate::directrenamer::par_name(input(old_name), input(dest_dir), input(set_id), separator as u8, vol, &mut exists))
+    let name = if let Some(format) = format {
+        crate::directrenamer::par_name_formatted(input(old_name), input(dest_dir), input(set_id), separator as u8, vol, &mut exists, &mut |v| {
+            let (mut data, mut len) = (std::ptr::null(), 0);
+            if format(ctx, v, &mut data, &mut len) == 0 { return None; }
+            Some(bytes_arg(data.cast(), len).to_vec())
+        })
+    } else {
+        crate::directrenamer::par_name(input(old_name), input(dest_dir), input(set_id), separator as u8, vol, &mut exists)
+    };
+    into_buf(name)
 }
 
 /// NzbgetRsParName: a par2 file of a download.

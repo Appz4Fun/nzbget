@@ -8,7 +8,10 @@ other files, in progress and completed - in several locales, with signed and
 unsigned char.
 
 Each version's functions are compiled into their own namespace from their
-source, as members of a stand-in class with DirectRenamer's types.
+source, as members of a stand-in class with DirectRenamer's types. The old
+ParParser and Util helpers are compiled independently for the oracle and
+fallback. Scripted callbacks cover exceptions and paths, and a C++ numeric
+locale checks stringstream formatting separately from C ctype locales.
 
 Usage: directrenamer_differential.py BUILD_DIR [ROUNDS]
 """
@@ -29,15 +32,32 @@ FUNCTIONS = ("std::string DirectRenamer::BuildNewRegularName(", "std::string Dir
              "bool DirectRenamer::NeedRenamePars(", "void DirectRenamer::CollectPars(")
 
 
-def definitions(src):
+def definitions(src, signatures=FUNCTIONS):
     out = []
-    for sig in FUNCTIONS:
+    for sig in signatures:
         j = src.index(sig)
         out.append(src[j:src.index("\n}\n", j) + 3])
     return "\n".join(out)
 
 
 old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/queue/DirectRenamer.cpp"], cwd=ROOT, text=True)
+old_parser = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/ParParser.cpp"], cwd=ROOT, text=True)
+old_util = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/util/Util.cpp"], cwd=ROOT, text=True)
+# The oracle must not resolve these calls to the Rust-backed library.
+oracle_helpers = r'''
+class ParParser {
+public:
+    static bool ParseParFilename(const char*, bool, int*, int*);
+    static bool SameParCollection(const char*, const char*, bool);
+};
+class Util : public ::Util {
+public:
+    static bool EndsWith(std::string_view, std::string_view, bool);
+    static bool EndsWith(const char*, const char*, bool);
+    static bool StrCaseCmp(std::string_view, std::string_view);
+};
+''' + definitions(old_parser, ("bool ParParser::SameParCollection(", "bool ParParser::ParseParFilename(")) + definitions(
+    old_util, ("bool Util::EndsWith(std::string_view", "bool Util::EndsWith(const char*", "bool Util::StrCaseCmp("))
 new_src = (ROOT / "daemon/queue/DirectRenamer.cpp").read_text()
 start = new_src.index("#ifdef NZBGET_USE_RUST\nstd::string DirectRenamer::BuildNewRegularName(")
 middle = new_src.index("\n#else\n", start)
@@ -82,13 +102,33 @@ main = r'''
 #include <exception>
 #include <iomanip>
 #include <memory>
+#include <locale>
+#include <stdexcept>
 #include <sstream>
 #include <string>
 #include <vector>
 ''' + globals_block + r'''
-namespace oldimpl {''' + STAND_IN + definitions(old_src) + r'''}
-namespace newimpl {''' + STAND_IN + definitions(rust_src) + r'''}
-namespace fallbackimpl {''' + STAND_IN + definitions(fallback_src) + r'''}
+// A scripted FileExists also records paths and injects exceptions before
+// the Rust callback boundary; ordinary randomized cases use the filesystem.
+static bool scripted = false;
+static int collisions = 0, throwAt = -1;
+static std::vector<std::string> paths;
+class FileSystemProbe : public FileSystem {
+public:
+    static bool FileExists(const char* path) {
+        if (!scripted) return ::FileSystem::FileExists(path);
+        int index = paths.size();
+        paths.emplace_back(path);
+        if (index == throwAt) throw std::runtime_error("FileExists injected exception");
+        return index < collisions;
+    }
+};
+namespace oldimpl { using FileSystem = FileSystemProbe;
+''' + oracle_helpers + STAND_IN + definitions(old_src) + r'''}
+namespace newimpl { using FileSystem = FileSystemProbe;
+''' + STAND_IN + definitions(rust_src) + r'''}
+namespace fallbackimpl { using FileSystem = FileSystemProbe;
+''' + oracle_helpers + STAND_IN + definitions(fallback_src) + r'''}
 
 static unsigned long long state = 88172645463325252ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
@@ -218,6 +258,87 @@ static void need()
 	}
 }
 
+static void edges()
+{
+    scripted = true;
+    for (const char* oldName : {"", "a.vol", "a.VOL1+2.par2", "a.vol.par2", "a.vol1.par2.x", "a.vol.b.vol1.PAR2"})
+    for (const char* dir : {"", "/d/", "relative", "C:\\dest"})
+    for (int start : {-1000, -10, -1, 0, 99, 999, 1000, 2147483644})
+    for (int stop : {-1, 0, 2})
+    {
+        collisions = 2;
+        throwAt = stop;
+        auto run = [&](auto impl) {
+            paths.clear();
+            int vol = start;
+            std::string result;
+            try { result = impl.BuildNewParName(oldName, dir, "S", vol); }
+            catch (const std::runtime_error& e) { result = e.what(); }
+            result += " vol " + std::to_string(vol);
+            for (const auto& path : paths) result += " [" + path + "]";
+            return result;
+        };
+        auto a = run(oldimpl::DirectRenamer());
+        auto b = run(newimpl::DirectRenamer());
+        auto c = run(fallbackimpl::DirectRenamer());
+        if (a != b || a != c) fail("scripted BuildNewParName", a, b, c);
+    }
+    scripted = false;
+    for (size_t len : {0, 1, 1010, 1018, 1022, 1023, 1024, 4096})
+    for (const char* suffix : {".par2", ".vol1+2.par2", ".vol-2.par2", ".par2X.PAR2", "\xffpar2"})
+    {
+        NzbInfo nzbInfo;
+        std::string prefix(len, 'a');
+        nzbInfo.GetCompletedFiles()->emplace_back(1, prefix + ".par2", "", CompletedFile::cfSuccess, 0, true, "", "S");
+        nzbInfo.GetCompletedFiles()->emplace_back(2, prefix + suffix, "", CompletedFile::cfSuccess, 0, true, "", "S");
+        bool a = oldimpl::DirectRenamer().NeedRenamePars(&nzbInfo);
+        bool b = newimpl::DirectRenamer().NeedRenamePars(&nzbInfo);
+        bool c = fallbackimpl::DirectRenamer().NeedRenamePars(&nzbInfo);
+        if (a != b || a != c) fail("long NeedRenamePars", std::to_string(a), std::to_string(b), std::to_string(c));
+    }
+}
+
+class GroupedNumbers : public std::numpunct<char> {
+    char do_thousands_sep() const override { return ','; }
+    std::string do_grouping() const override { return "\3"; }
+};
+
+static void ffiEdges()
+{
+    auto check = [](bool ok) { if (!ok) throw std::runtime_error("FFI edge failed"); };
+    check(nzbget_rs_direct_regular_name(nullptr, nullptr, 99, nullptr, nullptr) == -1);
+    check(nzbget_rs_direct_need_rename_pars(nullptr, 99, ParParser::FilenameFold) == 0);
+    NzbgetRsParName nullName = {nullptr, nullptr};
+    check(nzbget_rs_direct_need_rename_pars(&nullName, 1, ParParser::FilenameFold) == 1);
+    check(nzbget_rs_direct_need_rename_pars(&nullName, 1, nullptr) == 0);
+    NzbgetRsBuf name = nzbget_rs_direct_par_name(nullptr, nullptr, nullptr, '\\', nullptr, nullptr, nullptr, nullptr);
+    check(std::string(name.data, name.len) == ".vol001+01.PAR2");
+    check(name.data[name.len] == 0);
+    nzbget_rs_free(name);
+    int vol = 7;
+    auto stop = [](void*, int, const char**, size_t*) { return 0; };
+    name = nzbget_rs_direct_par_name("x.par2", "", "S", '/', &vol, nullptr, stop, nullptr);
+    check(name.len == 0 && vol == 7);
+    nzbget_rs_free(name);
+    auto format = [](void*, int, const char** data, size_t* len) {
+        *data = "A\0B";
+        *len = 3;
+        return 1;
+    };
+    name = nzbget_rs_direct_par_name("x.par2", "", "S", '/', &vol, nullptr, format, nullptr);
+    check(std::string(name.data, name.len) == std::string("A\0B", 3) && vol == 8);
+    nzbget_rs_free(name);
+    int calls = 0;
+    auto at = [](void* ctx, size_t index, const char** filename, const char** hash) {
+        ++*static_cast<int*>(ctx);
+        *filename = index == 0 ? "A" : "B";
+        *hash = "H";
+    };
+    check(nzbget_rs_direct_regular_name("A", "H", 10, at, &calls) == -1 && calls == 1);
+    calls = 0;
+    check(nzbget_rs_direct_regular_name("A", nullptr, 10, at, &calls) == -1 && calls == 0);
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
@@ -225,6 +346,8 @@ int main(int argc, char** argv)
 	for (int l = 3; l < argc; ++l)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
+        ffiEdges();
+        edges();
 		for (long round = 0; round < rounds; round++)
 		{
 			regular();
@@ -233,6 +356,9 @@ int main(int argc, char** argv)
 		}
 		printf("%s: %ld rounds agree (reference %s)\n", argv[l], rounds, "''' + REFERENCE + r'''");
 	}
+    std::locale saved = std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
+    edges();
+    std::locale::global(saved);
 	return failures ? 1 : 0;
 }
 '''
@@ -276,13 +402,14 @@ with tempfile.TemporaryDirectory(prefix="nzbget-directrenamer-") as temp:
         includes = shlex.split(get("CXX_INCLUDES"))
         if "-DDISABLE_PARCHECK" in defines:
             includes = [flag for flag in includes if "par2-turbo" not in flag]
-        subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
+        subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
                         *defines, *includes, "-fsyntax-only", str(ROOT / "daemon/queue/DirectRenamer.cpp")], check=True, cwd=BUILD)
     for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fsigned-char"],
                   ["-O2", "-funsigned-char"]):
         print("C++ flags:", " ".join(extra), flush=True)
         subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")),
-                        *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")), *extra, "-w",
+                        # libstdc++ installs our derived numpunct facet using RTTI.
+                        *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")), *extra, "-frtti", "-w",
                         *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(ROOT / "daemon/postprocess/ParParser.cpp"),
                         "-o", str(binary), *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]],
                        check=True, cwd=BUILD)

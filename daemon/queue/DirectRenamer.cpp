@@ -31,6 +31,7 @@
 #include "ParParser.h"
 #ifdef NZBGET_USE_RUST
 #include <exception>
+#include <locale>
 #include <memory>
 #include "nzbget_rs.h"
 #endif
@@ -611,7 +612,39 @@ std::string DirectRenamer::BuildNewParName(const char* oldName, const char* dest
 {
 	// rust/src/directrenamer.rs; an exception from FileExists ends the search
 	// and is rethrown here
-	std::exception_ptr error;
+	struct Context
+	{
+		std::exception_ptr error;
+		std::stringstream stream;
+		std::string name;
+		const char* setId;
+	} context;
+	context.setId = setId;
+	// Keep num_put facets (including digit grouping) from the original
+	// stringstream. The usual classic locale is formatted entirely in Rust.
+	NzbgetRsFormatParName format = nullptr;
+	if (context.stream.getloc() != std::locale::classic())
+	{
+		format = [](void* ctx, int vol, const char** data, size_t* len) noexcept -> int
+		{
+			Context& context = *static_cast<Context*>(ctx);
+			try
+			{
+				context.stream << context.setId << ".vol" << std::setfill('0') << std::setw(3) << vol << "+01.PAR2";
+				context.name = context.stream.str();
+				context.stream.str("");
+				context.stream.clear();
+				*data = context.name.data();
+				*len = context.name.size();
+				return 1;
+			}
+			catch (...)
+			{
+				context.error = std::current_exception();
+				return 0;
+			}
+		};
+	}
 	NzbgetRsBuf name = nzbget_rs_direct_par_name(oldName, destDir, setId, PATH_SEPARATOR, &vol,
 		[](void* ctx, const char* path) noexcept -> int
 		{
@@ -621,14 +654,14 @@ std::string DirectRenamer::BuildNewParName(const char* oldName, const char* dest
 			}
 			catch (...)
 			{
-				*static_cast<std::exception_ptr*>(ctx) = std::current_exception();
+				static_cast<Context*>(ctx)->error = std::current_exception();
 				return 0;
 			}
-		}, &error);
+		}, format, &context);
 	std::unique_ptr<NzbgetRsBuf, void(*)(NzbgetRsBuf*)> guard(&name, [](NzbgetRsBuf* buf) { nzbget_rs_free(*buf); });
-	if (error)
+	if (context.error)
 	{
-		std::rethrow_exception(error);
+		std::rethrow_exception(context.error);
 	}
 	return std::string(name.data, name.len);
 }

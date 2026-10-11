@@ -720,14 +720,18 @@ void nzbget_rs_rename_analyzer_finish(NzbgetRsRenameAnalyzer* a, char* hash);
 // until the call returns) for every index below count; NULL at returns -1.
 // direct_par_name: the par2 file's new name (free with nzbget_rs_free), *vol
 // counted up for every name tried (NULL vol: from 1); exists gets the full
-// path (NULL: nothing exists). direct_need_rename_pars: 1 when the par2 files
+// path (NULL: nothing exists). format is NULL for classic formatting, or
+// writes a borrowed candidate buffer and length (valid until the next
+// callback), returning 1 on success, 0 to stop the search. Callbacks must
+// not access *vol. direct_need_rename_pars: 1 when the par2 files
 // need new names; a NULL filename needs one; NULL pars/fold return 0. fold is
 // ParParser::FilenameFold. Callbacks must not throw; panics abort.
 typedef void (*NzbgetRsParHashAt)(void* ctx, size_t index, const char** filename, const char** hash);
 ptrdiff_t nzbget_rs_direct_regular_name(const char* oldName, const char* hash16k, size_t count,
 	NzbgetRsParHashAt at, void* ctx);
+typedef int (*NzbgetRsFormatParName)(void* ctx, int vol, const char** data, size_t* len);
 NzbgetRsBuf nzbget_rs_direct_par_name(const char* oldName, const char* destDir, const char* setId,
-	char separator, int* vol, int (*exists)(void* ctx, const char* path), void* ctx);
+	char separator, int* vol, int (*exists)(void* ctx, const char* path), NzbgetRsFormatParName format, void* ctx);
 typedef struct NzbgetRsParName
 {
 	const char* filename;

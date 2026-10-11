@@ -34,6 +34,19 @@ fn push_vol(out: &mut Vec<u8>, vol: i32) {
 /// is free in `dest_dir`, else the next free "<set_id>.volNNN+01.PAR2",
 /// counting `vol` up for every name tried.
 pub fn par_name(old_name: &[u8], dest_dir: &[u8], set_id: &[u8], separator: u8, vol: &mut i32, exists: &mut dyn FnMut(&[u8]) -> bool) -> Vec<u8> {
+    par_name_formatted(old_name, dest_dir, set_id, separator, vol, exists, &mut |vol| {
+        let mut name = set_id.to_vec();
+        name.extend_from_slice(b".vol");
+        push_vol(&mut name, vol);
+        name.extend_from_slice(b"+01.PAR2");
+        Some(name)
+    })
+}
+
+/// A non-classic C++ locale may group digits or install a custom num_put
+/// facet. Let that stream format candidates; None stops after an exception.
+pub fn par_name_formatted(old_name: &[u8], dest_dir: &[u8], set_id: &[u8], separator: u8, vol: &mut i32,
+    exists: &mut dyn FnMut(&[u8]) -> bool, format: &mut dyn FnMut(i32) -> Option<Vec<u8>>) -> Vec<u8> {
     let full = |name: &[u8]| [dest_dir, &[separator], name].concat();
     let suffix = old_name.windows(4).position(|w| w == b".vol").map(|i| &old_name[i..]);
     if let Some(suffix) = suffix {
@@ -48,10 +61,7 @@ pub fn par_name(old_name: &[u8], dest_dir: &[u8], set_id: &[u8], separator: u8, 
         }
     }
     loop {
-        let mut name = set_id.to_vec();
-        name.extend_from_slice(b".vol");
-        push_vol(&mut name, *vol);
-        name.extend_from_slice(b"+01.PAR2");
+        let Some(name) = format(*vol) else { return Vec::new() };
         *vol = vol.wrapping_add(1);
         if !exists(&full(&name)) {
             return name;
