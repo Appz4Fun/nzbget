@@ -2081,6 +2081,179 @@ pub unsafe extern "C" fn nzbget_rs_nntp_join_group(
     })
 }
 
+/// NzbgetRsCmdlineSink: the C++ CommandLineParser's fields. Each callback
+/// returns 0, or -1 when it threw (parsing stops; C++ rethrows).
+#[repr(C)]
+pub struct CmdlineSink {
+    pub getopt_long: Option<unsafe extern "C" fn(c_int, *mut *mut c_char) -> c_int>,
+    pub ctx: *mut std::ffi::c_void,
+    pub set_int: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int) -> c_int>,
+    pub set_str: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const c_char) -> c_int>,
+    pub steal: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int) -> c_int>,
+    pub push_option: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub push_id: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int) -> c_int>,
+    pub push_name: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub error: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+}
+
+struct FfiCmdline<'a>(&'a CmdlineSink);
+
+fn cmd_status(r: c_int) -> Result<(), crate::cmdline::Abort> {
+    if r == 0 { Ok(()) } else { Err(crate::cmdline::Abort) }
+}
+
+impl crate::cmdline::Sink for FfiCmdline<'_> {
+    unsafe fn getopt_long(&mut self, argc: c_int, argv: *mut *mut c_char) -> c_int {
+        // Validated before parsing; never reference an unavailable libc symbol.
+        (self.0.getopt_long.unwrap())(argc, argv)
+    }
+    fn set_int(&mut self, field: i32, value: i32) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.set_int.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, value) })
+    }
+    fn set_str(&mut self, field: i32, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.set_str.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, value) })
+    }
+    fn steal(&mut self, field: i32, index: c_int) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.steal.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, field, index) })
+    }
+    fn push_option(&mut self, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_option.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, value) })
+    }
+    fn push_id(&mut self, id: i32) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_id.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, id) })
+    }
+    fn push_name(&mut self, value: *const c_char) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.push_name.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, value) })
+    }
+    fn error(&mut self, msg: &CStr) -> Result<(), crate::cmdline::Abort> {
+        let f = self.0.error.ok_or(crate::cmdline::Abort)?;
+        cmd_status(unsafe { f(self.0.ctx, msg.as_ptr()) })
+    }
+}
+
+/// CommandLineParser's constructor: parses `argv` (permuted in place by
+/// getopt, entries nulled when the sink steals them) into the sink. 0, or -1
+/// when a callback threw.
+///
+/// # Safety
+/// `argv` points to `argc` C strings and a trailing null sentinel, writable
+/// as getopt permutes them.
+/// NULL inputs/entries and missing callbacks return -1. Only consumed entries
+/// may be nulled by `steal`; it keeps their strings alive until the destination
+/// is overwritten or parsing finishes. String callbacks copy borrowed data
+/// if retaining it; no callback may
+/// unwind. `sink` is valid; getopt globals are not used concurrently.
+/// Rust panics abort at this ABI boundary; they never unwind into C++.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_cmdline_parse(argc: c_int, argv: *mut *mut c_char, use_long: c_int, sink: *const CmdlineSink) -> c_int {
+    let Some(sink) = sink.as_ref() else { return -1 };
+    if argv.is_null() || argc < 1 {
+        return -1;
+    }
+    if (0..argc).any(|i| (*argv.add(i as usize)).is_null())
+        || sink.set_int.is_none() || sink.set_str.is_none() || sink.steal.is_none()
+        || sink.push_option.is_none() || sink.push_id.is_none()
+        || sink.push_name.is_none() || sink.error.is_none()
+        || (use_long != 0 && sink.getopt_long.is_none())
+    {
+        return -1;
+    }
+    match crate::cmdline::parse(argc, argv, use_long != 0, &mut FfiCmdline(sink)) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[cfg(test)]
+mod cmdline_tests {
+    use super::*;
+    use std::ffi::{c_void, CString};
+
+    struct Calls {
+        count: usize,
+        fail_at: usize,
+        argv: *mut *mut c_char,
+    }
+
+    unsafe fn called(ctx: *mut c_void) -> c_int {
+        let calls = &mut *ctx.cast::<Calls>();
+        calls.count += 1;
+        if calls.count == calls.fail_at { -1 } else { 0 }
+    }
+    unsafe extern "C" fn integer(ctx: *mut c_void, _: c_int, _: c_int) -> c_int { called(ctx) }
+    unsafe extern "C" fn string(ctx: *mut c_void, _: c_int, _: *const c_char) -> c_int { called(ctx) }
+    unsafe extern "C" fn id(ctx: *mut c_void, _: c_int) -> c_int { called(ctx) }
+    unsafe extern "C" fn text(ctx: *mut c_void, _: *const c_char) -> c_int { called(ctx) }
+    unsafe extern "C" fn steal(ctx: *mut c_void, _: c_int, index: c_int) -> c_int {
+        let result = called(ctx);
+        if result == 0 {
+            // The owning CString remains alive, as the C++ destination would.
+            *(*ctx.cast::<Calls>()).argv.add(index as usize) = std::ptr::null_mut();
+        }
+        result
+    }
+
+    // One test owns getopt globals throughout; no parallel parser tests.
+    #[test]
+    fn cmdline_rejects_invalid_inputs_and_stops_at_each_failed_callback() {
+        let mut calls = Calls { count: 0, fail_at: usize::MAX, argv: std::ptr::null_mut() };
+        let mut sink = CmdlineSink {
+            getopt_long: None, ctx: (&mut calls as *mut Calls).cast(),
+            set_int: Some(integer), set_str: Some(string), steal: Some(steal),
+            push_option: Some(text), push_id: Some(id), push_name: Some(text), error: Some(text),
+        };
+        let mut null_arg = [std::ptr::null_mut()];
+        let mut null_value = [c"nzbget".as_ptr().cast_mut(), std::ptr::null_mut()];
+        unsafe {
+            assert_eq!(nzbget_rs_cmdline_parse(2, null_value.as_mut_ptr(), 0, &sink), -1);
+            assert_eq!(nzbget_rs_cmdline_parse(1, null_arg.as_mut_ptr(), 0, &sink), -1);
+            assert_eq!(nzbget_rs_cmdline_parse(1, std::ptr::null_mut(), 0, &sink), -1);
+            assert_eq!(nzbget_rs_cmdline_parse(0, null_arg.as_mut_ptr(), 0, &sink), -1);
+            assert_eq!(nzbget_rs_cmdline_parse(-1, null_arg.as_mut_ptr(), 0, &sink), -1);
+            assert_eq!(nzbget_rs_cmdline_parse(1, null_arg.as_mut_ptr(), 0, std::ptr::null()), -1);
+        }
+        assert_eq!(calls.count, 0);
+        for args in [
+            vec!["nzbget", "-A", "N", "name", "-o", "X=1", "-c", "conf", "file"],
+            vec!["nzbget", "-E", "GN", "D", "name"],
+            vec!["nzbget", "-E", "G", "D", "1,3-5"],
+            vec!["nzbget", "-E", "G", "invalid"],
+        ] {
+            let strings: Vec<_> = args.iter().map(|a| CString::new(*a).unwrap()).collect();
+            let mut fail_at = 1;
+            loop {
+                let mut argv: Vec<_> = strings.iter().map(|a| a.as_ptr().cast_mut()).collect();
+                argv.push(std::ptr::null_mut());
+                calls.count = 0;
+                calls.fail_at = fail_at;
+                calls.argv = argv.as_mut_ptr();
+                let result = unsafe { nzbget_rs_cmdline_parse(args.len() as c_int, argv.as_mut_ptr(), 0, &sink) };
+                if result == 0 {
+                    assert_eq!(calls.count + 1, fail_at);
+                    break;
+                }
+                assert_eq!(calls.count, fail_at, "callbacks continued after failure");
+                fail_at += 1;
+                assert!(fail_at < 100);
+            }
+        }
+        let mut argv = [c"nzbget".as_ptr().cast_mut(), std::ptr::null_mut()];
+        calls.count = 0;
+        unsafe {
+            assert_eq!(nzbget_rs_cmdline_parse(1, argv.as_mut_ptr(), 1, &sink), -1);
+            sink.error = None;
+            assert_eq!(nzbget_rs_cmdline_parse(1, argv.as_mut_ptr(), 0, &sink), -1);
+        }
+        assert_eq!(calls.count, 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -510,6 +510,33 @@ int nzbget_rs_nntp_handshake(const NzbgetRsNntpIo* io, int* authError, int* auth
 int nzbget_rs_nntp_join_group(const NzbgetRsNntpIo* io, const char* group, int* authError, int* authRejected,
 	char** answer, int* joined);
 
+// CommandLineParser (rust/src/cmdline.rs): its constructor, over the argv array
+// getopt permutes. The fields are set through the sink (field numbers in
+// rust/src/cmdline.rs: field, edit); steal moves argv[index] into a field
+// (std::move, the entry becomes null). Callbacks return 0, or -1 when they
+// threw (parsing stops, the call returns -1: rethrow then). No callback may
+// unwind. String arguments are borrowed for the callback; copy them if retained.
+// steal keeps a moved allocation alive until its destination is overwritten
+// or parsing finishes. The argv array
+// initially contains argc non-NULL strings followed by a NULL sentinel.
+// NULL inputs/entries or missing
+// callbacks return -1. getopt globals must not be used concurrently.
+typedef struct NzbgetRsCmdlineSink
+{
+	// The platform's getopt_long with the C++ option table; optional only
+	// when useLong == 0. Returns libc's option code (or -1 at end).
+	int (*getoptLong)(int argc, char** argv);
+	void* ctx;
+	int (*setInt)(void* ctx, int field, int value);
+	int (*setStr)(void* ctx, int field, const char* value);
+	int (*steal)(void* ctx, int field, int index);
+	int (*pushOption)(void* ctx, const char* value);
+	int (*pushId)(void* ctx, int id);
+	int (*pushName)(void* ctx, const char* value);
+	int (*error)(void* ctx, const char* msg);
+} NzbgetRsCmdlineSink;
+int nzbget_rs_cmdline_parse(int argc, char** argv, int useLong, const NzbgetRsCmdlineSink* sink);
+
 #ifdef __cplusplus
 }
 #endif
