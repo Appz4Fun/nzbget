@@ -90,6 +90,23 @@ BOOST_AUTO_TEST_CASE(Rar5OverlongVintTest)
 	fs::remove(file);
 }
 
+// every block must advance the read position: one that leads back to its own
+// start ends the parse (the volume isn't read)
+BOOST_AUTO_TEST_CASE(Rar3ZeroAdvanceTest)
+{
+	fs::path file = fs::temp_directory_path() / "rar3-zero-advance.rar";
+	{
+		std::ofstream out(file, std::ios::binary | std::ios::trunc);
+		const unsigned char data[] = {
+			'R', 'a', 'r', '!', 0x1a, 0x07, 0x00,
+			0x00, 0x00, 0x73, 0x00, 0x00, 0x00, 0x00 };
+		out.write((const char*)data, sizeof(data));
+	}
+	RarVolume volume(file.string().c_str());
+	BOOST_CHECK_EQUAL(volume.Read(), false);
+	fs::remove(file);
+}
+
 BOOST_AUTO_TEST_CASE(Rar5Test)
 {
 	{
@@ -439,6 +456,68 @@ BOOST_AUTO_TEST_CASE(RarCursorWrappingSeekTest)
 	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MAX);
 	BOOST_CHECK(!cursor.Seek(INT64_MAX, DiskFile::soEnd));
 	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MAX);
+}
+
+BOOST_AUTO_TEST_CASE(Rar3LargeBlockOffsetsTest)
+{
+	class SparseSource : public ContentSource
+	{
+	public:
+		std::vector<char> prefix;
+		int64 end;
+		int64 Size() override { return end + 7; }
+		bool Read(int64 offset, void* buffer, int64 size) override
+		{
+			const char tail[] = {0, 0, 0x7b, 0, 0, 7, 0};
+			if (offset >= end && offset - end <= 7 && size <= 7 - (offset - end))
+			{
+				memcpy(buffer, tail + (offset - end), (size_t)size);
+				return true;
+			}
+			if (offset < 0 || offset > (int64)prefix.size() || size > (int64)prefix.size() - offset) return false;
+			memcpy(buffer, prefix.data() + offset, (size_t)size);
+			return true;
+		}
+	};
+	for (bool large : {false, true})
+	{
+		uint16 headerSize = large ? 41 : 33;
+		for (uint64 packed : {(1ULL << 32) - headerSize - 1, (1ULL << 32) - headerSize,
+			(1ULL << 32) - headerSize + 1, 0xffffffffULL, (1ULL << 32) + 7})
+		{
+			if (!large && packed > 0xffffffffULL) continue;
+			SparseSource source;
+			source.prefix = {'R','a','r','!',0x1a,7,0,0,0,0x73,0,0,13,0,0,0,0,0,0,0};
+			auto append = [&](uint64 value, int bytes)
+			{
+				for (int i = 0; i < bytes; ++i) source.prefix.push_back((char)(value >> (i * 8)));
+			};
+			append(0, 2);
+			append(0x74, 1);
+			append(large ? 0x8100 : 0x8000, 2);
+			append(headerSize, 2);
+			append(packed, 4);
+			append(packed, 4);
+			append(0, 1);
+			append(0, 4);
+			append(0, 4);
+			append(20, 1);
+			append(0x30, 1);
+			append(1, 2);
+			append(0, 4);
+			if (large) { append(packed >> 32, 4); append(packed >> 32, 4); }
+			append('a', 1);
+			BOOST_REQUIRE_EQUAL(source.prefix.size(), 20 + headerSize);
+			source.end = (int64)(source.prefix.size() + packed);
+			RarVolume volume("memory");
+			BOOST_REQUIRE(volume.ReadFrom(source));
+			BOOST_REQUIRE_EQUAL(volume.GetFiles()->size(), 1);
+			RarFile& file = volume.GetFiles()->front();
+			BOOST_CHECK_EQUAL(file.GetPackedSize(), (int64)packed);
+			BOOST_CHECK_EQUAL(file.GetSize(), (int64)packed);
+			BOOST_CHECK_EQUAL(file.GetDataOffset(), 20 + headerSize);
+		}
+	}
 }
 
 BOOST_AUTO_TEST_CASE(RarCursorWrappingReadTest)
