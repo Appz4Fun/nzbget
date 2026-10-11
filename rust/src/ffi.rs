@@ -1546,7 +1546,7 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     int_value: *mut c_int,
     str_value: *mut *mut c_char,
 ) -> c_int {
-    use crate::rpcparams::{next_bool, next_int, next_str, Kind};
+    use crate::rpcparams::{Kind, Raw};
     if request.is_null() || (*request).is_null()
         || !matches!(what, 0..=2)
         || (what != 2 && int_value.is_null())
@@ -1555,7 +1555,8 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
         return 0;
     }
     let base = *request;
-    let buf = request_buf(base);
+    // read in place: JSON and GET values without measuring the rest of the request
+    let raw = Raw::new(base.cast::<u8>());
     let kind = if get != 0 {
         Kind::Get
     } else if json != 0 {
@@ -1565,21 +1566,21 @@ pub unsafe extern "C" fn nzbget_rs_rpc_next_param(
     };
     let (pos, ok) = match what {
         0 => {
-            let (pos, v) = next_int(buf, kind);
+            let (pos, v) = raw.next_int(kind);
             if let Some(v) = v {
                 *int_value = v;
             }
             (pos, v.is_some())
         }
         1 => {
-            let (pos, v) = next_bool(buf, kind, json != 0);
+            let (pos, v) = raw.next_bool(kind, json != 0);
             if let Some(v) = v {
                 *int_value = v as c_int;
             }
             (pos, v.is_some())
         }
         2 => {
-            let (pos, v) = next_str(buf, kind);
+            let (pos, v) = raw.next_str(kind);
             if let Some(v) = v {
                 *str_value = base.add(v);
             }
