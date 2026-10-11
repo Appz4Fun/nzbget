@@ -90,7 +90,7 @@ A failed download goes to history, where you can download it again. Besides star
 Extensions are scripts that run at set points, such as after a download finishes. Par check, repair, and unpack are built in; extensions handle everything else, such as deleting samples, sending notifications, or moving files for media managers.
 
 - Install extensions from the Extension Manager in the web interface, or put them in `ScriptDir`.
-- Each extension has a `manifest.json` and an executable. Its options are saved in `nzbget.conf` and passed as `NZBPO_` environment variables.
+- A current extension is a folder with a `manifest.json` and an executable. Older extensions are single script files with an NZBGet header comment block, and they still load. Either way, an extension's options are saved in `nzbget.conf` and passed as `NZBPO_` environment variables.
 - Post-processing extensions read the download's state from `NZBPP_` variables such as `NZBPP_DIRECTORY`, `NZBPP_TOTALSTATUS`, and `NZBPP_STATUS`.
 - Exit with `93` for success, `94` for failure, or `95` to skip. Any other exit code, including `0`, marks the script as failed. Exit `92` to ask for a par check after an extension unpacked the files itself.
 - Print `[NZB] DIRECTORY=<path>` to tell later scripts that the files moved, or `[NZB] FINALDIR=<path>` when you move them into a directory that holds other files.

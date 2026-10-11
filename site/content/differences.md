@@ -50,7 +50,7 @@ See [Duplicate fleets](duplicate-fleets.md) and [Donor search](dupesearch.md).
 - Failover skips a backup whose NZB file is gone, a backup found dead, and a copy of a posting that already failed.
 - Among backups with equal scores, the most complete one goes first.
 - A title already on disk isn't downloaded again, and once one copy is on disk, the other copies stop.
-- A forced download fails over to its backups like a scored one.
+- With `HealthCheck=dupe`, a forced download fails over to its backups like a scored one.
 - When no backup qualifies, the log gives the reason for each one.
 - The duplicate mode of a download survives a restart.
 

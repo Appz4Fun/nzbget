@@ -56,7 +56,7 @@ Download progress
 : `ContinuePartial` saves progress after each article so a restart resumes mid-file. Turning it off saves a little disk activity.
 
 Logging
-: Set `DetailTarget` and `DebugTarget` to `none`. Once your setup is stable, consider turning off `CreateLog`.
+: Set `DetailTarget` and `DebugTarget` to `none`. Once your setup is stable, consider `WriteLog=none`, which stops writing the log file. NZBGet's older `CreateLog` option is obsolete and ignored.
 
 Intermediate directory
 : Put `InterDir` on another physical drive or an SSD to speed up unpacking. Even on one drive, keep it set, so active downloads and finished files stay apart.

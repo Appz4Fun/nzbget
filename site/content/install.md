@@ -73,11 +73,16 @@ sudo cmake --install build
 sudo cmake --build build --target install-conf
 ```
 
+> [!WARNING] Upgrades: skip install-conf
+> `install-conf` replaces an existing `/usr/local/etc/nzbget.conf` with the default, which loses your servers and settings. Run it only on a first install. To upgrade, run `sudo cmake --install build` alone.
+
 To run it as your own user instead of as a service, give yourself a private copy of the configuration, which RustyGet finds at `~/.nzbget`:
 
 ```bash
-install -m 600 /usr/local/share/nzbget/nzbget.conf ~/.nzbget
+[ -e ~/.nzbget ] || install -m 600 /usr/local/share/nzbget/nzbget.conf ~/.nzbget
 ```
+
+The test keeps an existing `~/.nzbget` when you run the steps again for an upgrade.
 
 Add `-DCMAKE_INSTALL_PREFIX=~/usr` to the first `cmake` command to install into your home directory instead.
 
@@ -85,7 +90,7 @@ Add `-DCMAKE_INSTALL_PREFIX=~/usr` to the first `cmake` command to install into 
 
 | Option | Effect |
 |---|---|
-| `-DENABLE_TESTS=ON` | Builds the unit tests. Run them with `ctest --test-dir build`. |
+| `-DENABLE_TESTS=ON` | Builds the unit tests. Run them with `ctest` in the `build` folder. |
 | `-DDISABLE_CURSES=ON` | Builds without the terminal interface. |
 | `-DDISABLE_PARCHECK=ON` | Builds without par2 check and repair. |
 | `-DDISABLE_GZIP=ON` | Builds without zlib. |
@@ -99,7 +104,7 @@ Add `-DCMAKE_INSTALL_PREFIX=~/usr` to the first `cmake` command to install into 
 Copy the default configuration, then start RustyGet in the foreground from the source tree to check it:
 
 ```bash
-install -m 600 nzbget.conf ~/rustyget.conf
+[ -e ~/rustyget.conf ] || install -m 600 nzbget.conf ~/rustyget.conf
 build/nzbget -c ~/rustyget.conf -o WebDir="$PWD/webui" -o ConfigTemplate="$PWD/nzbget.conf" -s
 ```
 

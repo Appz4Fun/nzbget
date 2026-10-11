@@ -52,7 +52,7 @@ This is every method that RustyGet answers. All but `appendfleet` are inherited 
 | Queue | `listgroups`, `listfiles`, `postqueue`, `urlqueue`, `append`, `appendurl`, `appendfleet`, `editqueue`, `scan` |
 | History | `history` |
 | Status and logs | `status`, `sysinfo`, `systemhealth`, `log`, `clearlog`, `writelog`, `loadlog`, `logscript`, `logupdate`, `servervolumes`, `resetservervolume` |
-| Pause and speed | `rate`, `pausedownload`, `resumedownload`, `pausepost`, `resumepost`, `pausescan`, `resumescan`, `scheduleresume`, and the older names `pause` and `resume` |
+| Pause and speed | `rate`, `pausedownload`, `resumedownload`, `pausepost`, `resumepost`, `pausescan`, `resumescan`, `scheduleresume`, and the older names `pause`, `pausedownload2`, `resume`, and `resumedownload2` |
 | Configuration | `config`, `loadconfig`, `saveconfig`, `configtemplates`, `editserver` |
 | RSS feeds | `fetchfeed`, `viewfeed`, `previewfeed` |
 | Extensions and scripts | `loadextensions`, `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `startscript` |
@@ -73,7 +73,7 @@ appendfleet(DupeKey, Category, Priority, Timeout, Name1, Content1, Name2, Conten
 | `DupeKey` | string | The key shared by every copy. Empty means RustyGet derives one from the first name. |
 | `Category` | string | The category for every member. |
 | `Priority` | int | The priority for every member. |
-| `Timeout` | int | Seconds allowed for checking, from 5 to 120. The default is 45. |
+| `Timeout` | int | Required. Seconds allowed for checking; RustyGet keeps the value between 5 and 120. The Kodi add-on sends 45. |
 | `NameN` | string | The member's filename, such as `Release.Name.nzb`. |
 | `ContentN` | string | The NZB file in base64, or an `http://` or `https://` URL to fetch it from. |
 

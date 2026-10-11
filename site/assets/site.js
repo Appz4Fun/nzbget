@@ -84,6 +84,7 @@ const results = document.getElementById('search-results');
 if (searchInput && results) {
   let index = null;
   let selected = -1;
+  let renderSeq = 0;
   const load = async () => {
     if (index) return index;
     try {
@@ -104,10 +105,13 @@ if (searchInput && results) {
     return (start > 0 ? '…' : '') + text.slice(start, start + 140);
   };
   const render = async () => {
+    const seq = ++renderSeq;
     const query = searchInput.value.trim().toLowerCase();
     if (query.length < 2) { results.hidden = true; return; }
     const terms = query.split(/\s+/);
     const entries = await load();
+    // a newer keystroke started its own render while the index loaded
+    if (seq !== renderSeq) return;
     const scored = [];
     for (const entry of entries) {
       if (!terms.every((term) => entry.hay.includes(term))) continue;

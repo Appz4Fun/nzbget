@@ -102,7 +102,7 @@ O(dupescore+:-10000): dupestatus:success | dupestatus:downloading
 `score` and `all` both stop when a successful version is marked good. Set modes with `dupemode` in filter rules, such as `Options(dupemode:all): *`.
 
 > [!NOTE] Force mode in RustyGet
-> In NZBGet a forced download never fails over. In RustyGet a forced download fails over to its backups like a scored one, so a client that re-sends a pick in force mode still gets a backup.
+> In NZBGet a forced download never fails over. In RustyGet with `HealthCheck=dupe`, a forced download fails over to its backups like a scored one, so a client that re-sends a pick in force mode still gets a backup. With any other `HealthCheck` value, force mode works as in NZBGet.
 
 ## Backups and history
 
