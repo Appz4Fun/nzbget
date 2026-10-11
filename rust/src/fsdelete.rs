@@ -2,9 +2,10 @@
 //! DeleteDirectory (a folder that is empty or holds only hidden files, its
 //! empty subfolders removed), DeleteDirectoryWithContent, RenameBak and
 //! GetFileExtension, as the C++ did them - links never followed, the same
-//! order of deletes, the first error kept, paths cut as BString<1024> cut
-//! them. Every file system call stays with the caller (`Ops`); `last_error`
-//! is GetLastErrorMessage for the call that failed last.
+//! order of deletes and error handling. Delete paths are checked against
+//! BString<1024>; RenameBak retains its original buffer behavior. Every file
+//! system call stays with the caller (`Ops`); `last_error` is
+//! GetLastErrorMessage for the call that failed last.
 
 /// GetPathTypeNoFollow.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,15 +37,29 @@ pub trait Ops {
     fn move_file(&mut self, from: &[u8], to: &[u8]) -> R<bool>;
     /// GetLastErrorMessage, for the last call that failed
     fn last_error(&mut self) -> R<Vec<u8>>;
+    /// errno set to ENAMETOOLONG: a path too long for the C++ buffers
+    fn too_long(&mut self) -> R<()>;
 }
 
 const BSTRING: usize = 1023;
 
-/// BString<1024>("%s%c%s", dir, PATH_SEPARATOR, name).
-fn join(dir: &[u8], sep: u8, name: &[u8]) -> Vec<u8> {
-    let mut v = [dir, &[sep], name].concat();
-    v.truncate(BSTRING);
-    v
+/// A path joined below a delete root; None when it would not fit the C++
+/// path buffers (it is refused, never cut).
+fn join_checked(dir: &[u8], sep: u8, name: &[u8]) -> Option<Vec<u8>> {
+    let v = [dir, &[sep], name].concat();
+    (v.len() <= BSTRING).then_some(v)
+}
+
+/// A delete root without trailing separators or trailing "." components.
+pub fn normalize_root(dir: &[u8], sep: u8) -> &[u8] {
+    let mut d = dir;
+    loop {
+        if d.len() > 1 && (d.ends_with(&[sep]) || d.ends_with(&[sep, b'.'])) {
+            d = &d[..d.len() - 1];
+        } else {
+            return d;
+        }
+    }
 }
 
 fn is_link(t: PathType) -> bool {
@@ -59,6 +74,21 @@ fn could_not_delete<O: Ops>(ops: &mut O, path: &[u8]) -> R<Vec<u8>> {
 
 /// DeleteDirectory: true when the folder was removed.
 pub fn delete_directory<O: Ops>(ops: &mut O, dir: &[u8], sep: u8) -> R<bool> {
+    let mut too_long = false;
+    let result = delete_directory_inner(ops, dir, sep, &mut too_long)?;
+    if too_long {
+        ops.too_long()?;
+    }
+    Ok(result && !too_long)
+}
+
+fn delete_directory_inner<O: Ops>(ops: &mut O, dir: &[u8], sep: u8, too_long: &mut bool) -> R<bool> {
+    let dir = normalize_root(dir, sep);
+    if dir.len() > BSTRING {
+        *too_long = true;
+        ops.too_long()?;
+        return Ok(false);
+    }
     if ops.remove_dir(dir)? {
         return Ok(true);
     }
@@ -68,8 +98,15 @@ pub fn delete_directory<O: Ops>(ops: &mut O, dir: &[u8], sep: u8) -> R<bool> {
     }
     // check if directory contains only hidden files (whose names start with dot)
     for name in ops.list(dir)? {
-        let full = join(dir, sep, &name);
-        if ops.path_type(&full)? == PathType::Directory && delete_directory(ops, &full, sep)? {
+        let removed = match join_checked(dir, sep, &name) {
+            Some(full) => ops.path_type(&full)? == PathType::Directory && delete_directory_inner(ops, &full, sep, too_long)?,
+            None => {
+                *too_long = true;
+                ops.too_long()?;
+                false
+            }
+        };
+        if removed {
             continue;
         }
         if name.first() != Some(&b'.') {
@@ -78,7 +115,7 @@ pub fn delete_directory<O: Ops>(ops: &mut O, dir: &[u8], sep: u8) -> R<bool> {
         }
     }
     let mut errmsg = Vec::new();
-    if !delete_directory_with_content(ops, dir, sep, &mut errmsg)? {
+    if !delete_directory_with_content_inner(ops, dir, sep, &mut errmsg, too_long)? {
         // calling RemoveDirectory to set correct errno
         return ops.remove_dir(dir);
     }
@@ -87,26 +124,58 @@ pub fn delete_directory<O: Ops>(ops: &mut O, dir: &[u8], sep: u8) -> R<bool> {
 
 /// DeleteDirectoryWithContent: `errmsg` cleared, then the first error.
 pub fn delete_directory_with_content<O: Ops>(ops: &mut O, dir: &[u8], sep: u8, errmsg: &mut Vec<u8>) -> R<bool> {
+    let mut too_long = false;
+    let result = delete_directory_with_content_inner(ops, dir, sep, errmsg, &mut too_long)?;
+    if too_long {
+        ops.too_long()?;
+    }
+    Ok(result && !too_long)
+}
+
+fn delete_directory_with_content_inner<O: Ops>(ops: &mut O, dir: &[u8], sep: u8, errmsg: &mut Vec<u8>, too_long: &mut bool) -> R<bool> {
     errmsg.clear();
+    let given = dir;
+    let dir = normalize_root(dir, sep);
+    if dir.len() > BSTRING {
+        *too_long = true;
+        ops.too_long()?;
+        *errmsg = could_not_delete(ops, given)?;
+        return Ok(false);
+    }
     let root = ops.path_type(dir)?;
     if is_link(root) {
         if ops.delete_link(dir, root)? {
             return Ok(true);
         }
-        *errmsg = could_not_delete(ops, dir)?;
+        *errmsg = could_not_delete(ops, given)?;
         return Ok(false);
     }
     if root != PathType::Directory {
-        *errmsg = could_not_delete(ops, dir)?;
+        *errmsg = could_not_delete(ops, given)?;
         return Ok(false);
     }
 
     let mut ok = true;
     for name in ops.list(dir)? {
-        let full = join(dir, sep, &name);
+        let Some(full) = join_checked(dir, sep, &name) else {
+            *too_long = true;
+            ops.too_long()?;
+            ok = false;
+            if errmsg.is_empty() {
+                *errmsg = could_not_delete(ops, &[dir, &[sep], &name].concat())?;
+            }
+            continue;
+        };
         let kind = ops.path_type(&full)?;
         let deleted = match kind {
-            PathType::Directory => delete_directory_with_content(ops, &full, sep, errmsg)?,
+            PathType::Directory => {
+                // Keep a message already recorded before a refused path.
+                if *too_long && !errmsg.is_empty() {
+                    delete_directory_with_content_inner(ops, &full, sep, &mut Vec::new(), too_long)?
+                } else {
+                    delete_directory_with_content_inner(ops, &full, sep, errmsg, too_long)?
+                }
+            },
             PathType::Link | PathType::DirectoryLink => ops.delete_link(&full, kind)?,
             PathType::File => ops.delete_file(&full)?,
             PathType::Error => false,
@@ -221,6 +290,10 @@ mod tests {
         fn last_error(&mut self) -> R<Vec<u8>> {
             Ok(self.last.clone())
         }
+        fn too_long(&mut self) -> R<()> {
+            self.last = b"name too long".to_vec();
+            Ok(())
+        }
     }
 
     use PathType::*;
@@ -269,6 +342,44 @@ mod tests {
         assert_eq!(name, b"/d.bak");
         assert!(!rename_bak(&mut t, b"/missing", b"bak", false, &mut name).unwrap());
         assert_eq!(name, b"/missing.bak");
+    }
+
+    #[test]
+    fn roots_normalized_and_long_paths_refused() {
+        assert_eq!(normalize_root(b"/d/x/", b'/'), b"/d/x");
+        assert_eq!(normalize_root(b"/d/x/././/", b'/'), b"/d/x");
+        assert_eq!(normalize_root(b"/", b'/'), b"/");
+        assert_eq!(normalize_root(b"/.//./", b'/'), b"/");
+        assert_eq!(normalize_root(b"x/.", b'/'), b"x");
+        let mut t = Tree::new(&[("/l", Link)]);
+        let mut err = Vec::new();
+        assert!(delete_directory_with_content(&mut t, b"/l/", b'/', &mut err).unwrap());
+        assert_eq!(t.log, vec!["unlink-link /l".to_string()]);
+        let long = format!("/{}", "a".repeat(1023));
+        let mut t = Tree::new(&[(long.as_str(), Directory)]);
+        assert!(!delete_directory_with_content(&mut t, long.as_bytes(), b'/', &mut err).unwrap());
+        assert!(err.ends_with(b": name too long"));
+        assert!(!delete_directory(&mut t, long.as_bytes(), b'/').unwrap());
+        assert_eq!(t.nodes.len(), 1);
+        let dir = format!("/{}", "d".repeat(1000));
+        let entry = format!("{dir}/{}", "e".repeat(40));
+        let mut t = Tree::new(&[(dir.as_str(), Directory), (entry.as_str(), File)]);
+        assert!(!delete_directory_with_content(&mut t, dir.as_bytes(), b'/', &mut err).unwrap());
+        assert_eq!(t.nodes.len(), 2);
+    }
+
+    #[test]
+    fn long_child_error_survives_later_directory_and_parent_removal() {
+        let dir = format!("/{}", "d".repeat(999));
+        let long = format!("{dir}/.{}", "a".repeat(22));
+        let short = format!("{dir}/z");
+        let mut t = Tree::new(&[(dir.as_str(), Directory), (long.as_str(), File), (short.as_str(), Directory)]);
+        let mut error = Vec::new();
+        assert!(!delete_directory_with_content(&mut t, dir.as_bytes(), b'/', &mut error).unwrap());
+        assert_eq!(error, format!("could not delete {long}: name too long").as_bytes());
+        assert_eq!(t.last, b"name too long");
+        assert_eq!(t.log, [format!("rmdir {short}"), format!("rmdir {dir}")]);
+        assert!(t.nodes.contains_key(long.as_bytes()));
     }
 
     #[test]
