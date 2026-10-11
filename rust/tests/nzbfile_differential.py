@@ -18,7 +18,8 @@ Usage:
       sizes even and mixed, colliding filenames, Latin-1 bytes) under the C
       and C.UTF-8 locales, the old program under ASan/UBSan too.
   nzbfile_differential.py BUILD_DIR --corpus DIR...
-      every *.nzb under the directories, read only; a summary on stdout.
+      every *.nzb under the directories, read only, in batches of 300; a
+      summary on stdout.
 """
 import os
 from pathlib import Path
@@ -211,11 +212,18 @@ with tempfile.TemporaryDirectory(prefix="nzbget-nzbfile-") as temp:
     old = build(temp, "old", old_src, False, ["-O2"])
     new = build(temp, "new", new_src, True, ["-O2"])
     if CORPUS:
+        # in batches: a big corpus's dumps don't fit in memory at once
         paths = sorted(str(p) for d in CORPUS for p in Path(d).rglob("*.nzb"))
-        a, ta = run(old, paths, "C.UTF-8")
-        b, tb = run(new, paths, "C.UTF-8")
-        bad = compare(a, b)
-        print(f"{len(paths)} nzbs; old: {ta}; new: {tb}")
+        bad = []
+        seconds = {"old": 0.0, "new": 0.0}
+        for start in range(0, len(paths), 300):
+            batch = paths[start:start + 300]
+            a, ta = run(old, batch, "C.UTF-8")
+            b, tb = run(new, batch, "C.UTF-8")
+            bad += compare(a, b)
+            for name, t in (("old", ta), ("new", tb)):
+                seconds[name] += float(re.search(r"in ([0-9.]+) s", t).group(1))
+        print(f"{len(paths)} nzbs; parsed by old in {seconds['old']:.1f} s, by new in {seconds['new']:.1f} s")
         print(f"{len(paths) - len(bad)} identical, {len(bad)} differ")
         for line in bad[:20]:
             print("  differs:", line)
