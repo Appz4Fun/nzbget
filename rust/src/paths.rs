@@ -118,35 +118,37 @@ pub fn sanitize_path_segment(name: &[u8]) -> Vec<u8> {
     if name.is_empty() {
         return Vec::new();
     }
-    let result = make_valid_filename(name, false);
-    // runs of two or more dots become '_'
-    let mut collapsed = Vec::with_capacity(result.len());
+    let mut result = make_valid_filename(name, false);
+    // Runs of two or more dots become '_'. The output never grows, so
+    // compact in place instead of allocating a second buffer per segment.
+    let mut written = 0;
     let mut dots = 0;
-    for &c in &result {
+    for read in 0..result.len() {
+        let c = result[read];
         if c == b'.' {
             dots += 1;
             continue;
         }
-        match dots {
-            0 => {}
-            1 => collapsed.push(b'.'),
-            _ => collapsed.push(b'_'),
+        if dots != 0 {
+            result[written] = if dots == 1 { b'.' } else { b'_' };
+            written += 1;
         }
         dots = 0;
-        collapsed.push(c);
+        result[written] = c;
+        written += 1;
     }
-    match dots {
-        0 => {}
-        1 => collapsed.push(b'.'),
-        _ => collapsed.push(b'_'),
+    if dots != 0 {
+        result[written] = if dots == 1 { b'.' } else { b'_' };
+        written += 1;
     }
-    while matches!(collapsed.last(), Some(b'.' | b' ')) {
-        collapsed.pop();
+    result.truncate(written);
+    while matches!(result.last(), Some(b'.' | b' ')) {
+        result.pop();
     }
-    if collapsed.is_empty() || collapsed == b"." || collapsed == b".." {
+    if result.is_empty() || result == b"." || result == b".." {
         return Vec::new();
     }
-    collapsed
+    result
 }
 
 /// FileSystem::SanitizeRelativePath: each segment sanitized, empty ones
