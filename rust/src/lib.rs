@@ -48,3 +48,5 @@ pub mod twin;
 pub mod wildmask;
 
 pub mod dupeidentity;
+
+pub mod streampatchparts;

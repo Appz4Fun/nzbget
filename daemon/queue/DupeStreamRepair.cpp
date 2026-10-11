@@ -23,6 +23,11 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <cstddef>
+#include <type_traits>
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 #include "DupeStreamRepair.h"
 #include "DupeArticleFallback.h"
 #include "FileSystem.h"
@@ -166,6 +171,20 @@ StreamRangeList DupeStreamRepair::EstimateDonorRanges(FileInfo* donorFile, int64
 std::vector<int> DupeStreamRepair::SelectPatchParts(const StreamRangeList& donorRanges,
 	const StreamRangeList& holes, int marginParts)
 {
+#ifdef NZBGET_USE_RUST
+	static_assert(std::is_standard_layout<StreamRange>::value && sizeof(StreamRange) == 2 * sizeof(int64_t) &&
+		alignof(StreamRange) == alignof(int64_t) && offsetof(StreamRange, Offset) == 0 &&
+		offsetof(StreamRange, Size) == sizeof(int64_t), "StreamRange C ABI layout");
+	static_assert(std::is_same<int, int32_t>::value, "patch index C ABI layout");
+	if (donorRanges.empty() || holes.empty() || marginParts < 0)
+	{
+		return {};
+	}
+	std::vector<int> parts(donorRanges.size());
+	parts.resize(nzbget_rs_stream_patch_parts(donorRanges.data(), donorRanges.size(),
+		holes.data(), holes.size(), marginParts, parts.data()));
+	return parts;
+#else
 	std::vector<bool> picked(donorRanges.size(), false);
 
 	for (size_t i = 0; i < donorRanges.size(); i++)
@@ -190,6 +209,7 @@ std::vector<int> DupeStreamRepair::SelectPatchParts(const StreamRangeList& donor
 		}
 	}
 	return parts;
+#endif
 }
 
 std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donorRanges,

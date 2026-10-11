@@ -1133,6 +1133,16 @@ int nzbget_rs_dupe_candidate(const char* title, size_t titleLen, uint64_t bytes,
 int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* mainName, size_t mainLen,
     const NzbgetRsDupeIdentityInput* mine, const NzbgetRsDupeIdentityInput* theirs);
 
+// Stream repair patch selection (rust/src/streampatchparts.rs). Ranges are
+// caller-owned aligned pairs of int64_t offset,size (the native StreamRange
+// representation). Output is caller-owned and writable for donorCount ints;
+// returns the number written, in ascending zero-based index order. No buffers
+// overlap. NULL is allowed for empty slices. donorCount must fit int32_t;
+// endpoint addition and original int index +/- margin overflow are outside the
+// defined C++ parity domain. All sizes and offsets otherwise retain semantics.
+size_t nzbget_rs_stream_patch_parts(const void* donors, size_t donorCount,
+    const void* holes, size_t holeCount, int32_t margin, int32_t* output);
+
 #ifdef __cplusplus
 }
 #endif

@@ -152,6 +152,22 @@ fn main() {
     let (classes, lower_table) = c_locale();
     let ct = nzbfile::Ctype { classes: &classes, space: 1, digit: 2, lower: &lower_table, char_signed: true };
 
+    for (n, step, label) in [(8, 4, "small"), (20000, 2000, "sparse"), (20000, 10, "dense")] {
+        let donors: Vec<_> = (0..n).map(|i| nzbget_rs::streampatchparts::Range {
+            offset: i * 700000, size: 700000,
+        }).collect();
+        let holes: Vec<_> = (0..n).step_by(step).map(|i| nzbget_rs::streampatchparts::Range {
+            offset: i * 700000 + 100, size: 20,
+        }).collect();
+        bench(&format!("streampatchparts/{label} {n} donors"), &mut || {
+            let mut output = vec![0; donors.len()];
+            let len = nzbget_rs::streampatchparts::select(
+                black_box(&donors), black_box(&holes), 2, &mut output);
+            output.truncate(len);
+            black_box(output);
+        });
+    }
+
     // text and search helpers
     let haystack: Vec<u8> = (0..1 << 20).map(|_| b'a' + (rng.next() % 20) as u8).collect();
     bench("bytes/find a miss in 1 MiB", &mut || {
