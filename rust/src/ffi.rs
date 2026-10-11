@@ -2254,6 +2254,83 @@ mod cmdline_tests {
     }
 }
 
+/// FileSystem::GetLastErrorMessage's text for `errnum`, into `buf` (1024
+/// bytes, NUL-terminated).
+///
+/// # Safety
+/// `buf` is null (a no-op) or writable for 1024 bytes.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_error_message(errnum: c_int, buf: *mut c_char) {
+    if buf.is_null() {
+        return;
+    }
+    let msg = crate::fsops::error_message(errnum);
+    std::ptr::copy_nonoverlapping(msg.as_ptr().cast(), buf, msg.len());
+    *buf.add(msg.len()) = 0;
+}
+
+/// FileSystem::FileExists (0 for null).
+///
+/// # Safety
+/// `path` is null or NUL-terminated.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_file_exists(path: *const c_char) -> c_int {
+    (!path.is_null() && crate::fsops::file_exists(input(path))) as c_int
+}
+
+/// FileSystem::DirectoryExists (0 for null).
+///
+/// # Safety
+/// `path` is null or NUL-terminated.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_directory_exists(path: *const c_char) -> c_int {
+    (!path.is_null() && crate::fsops::directory_exists(input(path))) as c_int
+}
+
+/// FileSystem::ForceDirectories: 1 created or there, else 0 with the message
+/// in `*errmsg` (free with nzbget_rs_free; empty on success).
+///
+/// # Safety
+/// `path` is NUL-terminated; `errmsg` is writable.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_force_directories(path: *const c_char, errmsg: *mut RsBuf) -> c_int {
+    if path.is_null() || errmsg.is_null() {
+        return 0;
+    }
+    let mut msg = Vec::new();
+    let ok = crate::fsops::force_directories(input(path), &mut msg);
+    errmsg.write(into_buf(msg));
+    ok as c_int
+}
+
+/// FileSystem::MakeUniqueFilename; free with nzbget_rs_free.
+///
+/// # Safety
+/// `dir` and `basename` are NUL-terminated.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_make_unique_filename(dir: *const c_char, basename: *const c_char) -> RsBuf {
+    let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
+    into_buf(crate::fsops::make_unique_filename(as_c(dir), as_c(basename)))
+}
+
+/// FileSystem::ExpandHomePath with the home directory the C++ looked up
+/// (null: none); free with nzbget_rs_free.
+///
+/// # Safety
+/// `filename` and `home` are null or NUL-terminated.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_expand_home_path(filename: *const c_char, home: *const c_char) -> RsBuf {
+    let filename = (!filename.is_null()).then(|| CStr::from_ptr(filename));
+    let home = (!home.is_null()).then(|| input(home));
+    into_buf(crate::fsops::expand_home_path(filename, home))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
