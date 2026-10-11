@@ -94,7 +94,7 @@ int64 RarSourceCursor::Read(void* buffer, int64 size)
 	{
 		return 0;	// source refused (donor article missing / target hole)
 	}
-	m_position += available;
+	m_position = (int64)((uint64)m_position + (uint64)available);
 	return available;
 }
 

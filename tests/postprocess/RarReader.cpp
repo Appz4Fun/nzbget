@@ -441,4 +441,25 @@ BOOST_AUTO_TEST_CASE(RarCursorWrappingSeekTest)
 	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MAX);
 }
 
+BOOST_AUTO_TEST_CASE(RarCursorWrappingReadTest)
+{
+	class WrappingSource : public ContentSource
+	{
+	public:
+		int64 Size() override { return INT64_MIN; }
+		bool Read(int64 offset, void* buffer, int64 size) override
+		{
+			if (offset != INT64_MAX || size != 1) return false;
+			*(char*)buffer = 'x';
+			return true;
+		}
+	} source;
+	RarSourceCursor cursor(source);
+	BOOST_REQUIRE(cursor.Seek(INT64_MAX));
+	char byte = 0;
+	BOOST_CHECK_EQUAL(cursor.Read(&byte, 1), 1);
+	BOOST_CHECK_EQUAL(byte, 'x');
+	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MIN);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -7,9 +7,10 @@ truncations, insertions, deletions) - comparing the result, the volume state
 and every file's fields. Also covers synthetic integer/crypt-record boundaries,
 source exceptions, repeated reads and truncations of a two-file archive.
 
-The pre-port and fallback readers are compiled as separate translation units
-with the classes renamed; the Rust-backed one is the build's. The volumes are
-read from memory through a ContentSource.
+All three C++ readers are compiled as separate translation units with renamed
+classes and test-only access to the decrypt cache. This also instruments the
+Rust-backed wrapper in the sanitizer pass; Rust comes from the build's archive.
+The volumes are read from memory through a ContentSource.
 
 Usage: rarreader_differential.py BUILD_DIR [ROUNDS]
 (NZBGET_TEST_VERBOSE=1 prints each volume and round; NZBGET_TEST_WRAPPER runs
@@ -29,8 +30,11 @@ REFERENCE = "02c80b7b"
 BUILD = Path(sys.argv[1]).resolve()
 ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "100"
 
-header = (ROOT / "daemon/postprocess/RarReader.h").read_text()
-old_header = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/RarReader.h"], cwd=ROOT, text=True)
+# Compile all three readers with test-only public state, so comparisons cover
+# the decrypt cache as well as the public results. Renaming keeps these class
+# definitions separate from the production reader linked from libnzbget.
+header = (ROOT / "daemon/postprocess/RarReader.h").read_text().replace("\nprivate:", "\npublic:")
+old_header = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/RarReader.h"], cwd=ROOT, text=True).replace("\nprivate:", "\npublic:")
 
 
 def renamed(src, hdr, prefix, fallback=False):
@@ -56,7 +60,7 @@ globals_block = tests_main[tests_main.index('#include "ServerPool.h"'):tests_mai
 volumes = sorted(str(p) for p in (ROOT / "tests/testdata").rglob("*") if re.search(r"\.(rar|r\d\d)$", p.name))
 
 decls = "\n".join(renamed("", h, p)[0:0] + re.sub(r"\b(RarSourceCursor|RarVolume|RarFile)\b", lambda m: p + m.group(1), h)
-                  .replace("RARREADER_H", p.upper() + "RARREADER_H") for h, p in ((old_header, "Old"), (header, "Fallback")))
+                  .replace("RARREADER_H", p.upper() + "RARREADER_H") for h, p in ((old_header, "Old"), (header, "Fallback"), (header, "Port")))
 
 main = r'''
 #include "nzbget.h"
@@ -76,10 +80,20 @@ struct MemSource : ContentSource
 	std::string data;
 	int failAt = -1;
 	int reads = 0;
-	int64 Size() override { return (int64)data.size(); }
+	int sizes = 0;
+	int fault = 0; // throw Read, refuse Read, throw Size
+	int64 Size() override
+	{
+		if (sizes++ == failAt && fault == 2) throw std::runtime_error("size failure");
+		return (int64)data.size();
+	}
 	bool Read(int64 offset, void* buffer, int64 size) override
 	{
-		if (reads++ == failAt) throw std::runtime_error("source failure");
+		if (reads++ == failAt && fault != 2)
+		{
+			if (fault == 1) return false;
+			throw std::runtime_error("source failure");
+		}
 		if (offset < 0 || size < 0 || offset + size > (int64)data.size()) return false;
 		memcpy(buffer, data.data() + offset, (size_t)size);
 		return true;
@@ -92,11 +106,12 @@ static int below(int n) { return n <= 0 ? 0 : (int)(next() % (unsigned long long
 
 static std::string hex(const uint8* p, int n) { std::string s; char b[3]; for (int i = 0; i < n; i++) { snprintf(b, 3, "%02x", p[i]); s += b; } return s; }
 
-template <class V> static std::string run(const std::string& data, const char* password, int failAt = -1, int repeats = 1)
+template <class V> static std::string run(const std::string& data, const char* password, int failAt = -1, int repeats = 1, int fault = 0)
 {
 	MemSource source;
 	source.data = data;
 	source.failAt = repeats > 1 ? -1 : failAt;
+	source.fault = fault;
 	V volume("vol.rar");
 	if (password) volume.SetPassword(password);
 	std::string result;
@@ -109,6 +124,7 @@ template <class V> static std::string run(const std::string& data, const char* p
 		std::string s = std::to_string(ok) + std::to_string(threw) + "|" + std::to_string(volume.GetVersion()) + "," + std::to_string(volume.GetVolumeNo()) + "," +
 			std::to_string(volume.GetNewNaming()) + std::to_string(volume.GetHasNextVolume()) + std::to_string(volume.GetMultiVolume()) +
 			std::to_string(volume.GetEncrypted()) + "|";
+		s += std::to_string(volume.m_decryptPos) + ":" + hex(volume.m_decryptBuf, 16) + "|";
 		for (auto& f : *volume.GetFiles())
 		{
 			s += hex((const uint8*)f.GetFilename(), (int)strlen(f.GetFilename())) + "/" + std::to_string(f.GetTime()) + "/" + std::to_string(f.GetAttr()) + "/" +
@@ -123,16 +139,17 @@ template <class V> static std::string run(const std::string& data, const char* p
 		}
 		result += s + "\n";
 		source.reads = 0;
+		source.sizes = 0;
 		source.failAt = failAt;
 	}
 	return result;
 }
 
-static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1)
+static bool check(const std::string& data, const char* password, const std::string& what, int failAt = -1, int repeats = 1, int fault = 0)
 {
-	std::string a = run<OldRarVolume>(data, password, failAt, repeats);
-	std::string b = run<RarVolume>(data, password, failAt, repeats);
-	std::string c = run<FallbackRarVolume>(data, password, failAt, repeats);
+	std::string a = run<OldRarVolume>(data, password, failAt, repeats, fault);
+	std::string b = run<PortRarVolume>(data, password, failAt, repeats, fault);
+	std::string c = run<FallbackRarVolume>(data, password, failAt, repeats, fault);
 	if (a != b || a != c)
 	{
 		fprintf(stderr, "mismatch: %s (password %s)\nold:      %s\nrust:     %s\nfallback: %s\n", what.c_str(),
@@ -142,8 +159,28 @@ static bool check(const std::string& data, const char* password, const std::stri
 	return true;
 }
 
+template <class Cursor> static bool wrappingRead()
+{
+	struct Source : ContentSource
+	{
+		int64 Size() override { return INT64_MIN; }
+		bool Read(int64 offset, void* buffer, int64 size) override
+		{
+			if (offset != INT64_MAX || size != 1) return false;
+			*(char*)buffer = 'x';
+			return true;
+		}
+	} source;
+	Cursor cursor(source);
+	char byte = 0;
+	return cursor.Seek(INT64_MAX) && cursor.Read(&byte, 1) == 1 &&
+		byte == 'x' && cursor.Position() == INT64_MIN;
+}
+
 int main(int argc, char** argv)
 {
+	if (!wrappingRead<OldRarSourceCursor>() || !wrappingRead<PortRarSourceCursor>() ||
+		!wrappingRead<FallbackRarSourceCursor>()) return 1;
 	long rounds = atol(argv[1]);
 	std::vector<std::string> files;
 	for (int i = 2; i < argc; i++)
@@ -161,6 +198,9 @@ int main(int argc, char** argv)
 		{
 			if (!check(files.back(), "123", "repeated encrypted read", -1, 2)) return 1;
 			if (!check(files.back().substr(0, 64), "123", "truncated encrypted header")) return 1;
+			for (int at = 0; at < 20; ++at)
+				for (int fault = 0; fault < 3; ++fault)
+					if (!check(files.back(), "123", "encrypted source failure " + std::to_string(at) + "/" + std::to_string(fault), at, 1, fault)) return 1;
 		}
 	}
 	// Fail each read of a tiny two-file archive, including after one file was
@@ -170,7 +210,8 @@ int main(int argc, char** argv)
 	tiny.append(file, sizeof(file));
 	tiny.append(file, sizeof(file));
 	for (int at = 0; at < 35; ++at)
-		if (!check(tiny, nullptr, "source exception " + std::to_string(at), at, 2)) return 1;
+		for (int fault = 0; fault < 3; ++fault)
+			if (!check(tiny, nullptr, "source failure " + std::to_string(at) + "/" + std::to_string(fault), at, 2, fault)) return 1;
 	for (size_t length = 0; length <= tiny.size(); ++length)
 		if (!check(tiny.substr(0, length), nullptr, "truncated two-file archive", -1, 2)) return 1;
 	long parsed = 0;
@@ -262,6 +303,7 @@ with tempfile.TemporaryDirectory(prefix="nzbget-rarreader-") as temp:
     (temp / "main.cpp").write_text(main)
     (temp / "old.cpp").write_text(renamed(old_src, old_header, "Old"))
     (temp / "fallback.cpp").write_text(renamed(new_src, header, "Fallback", fallback=True))
+    (temp / "port.cpp").write_text(renamed(new_src, header, "Port"))
     for i, data in enumerate(synthetic_volumes()):
         path = temp / f"synthetic-{i}.rar"
         path.write_bytes(data)
@@ -279,7 +321,7 @@ with tempfile.TemporaryDirectory(prefix="nzbget-rarreader-") as temp:
         subprocess.run([*compiler, "-fwrapv", "-c", str(temp / "old.cpp"),
                         "-o", str(temp / "old.o")], check=True, cwd=BUILD)
         subprocess.run([*compiler, str(temp / "main.cpp"), str(temp / "old.o"),
-                        str(temp / "fallback.cpp"), "-o", str(binary),
+                        str(temp / "fallback.cpp"), str(temp / "port.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
         # NZBGET_TEST_WRAPPER (e.g. "gdb -batch -ex run -ex bt --args") runs the binary under a tool
         subprocess.run([*shlex.split(os.environ.get("NZBGET_TEST_WRAPPER", "")), str(binary), rounds, *volumes], check=True)
