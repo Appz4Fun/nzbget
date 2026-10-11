@@ -30,23 +30,40 @@ ARTIFACTS = ("summary.json", "bencher.json", "qualification.json", "report.md")
 # signature/blob checks, identity binding and failure outputs still execute.
 # Unknown endpoints and every write are refused; this process cannot network.
 PUBLISHER_TRANSPORT = r'''
-import io, json, pathlib, runpy, sys, urllib.parse, urllib.request
+import io, json, pathlib, runpy, subprocess, sys, urllib.parse, urllib.request
 script, fixture, journal, *arguments = sys.argv[1:]
-responses = json.loads(pathlib.Path(fixture).read_text())
+fixture_data = json.loads(pathlib.Path(fixture).read_text())
+responses = fixture_data.get("responses", fixture_data)
+allowed_status_posts = fixture_data.get("allowed_status_posts", [])
 def controlled_open(self, request, *args, **kwargs):
     parsed = urllib.parse.urlsplit(request.full_url)
     endpoint = parsed.path + ("?" + parsed.query if parsed.query else "")
     method = request.get_method()
+    record = {"method": method, "endpoint": endpoint}
+    if method == "POST":
+        record["payload"] = json.loads(request.data)
     with pathlib.Path(journal).open("a") as output:
-        output.write(json.dumps({"method": method, "endpoint": endpoint}) + "\n")
-    if parsed.scheme != "https" or parsed.netloc != "api.github.com" or method != "GET":
-        raise AssertionError("unexpected network origin or authenticated write")
+        output.write(json.dumps(record) + "\n")
+    if parsed.scheme != "https" or parsed.netloc != "api.github.com":
+        raise AssertionError("unexpected network origin")
+    if method != "GET":
+        if (method != "POST" or endpoint not in allowed_status_posts or
+                record["payload"].get("context") != "paired caller qualification" or
+                record["payload"].get("state") not in ("pending", "failure")):
+            raise AssertionError("unexpected authenticated write")
+        return io.BytesIO(b'{"id":1}')
     if endpoint not in responses:
         raise AssertionError("unexpected external API endpoint: " + endpoint)
     class Response(io.BytesIO):
         pass
     return Response(json.dumps(responses[endpoint]).encode())
 urllib.request.OpenerDirector.open = controlled_open
+original_run = subprocess.run
+def no_bencher(command, *args, **kwargs):
+    if pathlib.Path(command[0]).name == "bencher":
+        raise AssertionError("unexpected Bencher execution")
+    return original_run(command, *args, **kwargs)
+subprocess.run = no_bencher
 sys.argv = [script, *arguments]
 runpy.run_path(script, run_name="__main__")
 '''
@@ -373,11 +390,13 @@ class PublisherIdentityContractTests(unittest.TestCase):
         self.github_output = self.work / "github-output"
 
     def invoke(self, manifest=None, current_base=BASE_SHA, current_head=CANDIDATE_SHA,
-               actor="xbmc4lyfe", identity_only=False):
+               actor="xbmc4lyfe", identity_only=False, cli_arguments=None,
+               raw_manifest=None, response_updates=None, allow_status_posts=False,
+               head_repository="Appz4Fun/nzbget", publish=False):
         import base64
         evidence_sha, tree_sha = "3" * 40, "4" * 40
         manifest = controlled_manifest() if manifest is None else manifest
-        raw_files = {"manifest.json": json.dumps(manifest).encode(),
+        raw_files = {"manifest.json": raw_manifest if raw_manifest is not None else json.dumps(manifest).encode(),
                      "samples.jsonl": b""}
         tree, blobs = [], {}
         for name, raw in raw_files.items():
@@ -395,7 +414,8 @@ class PublisherIdentityContractTests(unittest.TestCase):
             prefix + "/pulls/7": {"number": 7, "state": "open",
                 "base": {"sha": current_base, "ref": "dupe-article-fallback",
                          "repo": {"full_name": "Appz4Fun/nzbget"}},
-                "head": {"sha": current_head}},
+                "head": {"sha": current_head, "repo": {"full_name": head_repository},
+                         "ref": "codex/controlled-contract"}},
             prefix + "/commits/" + evidence_sha: {
                 "sha": evidence_sha, "author": {"login": "xbmc4lyfe"},
                 "committer": {"login": "xbmc4lyfe"}, "commit": {
@@ -406,28 +426,39 @@ class PublisherIdentityContractTests(unittest.TestCase):
             prefix + "/git/trees/" + tree_sha + "?recursive=1": {"truncated": False, "tree": tree},
             **blobs,
         }
+        responses.update(response_updates or {})
         fixture = self.work / "api-responses.json"
-        fixture.write_text(json.dumps(responses), encoding="utf-8")
+        fixture.write_text(json.dumps({"responses": responses,
+            "allowed_status_posts": [prefix + "/statuses/" + CANDIDATE_SHA] if allow_status_posts else []}),
+            encoding="utf-8")
         script = PUBLISHER_ROOT / "scripts/bench/publish.py"
         self.assertTrue(script.is_file(), f"Publisher dependency missing: {script}")
         arguments = ["--github-output", str(self.github_output)]
-        if identity_only:
+        if cli_arguments is not None:
+            arguments += cli_arguments
+        elif identity_only:
             arguments += ["--verify-identity-only"]
         else:
             arguments += ["--mode", "pr", "--repository", "Appz4Fun/nzbget", "--pr", "7",
                           "--evidence-sha", evidence_sha, "--expected-base-sha", BASE_SHA,
                           "--expected-head-sha", CANDIDATE_SHA, "--controller-sha", BASE_SHA,
                           "--testbed", manifest["testbed"], "--output-dir", str(self.output)]
+        if publish:
+            arguments.append("--publish")
         env = {"PATH": os.environ.get("PATH", ""), "BENCH_GITHUB_TOKEN": "controlled-no-network-canary",
                "BENCH_GITHUB_ACTOR": "xbmc4lyfe", "GITHUB_ACTOR": "xbmc4lyfe"}
         result = subprocess.run([sys.executable, "-I", "-c", PUBLISHER_TRANSPORT,
                                  str(script), str(fixture), str(self.journal), *arguments],
                                 env=env, capture_output=True, text=True, timeout=30)
-        calls = [json.loads(line) for line in self.journal.read_text().splitlines()]
-        self.assertTrue(all(call["method"] == "GET" for call in calls),
-                        "Rejected artifacts/identity must never trigger authenticated writes")
+        calls = self.api_calls()
+        if not allow_status_posts:
+            self.assertTrue(all(call["method"] == "GET" for call in calls),
+                            "Rejected artifacts/identity must never trigger authenticated writes")
         self.assertNotIn("controlled-no-network-canary", result.stdout + result.stderr)
         return result
+
+    def api_calls(self):
+        return [json.loads(line) for line in self.journal.read_text().splitlines()] if self.journal.exists() else []
 
     def rejected(self, **kwargs):
         result = self.invoke(**kwargs)
@@ -464,6 +495,76 @@ class PublisherIdentityContractTests(unittest.TestCase):
 
     def test_environment_actor_cannot_override_token_identity(self):
         self.rejected(actor="github-actions[bot]", identity_only=True)
+
+    def lifecycle_arguments(self, intent="manual"):
+        arguments = ["--set-pr-status", "pending", "--status-intent", intent,
+                     "--repository", "Appz4Fun/nzbget", "--pr", "7", "--controller-sha", BASE_SHA]
+        if intent == "manual":
+            arguments += ["--expected-head-sha", CANDIDATE_SHA]
+        return arguments
+
+    def test_lifecycle_invalid_proof_posts_pending_before_read_then_failure(self):
+        result = self.invoke(raw_manifest=b"not valid JSON\n", publish=True, allow_status_posts=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        calls = self.api_calls()
+        writes = [call for call in calls if call["method"] == "POST"]
+        self.assertEqual([call["payload"]["state"] for call in writes], ["pending", "failure"])
+        self.assertEqual([call["payload"]["description"] for call in writes],
+                         ["Pending base:" + BASE_SHA, "HOLD base:" + BASE_SHA])
+        evidence_read = next(index for index, call in enumerate(calls)
+                             if call["endpoint"] == "/repos/Appz4Fun/nzbget/commits/" + "3" * 40)
+        self.assertLess(calls.index(writes[0]), evidence_read)
+        self.assertLess(evidence_read, calls.index(writes[1]))
+        self.assertIn("published=false", self.github_output.read_text())
+        self.assertNotIn("published=true", self.github_output.read_text())
+
+    def test_lifecycle_stale_base_success_is_invalidated_to_pending(self):
+        endpoint = "/repos/Appz4Fun/nzbget/commits/" + CANDIDATE_SHA + "/statuses?per_page=100&page=1"
+        prior = {"context": "paired caller qualification", "state": "success",
+                 "creator": {"login": "xbmc4lyfe"}, "description": "PASS base:" + "9" * 40}
+        result = self.invoke(cli_arguments=self.lifecycle_arguments("automatic"),
+                             response_updates={endpoint: [prior]}, allow_status_posts=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        writes = [call for call in self.api_calls() if call["method"] == "POST"]
+        self.assertEqual([call["payload"] for call in writes], [{"state": "pending",
+            "context": "paired caller qualification", "description": "Pending base:" + BASE_SHA}])
+        self.assertIn("status_written=true", self.github_output.read_text())
+
+    def test_lifecycle_current_base_success_is_preserved_without_write(self):
+        endpoint = "/repos/Appz4Fun/nzbget/commits/" + CANDIDATE_SHA + "/statuses?per_page=100&page=1"
+        prior = {"context": "paired caller qualification", "state": "success",
+                 "creator": {"login": "xbmc4lyfe"}, "description": "PASS base:" + BASE_SHA}
+        result = self.invoke(cli_arguments=self.lifecycle_arguments("automatic"),
+                             response_updates={endpoint: [prior]})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("status_written=false", self.github_output.read_text())
+        self.assertIn("status=skip_current_pass", self.github_output.read_text())
+
+    def test_lifecycle_wrong_actor_moved_head_and_fork_cannot_write(self):
+        cases = ({"actor": "github-actions[bot]"}, {"current_head": "9" * 40},
+                 {"head_repository": "controlled-fork/nzbget"})
+        for index, controls in enumerate(cases):
+            with self.subTest(controls=controls):
+                self.journal = self.work / f"guard-calls-{index}.jsonl"
+                result = self.invoke(cli_arguments=self.lifecycle_arguments(), **controls)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertTrue(self.api_calls(), "Guard must inspect live API identity, not fail argument parsing")
+                self.assertTrue(all(call["method"] == "GET" for call in self.api_calls()))
+
+    def test_lifecycle_pr_discovery_rejects_more_than_256_targets(self):
+        responses = {}
+        for page, count in ((1, 100), (2, 100), (3, 57)):
+            rows = [{"number": (page - 1) * 100 + index + 1, "state": "open",
+                     "base": {"sha": BASE_SHA, "ref": "dupe-article-fallback",
+                              "repo": {"full_name": "Appz4Fun/nzbget"}},
+                     "head": {"sha": CANDIDATE_SHA, "repo": {"full_name": "Appz4Fun/nzbget"}}}
+                    for index in range(count)]
+            responses[f"/repos/Appz4Fun/nzbget/pulls?state=open&base=dupe-article-fallback&per_page=100&page={page}"] = rows
+        result = self.invoke(cli_arguments=["--list-prs", "--repository", "Appz4Fun/nzbget",
+                                            "--controller-sha", BASE_SHA], response_updates=responses)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertTrue(any(call["endpoint"].endswith("&page=3") for call in self.api_calls()))
+        self.assertNotIn("prs=", self.github_output.read_text())
 
 
 if __name__ == "__main__":
