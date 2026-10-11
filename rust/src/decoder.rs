@@ -47,9 +47,17 @@ impl LineBuf {
         if self.data.len() < end + 1 {
             self.data.resize(end + 1, 0);
         }
-        let copy = find_byte(src, 0).unwrap_or(src.len());
-        self.data[self.len..self.len + copy].copy_from_slice(&src[..copy]);
-        self.data[self.len + copy..end].fill(0);
+        // strncpy: the bytes up to a NUL, zeros after it - one pass in the C library
+        #[cfg(unix)]
+        unsafe {
+            strncpy(self.data.as_mut_ptr().add(self.len).cast(), src.as_ptr().cast(), src.len());
+        }
+        #[cfg(not(unix))]
+        {
+            let copy = find_byte(src, 0).unwrap_or(src.len());
+            self.data[self.len..self.len + copy].copy_from_slice(&src[..copy]);
+            self.data[self.len + copy..end].fill(0);
+        }
         self.data[end] = 0;
         self.len = end;
     }
@@ -97,6 +105,8 @@ pub struct Decoder {
 extern "C" {
     #[link_name = "atoll"]
     fn c_atoll(s: *const c_char) -> c_longlong;
+    #[cfg(unix)]
+    fn strncpy(dst: *mut c_char, src: *const c_char, n: usize) -> *mut c_char;
     #[link_name = "isspace"]
     fn c_isspace(c: c_int) -> c_int;
     #[link_name = "strtoul"]
@@ -134,6 +144,14 @@ fn strtoul_hex(s: &[u8]) -> u32 {
 }
 
 use crate::bytes::{find, find_byte};
+
+/// strstr on the C string at the start of `s`: the first `key` with no NUL
+/// before it. `s` may run on past its NUL: a found key is checked instead of
+/// measuring the string first, so a present key costs what strstr spent.
+fn cfind(s: &[u8], key: &[u8]) -> Option<usize> {
+    let k = find(s, key)?;
+    find_byte(&s[..k], 0).is_none().then_some(k)
+}
 
 /// UU_DECODE_CHAR.
 fn uu(c: u8) -> u8 {
@@ -252,9 +270,9 @@ impl Decoder {
                 if text.starts_with(b"=ybegin ") || text.starts_with(b"=ypart ") || text.starts_with(b"=yend ") {
                     // the line's C string runs on past its newline (strstr looked there);
                     // read it in place instead of copying the rest of the piece
-                    let cend = self.line_buf.c_str_end(line);
+                    let end = self.line_buf.len.max(line);
                     let line_buf = std::mem::take(&mut self.line_buf);
-                    self.process_yenc(&line_buf.data[line..cend], llen);
+                    self.process_yenc(&line_buf.data[line..end], llen);
                     self.line_buf = line_buf;
                 }
                 if self.body {
@@ -295,10 +313,10 @@ impl Decoder {
     fn parse_ypart(&mut self, line: &[u8]) {
         self.part = true;
         self.body = true;
-        if let Some(k) = find(line, b" begin=") {
+        if let Some(k) = cfind(line, b" begin=") {
             self.begin_pos = atoll(&line[k + 7..]);
         }
-        if let Some(k) = find(line, b" end=") {
+        if let Some(k) = cfind(line, b" end=") {
             self.end_pos = atoll(&line[k + 5..]);
         }
     }
@@ -311,8 +329,7 @@ impl Decoder {
         let mut pe = pb;
         while pe < len && !matches!(full[pe], 0 | b'\n' | b'\r') {
             if pe + 7 <= len && &full[pe..pe + 7] == b"=ypart " {
-                let rest = full[pe..].to_vec();
-                self.parse_ypart(&rest);
+                self.parse_ypart(&full[pe..]);
                 break;
             }
             pe += 1;
@@ -329,16 +346,16 @@ impl Decoder {
         let cs = full;
         if len >= 8 && line.starts_with(b"=ybegin ") {
             self.begin = true;
-            if let Some(k) = find(cs, b" size=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" size=").filter(|&k| k + 6 < len) {
                 self.size = atoll(&cs[k + 6..]);
             }
-            self.part = find(cs, b" part=").is_some_and(|k| k < len);
+            self.part = cfind(cs, b" part=").is_some_and(|k| k < len);
             if !self.part {
                 self.body = true;
                 self.begin_pos = 1;
                 self.end_pos = self.size;
             }
-            if let Some(k) = find(cs, b" name=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" name=").filter(|&k| k + 6 < len) {
                 self.parse_name(full, len, k);
             }
         } else if len >= 7 && line.starts_with(b"=ypart ") {
@@ -346,11 +363,11 @@ impl Decoder {
         } else if len >= 6 && line.starts_with(b"=yend ") {
             self.end = true;
             let (key, offset): (&[u8], usize) = if self.part { (b" pcrc32=", 8) } else { (b" crc32=", 7) };
-            if let Some(k) = find(cs, key).filter(|&k| k + offset < len) {
+            if let Some(k) = cfind(cs, key).filter(|&k| k + offset < len) {
                 self.crc = true;
                 self.expected_crc = strtoul_hex(&cs[k + offset..]);
             }
-            if let Some(k) = find(cs, b" size=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" size=").filter(|&k| k + 6 < len) {
                 self.end_size = atoll(&cs[k + 6..]);
             }
         }
