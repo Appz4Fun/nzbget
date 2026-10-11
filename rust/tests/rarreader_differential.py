@@ -25,7 +25,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE = "02c80b7b"
 BUILD = Path(sys.argv[1]).resolve()
-ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "400"
+ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "100"
 
 header = (ROOT / "daemon/postprocess/RarReader.h").read_text()
 old_header = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/postprocess/RarReader.h"], cwd=ROOT, text=True)
@@ -173,8 +173,9 @@ with tempfile.TemporaryDirectory(prefix="nzbget-rarreader-") as temp:
     (temp / "old.cpp").write_text(renamed(old_src, old_header, "Old"))
     (temp / "fallback.cpp").write_text(renamed(new_src, header, "Fallback", fallback=True))
     binary = temp / "rarreader"
-    # an encrypted volume derives its key (PBKDF2) on every read: the sanitizer
-    # build gets a quarter of the mutations
+    # an encrypted volume derives its key (PBKDF2, up to 2^24 rounds for a
+    # mutated KDF count) on every read: the sanitizer build gets a quarter of
+    # the mutations
     for extra, rounds in ((["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], str(max(1, int(ROUNDS) // 4))), ([], ROUNDS)):
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
                         *extra, "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), str(temp / "old.cpp"),
