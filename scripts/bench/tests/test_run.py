@@ -370,6 +370,36 @@ raise SystemExit(runner.main())
         self.assertEqual(proof["qualification"], "HOLD")
         self.assertEqual(proof["child_exit_code"], 0)
 
+    @unittest.skipUnless(LINUX, "FIFO capture tests are Linux-only")
+    def test_fifo_inputs_are_hold_without_launch_or_retained_locks(self):
+        for flag in ("--fixture", "--toolchain-binary"):
+            with self.subTest(flag=flag):
+                fifo = self.root / flag[2:]
+                os.mkfifo(fifo)
+                metadata, ready = self.root / f"{flag[2:]}.json", self.root / f"{flag[2:]}-never"
+                argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n", f"{flag[2:]}.py")
+                child = self.start("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker",
+                                                  flag, str(fifo), "--timeout-seconds", ".2"))
+                try:
+                    child.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    # Safely release the old blocking-open implementation during
+                    # the red run; no abandoned custodian or fake lock holder.
+                    writer = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+                    try:
+                        child.communicate(timeout=5)
+                    finally:
+                        os.close(writer)
+                    self.fail("capture blocked on a FIFO before command timeout")
+                self.assertEqual(child.returncode, 76)
+                self.assertFalse(ready.exists())
+                proof = json.loads(metadata.read_text())
+                self.assertFalse(proof["command_started"])
+                self.assertEqual(proof["qualification"], "HOLD")
+                self.assertIn("artifact_unavailable", proof["stability"]["reason_codes"])
+                self.assertTrue(self.available("i7-heavy.lock"))
+                self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
     @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
     def test_runner_source_change_while_queued_preserves_loaded_identity_and_prevents_launch(self):
         copy = self.root / "copied-runner.py"

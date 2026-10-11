@@ -141,10 +141,16 @@ def prepare_command(args):
 
 
 def digest_file(path):
-    with path.open("rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+    # Opening a FIFO for a buffered read blocks before fstat. Nonblocking open
+    # lets the custodian reject every non-regular artifact before any reads.
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError("captured artifacts must be regular files")
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+    finally:
+        os.close(descriptor)
 
 
 def argv_digest(command):
