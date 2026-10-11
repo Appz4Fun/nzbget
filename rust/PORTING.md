@@ -37,6 +37,7 @@ in `rust/include/nzbget_rs.h`.
 | `NntpConnection` protocol: `Request` (480 re-login), `AUTHINFO USER/PASS`, the greeting, `GROUP` (C++ does the I/O) | `nntp` | port only |
 | `CommandLineParser` (getopt over the same argv, the file argument, ID and name lists) | `cmdline` | port only |
 | `FileSystem::FileExists`, `DirectoryExists`, `ForceDirectories`, `MakeUniqueFilename`, `ExpandHomePath`, `GetLastErrorMessage` (fixed: XSI strerror_r) | `fsops` | port only |
+| `ParParser::ParseParFilename`, `SameParCollection` | `parparser` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.

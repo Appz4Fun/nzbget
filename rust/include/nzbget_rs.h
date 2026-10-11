@@ -558,6 +558,17 @@ NzbgetRsBuf nzbget_rs_make_unique_filename(const char* dir, const char* basename
 // NULL filename means empty; NULL home leaves the filename unchanged.
 NzbgetRsBuf nzbget_rs_expand_home_path(const char* filename, const char* home);
 
+// ParParser's name checks (rust/src/parparser.rs).
+// Names are borrowed and read only through the first NUL or 1023 bytes.
+// fold takes a byte (0..255), applies the caller's tolower(char), and must not
+// unwind. NULL names/fold return 0. Outputs are optional, writable C ints;
+// they may alias each other (blocks is written last), and change only on success.
+// No ownership transfer or allocation crosses the ABI; panics abort.
+int nzbget_rs_parse_par_filename(const char* name, int confirmed, int* baseLen, int* blocks,
+	int (*fold)(int));
+int nzbget_rs_same_par_collection(const char* name1, const char* name2, int confirmed,
+	int (*fold)(int));
+
 #ifdef __cplusplus
 }
 #endif
