@@ -588,10 +588,12 @@ NzbgetRsBuf nzbget_rs_expand_home_path(const char* filename, const char* home);
 // unwind. NULL names/fold return 0. Outputs are optional, writable C ints;
 // they may alias each other (blocks is written last), and change only on success.
 // No ownership transfer or allocation crosses the ABI; panics abort.
+// table: glibc's tolower table (*__ctype_tolower_loc()) read for a char of
+// the given signedness instead of calling fold per byte; NULL calls fold.
 int nzbget_rs_parse_par_filename(const char* name, int confirmed, int* baseLen, int* blocks,
-	int (*fold)(int));
+	const int* table, int charSigned, int (*fold)(int));
 int nzbget_rs_same_par_collection(const char* name1, const char* name2, int confirmed,
-	int (*fold)(int));
+	const int* table, int charSigned, int (*fold)(int));
 
 // RarVolume's header parsing (rust/src/rarreader.rs). rar_read parses the
 // content source into *state (read and written back) and calls addFile for each

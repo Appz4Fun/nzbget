@@ -78,10 +78,24 @@ int ParParser::FilenameFold(int byte)
 #endif
 }
 
+namespace
+{
+	// glibc's own tolower table: Rust folds by it without a call per byte
+	const int* ParFilenameTable()
+	{
+#ifdef __GLIBC__
+		return reinterpret_cast<const int*>(*__ctype_tolower_loc());
+#else
+		return nullptr;
+#endif
+	}
+}
+
 bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
 {
 	// rust/src/parparser.rs
-	return nzbget_rs_same_par_collection(filename1, filename2, confirmedFilenames, FilenameFold) != 0;
+	return nzbget_rs_same_par_collection(filename1, filename2, confirmedFilenames, ParFilenameTable(), CHAR_MIN < 0,
+		FilenameFold) != 0;
 }
 #else
 bool ParParser::SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames)
@@ -98,7 +112,8 @@ bool ParParser::SameParCollection(const char* filename1, const char* filename2, 
 bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)
 {
 	// rust/src/parparser.rs
-	return nzbget_rs_parse_par_filename(parFilename, confirmedFilename, baseNameLen, blocks, FilenameFold) != 0;
+	return nzbget_rs_parse_par_filename(parFilename, confirmedFilename, baseNameLen, blocks, ParFilenameTable(), CHAR_MIN < 0,
+		FilenameFold) != 0;
 }
 #else
 bool ParParser::ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks)

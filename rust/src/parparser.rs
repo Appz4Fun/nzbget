@@ -18,53 +18,61 @@ pub const BSTRING_MAX: usize = 1023;
 /// par2 file name; the block count is -1 for a volume numbered without one.
 /// `lower` is the caller's tolower(char), not Rust's target-default c_char:
 /// the C++ compiler may have been invoked with a different char signedness.
-pub fn parse_par_filename(name: &[u8], confirmed: bool, lower: &dyn Fn(u8) -> u8) -> Option<(usize, i32)> {
-    let mut f: Vec<u8> = name.iter().take(BSTRING_MAX).take_while(|&&b| b != 0).map(|&b| lower(b)).collect();
-    // strlen observes a NUL produced by the locale's case conversion, too.
-    if let Some(end) = f.iter().position(|&b| b == 0) {
-        f.truncate(end);
+pub fn parse_par_filename<F: Fn(u8) -> u8 + ?Sized>(name: &[u8], confirmed: bool, lower: &F) -> Option<(usize, i32)> {
+    // BString<1024> on the stack, as the C++: NUL-terminated in place where
+    // it is cut, so the C library reads it directly
+    let mut f = [0u8; BSTRING_MAX + 1];
+    let mut len = 0;
+    for &b in name.iter().take(BSTRING_MAX) {
+        if b == 0 {
+            break;
+        }
+        f[len] = lower(b);
+        len += 1;
     }
-    if f.len() < 6 {
+    // strlen observes a NUL produced by the locale's case conversion, too.
+    if let Some(end) = crate::bytes::find_byte(&f[..len], 0) {
+        len = end;
+    }
+    if len < 6 {
         return None;
     }
     if !confirmed {
         // cut after the last ".par2"
         let mut end = 0;
         let mut at = 0;
-        while let Some(k) = f[at..].windows(5).position(|w| w == b".par2") {
+        while let Some(k) = crate::bytes::find(&f[at..len], b".par2") {
             end = at + k + 5;
             at = end;
         }
-        f.truncate(end);
+        len = end;
     }
-    if f.len() < 6 {
+    if len < 6 {
         return None;
     }
-    let len = f.len();
-    let mut tail = f[len - 5..].to_vec();
-    tail.push(0);
-    if unsafe { strcasecmp(tail.as_ptr().cast(), c".par2".as_ptr()) } != 0 {
+    f[len] = 0;
+    if unsafe { strcasecmp(f[len - 5..].as_ptr().cast(), c".par2".as_ptr()) } != 0 {
         return None;
     }
-    f.truncate(len - 5);
+    len -= 5;
+    f[len] = 0;
     let mut blocks = 0;
-    if let Some(dot) = f.iter().rposition(|&b| b == b'.') {
-        let mut p = f[dot..].to_vec();
-        p.push(0);
-        if unsafe { strncasecmp(p.as_ptr().cast(), c".vol".as_ptr(), 4) } == 0 {
+    if let Some(dot) = f[..len].iter().rposition(|&b| b == b'.') {
+        if unsafe { strncasecmp(f[dot..].as_ptr().cast(), c".vol".as_ptr(), 4) } == 0 {
+            let p = &f[dot..len];
             let sep = p.iter().position(|&b| b == b'+').or_else(|| p.iter().position(|&b| b == b'-'));
-            if let Some(b) = sep.filter(|&b| b < p.len() - 1) {
-                blocks = if b == 4 { -1 } else { unsafe { atoi(p[b + 1..].as_ptr().cast()) } };
-                f.truncate(dot);
+            if let Some(b) = sep.filter(|&b| b < p.len()) {
+                blocks = if b == 4 { -1 } else { unsafe { atoi(f[dot + b + 1..].as_ptr().cast()) } };
+                len = dot;
             }
         }
     }
-    Some((f.len(), blocks))
+    Some((len, blocks))
 }
 
 /// ParParser::SameParCollection: both are par2 names with the same base
 /// (compared without case, in the current locale, on the names as given).
-pub fn same_par_collection(name1: &CStr, name2: &CStr, confirmed: bool, lower: &dyn Fn(u8) -> u8) -> bool {
+pub fn same_par_collection<F: Fn(u8) -> u8 + ?Sized>(name1: &CStr, name2: &CStr, confirmed: bool, lower: &F) -> bool {
     let Some((b1, _)) = parse_par_filename(name1.to_bytes(), confirmed, lower) else {
         return false;
     };

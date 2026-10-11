@@ -137,12 +137,12 @@ static int fold(int b) { return tolower(b); }
 static bool ffi_checks()
 {
     int len = 11, blocks = 22;
-    if (nzbget_rs_parse_par_filename(nullptr, 1, &len, &blocks, fold) != 0 || len != 11 || blocks != 22 ||
-        nzbget_rs_parse_par_filename("a.par2", 1, &len, &blocks, nullptr) != 0 || len != 11 || blocks != 22 ||
-        nzbget_rs_same_par_collection(nullptr, "a.par2", 0, fold) != 0 ||
-        nzbget_rs_same_par_collection("a.par2", nullptr, 0, fold) != 0 ||
-        nzbget_rs_same_par_collection("a.par2", "a.par2", 0, nullptr) != 0 ||
-        nzbget_rs_parse_par_filename("a.vol+2.par2", -7, &len, &blocks, fold) != 1 || len != 1 || blocks != -1)
+    if (nzbget_rs_parse_par_filename(nullptr, 1, &len, &blocks, nullptr, 0, fold) != 0 || len != 11 || blocks != 22 ||
+        nzbget_rs_parse_par_filename("a.par2", 1, &len, &blocks, nullptr, 0, nullptr) != 0 || len != 11 || blocks != 22 ||
+        nzbget_rs_same_par_collection(nullptr, "a.par2", 0, nullptr, 0, fold) != 0 ||
+        nzbget_rs_same_par_collection("a.par2", nullptr, 0, nullptr, 0, fold) != 0 ||
+        nzbget_rs_same_par_collection("a.par2", "a.par2", 0, nullptr, 0, nullptr) != 0 ||
+        nzbget_rs_parse_par_filename("a.vol+2.par2", -7, &len, &blocks, nullptr, 0, fold) != 1 || len != 1 || blocks != -1)
         return false;
 
     // Like strncpy in BString<1024>, neither entry point may read byte 1023.
@@ -164,7 +164,7 @@ static bool ffi_checks()
     }
     // A very short input at the page boundary must stop on its first NUL.
     mem[page - 1] = 0;
-    ok = ok && nzbget_rs_parse_par_filename(mem + page - 1, 0, &len, &blocks, fold) == 0;
+    ok = ok && nzbget_rs_parse_par_filename(mem + page - 1, 0, &len, &blocks, nullptr, 0, fold) == 0;
     munmap(mem, page * 2);
     return ok;
 }
