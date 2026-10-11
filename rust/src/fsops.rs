@@ -8,9 +8,13 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 
 extern "C" {
-    // the XSI strerror_r (glibc's strerror_r is the GNU one, which leaves the
-    // buffer alone for known errors)
-    #[cfg_attr(target_env = "gnu", link_name = "__xpg_strerror_r")]
+    // These libcs export the GNU ABI as strerror_r and the XSI ABI under
+    // __xpg_strerror_r. In particular, Cygwin has an empty target_env.
+    // Other POSIX libcs (including musl and the BSDs) use strerror_r for XSI.
+    #[cfg_attr(
+        any(target_env = "gnu", target_env = "uclibc", target_os = "cygwin"),
+        link_name = "__xpg_strerror_r"
+    )]
     fn strerror_r(errnum: c_int, buf: *mut c_char, len: usize) -> c_int;
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
@@ -26,24 +30,25 @@ fn path(p: &[u8]) -> &Path {
 /// The text of an errno value, cut to BString<1024> (GetLastErrorMessage).
 pub fn error_message(errnum: i32) -> Vec<u8> {
     let mut buf = [0u8; BSTRING_MAX + 1];
-    // on failure (an unknown error, a short buffer) the buffer holds what it got
-    unsafe { strerror_r(errnum, buf.as_mut_ptr().cast(), buf.len()) };
+    // The C++ passes msg.Capacity(), 1023 including the terminator, rather
+    // than sizeof(msg). Keep that cut, including on ERANGE or unknown errors.
+    unsafe { strerror_r(errnum, buf.as_mut_ptr().cast(), BSTRING_MAX) };
     CStr::from_bytes_until_nul(&buf).map(|c| c.to_bytes().to_vec()).unwrap_or_default()
 }
 
-/// stat() and its mode, or the errno.
-fn stat(p: &[u8]) -> Result<std::fs::Metadata, i32> {
-    std::fs::metadata(path(p)).map_err(|e| e.raw_os_error().unwrap_or(0))
-}
+/// A native stat callback returns -errno on failure, 1 for a regular file,
+/// 2 for a directory, and 0 for another file type. Use the caller's stat ABI:
+/// std::fs::metadata may use statx, changing errno and 32-bit overflow behavior.
+pub type Stat<'a> = dyn Fn(&[u8]) -> i32 + 'a;
 
 /// FileSystem::FileExists: a regular file (following links).
-pub fn file_exists(p: &[u8]) -> bool {
-    stat(p).is_ok_and(|m| m.is_file())
+pub fn file_exists(p: &[u8], stat: &Stat<'_>) -> bool {
+    stat(p) == 1
 }
 
 /// FileSystem::DirectoryExists: a directory (following links).
-pub fn directory_exists(p: &[u8]) -> bool {
-    stat(p).is_ok_and(|m| m.is_dir())
+pub fn directory_exists(p: &[u8], stat: &Stat<'_>) -> bool {
+    stat(p) == 2
 }
 
 fn bstring(s: &[u8]) -> Vec<u8> {
@@ -56,7 +61,7 @@ fn cat(parts: &[&[u8]]) -> Vec<u8> {
 
 /// FileSystem::ForceDirectories (POSIX): creates `path` and its missing
 /// parents; on failure the message is in `errmsg`.
-pub fn force_directories(orig: &[u8], errmsg: &mut Vec<u8>) -> bool {
+pub fn force_directories(orig: &[u8], errmsg: &mut Vec<u8>, stat: &Stat<'_>) -> bool {
     errmsg.clear();
     let mut norm = bstring(orig);
     crate::paths::normalize_path_separators(&mut norm);
@@ -64,21 +69,22 @@ pub fn force_directories(orig: &[u8], errmsg: &mut Vec<u8>) -> bool {
         norm.pop();
     }
     let st = stat(&norm);
-    match &st {
-        Err(e) if *e != ENOENT => {
-            *errmsg = cat(&[b"could not read information for directory ", &norm, b": errno ", e.to_string().as_bytes(), b", ", &error_message(*e)]);
+    match st {
+        e if e < 0 && e != -ENOENT => {
+            let e = -e;
+            *errmsg = cat(&[b"could not read information for directory ", &norm, b": errno ", e.to_string().as_bytes(), b", ", &error_message(e)]);
             return false;
         }
-        Ok(m) if !m.is_dir() => {
+        kind if kind >= 0 && kind != 2 => {
             *errmsg = cat(&[b"path ", &norm, b" is not a directory"]);
             return false;
         }
         _ => {}
     }
-    if st.is_err() {
+    if st < 0 {
         if let Some(slash) = norm.iter().rposition(|&b| b == b'/') {
             let parent = &norm[..slash];
-            if parent.len() != orig.len() && !force_directories(parent, errmsg) {
+            if parent.len() != orig.len() && !force_directories(parent, errmsg, stat) {
                 return false;
             }
         }
@@ -90,11 +96,12 @@ pub fn force_directories(orig: &[u8], errmsg: &mut Vec<u8>) -> bool {
             }
         }
         match stat(&norm) {
-            Err(e) => {
+            e if e < 0 => {
+                let e = -e;
                 *errmsg = cat(&[b"could not read information for directory ", &norm, b": ", &error_message(e)]);
                 return false;
             }
-            Ok(m) if !m.is_dir() => {
+            kind if kind >= 0 && kind != 2 => {
                 *errmsg = cat(&[b"path ", &norm, b" is not a directory"]);
                 return false;
             }
@@ -110,11 +117,11 @@ const EEXIST: i32 = 17;
 
 /// FileSystem::MakeUniqueFilename: `dir/basename`, or the first free
 /// `dir/name.duplicateN.ext` (a par2 volume keeps its `.volNN+MM.par2`).
-pub fn make_unique_filename(dir: &CStr, basename: &CStr) -> Vec<u8> {
+pub fn make_unique_filename(dir: &CStr, basename: &CStr, stat: &Stat<'_>) -> Vec<u8> {
     let base = basename.to_bytes();
     let mut result = cat(&[dir.to_bytes(), b"/", base]);
     let mut n = 0;
-    while file_exists(&result) {
+    while file_exists(&result, stat) {
         n += 1;
         match base.iter().rposition(|&b| b == b'.').filter(|&e| e > 0) {
             Some(ext_at) => {
@@ -159,6 +166,13 @@ pub fn expand_home_path(filename: Option<&CStr>, home: Option<&[u8]>) -> Vec<u8>
 mod tests {
     use super::*;
 
+    fn stat(p: &[u8]) -> i32 {
+        match std::fs::metadata(path(p)) {
+            Ok(m) => if m.is_file() { 1 } else if m.is_dir() { 2 } else { 0 },
+            Err(e) => -e.raw_os_error().unwrap(),
+        }
+    }
+
     #[test]
     fn messages() {
         assert_eq!(error_message(2), b"No such file or directory");
@@ -172,14 +186,14 @@ mod tests {
         let mut f = dir.as_os_str().as_bytes().to_vec();
         f.extend_from_slice(b"/a.vol01+02.par2");
         std::fs::write(path(&f), b"").unwrap();
-        let u = make_unique_filename(&d, c"a.vol01+02.par2");
+        let u = make_unique_filename(&d, c"a.vol01+02.par2", &stat);
         assert!(u.ends_with(b"/a.duplicate1.vol01+02.par2"));
         let mut msg = Vec::new();
         let mut sub = dir.as_os_str().as_bytes().to_vec();
         sub.extend_from_slice(b"/x/y/z");
-        assert!(force_directories(&sub, &mut msg), "{}", String::from_utf8_lossy(&msg));
-        assert!(directory_exists(&sub));
-        assert!(!force_directories(&f, &mut msg));
+        assert!(force_directories(&sub, &mut msg, &stat), "{}", String::from_utf8_lossy(&msg));
+        assert!(directory_exists(&sub, &stat));
+        assert!(!force_directories(&f, &mut msg, &stat));
         assert!(msg.ends_with(b"is not a directory"));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(expand_home_path(Some(c"~/x"), Some(b"/home/u")), b"/home/u/x");
