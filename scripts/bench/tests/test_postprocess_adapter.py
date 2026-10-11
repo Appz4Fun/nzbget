@@ -1,5 +1,6 @@
 """Offline tests using the real caller headers and retained recovery rows."""
 import hashlib
+import errno
 import importlib.util
 import json
 import os
@@ -8,7 +9,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 
 ADAPTER = Path(__file__).resolve().parents[1] / "adapters" / "postprocess.py"
@@ -366,6 +369,93 @@ class PostprocessAdapterTests(unittest.TestCase):
                                  "--output-dir", str(self.output)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertFalse(self.output.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+    def test_fifo_sources_and_metadata_reject_promptly_without_input_mutation(self):
+        for input_kind in ("source", "manifest", "metadata"):
+            for route in ("direct", "symlink"):
+                with self.subTest(input_kind=input_kind, route=route):
+                    case = self.root / f"fifo-{input_kind}-{route}"
+                    case.mkdir()
+                    fifo = case / "untrusted.fifo"
+                    os.mkfifo(fifo)
+                    exposed = fifo
+                    if route == "symlink":
+                        exposed = case / "input-link"
+                        exposed.symlink_to(fifo)
+                    source = exposed if input_kind == "source" else case / "source.csv"
+                    manifest = exposed if input_kind == "manifest" else case / "manifest.json"
+                    if input_kind != "source":
+                        source.write_text(ARTICLE)
+                    if input_kind != "manifest":
+                        manifest.write_text('{"historical":true}')
+                    output = case / "out"
+                    command = [sys.executable, str(ADAPTER), "--format", "article-crc",
+                               "--manifest", str(manifest), "--source", str(source), "--output-dir", str(output)]
+                    if input_kind == "metadata":
+                        command += ["--metadata", str(exposed)]
+                    start = time.monotonic()
+                    try:
+                        result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+                    except subprocess.TimeoutExpired:
+                        self.fail("FIFO input blocked before regular-file validation")
+                    self.assertLess(time.monotonic() - start, 2)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(fifo.exists())
+                    if route == "symlink":
+                        self.assertTrue(exposed.is_symlink())
+                    self.assertFalse(output.exists())
+
+    def test_directories_and_devices_are_not_raw_files(self):
+        for source in (self.root, Path(os.devnull)):
+            with self.subTest(source=str(source)):
+                result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                         "--manifest", str(self.manifest), "--source", str(source),
+                                         "--output-dir", str(self.output)], capture_output=True, text=True, timeout=2)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(self.output.exists())
+
+    def test_regular_file_symlink_is_supported(self):
+        original = self.root / "original.csv"
+        original.write_text(ARTICLE)
+        link = self.root / "regular-input-link"
+        link.symlink_to(original)
+        result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                 "--manifest", str(self.manifest), "--source", str(link),
+                                 "--output-dir", str(self.output)], capture_output=True, text=True, timeout=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.evidence()["sources"][0]["text"], ARTICLE)
+        self.assertTrue(link.is_symlink())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+    def test_opened_input_descriptors_close_after_success_and_rejection(self):
+        spec = importlib.util.spec_from_file_location("postprocess_fd_fixture", ADAPTER)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        valid = self.root / "valid.txt"
+        valid.write_text("valid")
+        invalid_utf8 = self.root / "invalid.txt"
+        invalid_utf8.write_bytes(b"\xff")
+        fifo = self.root / "fifo"
+        os.mkfifo(fifo)
+        real_open = os.open
+        opened = []
+
+        def capture_open(*args, **kwargs):
+            descriptor = real_open(*args, **kwargs)
+            opened.append(descriptor)
+            return descriptor
+
+        with patch.object(adapter.os, "open", capture_open):
+            for path, error in ((valid, None), (invalid_utf8, UnicodeDecodeError), (fifo, adapter.EvidenceError)):
+                if error is None:
+                    adapter.read_source(path)
+                else:
+                    with self.assertRaises(error):
+                        adapter.read_source(path)
+                with self.assertRaises(OSError) as closed:
+                    os.fstat(opened[-1])
+                self.assertEqual(closed.exception.errno, errno.EBADF)
 
     def test_row_budget_rejected_before_outputs(self):
         spec = importlib.util.spec_from_file_location("postprocess_budget_fixture", ADAPTER)
