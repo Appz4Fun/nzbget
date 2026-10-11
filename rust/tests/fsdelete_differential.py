@@ -648,7 +648,7 @@ int main(int argc, char** argv)
 		{"C:\\", "C:\\"}, {"C:\\.\\", "C:\\"}, {"C:/./", "C:/"},
 		{"C:\\dir\\.\\", "C:\\dir"}, {"C:/dir/./", "C:/dir"},
 		{"\\\\?\\C:\\.\\", "\\\\?\\C:\\"}, {"\\\\server\\share\\.\\", "\\\\server\\share"},
-		{"\\\\?\\Volume{abc}\\.\\", "\\\\?\\Volume{abc}\\"}, {"/.", "/"}, {"\\.\\", "\\"}})
+		{"\\\\?\\Volume{abc}\\.\\", "\\\\?\\Volume{abc}\\"}, {"\\\\?\\volume{abc}\\.\\", "\\\\?\\volume{abc}\\"}, {"\\\\?\\VOLUME{abc}\\", "\\\\?\\VOLUME{abc}\\"}, {"/.", "/"}, {"\\.\\", "\\"}})
 		if (winroots::DeleteRoot(pair.first.c_str()) != pair.second)
 			throw std::runtime_error("Windows root spelling");
 	for (size_t length : {1012, 1013, 1014})

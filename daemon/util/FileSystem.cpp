@@ -1293,7 +1293,7 @@ std::string DeleteRoot(const char* dirFilename)
 		{
 			size_t end = root.find_first_of("\\/", 4);
 			if (end != std::string::npos &&
-				(root[end - 1] == ':' || root.compare(4, 7, "Volume{") == 0))
+				(root[end - 1] == ':' || (root.size() >= 11 && !strncasecmp(root.c_str() + 4, "Volume{", 7))))
 			{
 				minimum = end + 1;
 			}
