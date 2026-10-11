@@ -3782,11 +3782,189 @@ pub unsafe extern "C" fn nzbget_rs_url_completed(downloader: c_int, deleting: c_
     }
 }
 
+/// The remote client's reading of one list-response entry at `*at`: 1 with
+/// `nints` ints in `ints` (host order), `nfields` string starts in `starts`
+/// (the strings' lengths in ints[fields[k]]) and `*at` past the entry; 0
+/// (outputs untouched) when it or a string doesn't fit in `len`.
+///
+/// # Safety
+/// `data` is readable for `len` (or null with 0); `at` is valid; `ints`,
+/// `fields` and `starts` are valid, aligned arrays of their counts (or null
+/// for 0). `ints` and `starts` are writable and may be uninitialized.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_read_entry(data: *const c_char, len: usize, at: *mut usize, ints: *mut u32,
+    nints: usize, fields: *const usize, starts: *mut usize, nfields: usize) -> c_int {
+    if at.is_null() || (nints > 0 && ints.is_null()) || (nfields > 0 && (fields.is_null() || starts.is_null())) {
+        return 0;
+    }
+    let data = bytes_arg(data.cast(), len);
+    let fields: &[usize] = if nfields > 0 { std::slice::from_raw_parts(fields, nfields) } else { &[] };
+    // C callers pass uninitialized output arrays. Form slices only over
+    // initialized storage, then write the caller's arrays after validation.
+    let mut values = vec![0; nints];
+    let mut offsets = vec![0; nfields];
+    match crate::binrpc::read_entry(data, *at, &mut values, fields, &mut offsets) {
+        Some(next) => {
+            if nints > 0 {
+                std::ptr::copy_nonoverlapping(values.as_ptr(), ints, nints);
+            }
+            if nfields > 0 {
+                std::ptr::copy_nonoverlapping(offsets.as_ptr(), starts, nfields);
+            }
+            *at = next;
+            1
+        }
+        None => 0,
+    }
+}
+
+/// The remote client's log line for a message kind: 1 with `line` set, 0
+/// (untouched) for an unknown kind.
+///
+/// # Safety
+/// `text` is null (empty) or NUL-terminated; `line` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_log_line(kind: u32, text: *const c_char, line: *mut RsBuf) -> c_int {
+    match crate::binrpc::log_line(kind, input(text)) {
+        Some(v) => {
+            if !line.is_null() {
+                *line = into_buf(v);
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// The remote client's post-processing line.
+///
+/// # Safety
+/// `info_name` is null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_post_queue_line(id: u32, stage: u32, progress: u32, info_name: *const c_char)
+    -> RsBuf {
+    into_buf(crate::binrpc::post_queue_line(id, stage, progress, input(info_name)))
+}
+
+/// The remote client's history line: 1 with `line` set, 0 (untouched) for
+/// a kind it doesn't list.
+///
+/// # Safety
+/// `nicename` is null (empty) or NUL-terminated; `line` is null or
+/// writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_history_line(id: u32, kind: u32, nicename: *const c_char, file_count: u32,
+    size_hi: u32, size_lo: u32, par_status: u32, script_status: u32, url_status: u32, line: *mut RsBuf) -> c_int {
+    let entry = crate::binrpc::HistoryEntry {
+        id,
+        kind,
+        nicename: input(nicename),
+        file_count,
+        size: ((size_hi as i64) << 32) + size_lo as i64,
+        par_status,
+        script_status,
+        url_status,
+    };
+    match crate::binrpc::history_line(&entry) {
+        Some(v) => {
+            if !line.is_null() {
+                *line = into_buf(v);
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
 #[cfg(test)]
 mod binrpc_tests {
     use super::*;
     use crate::binrpc::BASE_SIZE;
     use std::ptr::{null, null_mut};
+
+    #[test]
+    fn client_entry_outputs_and_failures() {
+        use std::mem::MaybeUninit;
+        unsafe {
+            let data = b"\0\0\0\x07\0\0\0\x04abc\0";
+            let fields = [1usize];
+            let mut at = 0;
+            let mut ints = MaybeUninit::<[u32; 2]>::uninit();
+            let mut starts = MaybeUninit::<[usize; 1]>::uninit();
+            assert_eq!(nzbget_rs_binrpc_read_entry(data.as_ptr().cast(), data.len(), &mut at,
+                ints.as_mut_ptr().cast(), 2, fields.as_ptr(), starts.as_mut_ptr().cast(), 1), 1);
+            assert_eq!(ints.assume_init(), [7, 4]);
+            assert_eq!(starts.assume_init(), [8]);
+            assert_eq!(at, 12);
+
+            let (mut ints, mut starts) = ([91, 92], [93]);
+            let bad_length = b"\0\0\0\x07\xff\xff\xff\xffabc\0";
+            let no_nul = b"\0\0\0\x07\0\0\0\x04abcd";
+            for (bytes, offset, field) in [
+                (&data[..7], 0, 1), (&data[..11], 0, 1), (&bad_length[..], 0, 1),
+                (&no_nul[..], 0, 1), (&data[..], 0, 2), (&data[..], usize::MAX - 2, 1),
+            ] {
+                at = offset;
+                assert_eq!(nzbget_rs_binrpc_read_entry(bytes.as_ptr().cast(), bytes.len(), &mut at,
+                    ints.as_mut_ptr(), 2, &field, starts.as_mut_ptr(), 1), 0);
+                assert_eq!((at, ints, starts), (offset, [91, 92], [93]));
+            }
+
+            at = 0;
+            for (out_at, out_ints, in_fields, out_starts) in [
+                (null_mut(), ints.as_mut_ptr(), fields.as_ptr(), starts.as_mut_ptr()),
+                (&mut at, null_mut(), fields.as_ptr(), starts.as_mut_ptr()),
+                (&mut at, ints.as_mut_ptr(), null(), starts.as_mut_ptr()),
+                (&mut at, ints.as_mut_ptr(), fields.as_ptr(), null_mut()),
+            ] {
+                assert_eq!(nzbget_rs_binrpc_read_entry(data.as_ptr().cast(), data.len(), out_at,
+                    out_ints, 2, in_fields, out_starts, 1), 0);
+                assert_eq!((at, ints, starts), (0, [91, 92], [93]));
+            }
+            assert_eq!(nzbget_rs_binrpc_read_entry(null(), 0, &mut at, ints.as_mut_ptr(), 2,
+                fields.as_ptr(), starts.as_mut_ptr(), 1), 0);
+            assert_eq!((at, ints, starts), (0, [91, 92], [93]));
+            assert_eq!(nzbget_rs_binrpc_read_entry(null(), 0, &mut at, null_mut(), 0, null(), null_mut(), 0), 1);
+
+            // Outputs may reuse input storage after all input has been read.
+            let mut words = [7u32.to_be(), 4u32.to_be(), 0];
+            let mut field_and_start = 1usize;
+            let p = words.as_mut_ptr();
+            let s = &mut field_and_start as *mut usize;
+            assert_eq!(nzbget_rs_binrpc_read_entry(p.cast(), 12, &mut at, p, 2, s, s, 1), 1);
+            assert_eq!((words, field_and_start, at), ([7, 4, 0], 8, 12));
+        }
+    }
+
+    #[test]
+    fn client_line_outputs_and_ownership() {
+        unsafe {
+            let mut line = into_buf(b"sentinel".to_vec());
+            let original = (line.data, line.len, line.cap);
+            assert_eq!(nzbget_rs_binrpc_log_line(u32::MAX, null(), &mut line), 0);
+            assert_eq!((line.data, line.len, line.cap), original);
+            assert_eq!(nzbget_rs_binrpc_history_line(1, 0, null(), 0, 0, 0, 0, 0, 0, &mut line), 0);
+            assert_eq!((line.data, line.len, line.cap), original);
+            nzbget_rs_free(line);
+
+            assert_eq!(nzbget_rs_binrpc_log_line(0, null(), null_mut()), 1);
+            assert_eq!(nzbget_rs_binrpc_history_line(1, 1, null(), 0, 0, 0, 0, 0, 0, null_mut()), 1);
+            let mut output = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_binrpc_log_line(0, null(), output.as_mut_ptr()), 1);
+            let line = output.assume_init();
+            assert_eq!(input(line.data), b"[INFO] ");
+            nzbget_rs_free(line);
+            let line = nzbget_rs_binrpc_post_queue_line(1, u32::MAX, 10, null());
+            assert_eq!(input(line.data), b"[1] , 1%");
+            nzbget_rs_free(line);
+            let mut output = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_binrpc_history_line(1, 1, null(), 2, 0, 2048,
+                u32::MAX, u32::MAX, u32::MAX, output.as_mut_ptr()), 1);
+            let line = output.assume_init();
+            assert_eq!(input(line.data), b"[1]  (2 files, 2.00 KB)");
+            nzbget_rs_free(line);
+        }
+    }
 
     #[test]
     fn entry_buffer_ownership_and_nulls() {

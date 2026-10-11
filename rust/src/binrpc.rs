@@ -155,6 +155,126 @@ pub fn is_url(content: &[u8]) -> bool {
     starts(b"http:/") || starts(b"https:/")
 }
 
+/// One entry of a list response as the remote client reads it (the
+/// reverse of append_entry): `ints.len()` big-endian ints at `at` into
+/// `ints` (host order), and the start of each string, whose length is in
+/// field `fields[k]`, into `starts[k]`. Returns the offset after the entry
+/// (the header and every length in `fields`), or None (outputs untouched)
+/// when the entry or one of its strings, up to its NUL, doesn't fit in
+/// `data`.
+pub fn read_entry(data: &[u8], at: usize, ints: &mut [u32], fields: &[usize], starts: &mut [usize]) -> Option<usize> {
+    let header = at.checked_add(ints.len().checked_mul(4)?)?;
+    let raw = data.get(at..header)?;
+    let value = |k: usize| u32::from_be_bytes(raw[4 * k..4 * k + 4].try_into().unwrap()) as usize;
+    let mut next = header;
+    for &field in fields {
+        if field >= ints.len() {
+            return None;
+        }
+        let start = next;
+        // the string ends within the data
+        crate::bytes::find_byte(data.get(start..)?, 0)?;
+        next = next.checked_add(value(field))?;
+    }
+    if next > data.len() {
+        return None;
+    }
+    let mut start = header;
+    for (k, &field) in fields.iter().enumerate() {
+        if let Some(out) = starts.get_mut(k) {
+            *out = start;
+        }
+        start += value(field);
+    }
+    for (k, out) in ints.iter_mut().enumerate() {
+        *out = value(k) as u32;
+    }
+    Some(next)
+}
+
+/// Message::EKind's labels in the remote client's log listing.
+pub fn log_line(kind: u32, text: &[u8]) -> Option<Vec<u8>> {
+    let label: &[u8] = match kind {
+        0 => b"[INFO] ",
+        1 => b"[WARNING] ",
+        2 => b"[ERROR] ",
+        3 => b"[DEBUG] ",
+        4 => b"[DETAIL] ",
+        _ => return None,
+    };
+    Some([label, text].concat())
+}
+
+/// PostInfo::EStage's names in the post-processing listing.
+const STAGE_NAMES: [&[u8]; 15] = [b"", b", Loading Pars", b", Verifying source files", b", Repairing",
+    b", Verifying repaired files", b", Par-Renaming", b", Rar-Renaming", b", Unpacking", b", Cleaning up", b", Moving",
+    b", Post-unpack renaming", b", Executing postprocess-script", b"", b", Post-download renaming",
+    b", Repairing from duplicates"];
+/// PostInfo::ptExecutingScript.
+const EXECUTING_SCRIPT: u32 = 11;
+
+/// A post-processing listing line: "[id] name, stage, n%" (no percentage
+/// while a script runs or before progress). An unknown stage has no name.
+pub fn post_queue_line(id: u32, stage: u32, progress: u32, info_name: &[u8]) -> Vec<u8> {
+    let mut line = format!("[{}] ", id as i32).into_bytes();
+    line.extend_from_slice(info_name);
+    line.extend_from_slice(STAGE_NAMES.get(stage as usize).copied().unwrap_or(b""));
+    let progress = progress as i32;
+    if progress > 0 && stage != EXECUTING_SCRIPT {
+        line.extend_from_slice(format!(", {}%", progress / 10).as_bytes());
+    }
+    line
+}
+
+/// One history entry as the remote client reads it.
+pub struct HistoryEntry<'a> {
+    pub id: u32,
+    pub kind: u32,
+    pub nicename: &'a [u8],
+    pub file_count: u32,
+    pub size: i64,
+    pub par_status: u32,
+    pub script_status: u32,
+    pub url_status: u32,
+}
+
+/// A history listing line (HistoryInfo::EKind: 1 an NZB, 2 a URL, 3 a
+/// hidden duplicate; None for other kinds). Unknown statuses have no text.
+pub fn history_line(e: &HistoryEntry) -> Option<Vec<u8>> {
+    const PAR: [&[u8]; 6] = [b"", b"", b", Par failed", b", Par successful", b", Repair possible", b", Repair needed"];
+    const SCRIPT: [&[u8]; 4] = [b"", b", Script status unknown", b", Script failed", b", Script successful"];
+    const URL: [&[u8]; 7] =
+        [b"", b"", b"Url download successful", b"Url download failed", b"", b"Nzb scan skipped", b"Nzb scan failed"];
+    let text = |table: &[&'static [u8]], k: u32| table.get(k as usize).copied().unwrap_or(b"");
+    let mut line = format!("[{}] ", e.id as i32).into_bytes();
+    line.extend_from_slice(e.nicename);
+    match e.kind {
+        1 | 3 => {
+            let hidden = e.kind == 3;
+            line.extend_from_slice(b" (");
+            if hidden {
+                line.extend_from_slice(b"Hidden, ");
+            } else {
+                // BString<100>: never cut, an int's text is short
+                line.extend_from_slice(format!("{} files, ", e.file_count as i32).as_bytes());
+            }
+            line.extend_from_slice(&crate::util::format_size(e.size));
+            if !hidden {
+                line.extend_from_slice(text(&PAR, e.par_status));
+                line.extend_from_slice(text(&SCRIPT, e.script_status));
+            }
+            line.push(b')');
+        }
+        2 => {
+            line.extend_from_slice(b" (URL, ");
+            line.extend_from_slice(text(&URL, e.url_status));
+            line.push(b')');
+        }
+        _ => return None,
+    }
+    Some(line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +371,54 @@ mod tests {
         for no in [&b""[..], b"http:", b"https:", b"ftp://x", b"<?xml", b"http\0:/", b"https:\\"] {
             assert!(!is_url(no), "{no:?}");
         }
+    }
+
+    #[test]
+    fn client_entries() {
+        // the encoder's output reads back
+        let mut buf = Vec::new();
+        append_entry(&mut buf, &[7, 0, 9, 0], &[(b"ab", 1), (b"xyz", 3)], 3);
+        append_entry(&mut buf, &[8, 0], &[(b"", 1)], 1);
+        let (mut ints, mut starts) = ([0u32; 4], [0usize; 2]);
+        let next = read_entry(&buf, 0, &mut ints, &[1, 3], &mut starts).unwrap();
+        assert_eq!(ints, [7, 3, 9, 4 + 1]);
+        assert_eq!(starts, [16, 19]);
+        assert_eq!(&buf[19..22], b"xyz");
+        let (mut ints, mut starts) = ([0u32; 2], [0usize; 1]);
+        assert_eq!(read_entry(&buf, next, &mut ints, &[1], &mut starts), Some(buf.len()));
+        assert_eq!(ints, [8, 4]);
+        // past the end, a string without its NUL, a length past the end, a bad field
+        let mut ints = [5u32; 2];
+        assert_eq!(read_entry(&buf, buf.len() - 4, &mut ints, &[1], &mut starts), None);
+        assert_eq!(read_entry(&buf[..18], 0, &mut [0; 4], &[1, 3], &mut [0; 2]), None);
+        assert_eq!(read_entry(&buf[..next - 1], 0, &mut [0; 4], &[1, 3], &mut [0; 2]), None);
+        assert_eq!(read_entry(&buf, 0, &mut [0; 4], &[4], &mut [0; 1]), None);
+        assert_eq!(read_entry(&buf, usize::MAX - 2, &mut [0; 4], &[], &mut []), None);
+        assert_eq!(ints, [5, 5]);
+        assert_eq!(read_entry(b"", 0, &mut [], &[], &mut []), Some(0));
+    }
+
+    #[test]
+    fn client_lines() {
+        assert_eq!(log_line(2, b"boom").unwrap(), b"[ERROR] boom");
+        assert_eq!(log_line(4, b"").unwrap(), b"[DETAIL] ");
+        assert!(log_line(5, b"x").is_none());
+        assert_eq!(post_queue_line(3, 7, 455, b"Show"), b"[3] Show, Unpacking, 45%");
+        assert_eq!(post_queue_line(3, 11, 455, b"Show"), b"[3] Show, Executing postprocess-script");
+        assert_eq!(post_queue_line(3, 12, 0, b"Show"), b"[3] Show");
+        assert_eq!(post_queue_line(u32::MAX, 99, 9, b"S"), b"[-1] S, 0%");
+        let mut e = HistoryEntry { id: 4, kind: 1, nicename: b"N", file_count: 12, size: 2048, par_status: 3,
+            script_status: 3, url_status: 0 };
+        assert_eq!(history_line(&e).unwrap(), b"[4] N (12 files, 2.00 KB, Par successful, Script successful)");
+        e.kind = 3;
+        assert_eq!(history_line(&e).unwrap(), b"[4] N (Hidden, 2.00 KB)");
+        e.kind = 2;
+        e.url_status = 6;
+        assert_eq!(history_line(&e).unwrap(), b"[4] N (URL, Nzb scan failed)");
+        e.url_status = 70;
+        assert_eq!(history_line(&e).unwrap(), b"[4] N (URL, )");
+        e.kind = 0;
+        assert!(history_line(&e).is_none());
     }
 
     #[test]
