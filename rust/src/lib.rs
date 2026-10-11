@@ -50,3 +50,4 @@ pub mod wildmask;
 pub mod dupeidentity;
 
 pub mod deadpostings;
+pub mod dupewatch;
