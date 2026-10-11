@@ -117,6 +117,8 @@ def validate_manifest(manifest):
         require(fixture["scope"] in ("complete_caller", "kernel"), "unsupported fixture scope")
         role = fixture.get("role", "changed")
         require(role in ("changed", "unchanged_control"), "unsupported fixture role")
+        if "provenance" in fixture:
+            require(isinstance(fixture["provenance"], dict), "fixture provenance must be an object")
         if role == "unchanged_control":
             require(isinstance(fixture.get("provenance"), dict) and fixture["provenance"],
                     "unchanged_control needs externally verifiable attribution in fixture provenance")

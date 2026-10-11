@@ -88,6 +88,19 @@ class SummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_summary(m)
 
+    def test_changed_and_kernel_fixture_provenance_must_be_object(self):
+        for scope in ("complete_caller", "kernel"):
+            for invalid in ("not-an-object", [], None, 42, True):
+                with self.subTest(scope=scope, provenance=invalid):
+                    m = manifest(scope)
+                    m["fixtures"][0]["provenance"] = invalid
+                    with self.assertRaises(ValueError):
+                        self.run_summary(m)
+            m = manifest(scope)
+            m["fixtures"][0]["provenance"] = {}
+            summary, _, _ = self.run_summary(m)
+            self.assertEqual(summary["cases"][0]["provenance"], {})
+
     def test_prospective_policy_configuration_is_recorded_and_validated(self):
         m = manifest()
         m["qualification_policy"] = {"min_processes": 2, "min_rounds": 4, "min_each_order": 1,
