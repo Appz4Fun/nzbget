@@ -57,6 +57,10 @@ samp {
    with flexbox, so the markup and the JS that measures it stay as they are. */
 
 #Navbar {
+	/* the glass backdrop-filter makes .navbar-inner a stacking context, which
+	   traps the menus' z-index; lift the whole bar above the tables below */
+	position: relative;
+	z-index: 1030;
 	margin: 0;
 	padding: var(--space-2) var(--space-5) var(--space-3);
 }
@@ -464,14 +468,14 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 	margin: 0;
 }
 
-#Navbar #RefreshBlock .btn-group {
+#Navbar #RefreshBlock > .btn-group {
 	display: flex;
 	gap: 2px;
 	float: none;
 	padding: 0;
 }
 
-#Navbar #RefreshBlock .btn {
+#Navbar #RefreshBlock > .btn-group > .btn {
 	display: grid;
 	place-items: center;
 	width: var(--size-control-md);
@@ -489,13 +493,13 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 	filter: none;
 }
 
-#Navbar #RefreshBlock .btn:hover,
-#Navbar #RefreshBlock .btn:focus,
-#Navbar #RefreshBlock .open > .btn {
+#Navbar #RefreshBlock > .btn-group > .btn:hover,
+#Navbar #RefreshBlock > .btn-group > .btn:focus,
+#Navbar #RefreshBlock > .btn-group.open > .btn {
 	background: var(--fill-tertiary);
 }
 
-#Navbar #RefreshBlock .btn .material-icon {
+#Navbar #RefreshBlock > .btn-group > .btn .material-icon {
 	color: var(--label-primary);
 	font-size: 18px;
 	opacity: 1;
@@ -699,4 +703,564 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 
 .phone #Navbar #NavLinks .material-icon {
 	font-size: 18px;
+}
+
+/* ---------- Buttons ---------- */
+/* Rounded rectangles with mono capitals; the selected toggle (.btn-active) is
+   the accent block, destructive buttons are tinted red. */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: var(--size-control-md);
+	box-sizing: border-box;
+	padding: 0 var(--space-3);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--fill-tertiary);
+	background-image: none;
+	filter: none;
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 500;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	text-shadow: none;
+	vertical-align: middle;
+	white-space: nowrap;
+	transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.btn:hover,
+.btn:focus,
+.btn.btn-default:hover:not(.btn-active),
+.btn-group.open .btn.dropdown-toggle:not(.btn-active) {
+	background: var(--fill-secondary);
+	background-image: none;
+	color: var(--label-primary);
+	text-decoration: none;
+}
+
+.btn:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
+
+.btn:active,
+.btn.active {
+	background: var(--fill-primary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+.btn.disabled,
+.btn[disabled] {
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+	opacity: var(--opacity-disabled);
+	cursor: default;
+}
+
+.btn .material-icon {
+	margin: 0 -2px;
+	font-size: 18px;
+	line-height: 1;
+}
+
+.btn-caption:not(.phone) {
+	vertical-align: baseline;
+}
+
+.btn .caret,
+.btn-active .caret {
+	margin: 0;
+	border-top-color: currentColor;
+	opacity: 1;
+}
+
+.btn-mini,
+.btn-small {
+	height: var(--size-control-sm);
+	padding: 0 var(--space-2);
+	font-size: 11px;
+}
+
+.btn-large {
+	height: var(--size-control-lg);
+	padding: 0 var(--space-5);
+}
+
+/* the one main action, and the old success buttons */
+.btn-primary,
+.btn-success,
+.btn.btn-primary:hover,
+.btn.btn-success:hover,
+.table .btn-success:hover {
+	background: var(--accent-fill);
+	box-shadow: none;
+	color: var(--on-accent);
+}
+
+.btn.btn-primary:hover,
+.btn.btn-primary:focus-visible,
+.btn.btn-success:hover,
+.btn.btn-success:focus-visible {
+	box-shadow: var(--shadow-glow);
+}
+
+/* destructive: tinted, so it never competes with the orange primary */
+.btn-danger,
+.btn.btn-danger:hover {
+	background: var(--red-soft);
+	box-shadow: none;
+	color: var(--red-text);
+}
+
+.btn.btn-danger:hover {
+	box-shadow: inset 0 0 0 1px var(--red);
+}
+
+.btn-warning,
+.btn.btn-warning:hover {
+	background: var(--yellow-soft);
+	box-shadow: none;
+	color: var(--yellow-text);
+}
+
+.btn-info,
+.btn.btn-info:hover,
+.btn-inverse,
+.btn.btn-inverse:hover {
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+}
+
+/* the selected button of a toggle group (filters, Yes/No switches, theme and units) */
+.btn-active,
+.btn.btn-active:hover,
+.btn.btn-active:focus {
+	background: var(--accent-fill);
+	box-shadow: none;
+	color: var(--on-accent);
+}
+
+.btn-active .badge {
+	background: var(--on-accent);
+	color: var(--accent-fill);
+}
+
+/* groups: joined buttons, outer corners only */
+.btn-group {
+	display: inline-flex;
+	vertical-align: middle;
+}
+
+.btn-group > .btn,
+.btn-group > .btn + .btn,
+.btn-group > .dropdown-toggle {
+	float: none;
+	margin-left: 0;
+	border-radius: 0;
+}
+
+.btn-group > .btn + .btn,
+.btn-group > .btn + .dropdown-toggle {
+	margin-left: 1px;
+}
+
+.btn-group > .btn:first-child {
+	border-top-left-radius: var(--radius-sm);
+	border-bottom-left-radius: var(--radius-sm);
+}
+
+.btn-group > .btn:last-child,
+.btn-group > .dropdown-toggle:last-child {
+	border-top-right-radius: var(--radius-sm);
+	border-bottom-right-radius: var(--radius-sm);
+}
+
+.btn-group > .btn:only-child {
+	border-radius: var(--radius-sm);
+}
+
+/* phone: taller touch targets, same mono text (the old phone rules set 18px
+   text and an inherited height, which made a button group uneven) */
+.phone .btn:not(.btn-mini):not(.btn-small),
+.phone .btn-toolbar .btn:not(.btn-mini):not(.btn-small) {
+	height: var(--size-control-lg);
+	padding: 0 var(--space-3);
+	font-size: 13px;
+	line-height: 16px;
+}
+
+/* ---------- Menus ---------- */
+
+.dropdown-menu {
+	min-width: 200px;
+	margin: 4px 0 0;
+	padding: 4px;
+	border: 0;
+	border-radius: var(--radius-md);
+	/* opaque: most menus open inside the glass toolbar, where a nested
+	   backdrop-filter cannot blur the page and the content would show through */
+	background: var(--bg-elevated);
+	box-shadow: var(--shadow-popover);
+	color: var(--label-primary);
+}
+
+.dropdown-menu::before,
+.dropdown-menu::after,
+.navbar .dropdown-menu::before,
+.navbar .dropdown-menu::after {
+	display: none;
+}
+
+.dropdown-menu li > a {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 28px;
+	box-sizing: border-box;
+	padding: 4px 10px;
+	border-radius: var(--radius-sm);
+	color: var(--label-primary);
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 400;
+	text-shadow: none;
+	white-space: nowrap;
+}
+
+.dropdown-menu li > a:hover,
+.dropdown-menu li > a:focus,
+.dropdown-menu .active > a,
+.dropdown-menu .active > a:hover {
+	background: var(--accent-fill);
+	background-image: none;
+	color: var(--on-accent);
+	text-decoration: none;
+	filter: none;
+}
+
+.dropdown-menu li:not(:hover) .empty-item {
+	color: var(--label-secondary);
+}
+
+.dropdown-menu .divider {
+	height: 1px;
+	margin: 4px 10px;
+	border: 0;
+	background: var(--separator);
+}
+
+.dropdown-menu .material-icon {
+	font-size: 16px;
+	line-height: 1;
+}
+
+.menu-header,
+.dropdown-menu .menu-header {
+	display: block;
+	padding: 8px 10px 4px;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 14px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	text-shadow: none;
+}
+
+/* a menu item that carries its own button (saved filters, RSS feeds) */
+.menu-with-button a .btn {
+	height: var(--size-control-sm);
+	padding: 0 var(--space-2);
+	font-size: 11px;
+}
+
+.dropdown-warning {
+	margin: 4px 0;
+	padding: 4px 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--yellow-soft);
+	color: var(--yellow-text);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+/* the settings menu: theme and speed unit are segmented controls */
+.settings-menu-panel {
+	width: 200px;
+	padding: 4px 10px 10px;
+}
+
+.settings-menu-panel .settings-menu-header {
+	padding: 8px 0 6px;
+}
+
+.settings-menu-panel .divider {
+	margin: 10px 0 0;
+}
+
+.switch-group.btn-group {
+	display: flex;
+	gap: 2px;
+	width: 100%;
+	box-sizing: border-box;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+.switch-group.btn-group > .btn.switch-btn {
+	height: calc(var(--size-control-md) - 4px);
+	border-radius: var(--radius-xs);
+	background: transparent;
+	box-shadow: none;
+	color: var(--label-secondary);
+	/* units are case-sensitive: MB/s is bytes, Mb/s is bits */
+	text-transform: none;
+}
+
+.switch-group.btn-group > .btn.switch-btn:hover {
+	background: var(--fill-quaternary);
+	color: var(--label-primary);
+}
+
+.switch-group.btn-group > .btn.switch-btn.btn-active {
+	background: var(--accent-fill);
+	color: var(--on-accent);
+}
+
+.switch-btn .switch-btn-icon {
+	color: inherit;
+	font-size: 16px;
+	vertical-align: middle;
+}
+
+.settings-menu-panel select {
+	width: 100%;
+	margin: 0;
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+	display: inline-block;
+	min-width: 18px;
+	height: 18px;
+	box-sizing: border-box;
+	padding: 0 6px;
+	border-radius: var(--radius-full);
+	background: var(--fill-secondary);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 18px;
+	font-weight: 500;
+	text-align: center;
+	text-shadow: none;
+	vertical-align: middle;
+}
+
+.badge-active,
+.badge-info {
+	background: var(--accent-fill);
+	color: var(--on-accent);
+}
+
+/* ---------- Status labels ---------- */
+/* Tinted tags in mono capitals; coloured states get a dot so the word and the
+   colour both carry the state. */
+
+.label {
+	display: inline-block;
+	height: 20px;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 0 7px;
+	overflow: hidden;
+	border-radius: var(--radius-xs);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 20px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-overflow: ellipsis;
+	text-shadow: none;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+
+.label-success {
+	background: var(--green-soft);
+	color: var(--green-text);
+}
+
+.label-warning {
+	background: var(--yellow-soft);
+	color: var(--yellow-text);
+}
+
+.label-important {
+	background: var(--red-soft);
+	color: var(--red-text);
+}
+
+.label-info {
+	background: var(--cyan-soft);
+	color: var(--cyan-text);
+}
+
+/* twin-group tags carry their own mid-tone hue inline; keep white text on it */
+.label[style*="background-color"] {
+	box-shadow: none;
+	color: #fff;
+}
+
+.label-success::before,
+.label-warning::before,
+.label-important::before,
+.label-info::before {
+	content: "";
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 5px 1px 0;
+	border-radius: 50%;
+	background: currentColor;
+	vertical-align: middle;
+}
+
+/* ---------- Progress bars ---------- */
+/* The figures move above a thin bar; no stripes. The old overlaid text
+   positions are replaced by a grid. */
+
+.progress-block {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	grid-template-areas:
+		"left center right"
+		"bar bar bar";
+	align-items: end;
+	row-gap: 5px;
+	min-width: 120px;
+}
+
+.progress-block .bar-text-left,
+.progress-block .bar-text-center,
+.progress-block .bar-text-right {
+	position: static;
+	width: auto;
+	overflow: hidden;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 14px;
+	letter-spacing: 0.02em;
+	text-overflow: ellipsis;
+	text-shadow: none;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.progress-block .bar-text-left {
+	grid-area: left;
+	color: var(--label-primary);
+	text-align: left;
+}
+
+.progress-block .bar-text-center {
+	grid-area: center;
+	padding: 0 var(--space-2);
+	text-align: center;
+}
+
+.progress-block .bar-text-right {
+	grid-area: right;
+	text-align: right;
+}
+
+.progress-block .progress,
+.checked .progress-block .progress,
+tr.checked:nth-child(odd) .progress-block .progress {
+	grid-area: bar;
+	height: 6px;
+	margin: 0;
+	overflow: hidden;
+	border-radius: var(--radius-full);
+	background: var(--fill-tertiary);
+	background-image: none;
+	box-shadow: none;
+	filter: none;
+}
+
+.progress .bar,
+.progress.progress-striped .bar {
+	height: 100%;
+	border-radius: inherit;
+	background-color: var(--label-secondary);
+	background-image: none;
+	box-shadow: none;
+	filter: none;
+	transition: width 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.progress.progress-success .bar {
+	background-color: var(--green);
+}
+
+.progress.progress-warning .bar {
+	background-color: var(--yellow);
+}
+
+.progress.progress-danger .bar {
+	background-color: var(--red);
+}
+
+.progress.progress-none .bar {
+	background-color: var(--label-secondary);
+}
+
+/* a slow sheen on the bar that is moving */
+.progress.progress-success.progress-striped .bar {
+	background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%);
+	background-repeat: no-repeat;
+	background-size: 120px 100%;
+	-webkit-animation: nzb-sheen 1.6s linear infinite;
+	animation: nzb-sheen 1.6s linear infinite;
+}
+
+@-webkit-keyframes nzb-sheen {
+	from { background-position: -120px 0; }
+	to { background-position: calc(100% + 120px) 0; }
+}
+
+@keyframes nzb-sheen {
+	from { background-position: -120px 0; }
+	to { background-position: calc(100% + 120px) 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.progress.progress-success.progress-striped .bar {
+		background-image: none;
+		-webkit-animation: none;
+		animation: none;
+	}
+
+	.progress .bar {
+		transition: none;
+	}
 }
