@@ -202,6 +202,39 @@ BOOST_AUTO_TEST_CASE(NativeIdentityFetchExceptionTest)
 }
 #endif
 
+BOOST_AUTO_TEST_CASE(NativeIdentityParitySuffixTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "movie.vol1+2.mkv", { 500 } } }, "d"), donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 700);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 2);
+    BOOST_CHECK_EQUAL(donor.mainName, "movie.vol1+2.mkv");
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityInvalidIdsTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    std::string broken = "<nzb><file subject='&quot;ordinary.mkv&quot;'><segments>"
+        "<segment number='1' bytes='200'>good@x</segment></segments></file>"
+        "<file subject='&quot;extra.rar&quot;'><segments>"
+        "<segment number='1' bytes='300'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(broken, donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 0);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 0);
+    BOOST_CHECK(donor.heads.empty());
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+    // A malformed segment inside an otherwise valid file also makes its geometry unknown.
+    broken = "<nzb><file subject='&quot;ordinary.mkv&quot;'><segments>"
+        "<segment number='1' bytes='200'>good@x</segment>"
+        "<segment number='2' bytes='300'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(broken, donor));
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+    BOOST_CHECK(donor.heads.empty());
+}
+
 BOOST_AUTO_TEST_CASE(NzbReaderRejectsBadNzbTest)
 {
 	NzbSummary info;

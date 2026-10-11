@@ -69,9 +69,7 @@ bool ValidMessageId(const std::string& id)
 
 bool IsParName(const std::string& name)
 {
-	static const std::regex regex("\\.par2$|\\.vol\\d+[+-]\\d+", std::regex::icase);
-	// the end is what counts; a subject of any length isn't run through a regex
-	return std::regex_search(name.size() > 512 ? name.substr(name.size() - 512) : name, regex);
+	return name.size() >= 5 && Lower(name.substr(name.size() - 5)) == ".par2";
 }
 
 class Reader : public XmlReader::Handler
@@ -128,6 +126,7 @@ public:
 				else geometryValid = false;
 				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
 			}
+			else if (!IsParName(m_name)) geometryValid = false;
 			m_inSegment = false;
 		}
 		else if (name == "group" && m_inFile)
