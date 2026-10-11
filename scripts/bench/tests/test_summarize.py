@@ -12,10 +12,15 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[1] / "summarize.py"
 
 
-def manifest(scope="complete_caller"):
+def manifest(scope="complete_caller", applicability="not_applicable"):
+    fixture = {"id": "tiny-control", "sha256": "c" * 64, "scope": scope}
+    if applicability is not None:
+        fixture["rust_preservation_applicability"] = applicability
+    if applicability == "not_applicable":
+        fixture["provenance"] = {"rust_preservation_rationale": "Synthetic C++ caller has no production Rust baseline; test-only assertion"}
     return {"schema_version": 1, "base_sha": "a" * 40, "candidate_sha": "b" * 40,
             "testbed": "synthetic-testbed", "toolchain": {"cxx": "synthetic", "rustc": "synthetic"},
-            "fixtures": [{"id": "tiny-control", "sha256": "c" * 64, "scope": scope}],
+            "fixtures": [fixture],
             "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"}}
 
 
@@ -79,7 +84,8 @@ class SummaryTests(unittest.TestCase):
 
     def test_genuine_unchanged_control_checks_drift_without_speed_claim(self):
         m = manifest()
-        m["fixtures"][0].update(role="unchanged_control", provenance={"attribution": "synthetic same caller"})
+        m["fixtures"][0]["role"] = "unchanged_control"
+        m["fixtures"][0]["provenance"]["attribution"] = "synthetic same caller"
         for ratio, want in [(1, "PASS"), (0.8, "HOLD"), (1.2, "HOLD")]:
             summary, _, qualification = self.run_summary(m, samples([ratio] * 8))
             self.assertEqual(summary["cases"][0]["status"], want)
@@ -97,6 +103,7 @@ class SummaryTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         self.run_summary(m)
             m = manifest(scope)
+            m["fixtures"][0].pop("rust_preservation_applicability")
             m["fixtures"][0]["provenance"] = {}
             summary, _, _ = self.run_summary(m)
             self.assertEqual(summary["cases"][0]["provenance"], {})
@@ -243,7 +250,7 @@ class SummaryTests(unittest.TestCase):
             self.run_summary(m, rows)
 
     def test_noncomparison_required_variant_remains_in_complete_blocks(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_candidate", "rust_current"]
         rows = samples()
         for row in rows:
@@ -261,7 +268,7 @@ class SummaryTests(unittest.TestCase):
             self.run_summary(m, rows[:-1])
 
     def test_cpp_gain_does_not_hide_existing_rust_regression(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
         for current_ns, want in [(5000, "HOLD"), (8000, "PASS"), (9000, "PASS")]:
             rows = samples()
@@ -284,7 +291,7 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual(q["cases"][0]["rust_preservation"], case["rust_preservation"])
 
     def test_optimized_cpp_tie_stays_hold_when_current_rust_is_preserved(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["comparison"]["baseline"] = "cpp_optimized"
         m["fixtures"][0]["required_variants"] = ["cpp_optimized", "rust_current", "rust_candidate"]
         rows = samples()
@@ -303,7 +310,7 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(summary["cases"][0]["rust_preservation"]["status"], "PASS")
 
     def test_current_rust_gate_applies_to_cpp_candidate(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["comparison"]["candidate"] = "cpp_optimized"
         m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "cpp_optimized"]
         rows = self.rust_three_way_rows([5000] * 8)
@@ -318,7 +325,7 @@ class SummaryTests(unittest.TestCase):
 
     def test_non_cpp_baseline_cannot_qualify_runtime_despite_rust_gain(self):
         for scope in ("complete_caller", "kernel"):
-            m = manifest(scope)
+            m = manifest(scope, applicability="required")
             m["comparison"]["baseline"] = "rust_current"
             m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
             rows = self.rust_three_way_rows([20000] * 8, 15000)
@@ -345,7 +352,7 @@ class SummaryTests(unittest.TestCase):
         return rows
 
     def test_current_rust_overlap_above_one_holds_changed_case(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
         summary, _, q = self.run_summary(m, self.rust_three_way_rows([7920] * 4 + [8080] * 4))
         check = summary["cases"][0]["rust_preservation"]
@@ -355,7 +362,7 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("not_preserved", check["reasons"])
 
     def test_unchanged_rust_controls_include_one_and_hold_either_drift(self):
-        m = manifest()
+        m = manifest(applicability="required")
         m["fixtures"][0].update(role="unchanged_control", provenance={"attribution": "synthetic unchanged caller"},
                                  required_variants=["cpp_current", "rust_current", "rust_candidate"])
         for current, want in [([9900] * 4 + [10100] * 4, "PASS"), ([5000] * 8, "HOLD"), ([20000] * 8, "HOLD")]:
@@ -390,6 +397,40 @@ class SummaryTests(unittest.TestCase):
         # selections; the required current-Rust ratio raises it to 4.8 million.
         with self.assertRaises(ValueError):
             self.run_summary(m, rows)
+
+    def test_missing_applicability_or_required_current_rust_evidence_holds(self):
+        m = manifest(applicability=None)
+        summary, _, q = self.run_summary(m)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertIn("missing_rust_preservation_applicability", summary["cases"][0]["reasons"])
+        m = manifest(applicability="required")
+        summary, _, q = self.run_summary(m)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertIn("missing_current_rust_baseline", summary["cases"][0]["reasons"])
+        m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        summary, _, q = self.run_summary(m)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertIn("missing_current_rust_samples", summary["cases"][0]["reasons"])
+
+    def test_not_applicable_assertion_requires_rationale_and_no_current_rust(self):
+        for invalid in ({}, {"rust_preservation_rationale": ""}, {"rust_preservation_rationale": 1}):
+            m = manifest()
+            m["fixtures"][0]["provenance"] = invalid
+            with self.assertRaises(ValueError):
+                self.run_summary(m)
+        m = manifest()
+        m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        with self.assertRaises(ValueError):
+            self.run_summary(m, self.rust_three_way_rows([9000] * 8))
+        m["fixtures"][0]["rust_preservation_applicability"] = "invented"
+        with self.assertRaises(ValueError):
+            self.run_summary(m, [])
+
+    def test_kernel_without_applicability_still_emits_numeric_profile(self):
+        summary, _, q = self.run_summary(manifest("kernel", applicability=None))
+        self.assertAlmostEqual(summary["cases"][0]["ratio"]["estimate"], 0.8)
+        self.assertEqual(q["status"], "HOLD")
+        self.assertNotIn("missing_rust_preservation_applicability", summary["cases"][0]["reasons"])
 
     def test_all_outliers_and_controls_retained(self):
         m = manifest()

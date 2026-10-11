@@ -129,6 +129,14 @@ def validate_manifest(manifest):
                 and all(isinstance(v, str) and v in VARIANTS for v in variants)
                 and len(set(variants)) == len(variants) and {baseline, candidate} <= set(variants),
                 "required_variants must be unique supported variants including the comparison pair")
+        applicability = fixture.get("rust_preservation_applicability")
+        if "rust_preservation_applicability" in fixture:
+            require(applicability in ("required", "not_applicable"), "unsupported rust_preservation_applicability")
+        if fixture["scope"] == "complete_caller" and applicability == "not_applicable":
+            require("rust_current" not in variants,
+                    "not_applicable contradicts a declared current Rust baseline")
+            rationale = fixture.get("provenance", {}).get("rust_preservation_rationale")
+            text(rationale, "not_applicable rust_preservation_rationale", 4096)
     if "provenance" in manifest:
         require(isinstance(manifest["provenance"], dict), "provenance must be an object")
     policy_for(manifest)
@@ -262,7 +270,7 @@ def summarize(manifest, rows):
                    "coverage": "per-case intervals; no simultaneous family coverage guarantee",
                    "outliers": "all retained; no trimming or independent round resampling",
                    "interpretation": "prospective conservative precision/sufficiency defaults; not statistical guarantees or a historical waiver",
-                   "limits": "numerical eligibility only; independently verify git/build hashes, output correctness, testbed, process independence, and control attribution",
+                   "limits": "numerical eligibility only; independently verify git/build hashes, output correctness, testbed, process independence, control attribution, and explicit Rust-preservation applicability",
                    "migration_rule": "runtime qualification requires selected baseline cpp_current or cpp_optimized; all changed complete callers need upper selected-baseline ratio CI < 1; required current Rust needs upper preservation ratio CI <= 1; unchanged controls must include 1 against both baselines; kernels cannot qualify runtime"}
     summary = {**identity, "comparison": manifest["comparison"], "toolchain": manifest["toolchain"],
                "provenance": manifest.get("provenance", {}), "methodology": methodology, "cases": []}
@@ -272,11 +280,13 @@ def summarize(manifest, rows):
         case_id = fixture["id"]
         processes = grouped[case_id]
         required = fixture.get("required_variants", [baseline, candidate])
+        applicability = fixture.get("rust_preservation_applicability")
         role = fixture.get("role", "changed")
         rng = random.Random(SEED)
         case = {"case": case_id, "scope": fixture["scope"], "role": role,
                 "fixture_sha256": fixture["sha256"], "provenance": fixture.get("provenance", {}),
                 "required_variants": required, "raw_count": sum(len(b) for p in processes.values() for b in p.values()),
+                "rust_preservation_applicability": applicability,
                 "process_count": len(processes), "round_counts": {str(p): len(r) for p, r in sorted(processes.items())},
                 "variants": {}, "ratio": None, "rust_preservation": None,
                 "statistical_status": "missing", "status": "HOLD", "reasons": []}
@@ -327,8 +337,16 @@ def summarize(manifest, rows):
                                               "reasons": rust_reasons}
                 if rust_reasons:
                     case["reasons"].append("existing_rust_not_preserved")
-        if fixture["scope"] == "complete_caller" and baseline not in ("cpp_current", "cpp_optimized"):
-            case["reasons"].append("non_cpp_runtime_baseline")
+        if fixture["scope"] == "complete_caller":
+            if baseline not in ("cpp_current", "cpp_optimized"):
+                case["reasons"].append("non_cpp_runtime_baseline")
+            if applicability is None:
+                case["reasons"].append("missing_rust_preservation_applicability")
+            elif applicability == "required":
+                if "rust_current" not in required:
+                    case["reasons"].append("missing_current_rust_baseline")
+                elif "rust_current" not in observed[case_id]:
+                    case["reasons"].append("missing_current_rust_samples")
         if fixture["scope"] == "kernel":
             case["reasons"].append("kernel_cannot_qualify_runtime")
         if not case["reasons"]:
@@ -342,7 +360,7 @@ def summarize(manifest, rows):
         reasons.append("complete_caller_cases_on_hold")
     qualification = {**identity, "status": "HOLD" if reasons else "PASS", "reasons": reasons,
                      "methodology": methodology,
-                     "cases": [{k: c[k] for k in ("case", "scope", "role", "status", "reasons", "ratio", "rust_preservation")}
+                     "cases": [{k: c[k] for k in ("case", "scope", "role", "status", "reasons", "ratio", "rust_preservation", "rust_preservation_applicability")}
                                for c in summary["cases"]]}
     return summary, bmf, qualification
 
@@ -356,13 +374,13 @@ def render_report(summary, qualification):
     lines = [f"Numerical qualification: **{qualification['status']}**", "",
              f"Base: `{summary['base_sha']}`. Candidate: `{summary['candidate_sha']}`.",
              f"Testbed assertion: {markdown(summary['testbed'])}.", "",
-             "| Case | Scope / role | Status | Paired ratio [95% CI] | Processes / rows | Reasons |",
-             "| --- | --- | --- | --- | --- | --- |"]
+             "| Case | Scope / role | Rust preservation applicability | Status | Paired ratio [95% CI] | Processes / rows | Reasons |",
+             "| --- | --- | --- | --- | --- | --- | --- |"]
     for case in summary["cases"]:
         ratio = case["ratio"]
         value = "missing" if ratio is None else f"{ratio['estimate']:.6g} [{ratio['lower']:.6g}, {ratio['upper']:.6g}]"
         lines.append("| " + " | ".join(markdown(x) for x in
-                     (case["case"], case["scope"] + " / " + case["role"], case["status"], value,
+                     (case["case"], case["scope"] + " / " + case["role"], case.get("rust_preservation_applicability") or "missing", case["status"], value,
                       f"{case['process_count']} / {case['raw_count']}", ", ".join(case["reasons"]) or "eligible numerically")) + " |")
     lines.extend(["", "| Case / variant | Median of process medians (ns/op) | Cluster 95% CI (ns/op) | Raw rows |",
                   "| --- | --- | --- | --- |"])
@@ -393,6 +411,10 @@ def render_report(summary, qualification):
                   "Changed complete callers need an upper ratio bound below 1. Every changed caller must pass, including tiny calls. "
                   "Runtime qualification requires the selected baseline to be cpp_current or cpp_optimized; "
                   "other comparisons remain useful numerical profiling and always hold runtime qualification. "
+                  "Every complete caller needs an explicit Rust-preservation applicability decision: required needs a "
+                  "declared current Rust baseline and measured samples; not_applicable needs a nonempty provenance rationale "
+                  "and cannot contradict a declared current Rust baseline. The rationale and applicability decision require "
+                  "independent review bound to the actual captured source hashes; these declarations do not prove approval. "
                   "A required current-Rust baseline also needs its candidate/current ratio upper bound at most 1, "
                   "with balanced order and sufficient precise evidence. This allows equality for preservation while "
                   "retaining the selected C++ baseline's strict speed gate. "
