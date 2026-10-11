@@ -347,6 +347,14 @@ def check_aliases(output, inputs):
         lexical_source = Path(os.path.abspath(source))
         if lexical_source == lexical_destination or lexical_destination in lexical_source.parents:
             raise AliasError("lexical input/output paths overlap; refusing mutation")
+        # Preserve each entry before following its final component. An input
+        # may traverse OUT/manifest.json (a directory symlink) while output is
+        # named through another symlink to OUT. Resolving only the leaf loses
+        # the ancestor entry that generated-artifact cleanup would unlink.
+        for ancestor in (lexical_source, *lexical_source.parents):
+            entry = ancestor.parent.resolve() / ancestor.name
+            if entry == destination or destination in entry.parents:
+                raise AliasError("input ancestor traverses the output directory; refusing mutation")
         resolved = source.resolve()
         if resolved == destination or destination in resolved.parents:
             raise AliasError("input/output paths overlap; refusing mutation")

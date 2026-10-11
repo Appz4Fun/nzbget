@@ -200,6 +200,38 @@ class PostprocessAdapterTests(unittest.TestCase):
                 self.assertTrue(sentinel.is_symlink(), "alias rejection must preserve the input symlink")
                 self.assertEqual(sentinel.readlink(), self.root / "missing-external-target")
 
+    def test_input_parent_directory_symlink_is_preserved_on_rejected_import(self):
+        for output_route in ("direct", "alias"):
+            for input_kind in ("source", "metadata"):
+                with self.subTest(output_route=output_route, input_kind=input_kind):
+                    case = self.root / f"{output_route}-{input_kind}"
+                    case.mkdir()
+                    physical_output = case / "out"
+                    physical_output.mkdir()
+                    external = case / "external"
+                    external.mkdir()
+                    immutable = external / ("samples.csv" if input_kind == "source" else "metadata.json")
+                    text = "bad,header\n" if input_kind == "source" else '{"historical":true}\n'
+                    immutable.write_text(text)
+                    ancestor = physical_output / "manifest.json"
+                    ancestor.symlink_to(external, target_is_directory=True)
+                    output = physical_output
+                    if output_route == "alias":
+                        output = case / "output-alias"
+                        output.symlink_to(physical_output, target_is_directory=True)
+                    source = ancestor / immutable.name if input_kind == "source" else case / "invalid.csv"
+                    metadata = ancestor / immutable.name if input_kind == "metadata" else case / "metadata.json"
+                    if input_kind == "metadata":
+                        source.write_text("bad,header\n")
+                    else:
+                        metadata.write_text('{"historical":true}\n')
+                    result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                             "--manifest", str(metadata), "--source", str(source),
+                                             "--output-dir", str(output)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(ancestor.is_symlink(), "immutable input ancestors must survive rejection")
+                    self.assertEqual(immutable.read_text(), text)
+
     def test_repeat_hold_run_replaces_only_generated_outputs(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
         result, _ = self.run_adapter("par-crc", PAR_CRC)
