@@ -609,6 +609,14 @@ void XmlRpcProcessor::Execute()
 		return;
 	}
 
+	// any web page can make the browser send a JSON-P request, with the login it keeps
+	// for nzbget, and read the answer: it gets no more than the restricted user sees
+	// (user names, passwords, API keys and the other protected options as "***")
+	if (m_protocol == rpJsonPRpc && m_userAccess == uaControl)
+	{
+		m_userAccess = uaRestricted;
+	}
+
 	Dispatch();
 }
 
@@ -696,18 +704,18 @@ void XmlRpcProcessor::Dispatch()
 		// reading methods. It ran every method, so a page could edit the queue, change
 		// the settings or shut nzbget down.
 		bool safeToExecute = m_safeMethod || m_httpMethod == XmlRpcProcessor::hmPost;
-		if (safeToExecute || command->IsError())
+		if (m_protocol == rpJsonPRpc && !m_jsonP)
+		{
+			BuildJsonPRefusal(command.get(), 403, "JSON-P is turned off (option JsonP). Use JSON-RPC or XML-RPC instead", requestId);
+		}
+		else if (safeToExecute || command->IsError())
 		{
 			command->Execute();
 			BuildResponse(command->GetResponse(), command->GetCallbackFunc(), command->GetFault(), requestId);
 		}
 		else if (m_protocol == rpJsonPRpc)
 		{
-			// through the caller's callback, so the page that loaded it sees the refusal
-			ErrorXmlCommand refusal(4, "Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead");
-			refusal.SetProtocol(m_protocol);
-			refusal.Execute();
-			BuildResponse(refusal.GetResponse(), command->GetCallbackFunc(), refusal.GetFault(), requestId);
+			BuildJsonPRefusal(command.get(), 4, "Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead", requestId);
 		}
 		else
 		{
@@ -855,6 +863,17 @@ void XmlRpcProcessor::BuildErrorResponse(int errCode, const char* errText)
 	command.SetProtocol(m_protocol);
 	command.Execute();
 	BuildResponse(command.GetResponse(), "", command.GetFault(), nullptr);
+}
+
+// a JSON-P refusal goes through the caller's callback, so the page that loaded it
+// sees it
+void XmlRpcProcessor::BuildJsonPRefusal(XmlCommand* command, int errCode, const char* errText,
+	const char* requestId)
+{
+	ErrorXmlCommand refusal(errCode, errText);
+	refusal.SetProtocol(m_protocol);
+	refusal.Execute();
+	BuildResponse(refusal.GetResponse(), command->GetCallbackFunc(), refusal.GetFault(), requestId);
 }
 
 std::unique_ptr<XmlCommand> XmlRpcProcessor::CreateCommand(const char* methodName)

@@ -12,7 +12,8 @@ lede = "RustyGet speaks NZBGet's API today, so media managers, the Kodi add-on, 
 
 | Interface | Today | Plan |
 |---|---|---|
-| NZBGet JSON-RPC, XML-RPC, and JSON-P | Every method, with the changes on this page | Kept while clients depend on it. Methods may change where the old behavior is unsafe or in the way of the rewrite. |
+| NZBGet JSON-RPC and XML-RPC | Every method, with the changes on this page | Kept while clients depend on it. Methods may change where the old behavior is unsafe or in the way of the rewrite. |
+| NZBGet JSON-P | Off unless option `JsonP` turns it on; then the methods that read, with the restricted user's access | Kept as an option for old clients |
 | `appendfleet` | Available | Kept and extended |
 | Extension scripts (`NZBPP_`, `NZBPO_`, `NZBNA_` variables, exit codes) | Unchanged, plus new `NZBPR_` parameters | Kept for now |
 | SABnzbd API | Not available | Under consideration, so that clients that only speak SABnzbd can use RustyGet |
@@ -27,7 +28,7 @@ The API listens on the web interface's port, 6789 by default, at three paths:
 |---|---|
 | JSON-RPC | `/jsonrpc` |
 | XML-RPC | `/xmlrpc` |
-| JSON-P | `/jsonprpc` |
+| JSON-P | `/jsonprpc`, only with option `JsonP=yes` |
 
 Send credentials with HTTP basic authentication, or as the first part of the path, as in `http://host:6789/user:pass/jsonrpc`. Three accounts set what a client may do:
 
@@ -133,6 +134,7 @@ RustyGet also stores its findings as NZB parameters, which the API returns in `P
 
 RustyGet fixes several problems in NZBGet's API. Clients that rely on the old behavior may need changes:
 
+- **JSON-P off by default.** Any web page can make a browser send a JSON-P request, with the login the browser keeps, and read the answer. RustyGet answers JSON-P only with option `JsonP=yes`, and then with the restricted user's access, so user names, passwords, and API keys come back as `***`. Otherwise every JSON-P request answers error 403. NZBGet answered JSON-P with full access.
 - **POST for methods that change something.** Plain GET and JSON-P run only the methods that read: `config`, `configtemplates`, `dump`, `history`, `listfiles`, `listgroups`, `loadconfig`, `loadextensions`, `loadlog`, `log`, `logscript`, `logupdate`, `postqueue`, `servervolumes`, `status`, `sysinfo`, `systemhealth`, `urlqueue`, and `version`. Every other method answers error 4 there. `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `readurl`, `testserverspeed`, `testdiskspeed`, and `testnetworkspeed` joined the methods that need POST. In NZBGet, JSON-P ran every method, so a `<script>` tag on any web page could edit the queue, change settings, or shut NZBGet down with the browser's saved login.
 - **Access checks in multicalls.** The XML-RPC `system.multicall` method runs each call with the caller's access level. In NZBGet, a restricted account could read passwords through it.
 - **Range checks.** Integers outside the 32-bit range are rejected instead of wrapping around. `editqueue` checks scores, priorities, parameters, and duplicate modes.

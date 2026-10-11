@@ -55,6 +55,8 @@ public:
 	void Execute();
 	void SetHttpMethod(EHttpMethod httpMethod) { m_httpMethod = httpMethod; }
 	void SetUserAccess(EUserAccess userAccess) { m_userAccess = userAccess; }
+	// whether JSON-P requests are answered (option JsonP); off unless set
+	void SetJsonP(bool jsonP) { m_jsonP = jsonP; }
 	void SetUrl(const char* url);
 	void SetRequest(char* request) { m_request = request; }
 	const char* GetResponse() { return m_response; }
@@ -71,12 +73,14 @@ private:
 	CString m_url;
 	StringBuilder m_response;
 	bool m_safeMethod = false;
+	bool m_jsonP = false;
 
 	void Dispatch();
 	std::unique_ptr<XmlCommand> CreateCommand(const char* methodName);
 	void MutliCall();
 	void BuildResponse(const char* response, const char* callbackFunc, bool fault, const char* requestId);
 	void BuildErrorResponse(int errCode, const char* errText);
+	void BuildJsonPRefusal(XmlCommand* command, int errCode, const char* errText, const char* requestId);
 };
 
 class XmlCommand

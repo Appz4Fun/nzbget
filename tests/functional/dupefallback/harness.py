@@ -5970,11 +5970,46 @@ def scenario_apiformat(daemon, t):
             echoed = _json.loads(r.read().decode()).get('id')
         except ValueError:
             echoed = None
+    # any page can read a JSON-P answer: it gets the protected options as "***",
+    # although these requests come with control access; JSON-RPC still shows them
+    def option_value(entries, name):
+        return next((e.get('Value') for e in entries if e.get('Name') == name), None)
+    with _req.urlopen(base + '/jsonprpc/config?=cb', timeout=10) as r:
+        reply = r.read().decode()
+        jsonp_config = _json.loads(reply[reply.index('(') + 1:reply.rindex(')')]).get('result') or []
+    body = _json.dumps({'method': 'config', 'params': []}).encode()
+    with _req.urlopen(_req.Request(base + '/jsonrpc', body), timeout=10) as r:
+        direct_config = _json.loads(r.read().decode()).get('result') or []
+    masked = (option_value(jsonp_config, 'Server1.Password') == '***'
+              and 'harness-secret' not in reply
+              and option_value(direct_config, 'Server1.Password') == 'harness-secret')
     ok = (callback_whole and refused and jsonp_fetches == 0 and fetched == '/p?x=1&y=2'
-          and valid and echoed == long_id)
+          and valid and echoed == long_id and masked)
     return ('apiformat', ok, 'callback_whole=%s jsonp_refused=%s jsonp_fetches=%d post_fetched=%r '
-            'volumes_valid=%s id_echoed=%s' % (callback_whole, refused, jsonp_fetches, fetched, valid,
-                                              echoed == long_id))
+            'volumes_valid=%s id_echoed=%s jsonp_masked=%s' % (callback_whole, refused, jsonp_fetches, fetched,
+                                                               valid, echoed == long_id, masked))
+
+
+def scenario_jsonpoff(daemon, t):
+    """JSON-P is off by default (option JsonP): any web page can make a browser send
+    it, with the login the browser keeps, and read the answer. /jsonprpc answers
+    error 403 through the callback for every method, reading ones included, so the
+    settings and their passwords can't be read there; JSON-RPC is unaffected."""
+    import json as _json
+    import urllib.request as _req
+    daemon.wait_ready()
+    base = 'http://127.0.0.1:%d' % daemon.rpc_port
+    replies = {}
+    for method in ('version', 'status', 'config'):
+        with _req.urlopen(base + '/jsonprpc/%s?=cb' % method, timeout=10) as r:
+            replies[method] = r.read().decode()
+    refused = all(reply.startswith('cb(') and '"code" : 403,' in reply for reply in replies.values())
+    leaked = any('harness-secret' in reply or '"result"' in reply for reply in replies.values())
+    body = _json.dumps({'method': 'version', 'params': []}).encode()
+    with _req.urlopen(_req.Request(base + '/jsonrpc', body), timeout=10) as r:
+        version = _json.loads(r.read().decode()).get('result')
+    ok = refused and not leaked and bool(version)
+    return ('jsonpoff', ok, 'refused=%s leaked=%s jsonrpc_version=%r' % (refused, leaked, version))
 
 
 def scenario_directunpackkeep(daemon, t):
@@ -10167,6 +10202,7 @@ SCENARIOS = {
     'appendscorerange': scenario_appendscorerange,
     'apiedges': scenario_apiedges,
     'apiformat': scenario_apiformat,
+    'jsonpoff': scenario_jsonpoff,
     'apiaccess': scenario_apiaccess,
     'queueedits': scenario_queueedits,
     'directunpackkeep': scenario_directunpackkeep,
@@ -10351,6 +10387,11 @@ EXPECTED_HISTORY_STATUS = {
 _SEVENZIP_OPTION = ['SevenZipCmd=%s' % generators.SEVENZIP_PATH] if generators.HAVE_7Z else []
 
 SCENARIO_OPTIONS = {
+    # JSON-P is off by default; these scenarios call /jsonprpc, and apiformat checks
+    # that a server password stays hidden there
+    'apiformat': ['DupeArticleFallback=yes', 'JsonP=yes', 'Server1.Password=harness-secret'],
+    'xmlparamdecode': ['DupeArticleFallback=yes', 'JsonP=yes'],
+    'jsonpoff': ['DupeArticleFallback=yes', 'Server1.Password=harness-secret'],
     'stream': ['DupeArticleFallback=stream', 'ParCheck=auto'],
     'truncatedstate': ['ContinuePartial=yes', 'FlushQueue=yes', 'Server1.Connections=1'],
     'streamrestartcredit': ['DupeArticleFallback=stream', 'ParCheck=auto'],

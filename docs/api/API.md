@@ -4,7 +4,7 @@ The document describes methods available in NZBGet `version 13.0 and later`. The
 
 ## Protocols
 
-NZBGet supports `XML-RPC`, `JSON-RPC` and `JSON-P-RPC`. RPC-protocols allow to control the program from other applications. Many programming languages have libraries, which make the usage of `XML-RPC`, `JSON-RPC` and `JSON-P-RPC` very simple. The implementations of all three protocols in NZBGet are equal: all methods are identical, except that `JSON-P-RPC` runs only the methods that read (see below). You may choose the protocol, which is better supported by your programming language.
+NZBGet supports `XML-RPC`, `JSON-RPC` and `JSON-P-RPC`. RPC-protocols allow to control the program from other applications. Many programming languages have libraries, which make the usage of `XML-RPC`, `JSON-RPC` and `JSON-P-RPC` very simple. The implementations of all three protocols in NZBGet are equal: all methods are identical, except that `JSON-P-RPC` is off unless option `JsonP` turns it on, and then runs only the methods that read (see below). You may choose the protocol, which is better supported by your programming language.
 
 ## Authentication
 
@@ -23,7 +23,7 @@ The RPC server uses HTTP basic authentication. The URL would be something like:
 
 - for **XML-RPC**: `http://username:password@localhost:6789/xmlrpc`
 - for **JSON-RPC**: `http://username:password@localhost:6789/jsonrpc`
-- for **JSON-P-RPC**: `http://username:password@localhost:6789/jsonprpc`
+- for **JSON-P-RPC**: `http://username:password@localhost:6789/jsonprpc` (only with option `JsonP` active)
  
 If HTTP basic authentication is somewhat problematic the username/password can also be passed in the URL as the first part of the path:
 
@@ -37,6 +37,7 @@ If HTTP basic authentication is somewhat problematic the username/password can a
 - Introspection is not supported.
 - Only positional parameters are supported in `JSON-RPC`. Named parameters are not supported. Therefore parameter names are ignored but the order of parameters is important. All parameters are mandatory.
 - Each call to `JSON-P-RPC` has one additional parameter - the name of callback-function. This parameter must be named `callback` and must be passed first (before any other parameters).
+- `JSON-P-RPC` is answered only when option `JsonP` is active; otherwise every call answers error 403. Any web page can make a browser send a `JSON-P` request with the login it keeps and read the answer, so `JSON-P` always runs with the access of the restricted user: protected options such as user names, passwords and API keys come back as `***`.
 - `JSON-P-RPC` runs only the methods that read: `config`, `configtemplates`, `dump`, `history`, `listfiles`, `listgroups`, `loadconfig`, `loadextensions`, `loadlog`, `log`, `logscript`, `logupdate`, `postqueue`, `servervolumes`, `status`, `sysinfo`, `systemhealth`, `urlqueue` and `version`. Any web page can make a browser send a `JSON-P` request, so every other method answers error 4 there; call it with `JSON-RPC` or `XML-RPC` using HTTP method POST. The same methods are the only ones a plain GET request may call.
 - 64 bit integers are returned in two separate fields `Hi` and `Lo` (for example `FileSizeHi` and `FileSizeLo`). These fields are unsigned 32 bit integers. Although dynamic languages such as PHP or Python have no problems with these fields the `XML-RPC` specification does not allow unsigned integers. This may cause troubles in statically typed languages such as Java or C++ if `XML-RPC`-parser expects only signed integers in 32 bit range. As a solution use `JSON-RPC` (which does allow unsigned integers) instead of `XML-RPC`.
 

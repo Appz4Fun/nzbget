@@ -527,6 +527,7 @@ void WebProcessor::Dispatch()
 		processor.SetRequest(m_request);
 		processor.SetHttpMethod(m_httpMethod == hmGet ? XmlRpcProcessor::hmGet : XmlRpcProcessor::hmPost);
 		processor.SetUserAccess((XmlRpcProcessor::EUserAccess)m_userAccess);
+		processor.SetJsonP(g_Options->GetJsonP());
 		processor.SetUrl(m_url);
 		processor.Execute();
 		SendBodyResponse(processor.GetResponse(), strlen(processor.GetResponse()), processor.GetContentType(), processor.IsSafeMethod());
