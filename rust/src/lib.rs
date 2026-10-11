@@ -17,6 +17,7 @@ pub mod nntp;
 pub mod options;
 pub mod parparser;
 pub mod paths;
+pub mod rarreader;
 pub mod rpcparams;
 pub mod rpcroute;
 pub mod scheduler;

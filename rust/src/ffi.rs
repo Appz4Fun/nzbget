@@ -2629,6 +2629,159 @@ pub unsafe extern "C" fn nzbget_rs_same_par_collection(name1: *const c_char, nam
         &|b| fold(b as c_int) as u8) as c_int
 }
 
+/// NzbgetRsRarIo: RarVolume's content source and header cipher.
+#[repr(C)]
+pub struct RarIo {
+    pub ctx: *mut std::ffi::c_void,
+    pub size: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> i64>,
+    pub read: Option<unsafe extern "C" fn(*mut std::ffi::c_void, i64, *mut u8, i64) -> c_int>,
+    pub rar3_prepare: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const u8) -> c_int>,
+    pub rar5_prepare: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u8, *const u8) -> c_int>,
+    pub init: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, *const u8) -> c_int>,
+    pub decrypt: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, *mut u8) -> c_int>,
+    pub free: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+    pub add_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const RarFileOut)>,
+}
+
+/// NzbgetRsRarVolume: RarVolume's state, read and written back.
+#[repr(C)]
+pub struct RarVolumeState {
+    pub version: c_int,
+    pub volume_no: u32,
+    pub new_naming: c_int,
+    pub has_next_volume: c_int,
+    pub multi_volume: c_int,
+    pub encrypted: c_int,
+    pub has_password: c_int,
+    pub decrypt_buf: [u8; 16],
+    pub decrypt_pos: u8,
+}
+
+/// NzbgetRsRarFile: one file of the volume (borrowed for the add_file call).
+#[repr(C)]
+pub struct RarFileOut {
+    pub filename: *const c_char,
+    pub filename_len: usize,
+    pub time: u32,
+    pub attr: u32,
+    pub size: i64,
+    pub split_before: c_int,
+    pub split_after: c_int,
+    pub method: u32,
+    pub stored: c_int,
+    pub packed_size: i64,
+    pub data_offset: i64,
+    pub encrypted_data: c_int,
+    pub has_salt: c_int,
+    pub salt: [u8; 8],
+    pub has_crypt: c_int,
+    pub crypt_version: u64,
+    pub crypt_flags: u64,
+    pub crypt_kdf_count: u8,
+    pub crypt_salt: [u8; 16],
+    pub crypt_iv: [u8; 16],
+    pub crypt_check_value: [u8; 12],
+    pub crypt_has_check: c_int,
+}
+
+struct FfiRar<'a>(&'a RarIo);
+
+impl crate::rarreader::Source for FfiRar<'_> {
+    fn size(&mut self) -> i64 {
+        self.0.size.map_or(-1, |f| unsafe { f(self.0.ctx) })
+    }
+    fn read(&mut self, offset: i64, buf: &mut [u8]) -> bool {
+        self.0.read.is_some_and(|f| unsafe { f(self.0.ctx, offset, buf.as_mut_ptr(), buf.len() as i64) } != 0)
+    }
+}
+
+impl crate::rarreader::Cipher for FfiRar<'_> {
+    fn rar3_prepare(&mut self, salt: &[u8; 8]) -> bool {
+        self.0.rar3_prepare.is_some_and(|f| unsafe { f(self.0.ctx, salt.as_ptr()) } != 0)
+    }
+    fn rar5_prepare(&mut self, kdf_count: u8, salt: &[u8; 16]) -> bool {
+        self.0.rar5_prepare.is_some_and(|f| unsafe { f(self.0.ctx, kdf_count, salt.as_ptr()) } != 0)
+    }
+    fn init(&mut self, key_bits: i32, iv: Option<&[u8; 16]>) -> bool {
+        let iv = iv.map_or(std::ptr::null(), |v| v.as_ptr());
+        self.0.init.is_some_and(|f| unsafe { f(self.0.ctx, key_bits, iv) } != 0)
+    }
+    fn decrypt(&mut self, input: &[u8; 16], output: &mut [u8; 16]) -> bool {
+        self.0.decrypt.is_some_and(|f| unsafe { f(self.0.ctx, input.as_ptr(), output.as_mut_ptr()) } != 0)
+    }
+    fn free(&mut self) {
+        if let Some(f) = self.0.free {
+            unsafe { f(self.0.ctx) }
+        }
+    }
+}
+
+/// RarVolume::ReadFrom: parses the source into `state` (updated) and hands the
+/// files read to add_file, in order (also when the parse fails). 1 when the
+/// volume was read to its end, else 0.
+///
+/// # Safety
+/// `io` and `state` are valid; the callbacks don't unwind; read writes at
+/// most `len` bytes to its buffer.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rar_read(io: *const RarIo, state: *mut RarVolumeState) -> c_int {
+    let (Some(io), Some(st)) = (io.as_ref(), state.as_mut()) else { return 0 };
+    let mut v = crate::rarreader::Volume {
+        version: st.version,
+        volume_no: st.volume_no,
+        new_naming: st.new_naming != 0,
+        has_next_volume: st.has_next_volume != 0,
+        multi_volume: st.multi_volume != 0,
+        encrypted: st.encrypted != 0,
+        has_password: st.has_password != 0,
+        decrypt_buf: st.decrypt_buf,
+        decrypt_pos: st.decrypt_pos,
+        files: Vec::new(),
+    };
+    let mut source = FfiRar(io);
+    let mut cipher = FfiRar(io);
+    let ok = crate::rarreader::read_from(&mut v, &mut source, &mut cipher);
+    st.version = v.version;
+    st.volume_no = v.volume_no;
+    st.new_naming = v.new_naming as c_int;
+    st.has_next_volume = v.has_next_volume as c_int;
+    st.multi_volume = v.multi_volume as c_int;
+    st.encrypted = v.encrypted as c_int;
+    st.decrypt_buf = v.decrypt_buf;
+    st.decrypt_pos = v.decrypt_pos;
+    if let Some(add) = io.add_file {
+        for f in &v.files {
+            let c = f.crypt.unwrap_or_default();
+            let out = RarFileOut {
+                filename: f.filename.as_ptr().cast(),
+                filename_len: f.filename.len(),
+                time: f.time,
+                attr: f.attr,
+                size: f.size,
+                split_before: f.split_before as c_int,
+                split_after: f.split_after as c_int,
+                method: f.method,
+                stored: f.stored as c_int,
+                packed_size: f.packed_size,
+                data_offset: f.data_offset,
+                encrypted_data: f.encrypted_data as c_int,
+                has_salt: f.has_salt as c_int,
+                salt: f.salt,
+                has_crypt: f.crypt.is_some() as c_int,
+                crypt_version: c.version,
+                crypt_flags: c.flags,
+                crypt_kdf_count: c.kdf_count,
+                crypt_salt: c.salt,
+                crypt_iv: c.iv,
+                crypt_check_value: c.check_value,
+                crypt_has_check: c.has_check as c_int,
+            };
+            add(io.ctx, &out);
+        }
+    }
+    ok as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
