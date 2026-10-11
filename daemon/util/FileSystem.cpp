@@ -1220,6 +1220,15 @@ bool FileSystem::DeleteDirectory(const char* dirFilename)
 
 bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& errmsg)
 {
+	// Keep the POSIX NULL-path error distinct from an empty path, without
+	// passing NULL to lstat or printf (their declarations require non-NULL).
+	if (!dirFilename)
+	{
+		errmsg.Clear();
+		errno = EFAULT;
+		errmsg.Format("could not delete (null): %s", *GetLastErrorMessage());
+		return false;
+	}
 	// rust/src/fsdelete.rs
 	RsFsOps ops;
 	NzbgetRsBuf text{};

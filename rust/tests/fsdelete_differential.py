@@ -332,6 +332,15 @@ template <class FS> static std::string NullBackup(const stdfs::path& box, int va
 	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n" + Snapshot(box);
 }
 
+template <class FS> static std::string EmptyDelete(bool content, const char* path)
+{
+	CString output = "previous";
+	errno = 1234;
+	bool ok = content ? FS::DeleteDirectoryWithContent(path, output) : FS::DeleteDirectory(path);
+	int saved = errno;
+	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved);
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
@@ -339,6 +348,35 @@ int main(int argc, char** argv)
 	stdfs::path work = temp / "box" / "work";
 	stdfs::path outside = temp / "outside";
 	if (geteuid() == 0) printf("note: running as root, permission failures don't happen\n");
+
+	for (int variant = 0; variant < 3; variant++)
+	{
+		// The platform's lstat(NULL) behavior is checked only without UBSan:
+		// libc headers may declare its path nonnull. DeleteDirectory(NULL)
+		// is excluded because the legacy opendir(NULL) can crash.
+		if (variant == 2 && argc < 4)
+		{
+			CString error = "previous";
+			errno = 1234;
+			if (newimpl::FileSystem::DeleteDirectoryWithContent(nullptr, error) || errno != EFAULT ||
+				!error || strncmp(*error, "could not delete (null): ", 24))
+			{
+				fprintf(stderr, "NULL delete in Rust branch failed\n");
+				return 1;
+			}
+			continue;
+		}
+		bool content = variant != 0;
+		const char* path = variant == 2 ? nullptr : "";
+		std::string a = EmptyDelete<oldimpl::FileSystem>(content, path);
+		std::string b = EmptyDelete<newimpl::FileSystem>(content, path);
+		std::string c = EmptyDelete<fallbackimpl::FileSystem>(content, path);
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "empty/NULL delete %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
 
 	// GetFileExtension
 	for (const char* s : {"", ".", "a", "a.", ".a", "a.b.c", "/d.x/a", "a.tar.gz", "..", "x/.y"})
@@ -432,4 +470,5 @@ with tempfile.TemporaryDirectory(prefix="nzbget-fsdelete-") as temp:
         run = temp / "run"
         run.mkdir(exist_ok=True)
         subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", str(binary),
-                        str(max(1, int(ROUNDS) // 4)) if "-fsanitize=address,undefined" in extra else ROUNDS, str(run)], check=True)
+                        str(max(1, int(ROUNDS) // 4)) if "-fsanitize=address,undefined" in extra else ROUNDS, str(run),
+                        *([] if "-fsanitize=address,undefined" in extra else ["check-null-path"])], check=True)
