@@ -3620,6 +3620,72 @@ pub unsafe extern "C" fn nzbget_rs_file_extension(name: *const c_char, len: usiz
     crate::fsdelete::file_extension(name).map_or(-1, |ext| (name.len() - ext.len()) as isize)
 }
 
+/// BinRpcProcessor::Execute's check of a request base (BASE_SIZE bytes as
+/// received): 1 when the credentials match, else 0; `kind` (null: not
+/// written) gets the request type.
+///
+/// # Safety
+/// `base` is readable for `len` bytes (fewer than BASE_SIZE: 0); the control
+/// names are null (empty) or NUL-terminated; `kind` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_check(base: *const u8, len: usize, control_user: *const c_char,
+    control_password: *const c_char, kind: *mut u32) -> c_int {
+    let Some(base) = bytes_arg(base, len).get(..crate::binrpc::BASE_SIZE) else { return 0 };
+    let base: &[u8; crate::binrpc::BASE_SIZE] = base.try_into().unwrap();
+    if !kind.is_null() {
+        kind.write(crate::binrpc::request_type(base));
+    }
+    crate::binrpc::credentials_ok(base, input(control_user), input(control_password)) as c_int
+}
+
+/// The request type's name for the log ("Unknown" past the last type): a
+/// static NUL-terminated string.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_name(kind: u32) -> *const c_char {
+    crate::binrpc::request_name(kind).as_ptr()
+}
+
+/// Dispatch's size check against g_MessageRequestSizes: 1 when fine, 0 with
+/// `expected`/`received` (null: not written) set.
+///
+/// # Safety
+/// As nzbget_rs_binrpc_check; `sizes` is null or `count` readable values.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_size_ok(base: *const u8, len: usize, sizes: *const u32, count: usize,
+    expected: *mut u32, received: *mut u32) -> c_int {
+    let Some(base) = bytes_arg(base, len).get(..crate::binrpc::BASE_SIZE) else { return 0 };
+    let base: &[u8; crate::binrpc::BASE_SIZE] = base.try_into().unwrap();
+    let sizes = if sizes.is_null() { &[][..] } else { std::slice::from_raw_parts(sizes, count) };
+    match crate::binrpc::size_error(base, sizes) {
+        None => 1,
+        Some((e, r)) => {
+            if !expected.is_null() {
+                expected.write(e);
+            }
+            if !received.is_null() {
+                received.write(r);
+            }
+            0
+        }
+    }
+}
+
+/// SendBoolResponse's bytes (the 16-byte response, then the text and its
+/// NUL); free with nzbget_rs_free.
+///
+/// # Safety
+/// `text` is null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_bool_response(success: c_int, text: *const c_char) -> RsBuf {
+    into_buf(crate::binrpc::bool_response(success != 0, input(text)))
+}
+
+/// ReceiveTrailing's length check: 1 when 0 <= len <= max.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_trailing_ok(len: i64, max: i64) -> c_int {
+    crate::binrpc::trailing_ok(len, max) as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
