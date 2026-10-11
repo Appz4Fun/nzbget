@@ -17,7 +17,7 @@ Over three months the pull request grew to cover the whole duplicate fleet:
 
 - **July:** article fallback with cutover and lead rotation, then byte-level stream repair across packaging and encryption, live repair during the download, and a functional test harness with dozens of scenarios.
 - **September:** par2 first in the `stream` and `live` modes, so a download's own recovery data repairs what it can before donors are used, and a fix for repairs that stalled on unavailable duplicates.
-- **October:** `HealthCheck=dupe` with early failover and a dead-copy probe, `DupeStreamTimeout`, donor search through NZBHydra2, whole-file rebuilds from proven twins, `appendfleet`, a queue format that NZBGet can still read, and more than 100 fixes to bugs found along the way, most of them reported upstream.
+- **October:** `HealthCheck=dupe` with early failover and a dead-copy probe, `DupeStreamTimeout`, donor search through NZBHydra2, whole-file rebuilds from proven twins, `appendfleet`, a queue format that NZBGet can still read, and about 100 fixes to bugs found along the way, most of them reported upstream.
 
 By October it held 385 commits and about 45,000 added lines, much of it tests, and it had run in daily use since July.
 
