@@ -257,13 +257,20 @@ def check_paths(manifest, source, output):
     inputs = [manifest.resolve(), source.resolve()]
     if inputs[0] == inputs[1] or (manifest.exists() and source.exists() and manifest.samefile(source)):
         raise ValueError("manifest and source must be separate files")
-    for path in inputs:
-        if path == destination or destination in path.parents:
+    for original, path in zip((manifest, source), inputs):
+        # Preserve the input directory entry itself: resolving a dangling
+        # leaf symlink can move its target outside output, where cleanup would
+        # otherwise mistake the original input link for an owned artifact.
+        entry = original.parent.resolve() / original.name
+        if (path == destination or destination in path.parents or
+                entry == destination or destination in entry.parents):
             raise ValueError("input/output collision")
     for filename in ["source.raw", "source-manifest.raw", "manifest.json", "samples.jsonl", "adapter-status.json", "legacy-evidence.json"]:
         target = output / filename
-        if target.exists() and any(path.exists() and target.samefile(path) for path in inputs):
-            raise ValueError("input/output alias collision")
+        if target.exists() or target.is_symlink():
+            if (target.resolve() in inputs or
+                    (target.exists() and any(path.exists() and target.samefile(path) for path in inputs))):
+                raise ValueError("input/output alias collision")
 
 
 def clear_owned_exports(output):
