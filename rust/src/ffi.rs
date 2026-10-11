@@ -3620,6 +3620,158 @@ pub unsafe extern "C" fn nzbget_rs_file_extension(name: *const c_char, len: usiz
     crate::fsdelete::file_extension(name).map_or(-1, |ext| (name.len() - ext.len()) as isize)
 }
 
+/// BinRpcProcessor::Execute's check of a request base (BASE_SIZE bytes as
+/// received): 1 when the credentials match, else 0; `kind` (null: not
+/// written) gets the request type.
+///
+/// # Safety
+/// `base` is readable for `len` bytes (fewer than BASE_SIZE: 0); the control
+/// names are null (empty) or NUL-terminated; `kind` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_check(base: *const u8, len: usize, control_user: *const c_char,
+    control_password: *const c_char, kind: *mut u32) -> c_int {
+    let Some(base) = bytes_arg(base, len).get(..crate::binrpc::BASE_SIZE) else { return 0 };
+    let base: &[u8; crate::binrpc::BASE_SIZE] = base.try_into().unwrap();
+    // Finish reading inputs before writing an output that may overlap them.
+    let request_type = crate::binrpc::request_type(base);
+    let valid = crate::binrpc::credentials_ok(base, input(control_user), input(control_password));
+    if !kind.is_null() {
+        kind.write(request_type);
+    }
+    valid as c_int
+}
+
+/// The request type's name for the log ("Unknown" past the last type): a
+/// static NUL-terminated string.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_name(kind: u32) -> *const c_char {
+    crate::binrpc::request_name(kind).as_ptr()
+}
+
+/// Dispatch's size check against g_MessageRequestSizes: 1 when fine, 0 with
+/// `expected`/`received` (null: not written) set on a size mismatch. A short
+/// base or a missing table entry also returns 0, leaving outputs untouched.
+///
+/// # Safety
+/// `base` is null or readable for `len` bytes; `sizes` is null or `count`
+/// readable, aligned values; outputs are null or writable, aligned values.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_size_ok(base: *const u8, len: usize, sizes: *const u32, count: usize,
+    expected: *mut u32, received: *mut u32) -> c_int {
+    let Some(base) = bytes_arg(base, len).get(..crate::binrpc::BASE_SIZE) else { return 0 };
+    let base: &[u8; crate::binrpc::BASE_SIZE] = base.try_into().unwrap();
+    let sizes = if sizes.is_null() { &[][..] } else { std::slice::from_raw_parts(sizes, count) };
+    let kind = crate::binrpc::request_type(base);
+    if (1..=crate::binrpc::LAST_TYPE).contains(&kind) && sizes.len() <= kind as usize {
+        return 0;
+    }
+    match crate::binrpc::size_error(base, sizes) {
+        None => 1,
+        Some((e, r)) => {
+            if !expected.is_null() {
+                expected.write(e);
+            }
+            if !received.is_null() {
+                received.write(r);
+            }
+            0
+        }
+    }
+}
+
+/// SendBoolResponse's bytes (the 16-byte response, then the text and its
+/// NUL); free with nzbget_rs_free.
+///
+/// # Safety
+/// `text` is null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_bool_response(success: c_int, text: *const c_char) -> RsBuf {
+    into_buf(crate::binrpc::bool_response(success != 0, input(text)))
+}
+
+/// ReceiveTrailing's length check: 1 when 0 <= len <= max.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_trailing_ok(len: i64, max: i64) -> c_int {
+    crate::binrpc::trailing_ok(len, max) as c_int
+}
+
+#[cfg(test)]
+mod binrpc_tests {
+    use super::*;
+    use crate::binrpc::BASE_SIZE;
+    use std::ptr::{null, null_mut};
+
+    #[test]
+    fn null_and_short_inputs() {
+        unsafe {
+            let base = [0u8; BASE_SIZE];
+            let mut kind = 42;
+            for len in 0..BASE_SIZE {
+                assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), len, null(), null(), &mut kind), 0);
+                assert_eq!(kind, 42);
+                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), len, null(), 0, null_mut(), null_mut()), 0);
+            }
+            assert_eq!(nzbget_rs_binrpc_check(null(), BASE_SIZE, null(), null(), &mut kind), 0);
+            assert_eq!(kind, 42);
+            assert_eq!(nzbget_rs_binrpc_size_ok(null(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), BASE_SIZE, null(), null(), null_mut()), 1);
+            let response = nzbget_rs_binrpc_bool_response(-1, null());
+            assert_eq!(std::slice::from_raw_parts(response.data.cast::<u8>(), response.len),
+                [0x6e, 0x7a, 0x62, 0x31, 0, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 1, 0]);
+            nzbget_rs_free(response);
+        }
+    }
+
+    #[test]
+    fn missing_sizes_fail_and_null_outputs_are_allowed() {
+        unsafe {
+            let mut base = [0u8; BASE_SIZE];
+            base[8..12].copy_from_slice(&14u32.to_be_bytes());
+            let sizes = [123u32; 15];
+            let (mut expected, mut received) = (7, 9);
+            for count in 0..15 {
+                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), count,
+                    &mut expected, &mut received), 0);
+                assert_eq!((expected, received), (7, 9));
+            }
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 15, null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                &mut expected, &mut received), 0);
+            assert_eq!((expected, received), (123, 0));
+            base[4..8].copy_from_slice(&123u32.to_be_bytes());
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                null_mut(), null_mut()), 1);
+            // Unknown types still bypass the table, just as Dispatch does.
+            base[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 1);
+        }
+    }
+
+    #[test]
+    fn credential_output_may_overlap_inputs() {
+        #[repr(C, align(4))]
+        struct Base([u8; BASE_SIZE]);
+        unsafe {
+            let mut base = Base([0; BASE_SIZE]);
+            base.0[8..12].copy_from_slice(&14u32.to_be_bytes());
+            base.0[12..16].copy_from_slice(b"user");
+            let ptr = base.0.as_mut_ptr();
+            assert_eq!(nzbget_rs_binrpc_check(ptr, BASE_SIZE, c"user".as_ptr(), c"".as_ptr(),
+                ptr.add(12).cast()), 1);
+            assert_eq!(ptr.add(12).cast::<u32>().read(), 14);
+
+            let mut control_password = u32::from_ne_bytes(*b"pw\0\0");
+            base.0[44..46].copy_from_slice(b"pw");
+            let password_ptr = &mut control_password as *mut u32;
+            assert_eq!(nzbget_rs_binrpc_check(base.0.as_ptr(), BASE_SIZE, null(), password_ptr.cast(),
+                password_ptr), 1);
+            assert_eq!(control_password, 14);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

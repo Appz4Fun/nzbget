@@ -932,6 +932,27 @@ int nzbget_rs_rename_bak(const NzbgetRsFsOps* ops, const char* filename, const c
 // FileSystem::GetFileExtension: the offset of the last '.', or -1.
 ptrdiff_t nzbget_rs_file_extension(const char* name, size_t len);
 
+// The binary remote protocol's frame (rust/src/binrpc.rs). base is the
+// request base as received (SNzbRequestBase, 76 bytes, network byte order).
+// check: 1 when the credentials match (strcmp as BinRpcProcessor compared
+// them; an empty control user isn't compared), *type the request type.
+// name: a static string for the log. size_ok: 1, or 0 with *expected and
+// *received set for a known type whose struct size differs from sizes[type].
+// bool_response: the bytes SendBoolResponse sends (free with nzbget_rs_free).
+// trailing_ok: 1 when 0 <= len <= max. NULL outputs aren't written; a NULL
+// or short base fails, as does a missing sizes entry for a known type,
+// leaving outputs untouched. NULL control strings/text mean empty strings.
+// Non-NULL inputs must be readable for their lengths (strings through NUL);
+// non-NULL uint32_t pointers must be aligned and outputs writable. Outputs
+// may overlap inputs; inputs are read first. Panics abort.
+int nzbget_rs_binrpc_check(const unsigned char* base, size_t len, const char* controlUser, const char* controlPassword,
+	uint32_t* type);
+const char* nzbget_rs_binrpc_name(uint32_t type);
+int nzbget_rs_binrpc_size_ok(const unsigned char* base, size_t len, const uint32_t* sizes, size_t count,
+	uint32_t* expected, uint32_t* received);
+NzbgetRsBuf nzbget_rs_binrpc_bool_response(int success, const char* text);
+int nzbget_rs_binrpc_trailing_ok(int64_t len, int64_t max);
+
 #ifdef __cplusplus
 }
 #endif

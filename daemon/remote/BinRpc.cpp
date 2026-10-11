@@ -32,6 +32,9 @@
 #include "Scanner.h"
 #include "StatMeter.h"
 #include "UrlCoordinator.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 extern void ExitProc();
 extern void Reload();
@@ -175,6 +178,31 @@ BinRpcProcessor::BinRpcProcessor()
 	m_messageBase.m_signature = (int)NZBMESSAGE_SIGNATURE;
 }
 
+#ifdef NZBGET_USE_RUST
+void BinRpcProcessor::Execute()
+{
+	// Read the first package which needs to be a request
+	if (!m_connection->Recv(((char*)&m_messageBase) + sizeof(m_messageBase.m_signature), sizeof(m_messageBase) - sizeof(m_messageBase.m_signature)))
+	{
+		warn("Non-nzbget request received on port %i from %s", g_Options->GetControlPort(), m_connection->GetRemoteAddr());
+		return;
+	}
+
+	// rust/src/binrpc.rs: the credentials and the request type
+	uint32 type = 0;
+	if (!nzbget_rs_binrpc_check(reinterpret_cast<const unsigned char*>(&m_messageBase), sizeof(m_messageBase),
+		g_Options->GetControlUsername(), g_Options->GetControlPassword(), &type))
+	{
+		warn("nzbget request received on port %i from %s, but username or password invalid", g_Options->GetControlPort(), m_connection->GetRemoteAddr());
+		return;
+	}
+
+	debug("%s request received from %s", nzbget_rs_binrpc_name(type), m_connection->GetRemoteAddr());
+
+	Dispatch();
+}
+
+#else
 void BinRpcProcessor::Execute()
 {
 	// Read the first package which needs to be a request
@@ -198,8 +226,20 @@ void BinRpcProcessor::Execute()
 	Dispatch();
 }
 
+#endif
+
 void BinRpcProcessor::Dispatch()
 {
+#ifdef NZBGET_USE_RUST
+	// rust/src/binrpc.rs
+	uint32 expectedSize = 0, receivedSize = 0;
+	if (!nzbget_rs_binrpc_size_ok(reinterpret_cast<const unsigned char*>(&m_messageBase), sizeof(m_messageBase),
+		g_MessageRequestSizes, sizeof(g_MessageRequestSizes) / sizeof(g_MessageRequestSizes[0]), &expectedSize, &receivedSize))
+	{
+		error("Invalid size of request: expected %i Bytes, but received %i Bytes", expectedSize, receivedSize);
+		return;
+	}
+#else
 	if (ntohl(m_messageBase.m_type) >= (int)rrDownload &&
 		   ntohl(m_messageBase.m_type) <= (int)rrHistory &&
 		   g_MessageRequestSizes[ntohl(m_messageBase.m_type)] != ntohl(m_messageBase.m_structSize))
@@ -208,6 +248,7 @@ void BinRpcProcessor::Dispatch()
 			 g_MessageRequestSizes[ntohl(m_messageBase.m_type)], ntohl(m_messageBase.m_structSize));
 		return;
 	}
+#endif
 
 	std::unique_ptr<BinCommand> command;
 
@@ -285,6 +326,17 @@ void BinRpcProcessor::Dispatch()
 //*****************************************************************
 // Commands
 
+#ifdef NZBGET_USE_RUST
+void BinCommand::SendBoolResponse(bool success, const char* text)
+{
+	// rust/src/binrpc.rs: the response, then the text and its NUL
+	NzbgetRsBuf response = nzbget_rs_binrpc_bool_response(success, text);
+	m_connection->Send(response.data, sizeof(SNzbDownloadResponse));
+	m_connection->Send(response.data + sizeof(SNzbDownloadResponse), (int)(response.len - sizeof(SNzbDownloadResponse)));
+	nzbget_rs_free(response);
+}
+
+#else
 void BinCommand::SendBoolResponse(bool success, const char* text)
 {
 	// all bool-responses have the same format of structure, we use SNZBDownloadResponse here
@@ -300,6 +352,8 @@ void BinCommand::SendBoolResponse(bool success, const char* text)
 	m_connection->Send((char*) &BoolResponse, sizeof(BoolResponse));
 	m_connection->Send((char*)text, textLen);
 }
+
+#endif
 
 bool BinCommand::ReceiveRequest(void* buffer, int size)
 {
@@ -322,7 +376,11 @@ bool BinCommand::ReceiveRequest(void* buffer, int size)
 // the C string functions
 bool BinCommand::ReceiveTrailing(CharBuffer& buffer, int64 len, int64 maxLen)
 {
+#ifdef NZBGET_USE_RUST
+	if (!nzbget_rs_binrpc_trailing_ok(len, maxLen))
+#else
 	if (len < 0 || len > maxLen)
+#endif
 	{
 		error("invalid request: data length %" PRIi64, len);
 		return false;
