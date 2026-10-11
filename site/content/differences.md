@@ -97,7 +97,7 @@ See [API and compatibility](api.md).
 
 ## Bug fixes
 
-RustyGet fixes about 100 inherited bugs. 96 of them are reported to the NZBGet project as issues #940 to #1046. Highlights:
+RustyGet fixes about 100 inherited bugs. 96 of them are [reported to the NZBGet project](https://github.com/nzbgetcom/nzbget/issues?q=is%3Aissue+author%3Axbmc4lyfe), as its issues 940 to 1046. Highlights:
 
 - **Downloads:** 451 errors count as missing, 502 login refusals move on, malformed headers move to the next server, a connection that times out in the middle of an article is closed instead of reused, yEnc data can't overrun its range, and uuencoded parts no longer pass through the article cache.
 - **Post-processing:** `ParScan=extended` and `ParScan=dupe` find extra blocks again, split files join correctly, a failed direct unpack no longer deletes the download folder, `ParTimeLimit` counts from the right moment, RAR-rename works per folder, and archives with encrypted headers parse.

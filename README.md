@@ -47,7 +47,7 @@ RustyGet is a Usenet downloader that started as a fork of [NZBGet](https://githu
 | Configuration | 155 options | 16 new options and a new `HealthCheck` value, all off by default |
 | API | NZBGet API | NZBGet API, plus `appendfleet`, new fields, POST for risky methods on the JSON-RPC and XML-RPC paths, and access checks in multicalls |
 | Queue and history files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
-| Inherited bugs | | About 100 fixed, 96 of them reported to NZBGet as issues #940 to #1046: downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
+| Inherited bugs | | About 100 fixed, 96 of them [reported to NZBGet as its issues 940 to 1046](https://github.com/nzbgetcom/nzbget/issues?q=is%3Aissue+author%3Axbmc4lyfe): downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
 | CI workflows | Builds and tests for every platform | Turned off in the Actions tab while the tests are rebuilt; only the documentation workflow runs |
 
 The new options are `DupeArticleFallback`, `DupeStreamDecompress`, `DupeStreamTimeout`, `DupeSearch`, `DupeSearchUrl`, `DupeSearchApiKey`, `DupeSearchDelay`, `DupeSearchDryRun`, `DupeSearchMaxDonors`, `DupeHealthPercent`, `DupeHealthMin`, `DupeHealthMax`, `DupeBodyChecks`, `DupeHealthBudget`, `DupeMinAlive`, and `DupeFastDonors`. The full list of changes is in [Differences from NZBGet](https://appz4fun.github.io/nzbget/differences.html).
