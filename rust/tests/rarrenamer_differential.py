@@ -181,17 +181,21 @@ probe_prelude = r"""
 #include <clocale>
 """ + (ROOT / "daemon/postprocess/RarReader.h").read_text().replace("private:", "public:") + globals_block + r"""
 static std::vector<std::string> probeTrace;
-static int probeChecks, probeCollisions, probeFail;
+static int probeChecks, probeCollisions, probeFail, probeFailAt, probeFailureCalls;
+static bool ProbeFail(int kind)
+{
+    return probeFail == kind && ++probeFailureCalls == probeFailAt;
+}
 static bool ProbeExists(const char* path)
 {
     probeTrace.push_back(std::string("exists:") + path);
-    if (probeFail == 1) throw std::runtime_error("exists");
+    if (ProbeFail(1)) throw std::runtime_error("exists");
     return ++probeChecks <= probeCollisions;
 }
 static void ProbeRename(const char* src, const char* dest)
 {
     probeTrace.push_back(std::string("rename:") + src + ">" + dest);
-    if (probeFail == 2) throw std::runtime_error("rename");
+    if (ProbeFail(2)) throw std::runtime_error("rename");
 }
 struct ProbeRegEx : RegEx
 {
@@ -199,7 +203,7 @@ struct ProbeRegEx : RegEx
     bool Match(const char* name)
     {
         probeTrace.push_back(std::string("match:") + name);
-        if (probeFail == 3) throw std::runtime_error("match");
+        if (ProbeFail(3)) throw std::runtime_error("match");
         return RegEx::Match(name);
     }
 };

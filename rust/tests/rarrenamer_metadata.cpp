@@ -16,12 +16,14 @@ struct VolumeSpec
 	std::vector<FileSpec> files = {FileSpec{}};
 };
 
-template<class R> static std::vector<std::string> probe(const std::vector<VolumeSpec>& specs, int collisions, int fail)
+template<class R> static std::vector<std::string> probe(const std::vector<VolumeSpec>& specs, int collisions, int fail, int failAt)
 {
 	probeTrace.clear();
 	probeChecks = 0;
 	probeCollisions = collisions;
 	probeFail = fail;
+	probeFailAt = failAt;
+	probeFailureCalls = 0;
 	R renamer;
 	for (const auto& spec : specs)
 	{
@@ -47,11 +49,11 @@ template<class R> static std::vector<std::string> probe(const std::vector<Volume
 	return probeTrace;
 }
 
-static void compare(const std::vector<VolumeSpec>& specs, int collisions = 0, int fail = 0)
+static void compare(const std::vector<VolumeSpec>& specs, int collisions = 0, int fail = 0, int failAt = 1)
 {
-	auto old = probe<ProbeOldRarRenamer>(specs, collisions, fail);
-	auto rust = probe<ProbeRustRarRenamer>(specs, collisions, fail);
-	auto fallback = probe<ProbeFallbackRarRenamer>(specs, collisions, fail);
+	auto old = probe<ProbeOldRarRenamer>(specs, collisions, fail, failAt);
+	auto rust = probe<ProbeRustRarRenamer>(specs, collisions, fail, failAt);
+	auto fallback = probe<ProbeFallbackRarRenamer>(specs, collisions, fail, failAt);
 	if (old != rust || old != fallback)
 	{
 		for (const auto& spec : specs) fprintf(stderr, "input: %s (#%u)\n", spec.name.c_str(), spec.number);
@@ -154,6 +156,17 @@ static void cases()
 	compare({first}, 0, 1); // file-exists exception
 	compare({first}, 0, 2); // rename exception
 	compare({first}, 0, 3); // regex exception
+	first.next = true;
+	first.name = "/dir/a.part01.rar";
+	second = first;
+	second.number = 1;
+	second.next = false;
+	second.name = "/dir/b.part02.rar";
+	twin = first;
+	twin.name = "/dir/c.part01.rar";
+	for (int fail = 1; fail <= 3; ++fail)
+		for (int at = 1; at <= 4; ++at)
+			compare({first, second, twin}, 2, fail, at);
 
 	// Name matching around the bounded temporary's cutoff, including NULs.
 	for (size_t n : {0, 1, 1010, 1018, 1020, 1023, 1024, 1100})
@@ -172,11 +185,53 @@ static void cases()
 	puts("synthetic metadata, callback order and exception cases agree");
 }
 
+static void randomCases()
+{
+	// Vary metadata independently of the finite archive fixtures, while keeping
+	// volume numbers small so every chain terminates without wrapping.
+	uint32 state = 0x71234567;
+	auto pick = [&](uint32 n) {
+		state ^= state << 13;
+		state ^= state >> 17;
+		state ^= state << 5;
+		return state % n;
+	};
+	const std::string names[] = {"a.part01.rar", "a.part02.rar", "a.part03.rar",
+		"b.part01.rar", "b.part02.rar", "a.rar", "a.r00", "a.r01", "A.PART01.RAR",
+		"a.part001.rar", "apart1.rar", "a\n.part1.rar", "hidden", "a.", ".rar"};
+	const std::string files[] = {"movie.mkv", "equal.avi", "dir\\movie.mkv",
+		std::string("movie.mkv\0suffix", 16), std::string("\xff.mkv"), "100%.mkv"};
+	for (int round = 0; round < 1000; ++round)
+	{
+		std::vector<VolumeSpec> specs;
+		const uint32 count = 1 + pick(10);
+		for (uint32 i = 0; i < count; ++i)
+		{
+			VolumeSpec v;
+			v.name = "/dir/" + names[pick(sizeof names / sizeof *names)];
+			v.number = pick(4);
+			v.next = pick(2);
+			v.multi = pick(4) != 0;
+			v.naming = pick(2);
+			v.version = pick(4) ? 5 : 3;
+			v.files.clear();
+			const uint32 fileCount = pick(4);
+			for (uint32 j = 0; j < fileCount; ++j)
+				v.files.push_back({files[pick(sizeof files / sizeof *files)],
+					(int64)pick(4) - 1, pick(4) == 0, pick(4) == 0});
+			specs.push_back(std::move(v));
+		}
+		compare(specs, pick(5));
+	}
+	puts("1000 randomized metadata cases agree");
+}
+
 int main()
 {
 	for (const char* locale : {"C", "C.UTF-8"})
 	{
 		if (!setlocale(LC_ALL, locale)) continue;
 		cases();
+		randomCases();
 	}
 }
