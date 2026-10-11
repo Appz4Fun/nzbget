@@ -7,7 +7,10 @@ duplicated or colliding with their correct names, par2 files damaged or
 truncated, junk files with par2 headers, stops and exceptions part way.
 Every version runs on an identical copy at the same path; compares the
 files left (names and contents), every message, progress update and
-registered name, and the counters.
+registered name, and the counters. Also covers callback-visible state,
+repeated Execute calls, callback/translation exceptions, and bounded paths.
+Inputs that made the original C++ read uninitialized memory are compared
+only between Rust and the initialized fallback.
 
 Usage: parrenamer_differential.py BUILD_DIR [ROUNDS]
 """
@@ -36,6 +39,9 @@ def impl(name, header, cpp, fallback=False):
     body = cpp[cpp.index("class ParRenamerRepairer"):cpp.rindex("#endif")]
     if fallback:
         body = body.replace("#ifdef NZBGET_USE_RUST\nvoid ParRenamer::Execute()", "#ifndef NZBGET_USE_RUST\nvoid ParRenamer::Execute()")
+    # Inject an exception at the same operation in every implementation.
+    body = body.replace("std::string filename = Par2::DescriptionPacket::TranslateFilenameFromPar2ToLocal(",
+                        "BeforeTranslate();\n\t\tstd::string filename = Par2::DescriptionPacket::TranslateFilenameFromPar2ToLocal(")
     return f"namespace {name}\n{{\n{cls}\n{body}\n}}\n"
 
 
@@ -59,6 +65,7 @@ main = r'''
 #include "Util.h"
 #include "FileSystem.h"
 #include "nzbget_rs.h"
+#include <clocale>
 #include <cstdarg>
 #include <exception>
 #include <filesystem>
@@ -67,6 +74,12 @@ main = r'''
 #include <stdexcept>
 #include <string>
 #include <vector>
+static int translateAfter = -1;
+static void BeforeTranslate()
+{
+	if (translateAfter == 0) throw std::runtime_error("translation failed");
+	if (translateAfter > 0) --translateAfter;
+}
 ''' + globals_block + impl("oldimpl", old_h, old_cpp) + impl("newimpl", new_h, new_cpp) + impl("fallbackimpl", new_h, new_cpp, True) + r'''
 namespace stdfs = std::filesystem;
 
@@ -74,7 +87,11 @@ struct Plan
 {
 	int stopAfter = -1;
 	int throwAfter = -1;
+	int throwEvent = -1;
+	int throwTranslate = -1;
 	bool detectMissing = false;
+	int executions = 1;
+	bool setMissing = false;
 };
 
 template <class Base> struct Recorder : Base
@@ -83,17 +100,28 @@ template <class Base> struct Recorder : Base
 	Plan plan;
 	int stopCalls = 0;
 	int renames = 0;
+	int events = 0;
+
+	void Observe()
+	{
+		log += "S " + std::to_string(Base::GetRenamedCount()) + " " +
+			std::to_string(Base::HasMissedFiles()) + " " + std::to_string(Base::HasDamagedParFiles()) + "\n";
+		if (plan.throwEvent >= 0 && events++ == plan.throwEvent) throw std::runtime_error("callback failed");
+	}
 
 	void UpdateProgress() override
 	{
+		Observe();
 		log += "P " + std::string(Base::GetProgressLabel()) + " " + std::to_string(Base::GetStageProgress()) + "\n";
 	}
 	bool IsStopped() override
 	{
+		Observe();
 		return plan.stopAfter >= 0 && ++stopCalls > plan.stopAfter;
 	}
 	void PrintMessage(Message::EKind kind, const char* format, ...) override
 	{
+		Observe();
 		char buf[4096];
 		va_list ap;
 		va_start(ap, format);
@@ -103,10 +131,13 @@ template <class Base> struct Recorder : Base
 	}
 	void RegisterParredFile(const char* filename) override
 	{
+		Observe();
+		if (plan.setMissing) Base::SetDetectMissing(true);
 		log += "R " + std::string(filename) + "\n";
 	}
 	void RegisterRenamedFile(const char* oldFilename, const char* newFilename) override
 	{
+		Observe();
 		log += "N " + std::string(oldFilename) + " -> " + newFilename + "\n";
 		if (plan.throwAfter >= 0 && ++renames > plan.throwAfter)
 		{
@@ -139,17 +170,15 @@ template <class Impl> static std::string Run(const stdfs::path& scenario, const 
 	stdfs::copy(scenario, work, stdfs::copy_options::recursive);
 	Recorder<Impl> renamer;
 	renamer.plan = plan;
+	translateAfter = plan.throwTranslate;
 	renamer.SetDestDir(work.string().c_str());
 	renamer.SetInfoName("scenario");
 	renamer.SetDetectMissing(plan.detectMissing);
 	std::string result;
-	try
+	for (int n = 0; n < plan.executions; n++)
 	{
-		renamer.Execute();
-	}
-	catch (const std::exception& e)
-	{
-		result = std::string("exception: ") + e.what() + "\n";
+		try { renamer.Execute(); }
+		catch (const std::exception& e) { result += std::string("exception: ") + e.what() + "\n"; }
 	}
 	return result + renamer.log + "renamed " + std::to_string(renamer.GetRenamedCount()) + " missed " +
 		std::to_string(renamer.HasMissedFiles()) + " damaged " + std::to_string(renamer.HasDamagedParFiles()) + "\n" + Snapshot(work);
@@ -240,6 +269,7 @@ static void Build(const stdfs::path& dir, const std::vector<stdfs::path>& sets)
 			WriteFile(where / newName, content);
 		}
 	}
+	if (below(4) == 0) WriteFile(dir / (std::string(100, 'x') + ".par2"), Header(64, true));
 	// junk, files with par2 headers and files at the names the par2 files give
 	for (int n = below(4); n > 0; --n)
 	{
@@ -259,6 +289,7 @@ static void Build(const stdfs::path& dir, const std::vector<stdfs::path>& sets)
 
 int main(int argc, char** argv)
 {
+	setlocale(LC_ALL, "");
 	Options::CmdOptList cmdOpts;
 	cmdOpts.push_back("ParIgnoreExt=.nfo,.sfv");
 	Options options(&cmdOpts, nullptr);
@@ -276,9 +307,24 @@ int main(int argc, char** argv)
 		Build(temp / "scenario", sets);
 		Plan plan;
 		plan.detectMissing = below(2);
+		plan.executions = below(5) == 0 ? 2 : 1;
+		plan.setMissing = below(5) == 0;
 		if (below(10) == 0) plan.stopAfter = below(40);
 		if (below(12) == 0) plan.throwAfter = below(4);
+		if (below(8) == 0) plan.throwEvent = below(100);
+		if (below(8) == 0) plan.throwTranslate = below(6);
 		stdfs::path work = temp / "work";
+		if (round % 20 == 0)
+		{
+			// Leave enough suffix space for volume numbers while crossing the
+			// 1023-byte limit for long source/description names.
+			while (work.string().size() < 960)
+			{
+				size_t n = std::min<size_t>(180, 960 - work.string().size() - 1);
+				work /= std::string(n, 'd');
+			}
+			stdfs::create_directories(work.parent_path());
+		}
 		std::string a = Run<oldimpl::ParRenamer>(temp / "scenario", work, plan);
 		std::string b = Run<newimpl::ParRenamer>(temp / "scenario", work, plan);
 		std::string c = Run<fallbackimpl::ParRenamer>(temp / "scenario", work, plan);
@@ -288,6 +334,69 @@ int main(int argc, char** argv)
 			fprintf(stderr, "round %ld mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", round, a.c_str(), b.c_str(), c.c_str());
 			return 1;
 		}
+	}
+	{
+		stdfs::path dir = temp / "same-size";
+		stdfs::remove_all(dir);
+		stdfs::copy(all[0], dir, stdfs::copy_options::recursive);
+		std::string original = ReadFile(dir / "testfile.dat");
+		stdfs::remove(dir / "testfile.dat");
+		WriteFile(dir / "wrong-content", std::string(original.size(), 'x'));
+		Plan plan;
+		plan.detectMissing = true;
+		std::string a = Run<oldimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+		if (a != b || a != c || b.find("File testfile.dat is missing") == std::string::npos)
+		{ fprintf(stderr, "same-size mismatch\n"); return 1; }
+	}
+	{
+		// A valid packet checksum with an empty description name makes the
+		// real libpar2 translator throw (string::at(0)), after IsStopped.
+		stdfs::path dir = temp / "empty-description";
+		stdfs::remove_all(dir);
+		std::string content = ReadFile(all[0] / "testfile.par2");
+		for (size_t at = 0; at + 64 <= content.size(); )
+		{
+			unsigned long long length = 0;
+			for (int i = 0; i < 8; i++) length |= (unsigned long long)(unsigned char)content[at + 8 + i] << (8 * i);
+			if (length < 64 || length > content.size() - at) break;
+			if (length > 120 && !content.compare(at + 48, 16, std::string("PAR 2.0\0FileDesc", 16)))
+			{
+				content[at + 120] = 0;
+				Par2::MD5Context md5;
+				Par2::MD5Hash hash;
+				md5.Update(content.data() + at + 32, length - 32);
+				md5.Final(hash);
+				memcpy(content.data() + at + 16, &hash, 16);
+			}
+			at += length;
+		}
+		WriteFile(dir / "testfile.par2", content);
+		for (int stopped = 0; stopped < 2; stopped++)
+		{
+			Plan plan;
+			if (stopped) plan.stopAfter = 0;
+			std::string a = Run<oldimpl::ParRenamer>(dir, temp / "work", plan);
+			std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+			std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+			if (a != b || a != c || (b.find("exception:") != std::string::npos) != !stopped)
+			{ fprintf(stderr, "empty-description mismatch\n%s\n%s\n%s", a.c_str(), b.c_str(), c.c_str()); return 1; }
+		}
+	}
+	for (int n = 0; n < 3; n++)
+	{
+		stdfs::path dir = temp / "undefined-input";
+		stdfs::remove_all(dir);
+		stdfs::create_directories(dir);
+		std::string h = Header(0x80000000ull, false);
+		if (n < 2) h.resize(n == 0 ? 8 : 16);
+		WriteFile(dir / ".par2", h);
+		WriteFile(dir / "a.par2", h);
+		Plan plan;
+		std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+		if (b != c) { fprintf(stderr, "initialized fallback mismatch %d\n", n); return 1; }
 	}
 	printf("%ld scenarios agree, %ld with renames (reference %s)\n", rounds, renamedRounds, "''' + REFERENCE + r'''");
 }

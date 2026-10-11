@@ -35,6 +35,7 @@
 #include "FileSystem.h"
 #ifdef NZBGET_USE_RUST
 #include <exception>
+#include <memory>
 #include "nzbget_rs.h"
 #endif
 
@@ -60,13 +61,15 @@ void ParRenamer::Execute()
 		ParRenamer* self;
 		std::exception_ptr error;
 		int renamedOnError;
+		std::unique_ptr<ParRenamerRepairer> repairer;
+		std::map<Par2::MD5Hash, Par2::Par2RepairerSourceFile*>::iterator entry;
 
 		int Fail()
 		{
 			error = std::current_exception();
 			return -1;
 		}
-	} context{this, nullptr, 0};
+	} context{this, nullptr, 0, nullptr, {}};
 
 	NzbgetRsParRenamerEnv env{};
 	env.ctx = &context;
@@ -151,33 +154,46 @@ void ParRenamer::Execute()
 		}
 		catch (...) { return c.Fail(); }
 	};
-	env.loadPar = [](void* ctx, const char* path, void* sink,
+	env.loadPar = [](void* ctx, const char* path, size_t* count) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			c.repairer = std::make_unique<ParRenamerRepairer>();
+			if (!c.repairer->LoadPacketsFromFile(path) || FileSystem::FileSize(path) == 0)
+			{
+				c.repairer.reset();
+				return 0;
+			}
+			*count = c.repairer->sourcefilemap.size();
+			c.entry = c.repairer->sourcefilemap.begin();
+			return 1;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.parEntry = [](void* ctx, void* sink,
 		void (*add)(void*, int, const char*, const char*)) noexcept -> int
 	{
 		Context& c = *static_cast<Context*>(ctx);
 		try
 		{
-			ParRenamerRepairer repairer;
-			if (!repairer.LoadPacketsFromFile(path) || FileSystem::FileSize(path) == 0)
+			Par2::Par2RepairerSourceFile* sourceFile = (c.entry++)->second;
+			if (!sourceFile || !sourceFile->GetDescriptionPacket())
 			{
+				add(sink, 1, nullptr, nullptr);
 				return 0;
 			}
-			for (std::pair<const Par2::MD5Hash, Par2::Par2RepairerSourceFile*>& entry : repairer.sourcefilemap)
-			{
-				Par2::Par2RepairerSourceFile* sourceFile = entry.second;
-				if (!sourceFile || !sourceFile->GetDescriptionPacket())
-				{
-					add(sink, 1, nullptr, nullptr);
-					continue;
-				}
-				std::string filename = Par2::DescriptionPacket::TranslateFilenameFromPar2ToLocal(
-					c.self->m_nout, c.self->m_nout, Par2::nlNormal, sourceFile->GetDescriptionPacket()->FileName());
-				std::string hash = sourceFile->GetDescriptionPacket()->Hash16k().print();
-				add(sink, 0, filename.c_str(), hash.c_str());
-			}
-			return 1;
+			std::string filename = Par2::DescriptionPacket::TranslateFilenameFromPar2ToLocal(
+				c.self->m_nout, c.self->m_nout, Par2::nlNormal, sourceFile->GetDescriptionPacket()->FileName());
+			std::string hash = sourceFile->GetDescriptionPacket()->Hash16k().print();
+			add(sink, 0, filename.c_str(), hash.c_str());
+			return 0;
 		}
 		catch (...) { return c.Fail(); }
+	};
+	env.closePar = [](void* ctx) noexcept
+	{
+		static_cast<Context*>(ctx)->repairer.reset();
 	};
 	env.findMainPars = [](void* ctx, const char* dir, void* sink, void (*add)(void*, const char*)) noexcept -> int
 	{
@@ -226,6 +242,31 @@ void ParRenamer::Execute()
 		try { return Util::MatchFileExt(name, g_Options->GetParIgnoreExt(), ",;") ? 1 : 0; } catch (...) { return c.Fail(); }
 	};
 	env.fold = ParParser::FilenameFold;
+	env.stateChanged = [](void* ctx, NzbgetRsParRenamerState* state) noexcept
+	{
+		ParRenamer* self = static_cast<Context*>(ctx)->self;
+		self->m_fileCount = state->fileCount;
+		self->m_curFile = state->curFile;
+		self->m_renamedCount = state->renamedCount;
+		self->m_hasMissedFiles = state->hasMissedFiles != 0;
+		self->m_hasDamagedParFiles = state->hasDamagedParFiles != 0;
+		state->detectMissing = self->m_detectMissing;
+	};
+	env.previousDirs = [](void* ctx, const char*, void* sink, void (*add)(void*, const char*)) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			for (CString& dir : c.self->m_dirList) { add(sink, dir); }
+			return 0;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.rememberDir = [](void* ctx, const char* dir) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { c.self->m_dirList.emplace_back(dir); return 0; } catch (...) { return c.Fail(); }
+	};
 
 	NzbgetRsParRenamerState state{m_fileCount, m_curFile, m_renamedCount, m_hasMissedFiles, m_hasDamagedParFiles, m_detectMissing};
 	nzbget_rs_par_renamer_execute(&env, &state, m_infoName, m_destDir, PATH_SEPARATOR);
@@ -234,7 +275,6 @@ void ParRenamer::Execute()
 	m_renamedCount = state.renamedCount + context.renamedOnError;
 	m_hasMissedFiles = state.hasMissedFiles != 0;
 	m_hasDamagedParFiles = state.hasDamagedParFiles != 0;
-	m_detectMissing = state.detectMissing != 0;
 
 	if (context.error)
 	{
@@ -567,7 +607,7 @@ void ParRenamer::CheckParFile(const char* destDir, const char* filename)
 	}
 
 	// load par2-header
-	Par2::PACKET_HEADER header;
+	Par2::PACKET_HEADER header{};
 
 	int readBytes = (int)file.Read(&header, sizeof(header));
 	if (readBytes != sizeof(header) && file.Error())
@@ -622,7 +662,7 @@ bool ParRenamer::NeedRenameParFiles()
 			return true;
 		}
 
-		int baseLen1;
+		int baseLen1 = 0;
 		ParParser::ParseParFilename(baseName1, true, &baseLen1, nullptr);
 
 		for (ParInfoList::iterator it2 = it1 + 1; it2 != m_parInfoList.end(); ++it2)
@@ -632,7 +672,7 @@ bool ParRenamer::NeedRenameParFiles()
 			if (!strcmp(parInfo1.GetSetId(), parInfo2.GetSetId()))
 			{
 				const char* baseName2 = FileSystem::BaseFileName(parInfo2.GetFilename());
-				int baseLen2;
+				int baseLen2 = 0;
 				ParParser::ParseParFilename(baseName2, true, &baseLen2, nullptr);
 				if (baseLen1 != baseLen2 || strncasecmp(baseName1, baseName2, baseLen1))
 				{

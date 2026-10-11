@@ -837,12 +837,28 @@ int nzbget_rs_test_server_params(const char* request, NzbgetRsJsonLimits limits,
 // ignoredExt (Util::MatchFileExt with ParIgnoreExt): 1 yes. fileSize writes
 // FileSystem::FileSize. read: the bytes DiskFile read from the start of the
 // file into buf (at most len), -2 when it could not be opened, -3 when the
-// read failed. loadPar: 1 loaded (add was called for each source file map
-// entry: damaged, or the local name and printed 16 KiB hash), 0 when the
-// packets could not be loaded or the file is empty. rename: RenameFile
+// read failed. loadPar: 1 loaded (writes the source map size), 0 when the
+// packets could not be loaded or the file is empty. parEntry translates the
+// next source map entry and calls add once (damaged or local name/hash).
+// closePar releases the loaded repairer; the caller must also release it on
+// an aborted run. stateChanged publishes members before callbacks, cannot
+// fail or unwind, and must not retain the borrowed state pointer. It writes
+// back detectMissing, which callbacks can change through the C++ setter.
+// previousDirs / rememberDir retain the directory list across runs. All sink
+// and add pointers are borrowed, non-NULL, and valid only during the callback.
+// No buffers or objects transfer ownership across the ABI. rename: RenameFile
 // without the count, 1 when moved. fold is ParParser::FilenameFold. NULL
 // callbacks mean: not stopped, nothing printed, empty lists, no files, reads
 // that can't open, nothing loaded, no renames, identity fold.
+typedef struct NzbgetRsParRenamerState
+{
+	int fileCount;
+	int curFile;
+	int renamedCount;
+	int hasMissedFiles;
+	int hasDamagedParFiles;
+	int detectMissing;
+} NzbgetRsParRenamerState;
 typedef struct NzbgetRsParRenamerEnv
 {
 	void* ctx;
@@ -855,23 +871,19 @@ typedef struct NzbgetRsParRenamerEnv
 	int (*fileExists)(void* ctx, const char* path);
 	int (*fileSize)(void* ctx, const char* path, int64_t* size);
 	int64_t (*read)(void* ctx, const char* path, uint8_t* buf, size_t len);
-	int (*loadPar)(void* ctx, const char* path, void* sink,
+	int (*loadPar)(void* ctx, const char* path, size_t* count);
+	int (*parEntry)(void* ctx, void* sink,
 		void (*add)(void* sink, int damaged, const char* name, const char* hash));
+	void (*closePar)(void* ctx);
 	int (*findMainPars)(void* ctx, const char* dir, void* sink, void (*add)(void* sink, const char* name));
 	int (*registerParred)(void* ctx, const char* name);
 	int (*rename)(void* ctx, const char* src, const char* dst);
 	int (*ignoredExt)(void* ctx, const char* name);
 	int (*fold)(int byte);
+	void (*stateChanged)(void* ctx, NzbgetRsParRenamerState* state);
+	int (*previousDirs)(void* ctx, const char* unused, void* sink, void (*add)(void* sink, const char* name));
+	int (*rememberDir)(void* ctx, const char* dir);
 } NzbgetRsParRenamerEnv;
-typedef struct NzbgetRsParRenamerState
-{
-	int fileCount;
-	int curFile;
-	int renamedCount;
-	int hasMissedFiles;
-	int hasDamagedParFiles;
-	int detectMissing;
-} NzbgetRsParRenamerState;
 int nzbget_rs_par_renamer_execute(const NzbgetRsParRenamerEnv* env, NzbgetRsParRenamerState* state,
 	const char* infoName, const char* destDir, char separator);
 

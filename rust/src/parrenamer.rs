@@ -15,7 +15,9 @@ use std::ffi::{c_char, c_int};
 use md5::{Digest, Md5};
 
 extern "C" {
+    #[cfg_attr(windows, link_name = "_stricmp")]
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
+    #[cfg_attr(windows, link_name = "_strnicmp")]
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
     fn tolower(c: c_int) -> c_int;
     fn atoi(s: *const c_char) -> c_int;
@@ -50,6 +52,11 @@ pub enum Read {
 }
 
 pub trait Env {
+    /// Publish changed members before another callback can observe them.
+    fn state_changed(&mut self, state: &mut State);
+    /// Preserve the C++ directory list across Execute calls, including aborted runs.
+    fn previous_dirs(&mut self) -> R<Vec<Vec<u8>>>;
+    fn remember_dir(&mut self, dir: &[u8]) -> R<()>;
     fn stopped(&mut self) -> R<bool>;
     /// the progress label and stage set, then UpdateProgress
     fn progress(&mut self, label: &[u8], stage: i32) -> R<()>;
@@ -62,8 +69,11 @@ pub trait Env {
     fn file_size(&mut self, path: &[u8]) -> R<i64>;
     /// DiskFile::Read of the start of a file into `buf`
     fn read(&mut self, path: &[u8], buf: &mut [u8]) -> R<Read>;
-    /// LoadPacketsFromFile (None when it fails or the file is empty)
-    fn load_par(&mut self, path: &[u8]) -> R<Option<Vec<ParEntry>>>;
+    /// LoadPacketsFromFile (None when it fails or the file is empty).
+    fn load_par(&mut self, path: &[u8]) -> R<Option<usize>>;
+    /// Translate one entry only after the loaded message and IsStopped check.
+    fn par_entry(&mut self) -> R<ParEntry>;
+    fn close_par(&mut self);
     /// ParParser::FindMainPars
     fn find_main_pars(&mut self, dir: &[u8]) -> R<Vec<Vec<u8>>>;
     fn register_parred(&mut self, name: &[u8]) -> R<()>;
@@ -149,6 +159,7 @@ impl<E: Env> ParRenamer<'_, E> {
     fn run(&mut self, info_name: &[u8]) -> R<()> {
         self.env.progress(&text(&[b"Checking renamed files for ", info_name]), 0)?;
         let dest_dir = self.dest_dir.clone();
+        self.dir_list = self.env.previous_dirs()?;
         self.build_dir_list(&dest_dir)?;
 
         for dir in std::mem::take(&mut self.dir_list) {
@@ -168,6 +179,7 @@ impl<E: Env> ParRenamer<'_, E> {
 
             self.check_files(&dir, false)?;
 
+            self.env.state_changed(self.state);
             if self.state.detect_missing {
                 self.check_missing()?;
             }
@@ -180,6 +192,7 @@ impl<E: Env> ParRenamer<'_, E> {
     }
 
     fn build_dir_list(&mut self, dir: &[u8]) -> R<()> {
+        self.env.remember_dir(dir)?;
         self.dir_list.push(dir.to_vec());
         for name in self.env.list_dir(dir)? {
             if !self.env.stopped()? {
@@ -188,6 +201,7 @@ impl<E: Env> ParRenamer<'_, E> {
                     self.build_dir_list(&full)?;
                 } else {
                     self.state.file_count = self.state.file_count.wrapping_add(1);
+                    self.env.state_changed(self.state);
                 }
             }
         }
@@ -215,9 +229,10 @@ impl<E: Env> ParRenamer<'_, E> {
     }
 
     fn load_par_file(&mut self, path: &[u8]) -> R<()> {
-        let Some(entries) = self.env.load_par(path)? else {
+        let Some(count) = self.env.load_par(path)? else {
             self.env.message(Kind::Warning, &text(&[b"Could not load par2-file ", path]))?;
             self.state.has_damaged_par_files = true;
+            self.env.state_changed(self.state);
             self.bad_pars.push(path.to_vec());
             return Ok(());
         };
@@ -228,11 +243,11 @@ impl<E: Env> ParRenamer<'_, E> {
         // a par2-file missing several description packets is listed (and
         // later renamed to .bad) once
         let mut damaged = false;
-        for entry in entries {
+        for _ in 0..count {
             if self.env.stopped()? {
                 break;
             }
-            match entry {
+            match self.env.par_entry()? {
                 ParEntry::Damaged => {
                     if !damaged {
                         self.env.message(Kind::Warning, &text(&[b"Damaged par2-file detected: ", base_name(path)]))?;
@@ -240,6 +255,7 @@ impl<E: Env> ParRenamer<'_, E> {
                         damaged = true;
                     }
                     self.state.has_damaged_par_files = true;
+                    self.env.state_changed(self.state);
                 }
                 ParEntry::File { name, hash } => {
                     // the C++ compared and stored C strings
@@ -253,6 +269,7 @@ impl<E: Env> ParRenamer<'_, E> {
                 }
             }
         }
+        self.env.close_par();
         Ok(())
     }
 
@@ -272,6 +289,7 @@ impl<E: Env> ParRenamer<'_, E> {
             };
             self.env.progress(&text(&[b"Checking file ", &name]), stage)?;
             self.state.cur_file = self.state.cur_file.wrapping_add(1);
+            self.env.state_changed(self.state);
 
             if check_pars {
                 self.check_par_file(&full)?;
@@ -293,6 +311,7 @@ impl<E: Env> ParRenamer<'_, E> {
             } else {
                 self.env.message(Kind::Info, &text(&[b"File ", &name, b" is missing"]))?;
                 self.state.has_missed_files = true;
+                self.env.state_changed(self.state);
             }
         }
         Ok(())
@@ -404,6 +423,7 @@ impl<E: Env> ParRenamer<'_, E> {
     fn rename_file(&mut self, src: &[u8], dst: &[u8]) -> R<()> {
         if self.env.rename(src, dst)? {
             self.state.renamed_count = self.state.renamed_count.wrapping_add(1);
+            self.env.state_changed(self.state);
         }
         Ok(())
     }
@@ -448,8 +468,9 @@ mod tests {
         assert!(!is_splitted_fragment(b"/d/movie.mkv.001x", b"movie.mkv"));
         assert!(!is_splitted_fragment(b"/d/movie.mkv", b"movie.mkv"));
         assert!(!is_splitted_fragment(b"/d/other.001", b"movie.mkv"));
-        // atoi of a number beyond long is LONG_MAX, as int -1
-        assert!(is_splitted_fragment(b"/d/a.99999999999999999999999", b"a"));
+        let overflow = c"99999999999999999999999";
+        assert_eq!(is_splitted_fragment(b"/d/a.99999999999999999999999", b"a"),
+            unsafe { atoi(overflow.as_ptr()) } <= 1);
     }
 
     #[test]
