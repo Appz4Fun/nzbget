@@ -5532,6 +5532,34 @@ def scenario_idsafterfinaldelete(daemon, t):
     return ('idsafterfinaldelete', ok, 'keep=%s gone=%s new=%s' % (keep, gone, new_id))
 
 
+def scenario_idsafteremptyfinaldelete(daemon, t):
+    """Deleting every queue and history item must preserve IDs at restart."""
+    api = daemon.wait_ready()
+    def add(name):
+        nzb = base64.standard_b64encode(_fake_nzb_ids(['%s@id' % uuid.uuid4().hex for _ in range(3)], 30_000)).decode()
+        return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
+    gone = [add('Gone.%d' % i) for i in range(3)]
+    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
+    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
+    time.sleep(2)
+    assert not api.listgroups(), "queue must be empty before restart"
+    assert not api.history(False), "history must be empty before restart"
+    try:
+        api.shutdown()
+    except Exception:
+        pass
+    t.procs[-1].wait(timeout=60)
+    assert not os.path.exists(t.path("main", "queue", "queue")), "queue state must be absent"
+    assert not os.path.exists(t.path("main", "queue", "history")), "history state must be absent"
+    assert os.path.exists(t.path("main", "queue", "ids")), "ID floor must exist"
+    daemon.start()
+    api = daemon.wait_ready()
+    new_id = add('New')
+    ok = new_id > max(gone)
+    return ('idsafteremptyfinaldelete', ok, 'gone=%s new=%s' % (gone, new_id))
+
+
 def scenario_fleetscoremax(daemon, t):
     """F17: the key holds an item scored at the int limit (in history): the
     fleet's scores were counted past it and wrapped around, negative, so a dead
@@ -10331,6 +10359,7 @@ SCENARIOS = {
     'newlinestate': scenario_newlinestate,
     'idsafterunreadable': scenario_idsafterunreadable,
     'idsafterfinaldelete': scenario_idsafterfinaldelete,
+    'idsafteremptyfinaldelete': scenario_idsafteremptyfinaldelete,
     'fleetduringpost': scenario_fleetduringpost,
     'fleetslowurl': scenario_fleetslowurl,
     'dupesearchpickdeleted': scenario_dupesearchpickdeleted,

@@ -2097,7 +2097,9 @@ bool DiskState::DownloadQueueExists()
 	debug("Checking if a saved queue exists on disk");
 
 	return FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "queue")) ||
-		FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "history"));
+		FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "history")) ||
+		// An empty queue still has the IDs handed out before its items were deleted.
+		FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "ids"));
 }
 
 void DiskState::DiscardFile(int fileId, bool deleteData, bool deletePartialState, bool deleteCompletedState)
