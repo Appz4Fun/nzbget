@@ -578,6 +578,16 @@ pub unsafe fn read_many<E: Entry>(data: &[u8], at: &mut usize, out: *mut E, max:
     max
 }
 
+fn append_listing(out: &mut Vec<u8>, bytes: &[u8]) {
+    crate::util::reserve_bytes(out, bytes.len());
+    out.extend_from_slice(bytes);
+}
+
+fn push_listing(out: &mut Vec<u8>, byte: u8) {
+    crate::util::reserve_bytes(out, 1);
+    out.push(byte);
+}
+
 /// An int as printf's %i printed it.
 fn push_int(out: &mut Vec<u8>, value: i32) {
     let mut digits = [0u8; 11];
@@ -595,7 +605,17 @@ fn push_int(out: &mut Vec<u8>, value: i32) {
         at -= 1;
         digits[at] = b'-';
     }
-    out.extend_from_slice(&digits[at..]);
+    append_listing(out, &digits[at..]);
+}
+
+const MAX_LISTING_INITIAL_CAPACITY: usize = 1024 * 1024;
+
+fn listing_capacity(input_len: usize) -> usize {
+    // Preserve the estimate for ordinary responses, but avoid an eager
+    // reservation above the 32-bit Vec limit for a large received buffer.
+    // Formatting grows the buffer only when output actually needs it.
+    input_len.saturating_add(input_len / 2).saturating_add(64)
+        .min(MAX_LISTING_INITIAL_CAPACITY)
 }
 
 /// The lines of a listing: each of the first `count` entries `data` holds
@@ -604,13 +624,16 @@ fn push_int(out: &mut Vec<u8>, value: i32) {
 /// data, whatever `count` says.
 fn listing<E: Entry>(data: &[u8], count: u32, line: impl Fn(&mut Vec<u8>, &E)) -> Vec<u8> {
     // a line is about as long as its entry; the buffer grows if it isn't
-    let mut out = Vec::with_capacity(data.len() + data.len() / 2 + 64);
+    let mut out = Vec::with_capacity(listing_capacity(data.len()));
     let mut at = 0;
     for _ in 0..count {
         let Some((entry, next)) = read::<E, true>(data, at) else { break };
         line(&mut out, &entry);
         at = next;
     }
+    // into_buf appends the FFI terminator after this return. Prevent that
+    // final byte from triggering an unrepresentable amortized doubling.
+    crate::util::reserve_bytes(&mut out, 1);
     out
 }
 
@@ -622,10 +645,10 @@ const LOG_LABELS: [&[u8]; 5] = [b"[INFO] ", b"[WARNING] ", b"[ERROR] ", b"[DEBUG
 pub fn log_listing(data: &[u8], count: u32) -> Vec<u8> {
     listing(data, count, |out, e: &LogEntry| {
         if let Some(label) = LOG_LABELS.get(e.kind as usize) {
-            out.extend_from_slice(label);
+            append_listing(out, label);
             // SAFETY: the text points into `data`, up to a NUL within it
-            out.extend_from_slice(unsafe { e.texts[0].bytes() });
-            out.push(b'\n');
+            append_listing(out, unsafe { e.texts[0].bytes() });
+            push_listing(out, b'\n');
         }
     })
 }
@@ -643,19 +666,19 @@ const EXECUTING_SCRIPT: u32 = 11;
 /// no name.
 pub fn post_queue_listing(data: &[u8], count: u32) -> Vec<u8> {
     listing(data, count, |out, e: &PostEntry| {
-        out.push(b'[');
+        push_listing(out, b'[');
         push_int(out, e.id as i32);
-        out.extend_from_slice(b"] ");
+        append_listing(out, b"] ");
         // SAFETY: the name points into `data`, up to a NUL within it
-        out.extend_from_slice(unsafe { e.texts[1].bytes() });
-        out.extend_from_slice(STAGE_NAMES.get(e.stage as usize).copied().unwrap_or(b""));
+        append_listing(out, unsafe { e.texts[1].bytes() });
+        append_listing(out, STAGE_NAMES.get(e.stage as usize).copied().unwrap_or(b""));
         let progress = e.stage_progress as i32;
         if progress > 0 && e.stage != EXECUTING_SCRIPT {
-            out.extend_from_slice(b", ");
+            append_listing(out, b", ");
             push_int(out, progress / 10);
-            out.push(b'%');
+            push_listing(out, b'%');
         }
-        out.push(b'\n');
+        push_listing(out, b'\n');
     })
 }
 
@@ -672,31 +695,31 @@ pub fn history_listing(data: &[u8], count: u32) -> Vec<u8> {
         if !matches!(e.kind, 1..=3) {
             return;
         }
-        out.push(b'[');
+        push_listing(out, b'[');
         push_int(out, e.id as i32);
-        out.extend_from_slice(b"] ");
+        append_listing(out, b"] ");
         // SAFETY: the name points into `data`, up to a NUL within it
-        out.extend_from_slice(unsafe { e.texts[0].bytes() });
+        append_listing(out, unsafe { e.texts[0].bytes() });
         if e.kind == 2 {
-            out.extend_from_slice(b" (URL, ");
-            out.extend_from_slice(text(&URL, e.url_status));
+            append_listing(out, b" (URL, ");
+            append_listing(out, text(&URL, e.url_status));
         } else {
             let hidden = e.kind == 3;
-            out.extend_from_slice(b" (");
+            append_listing(out, b" (");
             if hidden {
-                out.extend_from_slice(b"Hidden, ");
+                append_listing(out, b"Hidden, ");
             } else {
                 // BString<100>: never cut, an int's text is short
                 push_int(out, e.file_count as i32);
-                out.extend_from_slice(b" files, ");
+                append_listing(out, b" files, ");
             }
             crate::util::format_size_into(out, ((e.size_hi as i64) << 32) + e.size_lo as i64);
             if !hidden {
-                out.extend_from_slice(text(&PAR, e.par_status));
-                out.extend_from_slice(text(&SCRIPT, e.script_status));
+                append_listing(out, text(&PAR, e.par_status));
+                append_listing(out, text(&SCRIPT, e.script_status));
             }
         }
-        out.extend_from_slice(b")\n");
+        append_listing(out, b")\n");
     })
 }
 
@@ -1252,6 +1275,52 @@ mod tests {
         let data = encode_all(&[LogEntry { id: 1, kind: 5, time: 0, texts: [Text::new(b"x")] },
             LogEntry { id: 2, kind: 4, time: 0, texts: [Text::new(b"")] }]);
         assert_eq!(log_listing(&data, 2), b"[DETAIL] \n");
+    }
+
+    #[test]
+    fn listing_growth_covers_32_bit_newline_and_final_nul() {
+        let limit = i32::MAX as usize;
+        let text_end = (1usize << 30) + 7; // INFO prefix plus a 1 GiB text
+        assert!(text_end + 2 <= limit);
+        assert!(text_end * 2 > limit);
+        assert!(crate::util::byte_vec_needs_exact_growth(text_end, text_end, 1, limit));
+        let newline_end = text_end + 1;
+        assert!(crate::util::byte_vec_needs_exact_growth(newline_end, newline_end, 1, limit));
+        assert!(!crate::util::byte_vec_needs_exact_growth(text_end, text_end - 8, 1, limit));
+        assert!(!crate::util::byte_vec_needs_exact_growth(1024, 1024, 1, limit));
+        assert!(!crate::util::byte_vec_needs_exact_growth(limit / 2, limit / 2, 1, limit));
+    }
+
+    #[test]
+    fn listing_reservation_handles_32_bit_large_lengths() {
+        // A valid input whose old eager reserve exceeded a 32-bit Vec limit,
+        // without allocating a multi-gigabyte fixture.
+        let input_len = 1_500_000_000usize;
+        assert!(input_len <= i32::MAX as usize);
+        assert!(input_len as u64 + input_len as u64 / 2 + 64 > i32::MAX as u64);
+        assert!(listing_capacity(input_len) <= MAX_LISTING_INITIAL_CAPACITY);
+        assert!(listing_capacity(usize::MAX) <= MAX_LISTING_INITIAL_CAPACITY);
+        for len in [0usize, 1, 100, 4096, 100_000] {
+            assert_eq!(listing_capacity(len), len + len / 2 + 64);
+        }
+    }
+
+    #[test]
+    fn listing_reservation_follows_output_growth_for_unused_input() {
+        let payload = vec![b'x'; 2 * MAX_LISTING_INITIAL_CAPACITY];
+        let data = encode_all(&[LogEntry { id: 1, kind: u32::MAX, time: 0,
+            texts: [Text::new(&payload)] }]);
+        let listing = log_listing(&data, 1);
+        assert!(listing.is_empty());
+        assert!(listing.capacity() <= MAX_LISTING_INITIAL_CAPACITY);
+        // Formatting and growth still work when an actual line exceeds the
+        // bounded initial reserve.
+        let data = encode_all(&[LogEntry { id: 1, kind: 0, time: 0,
+            texts: [Text::new(&payload)] }]);
+        let listing = log_listing(&data, 1);
+        assert!(listing.starts_with(b"[INFO] "));
+        assert_eq!(&listing[7..listing.len() - 1], payload);
+        assert_eq!(listing.last(), Some(&b'\n'));
     }
 
     #[test]
