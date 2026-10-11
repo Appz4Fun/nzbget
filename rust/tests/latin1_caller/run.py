@@ -12,13 +12,16 @@ parser.add_argument("--trials",type=int,default=9)
 parser.add_argument("--emit-only",action="store_true")
 args=parser.parse_args()
 root=Path(__file__).resolve().parents[3]
-out=Path(args.output) if args.output else Path(tempfile.mkdtemp(prefix="nzbget-latin1-caller-"))
+out=(Path(args.output) if args.output else Path(tempfile.mkdtemp(prefix="nzbget-latin1-caller-"))).resolve()
+default=out/"default"
+if default.is_symlink() or (default.exists() and (not default.is_dir() or any(default.iterdir()))):
+    parser.error("baseline directory is not empty; choose a fresh output directory")
 out.mkdir(parents=True,exist_ok=True);(out/"logs").mkdir(exist_ok=True)
 build_dir=root/args.build_dir
 lock=Path(tempfile.gettempdir())/"nzbget-rust-benchmark.lock"
 heavy_lock=Path(tempfile.gettempdir())/"i7-heavy.lock"
 env=dict(os.environ,CARGO_BUILD_JOBS="3",CARGO_NET_OFFLINE=os.environ.get("CARGO_NET_OFFLINE","true"))
-default=out/"default";default.mkdir(exist_ok=True)
+default.mkdir(exist_ok=True)
 archive=subprocess.check_output(["git","archive",args.baseline,"rust"],cwd=root)
 subprocess.run(["tar","-x","-C",str(default)],input=archive,check=True)
 count=0
@@ -72,7 +75,7 @@ for trial in range(args.trials):
                            cwd=out,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 runtime=["daemon/util/Util.cpp","rust/include/nzbget_rs.h","rust/src/ffi.rs","rust/src/text.rs","rust/tests/text_differential.py"]
-patch=subprocess.check_output(["git","diff","--binary",args.baseline,"--",*runtime],cwd=root)
+patch=subprocess.check_output(["git","diff","--no-color","--no-ext-diff","--no-textconv","--binary","--abbrev=8",args.baseline,"--",*runtime],cwd=root)
 meta={"baseline":subprocess.check_output(["git","rev-parse",args.baseline],cwd=root,text=True).strip(),
       "runtime_patch_sha256":hashlib.sha256(patch).hexdigest(),
       "runtime_source_sha256":{f:sha(root/f) for f in runtime},

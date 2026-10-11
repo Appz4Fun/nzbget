@@ -47,3 +47,5 @@ Summary JSON retains per-process statistics; every per-round sample remains unmo
 The immutable runtime patch is losslessly stored as evidence/reviewed-runtime.patch.b64 to preserve required diff-context whitespace. Decode it with base64 -d; its SHA256 remains 5c9e5af53f1c108114db050892259d7f6a26cc7df17dee1bdab43893b76532b2.
 
 Builds acquire i7-heavy.lock exclusively, then nzbget-rust-benchmark.lock shared, both under the process temporary directory. Prebuilt timing uses only the benchmark lock exclusively and never acquires the heavy lock or compiles.
+
+Use a fresh output directory: a nonempty or symlinked default baseline directory is rejected before extraction, preserving existing user output. Relative output paths are resolved internally before subprocess cwd changes. Runtime patch hashing pins eight-character indexes and disables color/external diff/text conversion. Focused reproducibility tests run with compiler/timing commands mocked: python3 rust/tests/latin1_caller/test_runner.py.
