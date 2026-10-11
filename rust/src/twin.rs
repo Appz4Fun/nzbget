@@ -205,9 +205,13 @@ fn find_sig<'a>(sigs: &'a [FileSig], name: &str) -> Option<&'a FileSig> {
     if name.is_empty() {
         return None;
     }
-    // the names the queue gives files: PAR2 names made valid file names
-    if let Some(exact) = sigs.iter().find(|s| valid_name(&s.name) == name) {
-        return Some(exact);
+    // the names the queue gives files: PAR2 names made valid file names. Two
+    // PAR2 names can make one valid name ("a:b.rar", "a?b.rar"): then it's open
+    let mut exact = sigs.iter().filter(|s| valid_name(&s.name) == name);
+    match (exact.next(), exact.next()) {
+        (Some(one), None) => return Some(one),
+        (Some(_), Some(_)) => return None,
+        _ => {}
     }
     let mut folded = sigs.iter().filter(|s| valid_name(&s.name).eq_ignore_ascii_case(name));
     match (folded.next(), folded.next()) {
@@ -229,9 +233,11 @@ pub struct Listed {
 /// "id\tnew\tfingerprint\tcomplete", its "id\tlength\tmd5\tname" lines and a
 /// line "id\tend\tcount": a record cut short (a full disk) has no end line with
 /// its count and is ignored. A later record of an id replaces the earlier one.
-/// A list is only used for the fingerprint it was made for: download ids start
-/// over when the queue and history are emptied, the file stays (`prune` keeps
-/// it to the postings still there).
+/// A list is only used for the posting it was made for, given by its identity
+/// (the C++ side passes the fingerprint and the posting's message-id hash): a
+/// fingerprint alone is shared by differently named twins, and download ids
+/// start over when the queue and history are emptied while the file stays
+/// (`prune` keeps it to the postings still there).
 #[derive(Default)]
 pub struct Store {
     path: std::path::PathBuf,
@@ -300,7 +306,7 @@ impl Store {
         self.lists.insert(id, listed);
     }
 
-    /// The list of download `id` if it was made for fingerprint `print`, else an empty one.
+    /// The list of download `id` if it was made for posting identity `print`, else an empty one.
     pub fn get(&self, id: i32, print: &str) -> &Listed {
         match self.lists.get(&id) {
             Some(listed) if !print.is_empty() && listed.print == print => listed,
@@ -320,6 +326,8 @@ impl Store {
         let mut temp = self.path.clone().into_os_string();
         temp.push(".new");
         let temp = std::path::PathBuf::from(temp);
+        // rename replaces the file in one step, also on Windows (MoveFileExW with
+        // MOVEFILE_REPLACE_EXISTING), so a reader sees the old or the new store
         if std::fs::write(&temp, text).is_ok() {
             let _ = std::fs::rename(&temp, &self.path);
         }
@@ -548,6 +556,13 @@ mod tests {
         let donor = listed(vec![sig("x?y.rar", "1", 1)], true);
         assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), Some("x_y.rar".into()));
         assert_eq!(own.sigs[0].name, "a:b.rar");
+    }
+
+    #[test]
+    fn colliding_valid_names_are_open() {
+        let own = listed(vec![sig("a:b.rar", "1", 1), sig("a?b.rar", "2", 1)], true);
+        let donor = listed(vec![sig("x", "1", 1), sig("y", "2", 1)], true);
+        assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), None);
     }
 
     #[test]

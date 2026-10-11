@@ -86,18 +86,23 @@ pub unsafe extern "C" fn nzbget_rs_twin_open(path: *const c_char) {
     *crate::twin::STORE.lock().unwrap_or_else(|e| e.into_inner()) = Some(store);
 }
 
-/// Parses the par2 data, stores its file list for download `id` (bound to its
-/// fingerprint, when it has files) and returns "fingerprint\tcomplete" (an
+/// Parses the par2 data, stores its file list for download `id` (bound to the
+/// posting: "fingerprint#posting", when it has files) and returns "fingerprint\tcomplete" (an
 /// empty fingerprint for none; complete is 1 or 0).
 ///
 /// # Safety
-/// `data` points to `len` readable bytes (or is null with `len` 0).
+/// `posting` is null or a valid NUL-terminated string; `data` points to `len`
+/// readable bytes (or is null with `len` 0).
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_twin_put_par2(id: i32, data: *const u8, len: usize) -> RsBuf {
+pub unsafe extern "C" fn nzbget_rs_twin_put_par2(id: i32, posting: *const c_char, data: *const u8, len: usize)
+    -> RsBuf {
     let (sigs, complete) = crate::twin::par2_set(bytes_arg(data, len));
     let print = crate::twin::fingerprint(&sigs);
     if !sigs.is_empty() {
-        let listed = crate::twin::Listed { sigs, complete, print: print.clone() };
+        // bound to the posting: its fingerprint and the posting's own id (a hash of
+        // its message-ids), which differently named twins don't share
+        let identity = format!("{print}#{}", str_arg(posting));
+        let listed = crate::twin::Listed { sigs, complete, print: identity };
         with_store(|store| store.put(id, listed));
     }
     // "fingerprint\tcomplete": a partial list is fetched again

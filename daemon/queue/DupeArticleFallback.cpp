@@ -833,10 +833,10 @@ void DupeArticleFallback::PinSources(DownloadQueue* downloadQueue, FileInfo* fil
 		if (parsedDonor)
 		{
 			// the donor's par2 fingerprint: its file list is matched by content (twin.rs)
-			NzbParameter* donorPrint = donorNzbInfo->GetParameters()->Find(TwinCheck::FilesParam);
+			std::string donorIdentity = TwinCheck::Identity(donorNzbInfo);
 			AppendDonorCandidate(candidates, contributors, donorNzbInfo->GetId(),
 				parsedDonor, fileInfo, articleInfo->GetPartNumber(), targetNzbFilename,
-				donorPrint ? donorPrint->GetValue() : nullptr);
+				donorIdentity.c_str());
 		}
 		else
 		{
@@ -995,9 +995,9 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 	// under any name. "-": the donor's complete list has no file with these bytes;
 	// "": not known (incomplete or missing lists, several candidates)
 	NzbInfo* own = targetFile->GetNzbInfo();
-	NzbParameter* ownPrint = own ? own->GetParameters()->Find(TwinCheck::FilesParam) : nullptr;
-	std::string byContent = donorNzbId && ownPrint && !Util::EmptyStr(donorPrint) ?
-		TwinCheck::MatchByContent(own->GetId(), ownPrint->GetValue(), targetFile->GetFilename(),
+	std::string ownIdentity = own ? TwinCheck::Identity(own) : "";
+	std::string byContent = donorNzbId && !ownIdentity.empty() && !Util::EmptyStr(donorPrint) ?
+		TwinCheck::MatchByContent(own->GetId(), ownIdentity.c_str(), targetFile->GetFilename(),
 			targetNzbFilename, donorNzbId, donorPrint) : "";
 	if (byContent == "-")
 	{

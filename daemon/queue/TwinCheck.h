@@ -93,7 +93,13 @@ public:
 	/* is the par2 file list of the posting with fingerprint <print> stored (in the
 	 * queue directory, file "twincheck"; bound to the fingerprint: download ids
 	 * start over when queue and history are emptied) */
-	static int HasSigs(int nzbId, const char* print);	// 0 none, 1 partial, 2 complete
+	/* a posting's own id: a hash of its message-ids (differently named twins
+	 * share a fingerprint, not this) */
+	static std::string Posting(NzbInfo* nzbInfo);
+	/* what a stored file list is bound to: "fingerprint#posting", "" without a
+	 * usable fingerprint */
+	static std::string Identity(NzbInfo* nzbInfo);
+	static int HasSigs(int nzbId, const char* identity);	// 0 none, 1 partial, 2 complete
 	/* keeps the stored lists of the postings in <live> ("id\tfingerprint" lines) */
 	static void Prune(const std::string& live);
 	/* the label of download <dupeId> against <primaryId> by their par2 file lists:
