@@ -42,5 +42,6 @@ pub mod webutil;
 pub mod ffi;
 pub mod donorscore;
 pub mod releasename;
+pub mod posting;
 pub mod twin;
 pub mod wildmask;

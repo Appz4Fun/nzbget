@@ -1071,6 +1071,29 @@ NzbgetRsBuf nzbget_rs_releasename_parse(const char* name, size_t len);
 int nzbget_rs_releasename_readable(const char* name, size_t len);
 int nzbget_rs_releasename_same_release(const char* a, size_t alen, const char* b, size_t blen);
 
+// Posting (rust/src/posting.rs): MakeSketch (out holds up to 64), SameSketch,
+// SamePosting (both lists sorted), ListingMismatch; GroupListings and
+// OrderPostings write groups of indices into the listings: indices group after
+// group, group_sizes each group's length, *groups the number of groups (both
+// arrays writable for n); they return the indices written.
+typedef struct NzbgetRsListing
+{
+	const char* link;
+	size_t linkLen;
+	int64_t size;
+	int32_t grabs;
+	int64_t date;
+} NzbgetRsListing;
+void nzbget_rs_posting_sketch(const char* const* ids, const size_t* lens, size_t n, uint32_t* out, size_t* outLen);
+int nzbget_rs_posting_same_sketch(const uint32_t* a, size_t na, const uint32_t* b, size_t nb);
+int nzbget_rs_posting_same_posting(const char* const* a, const size_t* alens, size_t na,
+	const char* const* b, const size_t* blens, size_t nb);
+int nzbget_rs_posting_listing_mismatch(int64_t listingSize, int64_t nzbBytes);
+size_t nzbget_rs_posting_group(const NzbgetRsListing* listings, size_t n, size_t* indices, size_t* groupSizes,
+	size_t* groups);
+size_t nzbget_rs_posting_order(const NzbgetRsListing* listings, size_t n, int64_t pickBytes, int maxPostings,
+	size_t* indices, size_t* groupSizes, size_t* groups);
+
 #ifdef __cplusplus
 }
 #endif

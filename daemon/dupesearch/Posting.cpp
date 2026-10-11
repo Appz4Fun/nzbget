@@ -31,7 +31,59 @@
 #include "DupeUtil.h"
 #include "NzbReader.h"
 #include "FileSystem.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
+#ifdef NZBGET_USE_RUST
+// rust/src/posting.rs
+namespace
+{
+struct Strings
+{
+	std::vector<const char*> data;
+	std::vector<size_t> lens;
+	explicit Strings(const std::vector<std::string>& texts)
+	{
+		for (const std::string& t : texts) { data.push_back(t.data()); lens.push_back(t.size()); }
+	}
+};
+
+std::vector<NzbgetRsListing> Listings(const std::vector<Newznab::Result>& results)
+{
+	std::vector<NzbgetRsListing> raw;
+	for (const Newznab::Result& r : results)
+	{
+		raw.push_back({r.link.data(), r.link.size(), (int64_t)r.size, (int32_t)r.grabs, (int64_t)r.date});
+	}
+	return raw;
+}
+
+std::vector<Posting::Group> Groups(const std::vector<Newznab::Result>& results, const std::vector<size_t>& indices,
+	const std::vector<size_t>& sizes, size_t count)
+{
+	std::vector<Posting::Group> groups;
+	size_t at = 0;
+	for (size_t g = 0; g < count; g++)
+	{
+		Posting::Group group;
+		for (size_t k = 0; k < sizes[g]; k++) group.push_back(results[indices[at++]]);
+		groups.push_back(std::move(group));
+	}
+	return groups;
+}
+}
+
+Posting::Sketch Posting::MakeSketch(const std::vector<std::string>& messageIds)
+{
+	Strings ids(messageIds);
+	Sketch sketch(SketchSize);
+	size_t len = 0;
+	nzbget_rs_posting_sketch(ids.data.data(), ids.lens.data(), ids.data.size(), sketch.data(), &len);
+	sketch.resize(len);
+	return sketch;
+}
+#else
 Posting::Sketch Posting::MakeSketch(const std::vector<std::string>& messageIds)
 {
 	std::set<uint32_t> hashes;
@@ -50,6 +102,8 @@ Posting::Sketch Posting::MakeSketch(const std::vector<std::string>& messageIds)
 	}
 	return sketch;
 }
+
+#endif
 
 bool Posting::SketchOfFile(const std::string& path, Sketch& sketch)
 {
@@ -91,6 +145,43 @@ bool Posting::SketchOfFile(const std::string& path, Sketch& sketch)
 	return true;
 }
 
+#ifdef NZBGET_USE_RUST
+bool Posting::SameSketch(const Sketch& a, const Sketch& b)
+{
+	return nzbget_rs_posting_same_sketch(a.data(), a.size(), b.data(), b.size()) != 0;
+}
+
+bool Posting::SamePosting(const std::vector<std::string>& a, const std::vector<std::string>& b)
+{
+	Strings x(a), y(b);
+	return nzbget_rs_posting_same_posting(x.data.data(), x.lens.data(), x.data.size(), y.data.data(), y.lens.data(),
+		y.data.size()) != 0;
+}
+
+std::vector<Posting::Group> Posting::GroupListings(std::vector<Newznab::Result> results)
+{
+	std::vector<NzbgetRsListing> raw = Listings(results);
+	std::vector<size_t> indices(raw.size()), sizes(raw.size());
+	size_t count = 0;
+	nzbget_rs_posting_group(raw.data(), raw.size(), indices.data(), sizes.data(), &count);
+	return Groups(results, indices, sizes, count);
+}
+
+bool Posting::ListingMismatch(const Newznab::Result& listing, long long nzbBytes)
+{
+	return nzbget_rs_posting_listing_mismatch((int64_t)listing.size, (int64_t)nzbBytes) != 0;
+}
+
+std::vector<Posting::Group> Posting::OrderPostings(const std::vector<Newznab::Result>& candidates,
+	long long pickBytes, int maxPostings)
+{
+	std::vector<NzbgetRsListing> raw = Listings(candidates);
+	std::vector<size_t> indices(raw.size()), sizes(raw.size());
+	size_t count = 0;
+	nzbget_rs_posting_order(raw.data(), raw.size(), (int64_t)pickBytes, maxPostings, indices.data(), sizes.data(), &count);
+	return Groups(candidates, indices, sizes, count);
+}
+#else
 bool Posting::SameSketch(const Sketch& a, const Sketch& b)
 {
 	size_t k = std::min(a.size(), b.size());
@@ -216,3 +307,4 @@ std::vector<Posting::Group> Posting::OrderPostings(const std::vector<Newznab::Re
 	}
 	return ordered;
 }
+#endif
