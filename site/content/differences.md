@@ -19,7 +19,7 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 | Finding more copies | Only what feeds and clients send | `DupeSearch` queries NZBHydra2, checks each copy on your servers, and queues the live ones |
 | Clients sending many copies | One `append` per copy | One `appendfleet` call; RustyGet checks every copy and picks the best |
 | Health of a backup | Unknown until it downloads | Measured, shown with its score, and used to skip dead copies |
-| Configuration | 155 options | 16 more options and a new `HealthCheck` value, all off by default |
+| Configuration | 155 options | 17 more options and a new `HealthCheck` value, all off by default |
 | API | NZBGet API | NZBGet API plus `appendfleet` and new fields; unsafe methods need POST; may diverge later |
 | Queue files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
 | Bug fixes | | About 100 fixes to inherited bugs, 96 of them reported upstream |
@@ -56,7 +56,7 @@ See [Duplicate fleets](duplicate-fleets.md) and [Donor search](dupesearch.md).
 
 ## Options
 
-All new options are in **INCOMING NZBS**, after `DupeCheck`, and default to NZBGet's behavior: `DupeArticleFallback`, `DupeStreamDecompress`, `DupeStreamTimeout`, `DupeSearch`, `DupeSearchUrl`, `DupeSearchApiKey`, `DupeSearchDelay`, `DupeSearchDryRun`, `DupeSearchMaxDonors`, `DupeHealthPercent`, `DupeHealthMin`, `DupeHealthMax`, `DupeBodyChecks`, `DupeHealthBudget`, `DupeMinAlive`, and `DupeFastDonors`. `HealthCheck` gains the value `dupe`. No existing default changed.
+Sixteen new options are in **INCOMING NZBS**, after `DupeCheck`, and default to NZBGet's behavior: `DupeArticleFallback`, `DupeStreamDecompress`, `DupeStreamTimeout`, `DupeSearch`, `DupeSearchUrl`, `DupeSearchApiKey`, `DupeSearchDelay`, `DupeSearchDryRun`, `DupeSearchMaxDonors`, `DupeHealthPercent`, `DupeHealthMin`, `DupeHealthMax`, `DupeBodyChecks`, `DupeHealthBudget`, `DupeMinAlive`, and `DupeFastDonors`. `HealthCheck` gains the value `dupe`. One new option is in **SECURITY**: `JsonP`, off by default, turns on answers to JSON-P requests, which NZBGet always answered. No existing default changed.
 
 Option parsing also changed: a `ScriptDir` with several folders creates each folder correctly, and a scheduler task with an unknown command is reported and skipped instead of running as `PauseDownload`.
 
@@ -69,7 +69,8 @@ See [Configuration options](options.md) for every option.
 - New method `appendfleet`, and new fields `DupeRecoveredArticles`, `DupeRecoveredBytesLo`, `DupeRecoveredBytesHi`, `DupeRecoveredHoles`, and `LiveRepairing`.
 - New stage `STREAM_REPAIRING`.
 - New NZB parameters, including `DupeKind`, `DupeFiles`, `DupeAlive`, and `DupeFleet`.
-- Methods that change the system or reach out to the network need POST. Plain GET and JSON-P run only the methods that read; in NZBGet, JSON-P ran every method.
+- Methods that change the system or reach out to the network need POST. Plain GET runs only the methods that read.
+- JSON-P is off unless option `JsonP` turns it on. Then it runs only the methods that read, with the restricted user's access, so user names, passwords, and API keys come back as `***`. In NZBGet, JSON-P ran every method with full access, and any web page could read the answers.
 - `system.multicall` respects the caller's access level.
 - Out-of-range numbers are rejected, `saveconfig` refuses malformed input, and several decoding and output bugs are fixed.
 
@@ -87,6 +88,7 @@ See [API and compatibility](api.md).
 
 ## Security and robustness
 
+- `DupeSearchApiKey`, and any option with an API key in its name, is protected like a password: the restricted user and JSON-P see `***`.
 - Extension downloads use generated filenames, closing a path traversal, and a failed update keeps the old version.
 - File cleanup never follows symbolic links.
 - NZB parsing refuses XML entity declarations.

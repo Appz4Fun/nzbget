@@ -22,6 +22,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include "XmlRpc.h"
+#include "Options.h"
 
 BOOST_AUTO_TEST_SUITE(RemoteTest)
 
@@ -290,14 +291,17 @@ BOOST_AUTO_TEST_CASE(TestWhitespaceAfterLastParam)
 	}
 }
 
-// the reply to one request, as the web server would send it
-static std::string RpcReply(const char* url, XmlRpcProcessor::EHttpMethod httpMethod, const char* body = "")
+// the reply to one request from the control user, as the web server would send it
+// (jsonP: option JsonP)
+static std::string RpcReply(const char* url, XmlRpcProcessor::EHttpMethod httpMethod, const char* body = "",
+	bool jsonP = true)
 {
 	std::string request(body);
 	XmlRpcProcessor processor;
 	processor.SetUrl(url);
 	processor.SetHttpMethod(httpMethod);
 	processor.SetUserAccess(XmlRpcProcessor::uaControl);
+	processor.SetJsonP(jsonP);
 	processor.SetRequest(&request[0]);
 	processor.Execute();
 	return processor.GetResponse() ? processor.GetResponse() : "";
@@ -348,6 +352,52 @@ BOOST_AUTO_TEST_CASE(TestPostRunsUnsafeMethods)
 	BOOST_TEST_INFO(reply);
 	BOOST_CHECK(HasErrorCode(reply, 2));
 	BOOST_CHECK(!HasErrorCode(reply, 4));
+}
+
+// JSON-P is off unless option JsonP turns it on: nothing runs, not even a reading method
+BOOST_AUTO_TEST_CASE(TestJsonPIsOffByDefault)
+{
+	std::string request;
+	XmlRpcProcessor processor;
+	processor.SetUrl("/jsonprpc/version?=cb");
+	processor.SetHttpMethod(XmlRpcProcessor::hmGet);
+	processor.SetUserAccess(XmlRpcProcessor::uaControl);
+	processor.SetRequest(&request[0]);
+	processor.Execute();
+	std::string reply = processor.GetResponse();
+	BOOST_TEST_INFO(reply);
+	BOOST_CHECK(HasErrorCode(reply, 403));
+	BOOST_CHECK(reply.find("\"result\"") == std::string::npos);
+	// through the callback, so the page that loaded it sees why
+	BOOST_CHECK(reply.rfind("cb(", 0) == 0);
+}
+
+static const char* const ControlPasswordMasked = "\"Name\" : \"ControlPassword\",\n\"Value\" : \"***\"";
+
+// any web page can read a JSON-P answer: even with the control user's login it gets
+// the protected options as "***", like the restricted user
+BOOST_AUTO_TEST_CASE(TestJsonPReadsAsRestrictedUser)
+{
+	std::string reply = RpcReply("/jsonprpc/config?=cb", XmlRpcProcessor::hmGet);
+	BOOST_CHECK(reply.rfind("cb(", 0) == 0);
+	BOOST_CHECK(reply.find(ControlPasswordMasked) != std::string::npos);
+	BOOST_CHECK(reply.find("tegbzn6789") == std::string::npos);
+
+	// the control user's own requests still see the value
+	std::string direct = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"config","params":[],"id":1})");
+	BOOST_CHECK(direct.find(ControlPasswordMasked) == std::string::npos);
+	BOOST_CHECK(direct.find("\"Name\" : \"ControlPassword\",\n\"Value\" : \"tegbzn6789\"") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(TestProtectedOptions)
+{
+	BOOST_CHECK(Options::OptEntry("ControlPassword", "x").Restricted());
+	BOOST_CHECK(Options::OptEntry("Server1.Username", "x").Restricted());
+	// the indexer's API key, and the switch for JSON-P itself
+	BOOST_CHECK(Options::OptEntry("DupeSearchApiKey", "x").Restricted());
+	BOOST_CHECK(Options::OptEntry("JsonP", "yes").Restricted());
+	BOOST_CHECK(!Options::OptEntry("DupeSearchUrl", "x").Restricted());
+	BOOST_CHECK(!Options::OptEntry("DupeCheck", "yes").Restricted());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

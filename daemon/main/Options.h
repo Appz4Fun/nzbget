@@ -82,6 +82,7 @@ public:
 	static constexpr std::string_view ADDUSERNAME = "AddUsername";
 	static constexpr std::string_view ADDPASSWORD = "AddPassword";
 	static constexpr std::string_view FORMAUTH = "FormAuth";
+	static constexpr std::string_view JSONP = "JsonP";
 	static constexpr std::string_view SECURECONTROL = "SecureControl";
 	static constexpr std::string_view SECUREPORT = "SecurePort";
 	static constexpr std::string_view SECURECERT = "SecureCert";
@@ -479,6 +480,7 @@ public:
 	const char* GetAddPassword() const { return m_addPassword; }
 	int GetControlPort() const { return m_controlPort; }
 	bool GetFormAuth() const { return m_formAuth; }
+	bool GetJsonP() const { return m_jsonP; }
 	bool GetSecureControl() const { return m_secureControl; }
 	int GetSecurePort() const { return m_securePort; }
 	const char* GetSecureCert() const { return m_secureCert; }
@@ -682,6 +684,7 @@ private:
 	CString m_addUsername;
 	CString m_addPassword;
 	bool m_formAuth = false;
+	bool m_jsonP = false;
 	int m_controlPort = 0;
 	bool m_secureControl = false;
 	int m_securePort = 0;

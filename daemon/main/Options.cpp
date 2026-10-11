@@ -70,6 +70,7 @@ bool Options::OptEntry::Restricted()
 	bool restricted = !strcasecmp(m_name, CONTROLIP.data()) ||
 		!strcasecmp(m_name, CONTROLPORT.data()) ||
 		!strcasecmp(m_name, FORMAUTH.data()) ||
+		!strcasecmp(m_name, JSONP.data()) ||
 		!strcasecmp(m_name, SECURECONTROL.data()) ||
 		!strcasecmp(m_name, SECUREPORT.data()) ||
 		!strcasecmp(m_name, SECURECERT.data()) ||
@@ -81,7 +82,8 @@ bool Options::OptEntry::Restricted()
 		!strcasecmp(m_name, UMASK.data()) ||
 		strchr(m_name, ':') ||			// All extension script options
 		strstr(loName, "username") ||	// ServerX.Username, ControlUsername, etc.
-		strstr(loName, "password");		// ServerX.Password, ControlPassword, etc.
+		strstr(loName, "password") ||	// ServerX.Password, ControlPassword, etc.
+		strstr(loName, "apikey");		// DupeSearchApiKey: it opens the indexer
 
 	return restricted;
 }
@@ -325,6 +327,7 @@ void Options::InitDefaults()
 	SetOption(ADDPASSWORD.data(), "");
 	SetOption(CONTROLPORT.data(), "6789");
 	SetOption(FORMAUTH.data(), "no");
+	SetOption(JSONP.data(), "no");
 	SetOption(SECURECONTROL.data(), "no");
 	SetOption(SECUREPORT.data(), "6791");
 	SetOption(SECURECERT.data(), "");
@@ -740,6 +743,7 @@ void Options::InitOptions()
 	m_scriptPauseQueue		= (bool)ParseEnumValue(SCRIPTPAUSEQUEUE.data(), BoolCount, BoolNames, BoolValues);
 	m_nzbCleanupDisk		= (bool)ParseEnumValue(NZBCLEANUPDISK.data(), BoolCount, BoolNames, BoolValues);
 	m_formAuth				= (bool)ParseEnumValue(FORMAUTH.data(), BoolCount, BoolNames, BoolValues);
+	m_jsonP					= (bool)ParseEnumValue(JSONP.data(), BoolCount, BoolNames, BoolValues);
 	m_secureControl			= (bool)ParseEnumValue(SECURECONTROL.data(), BoolCount, BoolNames, BoolValues);
 	m_unpack				= (bool)ParseEnumValue(UNPACK.data(), BoolCount, BoolNames, BoolValues);
 	m_directUnpack			= (bool)ParseEnumValue(DIRECTUNPACK.data(), BoolCount, BoolNames, BoolValues);
