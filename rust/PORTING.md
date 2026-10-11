@@ -90,15 +90,42 @@ fixtures. Isolated fake NNTP/Newznab functional scenarios exercise broader
 identity proof, data-only hints and rename tracking. The Bencher suite includes
 identity, queue decisions, broader queries and partial health normalization.
 
-The source-extracted pre-port `Prepare` prefix matches 184,320 ASan/UBSan
-fixtures; proxy-specific fleet/rename behavior is checked separately. Five
-exclusive-worker timing runs measured median C++ policy time of 39.277 ns and
-Rust policy time of 4.717 ns. This compares the decision kernel only and excludes
-queue adaptation, transport and locking costs from the Rust call; it is not an
-end-to-end discovery speedup. New discovery behavior has no prior C++ equivalent.
-Restarted searches require the saved original title, key and posting fingerprint
-before using donor identity proof; changed or legacy unbound state is searched
-again. In-flight jobs likewise stop placing donors after a title or key change.
+The source-extracted pre-port `Prepare` prefix matches 184,320 C++ ASan/UBSan
+fixtures; proxy-specific fleet/history/rename behavior is checked separately.
+Complete caller measurements include normalization, runtime name-cache work,
+peer/history snapshots, allocation and the real Rust C ABI. Both callers stop
+before accepted-search stamp writes, edits, saving and transport. Five samples
+of 200,000 calls per caller use the exclusive shared-worker measurement lock;
+these are synthetic queue/options/time/scheduling fixtures, not deployment measurements.
+
+| Boundary | C++ ns | Rust adapter ns | Change |
+|---|---:|---:|---:|
+| Policy-only decision | 56.304 | 4.482 | -92.04% |
+| Cold initial, 2 live | 270.795 | 3441.876 | +1171.03% |
+| Cold initial, 4 live + 2 history | 531.275 | 3447.004 | +548.82% |
+| Restart cooldown, 4 live + 2 history | 540.290 | 3621.710 | +570.33% |
+| Warm eligible, 2 live | 284.219 | 276.046 | -2.88% |
+| Warm eligible, 4 live + 2 history | 550.482 | 268.506 | -51.22% |
+| Warm cooldown, 2 live | 279.722 | 240.806 | -13.91% |
+| Warm cooldown, 4 live + 2 history | 558.221 | 240.793 | -56.86% |
+
+The new cold/restart caller does normalized-title tracking that the previous
+explicit-key C++ caller did not perform. Those rows exceed the 10% threshold and
+remain disclosed: removing that first normalization would lose the rename and
+saved-proof identity requirement. Generated keys reuse their already-normalized
+suffix; unchanged raw names cache normalization, cooldowns skip peer allocation,
+and noninfluencing peers are filtered. Warm eligible small is near-flat/noisy;
+only the larger warm eligible and warm cooldown rows support scoped gains. This
+is not an overall discovery or end-to-end speedup claim. Earlier invalid low-score
+warm fixtures are excluded from gates. The immutable measured prefix, helpers,
+FFI and Rust-module hashes match the signed reviewed branch source.
+
+Restarted searches bind donor proof to the original title, key and posting
+fingerprint; changed/unbound saved state is searched again. Legacy three-field
+stamps recover generated-key identity. Manual name edits notify only the watcher,
+while DirectRename retains its queue-script event. Inferred absent parts mark
+unusable donors dead, including fast additions and existing history members.
+Generated keys and managed score floors persist without client edits.
 
 ## Parked
 
