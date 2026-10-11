@@ -232,6 +232,43 @@ class PostprocessAdapterTests(unittest.TestCase):
                     self.assertTrue(ancestor.is_symlink(), "immutable input ancestors must survive rejection")
                     self.assertEqual(immutable.read_text(), text)
 
+    def test_dotdot_after_input_parent_symlink_preserves_original_traversal(self):
+        for input_kind in ("source", "metadata"):
+            for output_route in ("direct", "alias"):
+                with self.subTest(input_kind=input_kind, output_route=output_route):
+                    case = self.root / f"dotdot-{input_kind}-{output_route}"
+                    case.mkdir()
+                    physical_output = case / "out"
+                    physical_output.mkdir()
+                    originals = case / "originals"
+                    originals.mkdir()
+                    name = "samples.csv" if input_kind == "source" else "metadata.json"
+                    original = originals / name
+                    text = "bad,header\n" if input_kind == "source" else '{"historical":true}\n'
+                    original.write_text(text)
+                    ancestor = physical_output / "manifest.json"
+                    ancestor.symlink_to(originals, target_is_directory=True)
+                    # Physical '..' follows the directory symlink before moving
+                    # upward; abspath() instead removes that traversal textually.
+                    traversal = ancestor / ".." / ".." / case.name / "originals" / name
+                    self.assertEqual(traversal.resolve(), original.resolve())
+                    output = physical_output
+                    if output_route == "alias":
+                        output = case / "output-alias"
+                        output.symlink_to(physical_output, target_is_directory=True)
+                    source = traversal if input_kind == "source" else case / "invalid.csv"
+                    metadata = traversal if input_kind == "metadata" else case / "metadata.json"
+                    if input_kind == "metadata":
+                        source.write_text("bad,header\n")
+                    else:
+                        metadata.write_text('{"historical":true}\n')
+                    result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                             "--manifest", str(metadata), "--source", str(source),
+                                             "--output-dir", str(output)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(ancestor.is_symlink(), "original traversal ancestors must remain immutable")
+                    self.assertEqual(original.read_text(), text)
+
     def test_repeat_hold_run_replaces_only_generated_outputs(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
         result, _ = self.run_adapter("par-crc", PAR_CRC)
