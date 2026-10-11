@@ -191,7 +191,7 @@ def search_sections(page: Page) -> list[dict]:
         sections.append({"s": html.unescape(heading), "u": f"{page.url}#{hid}", "x": parts[i + 1]})
     for section in sections:
         text = re.sub(r"<[^>]+>", " ", section["x"])
-        section["x"] = re.sub(r"\s+", " ", html.unescape(text)).strip()[:1200]
+        section["x"] = re.sub(r"\s+", " ", html.unescape(text)).strip()
         section["t"] = page.title
     return [s for s in sections if s["x"] or s["s"]]
 
@@ -282,7 +282,21 @@ def conf_details_html(text: str, known: set[str]) -> str:
     return "\n".join(out)
 
 
-def options_page(conf: Path, upstream_file: Path) -> tuple[str, list]:
+def options_search(sections: list, url: str, title: str) -> list[dict]:
+    entries = []
+    for section in sections:
+        for o in section["options"]:
+            text = " ".join([o["summary"], o["values"], o["details"]])
+            entries.append({
+                "t": title,
+                "s": o["name"],
+                "u": f"{url}#{o['id']}",
+                "x": re.sub(r"\s+", " ", text).strip(),
+            })
+    return entries
+
+
+def options_page(conf: Path, upstream_file: Path) -> tuple[str, list, list]:
     upstream = {}
     if upstream_file.exists():
         upstream = dict(l.split("\t", 1) for l in upstream_file.read_text(encoding="utf-8").splitlines() if "\t" in l)
@@ -325,14 +339,14 @@ def options_page(conf: Path, upstream_file: Path) -> tuple[str, list]:
                 f'{conf_details_html(o["details"], known)}</article>'
             )
         parts.append("</section>")
-    return "\n".join(parts), toc
+    return "\n".join(parts), toc, sections
 
 
 def rust_modules(src: Path) -> str:
     """A table of the crate's modules, from each file's leading //! comment."""
     rows = []
     for path in sorted(src.glob("*.rs")):
-        if path.stem in ("lib", "ffi"):
+        if path.stem == "lib":
             continue
         lines = path.read_text(encoding="utf-8").splitlines()
         doc = []
@@ -381,11 +395,11 @@ def build(out: Path) -> None:
 
     for page in pages.values():
         if page.meta.get("generated") == "options":
-            body, toc = options_page(ROOT / "nzbget.conf", SITE / "data" / "upstream-options.txt")
+            body, toc, conf_sections = options_page(ROOT / "nzbget.conf", SITE / "data" / "upstream-options.txt")
             render(md, page)
+            page.sections = search_sections(page) + options_search(conf_sections, page.url, page.title)
             page.body = page.body + body
             page.toc = page.toc + toc
-            page.sections = search_sections(page)
         elif page.meta.get("generated") == "porting":
             porting = (ROOT / "rust" / "PORTING.md").read_text(encoding="utf-8")
             porting = re.sub(r"^# .*\n", "", porting, count=1)

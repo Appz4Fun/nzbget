@@ -31,17 +31,17 @@ Watch the download in the **Downloads** tab. When it finishes, the **History** t
 
 ## Turn on duplicate fleets
 
-These settings live in **INCOMING NZBS** and **CHECK AND REPAIR**. Each defaults to NZBGet's behavior, so turn them on in this order and watch a few downloads after each step.
+These settings live in **INCOMING NZBS**, **DOWNLOAD QUEUE**, and **CHECK AND REPAIR**. Each defaults to NZBGet's behavior, so turn them on in this order and watch a few downloads after each step.
 
-| Step | Setting | Effect |
-|---|---|---|
-| 1 | `DupeCheck=yes` | Groups copies of the same title by duplicate key and keeps backups in history. On by default. |
-| 2 | `HealthCheck=dupe` | Fails over early to a better copy when a download can't complete. |
-| 3 | `DupeArticleFallback=article` | Fetches articles that no server has from duplicate postings. Use `live` to also repair bytes while downloading. |
-| 4 | `NzbCleanupDisk=no` | Keeps the NZB files of history items, so they can still serve as sources. |
-| 5 | `DupeSearch=yes` | Searches NZBHydra2 for more copies of each new download. Start with `DupeSearchDryRun=yes`. |
+| Step | Setting | Section | Effect |
+|---|---|---|---|
+| 1 | [`DupeCheck=yes`](options.md#dupecheck) | INCOMING NZBS | Groups copies of the same title by duplicate key and keeps backups in history. On by default. |
+| 2 | [`HealthCheck=dupe`](options.md#healthcheck) | CHECK AND REPAIR | Fails over early to a better copy when a download can't complete. |
+| 3 | [`DupeArticleFallback=article`](options.md#dupearticlefallback) | INCOMING NZBS | Fetches articles that no server has from duplicate postings. Use `live` to also repair bytes while downloading. |
+| 4 | [`NzbCleanupDisk=no`](options.md#nzbcleanupdisk) | DOWNLOAD QUEUE | Keeps the NZB files of history items, so they can still serve as sources. |
+| 5 | [`DupeSearch=yes`](options.md#dupesearch) | INCOMING NZBS | Searches NZBHydra2 for more copies of each new download. Start with `DupeSearchDryRun=yes`. |
 
-[Duplicate fleets](duplicate-fleets.md) explains each step, and [Configuration options](options.md#incoming-nzbs) lists every setting.
+[Duplicate fleets](duplicate-fleets.md) explains each step, and [Configuration options](options.md) lists every setting.
 
 > [!TIP] Article retries
 > Keep `ArticleRetries` at 3 or more with `HealthCheck=dupe` or `DupeSearch`. RustyGet warns at startup when it's lower, because one network hiccup can otherwise look like a missing article.

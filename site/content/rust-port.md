@@ -25,7 +25,7 @@ The C++ version of each ported routine stays behind `NZBGET_USE_RUST`, so builds
 
 ## Modules in Rust
 
-This table is generated from the crate's source on every build. Each module's first doc comment says what it does.
+This table is generated from the crate's source on every build. Each module's first doc comment says what it does. The `ffi` module is the C interface that the C++ code calls.
 
 <!-- modules -->
 
