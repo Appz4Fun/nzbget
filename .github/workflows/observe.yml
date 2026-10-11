@@ -1,0 +1,25 @@
+name: observe
+on:
+  pull_request:
+    paths: ['tools/nzbget-observe/**', '.github/workflows/observe.yml']
+  push:
+    branches: [dupe-article-fallback]
+    paths: ['tools/nzbget-observe/**', '.github/workflows/observe.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install Rust tools
+        run: rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
+      - name: Check formatting
+        run: cargo +1.99.0 fmt --manifest-path tools/nzbget-observe/Cargo.toml --check
+      - name: Test the watcher and offline HTTP fixture
+        run: cargo +1.99.0 test --locked --manifest-path tools/nzbget-observe/Cargo.toml
+      - name: Check all watcher targets
+        run: cargo +1.99.0 clippy --locked --manifest-path tools/nzbget-observe/Cargo.toml --all-targets -- -D warnings

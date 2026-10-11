@@ -122,6 +122,11 @@ To move from NZBGet, stop it, back up the queue directory and `nzbget.conf`, and
 
 ## Documentation
 
+[NZBGet Observe](tools/nzbget-observe/README.md) is an opt-in Rust watcher that
+tracks job progress, records Linux resource observations, and saves bounded
+evidence when an active job stops showing progress. Its guide explains how to
+investigate downloading, storage, PAR repair, and unpacking symptoms.
+
 The **[documentation site](https://appz4fun.github.io/nzbget/)** covers:
 
 - [Feature highlights](https://appz4fun.github.io/nzbget/features.html) and [Differences from NZBGet](https://appz4fun.github.io/nzbget/differences.html)
