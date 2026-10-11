@@ -16,6 +16,7 @@ out=Path(args.output) if args.output else Path(tempfile.mkdtemp(prefix="nzbget-l
 out.mkdir(parents=True,exist_ok=True);(out/"logs").mkdir(exist_ok=True)
 build_dir=root/args.build_dir
 lock=Path(tempfile.gettempdir())/"nzbget-rust-benchmark.lock"
+heavy_lock=Path(tempfile.gettempdir())/"i7-heavy.lock"
 env=dict(os.environ,CARGO_BUILD_JOBS="3",CARGO_NET_OFFLINE=os.environ.get("CARGO_NET_OFFLINE","true"))
 default=out/"default";default.mkdir(exist_ok=True)
 archive=subprocess.check_output(["git","archive",args.baseline,"rust"],cwd=root)
@@ -25,7 +26,7 @@ def build(command,cwd=None,check=True):
     global count
     if args.emit_only:return
     with (out/"logs"/f"build-{count:02}.log").open("w") as log:
-        subprocess.run(["chrt","-i","0","nice","-n","19","flock","-s",str(lock),*command],
+        subprocess.run(["chrt","-i","0","nice","-n","19","flock","-x",str(heavy_lock),"flock","-s",str(lock),*command],
                        cwd=cwd,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
     count+=1
 build(["cargo","build","--release","--locked","-j3","--manifest-path",str(root/"rust/Cargo.toml")],cwd=root)

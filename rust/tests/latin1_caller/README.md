@@ -45,3 +45,5 @@ The tool archives baseline Rust, builds both archives/providers with at most thr
 Summary JSON retains per-process statistics; every per-round sample remains unmodified in the current/prior logs. Duplicate raw arrays are omitted from the summary for readability.
 
 The immutable runtime patch is losslessly stored as evidence/reviewed-runtime.patch.b64 to preserve required diff-context whitespace. Decode it with base64 -d; its SHA256 remains 5c9e5af53f1c108114db050892259d7f6a26cc7df17dee1bdab43893b76532b2.
+
+Builds acquire i7-heavy.lock exclusively, then nzbget-rust-benchmark.lock shared, both under the process temporary directory. Prebuilt timing uses only the benchmark lock exclusively and never acquires the heavy lock or compiles.
