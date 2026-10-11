@@ -51,6 +51,7 @@ in `rust/include/nzbget_rs.h`.
 | `NzbFile::AddFileInfo` (segments in part order, the declared parts and tail, sizes), `DeclaredParts`, `HasDuplicateFilenames` (one pass instead of every pair); the XML handlers, the queue objects and the filenames stay C++ | `nzbfile` | 17x at 20,000 files |
 | `DonorScore::Base`, `Target`, `Rerank` (duplicate scores under a pick; `Ranks` stays C++ and calls `Target`) | `donorscore` | 1.2x |
 | `ReleaseName::Clean`, `Normalize`, `ShortQuery`, `Parse`, `Readable`, `SameRelease` (the std::regex patterns matched by hand in the engine's order; C ctype as nzbget sets it) | `releasename` | 2.6x |
+| `Posting::MakeSketch`, `SameSketch`, `SamePosting`, `GroupListings`, `ListingMismatch`, `OrderPostings` (CRC-32, stable ordering and first matching listing's rank; file reading and its cache stay C++) | `posting` | 2.3x ordering |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
