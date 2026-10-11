@@ -577,6 +577,186 @@ raise SystemExit(runner.main())
                 self.assertTrue(self.available("i7-heavy.lock"))
                 self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
 
+    def slow_capture_wrapper(self, fixture, events, phase):
+        return self.script(f"""import importlib.util,os,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+real_fdopen=runner.os.fdopen
+fixture=Path({str(fixture)!r})
+identity=(fixture.stat().st_dev,fixture.stat().st_ino)
+opened=0
+class Reader:
+    def __init__(self,stream): self.stream,self.delayed=stream,False
+    def __enter__(self): return self
+    def __exit__(self,*args): return self.stream.__exit__(*args)
+    def __getattr__(self,name): return getattr(self.stream,name)
+    def readinto(self,buffer):
+        if not self.delayed:
+            self.delayed=True
+            with Path({str(events)!r}).open('a') as event: event.write('started\\n')
+            time.sleep(.4)
+            with Path({str(events)!r}).open('a') as event: event.write('completed\\n')
+        return self.stream.readinto(buffer)
+def fdopen(fd,*args,**kwargs):
+    global opened
+    stream=real_fdopen(fd,*args,**kwargs)
+    value=os.fstat(fd)
+    if (value.st_dev,value.st_ino)==identity:
+        opened+=1
+        if {phase!r}!='after' or opened==2: return Reader(stream)
+    return stream
+runner.os.fdopen=fdopen
+raise SystemExit(runner.main())
+""", f"slow-{phase}-wrapper.py")
+
+    @unittest.skipUnless(LINUX, "capture alarm tests are Linux-only")
+    def test_capture_deadline_interrupts_blocking_regular_read_before_launch(self):
+        fixture, events, metadata, ready = [self.root / name for name in ("fixture", "events", "proof.json", "never")]
+        fixture.write_bytes(b"regular input")
+        wrapper = self.slow_capture_wrapper(fixture, events, "before")
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        command = self.command("build", argv, ("--timeout-seconds", ".1", "--metadata", str(metadata),
+                                               "--testbed", "fixture-worker", "--fixture", str(fixture)))
+        command[0:2] = wrapper
+        child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        _, error = child.communicate(timeout=3)
+        self.assertEqual(child.returncode, 76, error)
+        self.assertFalse(ready.exists())
+        self.assertIn("started", events.read_text())
+        self.assertNotIn("completed", events.read_text())
+        proof = json.loads(metadata.read_text())
+        self.assertFalse(proof["command_started"])
+        self.assertEqual(proof["qualification"], "HOLD")
+        self.assertTrue(self.available("i7-heavy.lock"))
+
+    @unittest.skipUnless(LINUX, "capture alarm tests are Linux-only")
+    def test_incomplete_after_capture_is_hold_without_prefix_digest(self):
+        fixture, events, metadata, ready = [self.root / name for name in ("fixture", "events", "proof.json", "ran")]
+        fixture.write_bytes(b"regular input")
+        wrapper = self.slow_capture_wrapper(fixture, events, "after")
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        command = self.command("build", argv, ("--timeout-seconds", ".2", "--metadata", str(metadata),
+                                               "--testbed", "fixture-worker", "--fixture", str(fixture)))
+        command[0:2] = wrapper
+        child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        child.communicate(timeout=3)
+        self.assertEqual(child.returncode, 76)
+        self.assertTrue(ready.exists())
+        self.assertNotIn("completed", events.read_text())
+        proof = json.loads(metadata.read_text())
+        self.assertEqual(proof["child_exit_code"], 0)
+        self.assertEqual(proof["qualification"], "HOLD")
+        before = {record["id"]: record["sha256"] for record in proof["captures"]["before"]}
+        after = {record["id"]: record["sha256"] for record in proof["captures"]["after"]}
+        self.assertEqual(before["fixture-0"], hashlib.sha256(b"regular input").hexdigest())
+        self.assertIsNone(after["fixture-0"])
+
+    @unittest.skipUnless(LINUX, "capture alarm tests are Linux-only")
+    def test_cancelled_blocking_capture_does_not_finish_read_or_launch_command(self):
+        fixture, events, metadata, ready = [self.root / name for name in ("fixture", "events", "proof.json", "never")]
+        fixture.write_bytes(b"regular input")
+        wrapper = self.slow_capture_wrapper(fixture, events, "cancel")
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        command = self.command("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker", "--fixture", str(fixture)))
+        command[0:2] = wrapper
+        child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        self.wait_file(events)
+        child.terminate()
+        child.communicate(timeout=3)
+        self.assertEqual(child.returncode, 143)
+        self.assertFalse(ready.exists())
+        self.assertNotIn("completed", events.read_text())
+        self.assertFalse(json.loads(metadata.read_text())["command_started"])
+        self.assertTrue(self.available("i7-heavy.lock"))
+
+    def test_growing_regular_reader_cannot_exceed_byte_budget_or_return_prefix_hash(self):
+        fixture = self.root / "growing"
+        fixture.write_bytes(b"a" * 32)
+        spec = importlib.util.spec_from_file_location("runner_growth", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.DEFAULT_CAPTURE_MAX_BYTES = 128
+        real_fdopen = os.fdopen
+        reads = []
+        class Reader:
+            def __init__(self, stream): self.stream = stream
+            def __enter__(self): return self
+            def __exit__(self, *args): return self.stream.__exit__(*args)
+            def __getattr__(self, name): return getattr(self.stream, name)
+            def readinto(self, buffer):
+                reads.append(1)
+                if len(reads) <= 8:
+                    with fixture.open("ab") as writer: writer.write(b"x" * 64)
+                return self.stream.readinto(buffer)
+        def fdopen(fd, *args, **kwargs): return Reader(real_fdopen(fd, *args, **kwargs))
+        module.os.fdopen = fdopen
+        try:
+            with self.assertRaises(ValueError): module.digest_file(fixture)
+        finally:
+            module.os.fdopen = real_fdopen
+        self.assertLessEqual(len(reads), 3)
+
+    def test_capture_alarm_restores_prior_handler_and_timer_after_failure(self):
+        spec = importlib.util.spec_from_file_location("runner_alarm_restore", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        handler = lambda number, frame: None
+        fifo = self.root / "fifo"
+        os.mkfifo(fifo)
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 1, .5)
+            with self.assertRaises(ValueError): module.digest_file(fifo)
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            self.assertGreater(remaining, 0)
+            self.assertLessEqual(remaining, 1)
+            self.assertEqual(interval, .5)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+    @unittest.skipUnless(LINUX, "capture policy tests are Linux-only")
+    def test_capture_byte_policy_holds_oversized_input_before_launch(self):
+        metadata, ready = self.root / "proof.json", self.root / "never"
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        status, _, error = self.run_cli("build", argv, ("--capture-max-bytes", "128", "--metadata", str(metadata), "--testbed", "fixture-worker"))
+        self.assertEqual(status, 76, error)
+        self.assertFalse(ready.exists())
+        proof = json.loads(metadata.read_text())
+        self.assertEqual(proof["limits"]["capture_max_bytes"], 128)
+        self.assertFalse(proof["command_started"])
+        self.assertIn("capture_byte_limit", proof["stability"]["reason_codes"])
+        for value in ("0", str(8 * 1024 * 1024 * 1024 + 1)):
+            status, _, _ = self.run_cli("build", [shutil.which("true")], ("--capture-max-bytes", value))
+            self.assertEqual(status, 2)
+
+    @unittest.skipUnless(LINUX, "startup identity policy tests are Linux-only")
+    def test_oversized_startup_source_identity_fails_closed_without_partial_hash(self):
+        copy = self.root / "large-runner.py"
+        copy.write_bytes(RUNNER.read_bytes() + b"\n#" + b"x" * (1024 * 1024) + b"\n")
+        metadata, ready = self.root / "source-proof.json", self.root / "never"
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        command = self.command("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker"))
+        command[1] = str(copy)
+        child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 76)
+        self.assertFalse(ready.exists())
+        proof = json.loads(metadata.read_text())
+        self.assertIsNone(proof["runner_sha256"])
+        self.assertEqual(proof["runner_identity_error"], "byte_limit")
+        self.assertFalse(proof["command_started"])
+
     @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
     def test_runner_source_change_while_queued_preserves_loaded_identity_and_prevents_launch(self):
         copy = self.root / "copied-runner.py"

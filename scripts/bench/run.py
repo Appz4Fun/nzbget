@@ -8,6 +8,7 @@ This resource coordinator is not a sandbox for untrusted programs.
 import argparse
 import ctypes
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -26,18 +27,96 @@ import sys
 import tempfile
 import time
 
+POLL_SECONDS = 0.02
+DEFAULT_CAPTURE_MAX_BYTES = 256 * 1024 * 1024
+MAX_CAPTURE_BYTES = 8 * 1024 * 1024 * 1024
+
+
+class CaptureFailure(ValueError):
+    def __init__(self, code):
+        super().__init__("capture " + code)
+        self.code = code
+
+
+@contextmanager
+def capture_alarm(deadline, cancelled):
+    """Interrupt capture in the custodian's main thread; restore prior alarms."""
+    def check():
+        if cancelled is not None and cancelled():
+            raise CaptureFailure("cancelled")
+        if time.monotonic() >= deadline:
+            raise CaptureFailure("deadline")
+
+    check()
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    entered = time.monotonic()
+    signal.signal(signal.SIGALRM, lambda number, frame: check())
+    tick = min(POLL_SECONDS, max(deadline - entered, 0.000001))
+    signal.setitimer(signal.ITIMER_REAL, tick, tick)
+    try:
+        yield check
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            remaining = max(0.000001, previous_timer[0] - (time.monotonic() - entered))
+            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
+
+
+def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
+    """Hash regular, stable bytes only; never return an incomplete digest."""
+    max_bytes = DEFAULT_CAPTURE_MAX_BYTES if max_bytes is None else max_bytes
+    deadline = time.monotonic() + 300 if deadline is None else deadline
+    with capture_alarm(deadline, cancelled) as check:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode):
+                raise CaptureFailure("non_regular")
+            if before.st_size > max_bytes:
+                raise CaptureFailure("byte_limit")
+            digest = hashlib.sha256()
+            total = 0
+            buffer = bytearray(65536)
+            with os.fdopen(descriptor, "rb", buffering=0, closefd=False) as stream:
+                while True:
+                    check()
+                    count = stream.readinto(memoryview(buffer)[:min(len(buffer), max_bytes - total + 1)])
+                    check()
+                    if count is None:
+                        raise CaptureFailure("unavailable")
+                    if count == 0:
+                        break
+                    total += count
+                    if total > max_bytes:
+                        raise CaptureFailure("byte_limit")
+                    digest.update(memoryview(buffer)[:count])
+            after = os.fstat(descriptor)
+            check()
+            identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+            if identity(before) != identity(after):
+                raise CaptureFailure("changed_during_read")
+            return digest.hexdigest()
+        finally:
+            os.close(descriptor)
+
 # Preserve the invocation's implementation identity. Later source changes must
 # not relabel already-loaded code as though it came from the new file.
 RUNNER_ORIGINAL_PATH = Path(__file__)
 RUNNER_PATH = RUNNER_ORIGINAL_PATH.resolve()
-INVOCATION_RUNNER_SHA256 = hashlib.sha256(RUNNER_PATH.read_bytes()).hexdigest()
+try:
+    INVOCATION_RUNNER_SHA256 = digest_file(RUNNER_PATH, max_bytes=1024 * 1024, deadline=time.monotonic() + 2)
+    INVOCATION_RUNNER_ERROR = None
+except (OSError, CaptureFailure) as error:
+    INVOCATION_RUNNER_SHA256 = None
+    INVOCATION_RUNNER_ERROR = error.code if isinstance(error, CaptureFailure) else "unavailable"
 
 BUILD_TOOLS = {"cargo", "rustc", "rustup", "make", "gmake", "ninja", "cmake", "cc", "gcc", "g++",
                "c++", "clang", "clang++", "ccache", "sccache", "meson", "bazel", "just", "task",
                "npm", "npx", "yarn", "pnpm", "pip", "pip3", "uv"}
 SHELLS = {"sh", "bash", "dash", "zsh", "fish", "ksh", "csh", "tcsh"}
 INTERPRETERS = {"python", "python3", "pypy", "pypy3", "perl", "ruby", "node", "env", "busybox"}
-POLL_SECONDS = 0.02
 
 
 def bounded_number(maximum):
@@ -49,12 +128,21 @@ def bounded_number(maximum):
     return parse
 
 
+def capture_bytes(value):
+    number = int(value)
+    if not 1 <= number <= MAX_CAPTURE_BYTES:
+        raise argparse.ArgumentTypeError("capture byte limit must be positive and at most 8 GiB")
+    return number
+
+
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("build", "time"), required=True)
     parser.add_argument("--timeout-seconds", type=bounded_number(86400), default=300.0)
     parser.add_argument("--lock-timeout-seconds", type=bounded_number(3600), default=120.0)
     parser.add_argument("--shutdown-grace-seconds", type=bounded_number(30), default=2.0)
+    parser.add_argument("--capture-max-bytes", type=capture_bytes, default=DEFAULT_CAPTURE_MAX_BYTES,
+                        help="maximum bytes per captured artifact, default 256 MiB; timeout includes capture")
     parser.add_argument("--lock-dir", type=Path, default=Path("/tmp"), help="alternate private directory for tests")
     parser.add_argument("--jobs", type=int, choices=(1, 2, 3), default=None, help="build jobs, default 3")
     parser.add_argument("--metadata", type=Path)
@@ -159,19 +247,6 @@ def prepare_command(args):
     return command, executable
 
 
-def digest_file(path):
-    # Opening a FIFO for a buffered read blocks before fstat. Nonblocking open
-    # lets the custodian reject every non-regular artifact before any reads.
-    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError("captured artifacts must be regular files")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            return hashlib.file_digest(stream, "sha256").hexdigest()
-    finally:
-        os.close(descriptor)
-
-
 def argv_digest(command):
     return hashlib.sha256(json.dumps(command, separators=(",", ":")).encode()).hexdigest()
 
@@ -243,29 +318,42 @@ def metadata_destination_safe(args, command):
                 raise ValueError("metadata destination collides with a protected input or lock")
 
 
-def checkout_identity():
+def checkout_identity(deadline=None, cancelled=None):
+    remaining = 5 if deadline is None else min(5, deadline - time.monotonic())
+    if remaining <= 0 or (cancelled is not None and cancelled()):
+        return None
     git = shutil.which("git")
     if not git:
         return None
-    revision = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True,
-                              env=safe_environment("time", 3), timeout=5)
+    try:
+        revision = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True,
+                                  env=safe_environment("time", 3), timeout=remaining)
+    except subprocess.TimeoutExpired:
+        return None
     if revision.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}\n?", revision.stdout):
         return revision.stdout.strip()
     return None
 
 
-def capture_artifacts(args, command):
+def capture_artifacts(args, command, deadline=None, cancelled=None):
     paths = [("runner", "implementation", RUNNER_PATH),
              ("executable", "executable", Path(command[0]))]
     paths += [(f"fixture-{index}", "fixture", path) for index, path in enumerate(args.fixture)]
     paths += [(f"tool-{index}", "toolchain", path) for index, path in enumerate(args.toolchain_binary)]
     records = []
     for identifier, kind, path in paths:
+        error_code = None
         try:
-            digest = digest_file(path)
+            digest = digest_file(path, max_bytes=args.capture_max_bytes, deadline=deadline, cancelled=cancelled)
+        except CaptureFailure as error:
+            digest, error_code = None, error.code
         except (OSError, ValueError):
             digest = None
-        records.append({"id": identifier, "kind": kind, "sha256": digest})
+            error_code = "unavailable"
+        record = {"id": identifier, "kind": kind, "sha256": digest}
+        if error_code is not None:
+            record["error_code"] = error_code
+        records.append(record)
     return records
 
 
@@ -276,12 +364,17 @@ def capture_stability(before, after):
                if first.get(identifier) is None or last.get(identifier) is None or
                first.get(identifier) != last.get(identifier)}
     reasons = set()
+    reasons.update("capture_" + record["error_code"] for record in before + after if "error_code" in record)
     if any(record["sha256"] is None for record in before + after):
         reasons.add("artifact_unavailable")
-    if first.get("runner") != INVOCATION_RUNNER_SHA256 or last.get("runner") != INVOCATION_RUNNER_SHA256:
+    if INVOCATION_RUNNER_SHA256 is None or first.get("runner") is None or last.get("runner") is None:
+        changed.add("runner")
+        reasons.add("runner_identity_unavailable")
+    elif first.get("runner") != INVOCATION_RUNNER_SHA256 or last.get("runner") != INVOCATION_RUNNER_SHA256:
         changed.add("runner")
         reasons.add("runner_source_changed")
-    if changed - {"runner"}:
+    if any(identifier != "runner" and first.get(identifier) is not None and last.get(identifier) is not None and
+           first[identifier] != last[identifier] for identifier in changed):
         reasons.add("artifact_changed")
     return {"status": "changed" if changed else "stable", "changed_ids": sorted(changed),
             "reason_codes": sorted(reasons)}
@@ -418,6 +511,12 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
     interrupted = [0]
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
+    deadline = time.monotonic() + args.timeout_seconds
+    parent_gone = [False]
+    def cancelled():
+        if select.select([parent_pipe], [], [], 0)[0] and not os.read(parent_pipe, 1):
+            parent_gone[0] = True
+        return bool(interrupted[0] or parent_gone[0])
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
         raise OSError("cannot enable Linux descendant supervision")
@@ -430,8 +529,8 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
             "changed_ids": ["argv"], "reason_codes": ["command_revalidation_failed"]}}))
         return
     metadata_destination_safe(args, command)
-    checkout_before = checkout_identity()
-    before = capture_artifacts(args, command)
+    checkout_before = checkout_identity(deadline, cancelled)
+    before = capture_artifacts(args, command, deadline, cancelled)
     fields = captured_fields(command, executable, before, before)
     if argv_digest(command) != original_argv:
         fields["stability"]["status"] = "changed"
@@ -440,12 +539,12 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
     if fields["stability"]["status"] != "stable":
         # Even a prevented launch keeps independently observed before/after
         # records; never reconstruct the second observation from the first.
-        fields["captures"]["after"] = capture_artifacts(args, command)
+        fields["captures"]["after"] = capture_artifacts(args, command, deadline, cancelled)
         observed = capture_stability(before, fields["captures"]["after"])
         fields["stability"]["changed_ids"] = sorted(set(fields["stability"]["changed_ids"] + observed["changed_ids"]))
         fields["stability"]["reason_codes"] = sorted(set(fields["stability"]["reason_codes"] + observed["reason_codes"]))
         fields.update(command_started=False, duration_ns=0, checkout_sha=checkout_before,
-                      checkout_sha_before=checkout_before, checkout_sha_after=checkout_identity())
+                      checkout_sha_before=checkout_before, checkout_sha_after=checkout_identity(deadline, cancelled))
         send_result(result_pipe, mark_drift(fields))
         return
     start = time.monotonic()
@@ -475,7 +574,7 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
         if stopping_at is None:
             parent_ready = select.select([parent_pipe], [], [], 0)[0]
             parent_lost = bool(parent_ready and not os.read(parent_pipe, 1))
-            if interrupted[0] or parent_lost or time.monotonic() - start >= args.timeout_seconds:
+            if interrupted[0] or parent_lost or time.monotonic() >= deadline:
                 stopping_at = time.monotonic()
                 outcome = "interrupted" if interrupted[0] or parent_lost else "timeout"
                 exit_code = 128 + (interrupted[0] or signal.SIGTERM) if outcome == "interrupted" else 124
@@ -489,15 +588,18 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
               "child_exit_code": root_status, "duration_ns": int((time.monotonic() - start) * 1e9)}
     # The same identities are captured while the custodian still owns the locks,
     # after every descendant has exited and been reaped.
-    result.update(captured_fields(command, executable, before, capture_artifacts(args, command)))
-    checkout_after = checkout_identity()
+    result.update(captured_fields(command, executable, before, capture_artifacts(args, command, deadline, cancelled)))
+    checkout_after = checkout_identity(deadline, cancelled)
     result.update(checkout_sha=checkout_before, checkout_sha_before=checkout_before, checkout_sha_after=checkout_after)
     if checkout_before != checkout_after:
         result["stability"]["status"] = "changed"
         result["stability"]["changed_ids"].append("checkout")
-        result["stability"]["reason_codes"].append("checkout_changed")
+        result["stability"]["reason_codes"].append("checkout_changed" if checkout_before and checkout_after else "checkout_unavailable")
     if result["stability"]["status"] != "stable":
-        mark_drift(result)
+        if outcome == "completed":
+            mark_drift(result)
+        else:
+            result["qualification"] = "HOLD"
     send_result(result_pipe, result)
     # Inherited lock fds close only after all descendants have been reaped.
 
@@ -580,6 +682,7 @@ def provenance(args, command, executable):
     proof = {"schema_version": 1, "capture_version": 1, "mode": args.mode, "testbed": args.testbed,
              "lock_scope": "worker_default" if args.lock_dir.samefile(Path("/tmp")) else "test_override",
              "runner_sha256": INVOCATION_RUNNER_SHA256,
+             "runner_identity_error": INVOCATION_RUNNER_ERROR,
              "checkout_sha": None, "checkout_sha_before": None, "checkout_sha_after": None,
              "captures": {"before": [], "after": []},
              "stability": {"status": "not_captured", "changed_ids": [], "reason_codes": []},
@@ -587,7 +690,7 @@ def provenance(args, command, executable):
              "time_prebuilt": args.mode == "time",
              "started_at": utc_now(), "build_jobs": args.jobs if args.mode == "build" else None,
              "limits": {"timeout_seconds": args.timeout_seconds, "lock_timeout_seconds": args.lock_timeout_seconds,
-                        "shutdown_grace_seconds": args.shutdown_grace_seconds},
+                        "shutdown_grace_seconds": args.shutdown_grace_seconds, "capture_max_bytes": args.capture_max_bytes},
              "command": {"name": executable.name, "sha256": None, "argv_sha256": argv_digest(command)},
              "fixtures": [],
              "toolchain": {"python": platform.python_version(), "kernel": platform.release(), "machine": platform.machine()},
