@@ -47,7 +47,7 @@ RustyGet is a Usenet downloader that started as a fork of [NZBGet](https://githu
 | Configuration | 155 options | 16 new options and a new `HealthCheck` value, all off by default |
 | API | NZBGet API | NZBGet API, plus `appendfleet`, new fields, POST for risky methods on the JSON-RPC and XML-RPC paths, and access checks in multicalls |
 | Queue and history files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
-| Inherited bugs | | More than 100 fixed: downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
+| Inherited bugs | | About 100 fixed, 96 of them [reported to NZBGet as its issues 940 to 1046](https://github.com/nzbgetcom/nzbget/issues?q=is%3Aissue+author%3Axbmc4lyfe): downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
 | CI workflows | Builds and tests for every platform | Turned off in the Actions tab while the tests are rebuilt; only the documentation workflow runs |
 
 The new options are `DupeArticleFallback`, `DupeStreamDecompress`, `DupeStreamTimeout`, `DupeSearch`, `DupeSearchUrl`, `DupeSearchApiKey`, `DupeSearchDelay`, `DupeSearchDryRun`, `DupeSearchMaxDonors`, `DupeHealthPercent`, `DupeHealthMin`, `DupeHealthMax`, `DupeBodyChecks`, `DupeHealthBudget`, `DupeMinAlive`, and `DupeFastDonors`. The full list of changes is in [Differences from NZBGet](https://appz4fun.github.io/nzbget/differences.html).
@@ -79,7 +79,7 @@ For more detail, see [Duplicate fleets](https://appz4fun.github.io/nzbget/duplic
 
 ## Pull request 850
 
-NZBGet pull request [850](https://github.com/nzbgetcom/nzbget/pull/850), "Add DupeArticleFallback: recover missing articles from duplicate releases," opened in July 2026. Over three months it grew from article fallback to the whole fleet: stream repair across packaging and encryption, live repair, early failover with `HealthCheck=dupe`, donor search through NZBHydra2, `appendfleet`, a queue format that NZBGet can still read, more than 100 fixes to inherited bugs, and a functional test harness with more than 100 scenarios. It reached 385 commits and about 45,000 added lines, much of it tests.
+NZBGet pull request [850](https://github.com/nzbgetcom/nzbget/pull/850), "Add DupeArticleFallback: recover missing articles from duplicate releases," opened in July 2026. Over three months it grew from article fallback to the whole fleet: stream repair across packaging and encryption, live repair, early failover with `HealthCheck=dupe`, donor search through NZBHydra2, `appendfleet`, a queue format that NZBGet can still read, about 100 fixes to inherited bugs, and a functional test harness with more than 100 scenarios. It reached 385 commits and about 45,000 added lines, much of it tests.
 
 What the pull request's comments documented, in order:
 
@@ -91,7 +91,7 @@ What the pull request's comments documented, in order:
 - **October 5: failover and search.** `HealthCheck=dupe` with a dead-copy probe, `DupeStreamTimeout`, `DupeSearch` through Newznab or NZBHydra2 with a dry run, whole files rebuilt from a byte-identical duplicate, server answer 451 treated as missing when downloading and probing, and the yEnc checksum of articles fetched for stream repair checked whenever the article carries one, even with `CrcCheck=no`.
 - **October 5: compatibility and pairing.** Queue files written in NZBGet's own format again, with this work's data in a trailer NZBGet ignores; pairing by the part counts that subjects declare; a dead download fails over once 64 articles beyond the first of each file have failed, instead of after up to 1,000.
 
-After the last comment, the branch added `appendfleet`, twins and alts from par2 file lists, repair with a twin's par2 volumes, more than 100 fixes to inherited bugs, and the start of the Rust port.
+After the last comment, the branch added `appendfleet`, twins and alts from par2 file lists, repair with a twin's par2 volumes, about 100 fixes to inherited bugs, and the start of the Rust port.
 
 On 2026-10-09 the NZBGet maintainers closed it without merging, along with the related bug reports. No formal review was submitted, and no reason was given. That work is the starting point of RustyGet.
 

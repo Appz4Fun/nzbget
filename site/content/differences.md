@@ -22,7 +22,7 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 | Configuration | 155 options | 16 more options and a new `HealthCheck` value, all off by default |
 | API | NZBGet API | NZBGet API plus `appendfleet` and new fields; unsafe methods need POST; may diverge later |
 | Queue files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
-| Bug fixes | | More than 100 fixes to inherited bugs, most reported upstream |
+| Bug fixes | | About 100 fixes to inherited bugs, 96 of them reported upstream |
 | Build and test workflows | Builds for every platform on each push | Turned off while the tests are rebuilt; only the documentation deploys |
 
 ## Duplicate fleets
@@ -97,7 +97,7 @@ See [API and compatibility](api.md).
 
 ## Bug fixes
 
-RustyGet fixes more than 100 inherited bugs, most of them reported to the NZBGet project along the way. Highlights:
+RustyGet fixes about 100 inherited bugs. 96 of them are [reported to the NZBGet project](https://github.com/nzbgetcom/nzbget/issues?q=is%3Aissue+author%3Axbmc4lyfe), as its issues 940 to 1046. Highlights:
 
 - **Downloads:** 451 errors count as missing, 502 login refusals move on, malformed headers move to the next server, a connection that times out in the middle of an article is closed instead of reused, yEnc data can't overrun its range, and uuencoded parts no longer pass through the article cache.
 - **Post-processing:** `ParScan=extended` and `ParScan=dupe` find extra blocks again, split files join correctly, a failed direct unpack no longer deletes the download folder, `ParTimeLimit` counts from the right moment, RAR-rename works per folder, and archives with encrypted headers parse.
