@@ -914,7 +914,8 @@ input[type="submit"].btn-large {
 }
 
 .btn-group > .btn:last-child,
-.btn-group > .dropdown-toggle:last-child {
+.btn-group > .dropdown-toggle:last-child,
+.btn-group > .btn:has(+ .dropdown-menu:last-child) {
 	border-top-right-radius: var(--radius-sm);
 	border-bottom-right-radius: var(--radius-sm);
 }
@@ -1022,8 +1023,14 @@ input[type="submit"].btn-large {
 	filter: none;
 }
 
-.dropdown-menu li:not(:hover) .empty-item {
+.dropdown-menu li:not(:hover):not(:focus-within) .empty-item {
 	color: var(--label-secondary);
+}
+
+/* a keyboard-focused "None" entry reads like a hovered one (the old themes
+   grey it whenever the row is not hovered) */
+.dropdown-menu li:focus-within .empty-item {
+	color: inherit;
 }
 
 .dropdown-menu .divider {
@@ -1105,6 +1112,10 @@ input[type="submit"].btn-large {
 	text-transform: none;
 }
 
+.phone .switch-group.btn-group > .btn.switch-btn {
+	height: calc(var(--size-control-lg) - 4px);
+}
+
 .switch-group.btn-group > .btn.switch-btn:hover {
 	background: var(--fill-quaternary);
 	color: var(--label-primary);
@@ -1146,8 +1157,15 @@ input[type="submit"].btn-large {
 	vertical-align: middle;
 }
 
+/* the row-count badge that follows a dragged selection sets its own size */
+#TableDragBox .badge {
+	height: auto;
+	line-height: normal;
+}
+
 .badge-active,
-.badge-info {
+.badge-info,
+.badge-info[href] {
 	background: var(--accent-fill);
 	color: var(--on-accent);
 }
@@ -1178,23 +1196,50 @@ input[type="submit"].btn-large {
 	white-space: nowrap;
 }
 
-.label-success {
+.label-success,
+.label-success[href] {
 	background: var(--green-soft);
 	color: var(--green-text);
 }
 
-.label-warning {
+.label-warning,
+.label-warning[href] {
 	background: var(--yellow-soft);
 	color: var(--yellow-text);
 }
 
-.label-important {
+.label-important,
+.label-important[href] {
 	background: var(--red-soft);
 	color: var(--red-text);
 }
 
-.label-info {
+.label-info,
+.label-info[href] {
 	background: var(--cyan-soft);
+	color: var(--cyan-text);
+}
+
+/* a linked tag (the settings NEW tag) keeps its colours on hover;
+   Bootstrap's a.label:hover would turn the text white */
+a.label:hover {
+	color: var(--label-secondary);
+	text-decoration: none;
+}
+
+a.label-success:hover {
+	color: var(--green-text);
+}
+
+a.label-warning:hover {
+	color: var(--yellow-text);
+}
+
+a.label-important:hover {
+	color: var(--red-text);
+}
+
+a.label-info:hover {
 	color: var(--cyan-text);
 }
 
