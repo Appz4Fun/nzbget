@@ -9,6 +9,14 @@
 	font-display: swap;
 }
 
+@font-face {
+	font-family: "Material Symbols Rounded";
+	src: url(lib/material-symbols-rounded.ttf) format("truetype");
+	font-weight: 400;
+	font-style: normal;
+	font-display: block;
+}
+
 :root,
 [data-theme="dark"] {
 	--bg-window: #0a0a0e;

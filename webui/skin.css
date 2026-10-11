@@ -18,8 +18,8 @@
 /*
  * Web UI skin: restyles the existing Bootstrap 2 markup with the NZBGet
  * Design System. Every value comes from tokens.css; component classes for
- * new markup live in ds.css. Loaded after the theme stylesheet so it wins
- * over light-theme.css and dark-theme.css while those are phased out.
+ * new markup live in ds.css. Loaded last in the combined stylesheet, after
+ * Bootstrap's layout rules; light and dark use the same token-based skin.
  */
 
 /* ---------- Base ---------- */
@@ -50,6 +50,11 @@ pre,
 kbd,
 samp {
 	font-family: var(--font-mono);
+}
+
+/* Legacy markup uses the locally bundled rounded icon face. */
+.material-icon {
+	font-family: var(--font-icon);
 }
 
 /* ---------- Toolbar ---------- */
@@ -281,7 +286,7 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 	content: "close";
 	display: block;
 	color: var(--label-secondary);
-	font-family: "Material Icons";
+	font-family: var(--font-icon);
 	font-size: 16px;
 	font-style: normal;
 	line-height: 16px;
@@ -375,7 +380,7 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 #Navbar #PlayBlock .img-download-btn-active::before,
 #Navbar #PlayBlock .img-download-btn-pause::before {
 	color: var(--label-primary);
-	font-family: "Material Icons";
+	font-family: var(--font-icon);
 	font-size: 20px;
 	line-height: 1;
 	font-feature-settings: "liga";
@@ -518,7 +523,7 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 #Navbar #RefreshButton .icon-refresh::before {
 	content: "refresh";
 	color: var(--label-primary);
-	font-family: "Material Icons";
+	font-family: var(--font-icon);
 	font-size: 18px;
 	font-style: normal;
 	line-height: 1;
@@ -1797,12 +1802,12 @@ div.toolbox-length select:focus-visible {
 	background-color: var(--fill-quaternary);
 }
 
-.table a,
-.table a:hover {
+.table a:not(.btn),
+.table a:not(.btn):hover {
 	color: inherit;
 }
 
-.table tbody a:hover {
+.table tbody a:not(.btn):hover {
 	color: var(--accent);
 	text-decoration: none;
 }
@@ -2764,4 +2769,311 @@ span.help-option-title {
 .section-title hr {
 	border: 0;
 	border-top: 1px solid var(--separator);
+}
+
+/* ---------- Carried over from the retired light-theme.css / dark-theme.css ---------- */
+/* Those sheets mixed colours with layout. The colours are covered above with
+   tokens; these are the layout rules they also held, now themed by tokens. */
+
+/* status text: "Yes", "102 / 4", health badges */
+.txt-success,
+.system-health-badge--info {
+	color: var(--green-text);
+}
+
+.txt-warning,
+.system-health-badge--warning {
+	color: var(--yellow-text);
+}
+
+.txt-error,
+.txt-important,
+.system-health-badge--important {
+	color: var(--red-text);
+}
+
+.txt-info {
+	color: var(--cyan-text);
+}
+
+hr {
+	border: 0;
+	border-top: 1px solid var(--separator);
+}
+
+.caret,
+.dropup .caret {
+	border-top-color: currentColor;
+}
+
+.dropup .caret,
+.navbar-fixed-bottom .dropdown .caret {
+	border-bottom-color: currentColor;
+}
+
+.nav > li > a:hover {
+	background-color: var(--fill-tertiary);
+}
+
+.nav-list .divider {
+	border: 0;
+	background-color: var(--separator);
+}
+
+/* the search filter caret keeps its old offset inside the field */
+#Navbar #SearchBlock .search-caret-button .caret {
+	margin-top: 3px;
+	margin-left: 9px;
+}
+
+#Navbar #SearchBlock.focused .search-caret-button .caret,
+#Navbar .focused .search-caret-button .caret {
+	margin-left: 5px;
+}
+
+/* back arrows and link icons in dialog headers */
+.back,
+#StatDialog_Back,
+#AddDialog_URLProp,
+.modal-header a:not(.btn):not(.close) {
+	color: var(--label-secondary);
+}
+
+.back:hover,
+#StatDialog_Back:hover,
+#AddDialog_URLProp:hover,
+.modal-header a:not(.btn):not(.close):hover {
+	color: var(--label-primary);
+	text-decoration: none;
+}
+
+#StatDialog_Custom a,
+#StatDialog_Custom a:hover,
+#AddDialog_Files a,
+#AddDialog_Files a:hover {
+	cursor: pointer;
+}
+
+/* the arrow that appears when hovering an editable category or priority cell */
+td.dropdown-cell > div:not(.dropdown-disabled):hover::after {
+	content: "";
+	position: absolute;
+	margin-bottom: 8px;
+	margin-left: 2px;
+	border-top: 4px solid currentColor;
+	border-right: 4px solid transparent;
+	border-left: 4px solid transparent;
+}
+
+td:hover span.none-category {
+	color: var(--label-tertiary);
+}
+
+.progress {
+	margin-bottom: 0;
+}
+
+.dropdown-warning {
+	text-align: center;
+}
+
+.confirm-help-block {
+	margin-bottom: 0;
+	color: var(--label-secondary);
+	font-size: 13px;
+	line-height: 16px;
+}
+
+/* settings rows */
+#DownloadsEdit_ParamTab div.control-group.wants-divider,
+#HistoryEdit_ParamTab div.control-group.wants-divider,
+#ConfigContent div.control-group,
+#ConfigContent.search div.control-group.multiset {
+	margin-bottom: 15px;
+	padding-bottom: 12px;
+}
+
+.uneditable-mulitline-input {
+	display: inline-block;
+	width: 340px;
+	padding: 4px 20px 4px 4px;
+	overflow: hidden;
+	cursor: not-allowed;
+}
+
+/* status page: the health accordion */
+.accordion-group {
+	border: 1px solid var(--separator);
+	border-radius: var(--radius-md);
+	background: var(--bg-content);
+}
+
+.accordion-heading {
+	border: 0;
+}
+
+.accordion-inner {
+	border: 0;
+	border-top: 1px solid var(--separator);
+}
+
+/* update dialog */
+.table .update-release-notes {
+	height: 10px;
+	color: var(--accent);
+	font-size: 11px;
+	outline: none;
+}
+
+#UpdateDialog_Hint p {
+	margin-bottom: 3px;
+	color: var(--label-secondary);
+}
+
+/* log dialogs: a mono well filling the body */
+.log-dialog .modal-body pre {
+	position: absolute;
+	top: 15px;
+	right: 15px;
+	bottom: 15px;
+	left: 15px;
+	min-height: 270px;
+	margin-bottom: 0;
+	padding: 6px 10px;
+	overflow-y: auto;
+	border: 1px solid var(--separator);
+	border-radius: var(--radius-md);
+	background: var(--bg-window);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+/* RSS filter editor: line numbers beside the filter text */
+#FeedFilterDialog_FilterBlock {
+	position: absolute;
+	bottom: 0;
+	left: 15px;
+	width: 300px;
+	height: auto;
+	margin-bottom: 12px;
+	padding: 0;
+	border: 1px solid var(--separator);
+	border-radius: var(--radius-md);
+	background: var(--bg-content);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+#FeedFilterDialog_FilterHeader {
+	height: 23px;
+	margin-top: 5px;
+	padding-left: 6px;
+	border-bottom: 1px solid var(--separator);
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+#FeedFilterDialog_FilterLines {
+	position: absolute;
+	top: 29px;
+	bottom: 0;
+	left: 0;
+	width: 32px;
+	height: auto;
+	overflow: hidden;
+	border-right: 1px solid var(--separator);
+	background: var(--fill-quaternary);
+}
+
+#FeedFilterDialog_FilterNumbers .lineno {
+	padding-top: 0;
+	padding-right: 5px;
+	color: var(--label-tertiary);
+	font-family: var(--font-mono);
+	font-weight: 500;
+	text-align: right;
+	white-space: nowrap;
+}
+
+#FeedFilterDialog_FilterClient {
+	position: absolute;
+	top: 29px;
+	right: 0;
+	bottom: 0;
+	left: 33px;
+	width: auto;
+	height: auto;
+	padding-left: 3px;
+}
+
+/* the box that follows a dragged selection in the queue */
+#TableDragBox {
+	display: none;
+	position: absolute;
+	top: 100px;
+	left: 100px;
+	z-index: 5000;
+	text-align: center;
+	cursor: grabbing;
+}
+
+#TableDragBox .badge {
+	position: absolute;
+	top: -12px;
+	left: 0;
+	padding: 1px 6px;
+	background-color: var(--accent-fill);
+	color: var(--on-accent);
+	text-align: center;
+}
+
+tr.drag-source > td {
+	visibility: visible;
+}
+
+/* ---------- Phone ---------- */
+/* The old phone layout set 18px text everywhere. 16px reads comfortably and is
+   the smallest field size that keeps iOS from zooming in on focus. */
+
+body.phone,
+.phone p,
+.phone .form-horizontal .help-block,
+.phone h4,
+.phone label {
+	font-size: 16px;
+	line-height: 22px;
+}
+
+.phone select,
+.phone input,
+.phone textarea,
+.phone .uneditable-input {
+	font-size: 16px;
+}
+
+.phone table td {
+	line-height: 22px;
+}
+
+/* page titles shown on phones above a tab ("Statistics") */
+.section-title h3 {
+	margin: var(--space-2) 0;
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 20px;
+	line-height: 28px;
+	font-weight: 500;
+	letter-spacing: -0.03em;
+}
+
+.phone .statistics__server-details .table th,
+.phone .statistics__server-details .table td {
+	font-size: 15px;
+	line-height: 22px;
 }

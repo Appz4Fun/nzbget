@@ -30,7 +30,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, 'docs', 'design-system', 'tokens.json')
 TARGET = os.path.join(ROOT, 'webui', 'tokens.css')
-FONT_URLS = {'Azeret Mono': 'lib/azeret-mono.woff2'}
+FONT_URLS = {
+	'Azeret Mono': 'lib/azeret-mono.woff2',
+	'Material Symbols Rounded': 'lib/material-symbols-rounded.ttf',
+}
 SKIP_FAMILIES = ('name', 'version', 'color', 'type', 'shadow', 'meta')
 
 
@@ -60,10 +63,10 @@ def generate(tokens):
 		out += [
 			'@font-face {',
 			'\tfont-family: "%s";' % font['family'],
-			'\tsrc: url(%s) format("woff2");' % url,
+			'\tsrc: url(%s) format("%s");' % (url, font.get('format', 'woff2')),
 			'\tfont-weight: %s;' % font['weight'],
 			'\tfont-style: %s;' % font.get('style', 'normal'),
-			'\tfont-display: swap;',
+			'\tfont-display: %s;' % font.get('display', 'swap'),
 			'}',
 			'',
 		]

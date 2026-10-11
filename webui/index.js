@@ -157,9 +157,6 @@ var UISettings = (new function($)
 
 $(document).ready(function()
 {
-	var lightThemeStyleSheet = 'light-theme.css';
-	var darkThemeStyleSheet = 'dark-theme.css';
-	var themeStyleSheet = $('#ThemeStyleSheet');
 	var savedTheme = Util.getFromLocalStorage('Theme');
 
 	// Language elements
@@ -232,8 +229,8 @@ $(document).ready(function()
 	});
 
 	function turnOnThemeDependingOnSystemTheme() { if (isSystemThemeDark()) turnOnDarkTheme(); else turnOnLightTheme(); }
-	function turnOnLightTheme() { themeStyleSheet.attr('href', lightThemeStyleSheet); setThemeAttribute('light'); }
-	function turnOnDarkTheme() { themeStyleSheet.attr('href', darkThemeStyleSheet); setThemeAttribute('dark'); }
+	function turnOnLightTheme() { setThemeAttribute('light'); }
+	function turnOnDarkTheme() { setThemeAttribute('dark'); }
 
 	// The design system tokens (tokens.css) switch on this attribute; browser chrome takes the window colour
 	function setThemeAttribute(theme)
@@ -253,7 +250,7 @@ $(document).ready(function()
 
 	function isDarkTheme()
 	{
-		return themeStyleSheet.attr('href') === darkThemeStyleSheet;
+		return document.documentElement.getAttribute('data-theme') === 'dark';
 	}
 });
 

@@ -10,3 +10,5 @@ python3 scripts/gen_webui_tokens.py --check  # fail if webui/tokens.css is stale
 Change a value here, regenerate, and commit both files. Text colours must keep 4.5:1 contrast on the grounds named in their `usage` note, in both themes.
 
 The web UI uses the tokens through three stylesheets: `webui/tokens.css` (the custom properties), `webui/ds.css` (the `ng-*` component classes) and `webui/skin.css` (the restyle of the existing Bootstrap markup, loaded last).
+
+The UI ships Azeret Mono (SIL OFL) and an offline Material Symbols Rounded subset (Apache 2.0). The rounded font, license and provenance/glyph manifest live beside the existing Material Icons fallback in `webui/lib/`. Its token font record uses TrueType format and block display so icon ligatures do not flash as words. Runtime CSS URLs are declared by the token generator.
