@@ -1753,6 +1753,24 @@ var Config = (new function($)
 		var link = $('a[href="#' + sectionId + '"]', $ConfigNav);
 		$('li', $ConfigNav).removeClass('active');
 		link.closest('li').addClass('active');
+		// Search and health links select sections without focusing the menu.
+		// Scroll only the bounded menu so the option's page position stays intact.
+		if ($('body').hasClass('phone') && link.length)
+		{
+			var menu = $ConfigNav[0];
+			var menuRect = menu.getBoundingClientRect();
+			var linkRect = link[0].getBoundingClientRect();
+			var menuTop = menuRect.top + menu.clientTop;
+			var menuBottom = menuTop + menu.clientHeight;
+			if (linkRect.top < menuTop)
+			{
+				menu.scrollTop += linkRect.top - menuTop;
+			}
+			else if (linkRect.bottom > menuBottom)
+			{
+				menu.scrollTop += linkRect.bottom - menuBottom;
+			}
+		}
 		$ConfigContent.removeClass('search');
 		Util.show($ViewButton, sectionId !== 'Config-Info');
 
@@ -1827,7 +1845,7 @@ var Config = (new function($)
 		var section = findSectionById(sectionId);
 		var sectionText = section.caption ? section.caption : section.name;
 		var categoryName = I18n.defaultValue(('config_section_' + section.name.replace(/ /g, '_').replace(/-/g, '_')).toLowerCase(), sectionText);
-		$ConfigTitle.removeAttr('data-i18n');
+		$ConfigTitle.removeAttr('data-i18n').removeData('i18n-last');
 		$ConfigTitle.text(categoryName);
 		I18n.translatePage($ConfigTitle.parent());
 		$ConfigTitleStatus.hide();
