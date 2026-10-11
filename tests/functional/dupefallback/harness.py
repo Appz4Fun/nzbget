@@ -4322,7 +4322,7 @@ def _ds_rename_regression(daemon, t, legacy=False, client_key=False):
     if legacy:
         ok = ok and legacy_written and loaded_key == 'dupes:show.s01e01.1080p.web.h264.grp'
         if legacy == 'owned':
-            ok = ok and loaded_owner == loaded_key and current_owner == key
+            ok = ok and loaded_owner == str(pick_id) + ':' + loaded_key and current_owner == str(pick_id) + ':' + key
     elif not client_key:
         ok = ok and added == 1 and named == 0
     return ok, 'edited=%s key=%s searches=%d new_queries=%s added_events=%d named_events=%d legacy=%s loaded_key=%s loaded_owner=%s current_owner=%s' % (edited, key, searches, new_queries, added, named, legacy, loaded_key, loaded_owner, current_owner)
