@@ -56,11 +56,11 @@ RustyGet tries three ways to match a file in the primary to a file in a donor, i
 
 ### Making sure the bytes are right
 
-A borrowed article is checked three times before it counts:
+RustyGet checks a borrowed article three times before it counts:
 
 - Its yEnc header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written.
 - It's written to a staging file, never straight into the output, and the finished file must tile with no gaps or overlaps.
-- Its data must match the block checksums in the primary's own par2 set. A donor that fails is blocked for the rest of the download.
+- Its data must match the block checksums in the primary's own par2 set. RustyGet blocks a donor that fails for the rest of the download.
 
 That's why article fallback needs par2: RustyGet doesn't borrow articles for a download that has no par2 files, and it never borrows par2 files themselves. It also stays off for downloads in force mode and with `RawArticle=yes`.
 
@@ -87,7 +87,7 @@ Article fallback needs a donor with the same articles. Stream repair works with 
 2. **Whole files.** A file that received nothing at all is rebuilt from a donor, but only after the donor proved identical on the release's other, intact files.
 3. **Different packaging.** RustyGet maps the media inside both postings, across bare files, raw `.001` splits, store-mode RAR (versions 3 and 5), stored ZIP including ZIP64, and 7-Zip in copy mode. A donor in one form can fill holes in another.
 4. **Different encryption.** For store-mode RAR with the password in the NZB, donor bytes are encrypted with the primary's key and compared and patched in encrypted form. This also works when the two postings use different passwords.
-5. **Compressed donors.** With `DupeStreamDecompress=yes`, RustyGet downloads a compressed donor archive, extracts it with `UnrarCmd` or `SevenZipCmd` into a temporary folder, and uses the extracted file. Archives with symbolic links are rejected, and the size is capped at 16 GiB.
+5. **Compressed donors.** With `DupeStreamDecompress=yes`, RustyGet downloads a compressed donor archive, extracts it with `UnrarCmd` or `SevenZipCmd` into a temporary folder, and uses the extracted file. RustyGet rejects archives with symbolic links and caps the size at 16 GiB.
 
 Stream repair only writes inside holes, and only after a donor is verified against this file. par2 still has the final say: after any donor write, RustyGet runs a full par check, not the quick one, because download-time checksums don't cover donor data. A file whose holes are all filled counts as complete again, so a release without par2 can still finish with `SUCCESS`.
 
@@ -110,7 +110,7 @@ With `DupeArticleFallback=live`, stream repair also runs while the rest of the r
 RustyGet decides that a primary can't complete in several ways:
 
 Dead before it starts
-: When a download starts and a backup waits in history, RustyGet probes ten articles spread across the posting on every server. If fewer than two exist and every reachable server gave a definite answer, the download is parked before it uses any bandwidth.
+: When a download starts and a backup waits in history, RustyGet probes ten articles spread across the posting on every server. If fewer than two exist and every reachable server gave a definite answer, RustyGet parks the download before it uses any bandwidth.
 
 Dead while downloading
 : 64 failed articles beyond the first of each file, with fewer than 1 in 100 of its own articles arriving. Or 40 failures in a row in a part that par2 can't repair.
@@ -121,9 +121,9 @@ Projected to fail
 Too damaged for par2
 : Health counts articles, but par2 repairs whole blocks. RustyGet counts the par2 blocks that failed articles actually spoil and compares them with the recovery blocks available. When the damage is certain to exceed the recovery data, the download fails over.
 
-With article fallback on, failover waits until the fleet was asked for 32 missing articles and supplied less than half, so a gap that borrowing can fill doesn't cost a failover. Without any backup, a hopeless download is parked anyway: at least a tenth of it tried with fewer than 10% of those articles present.
+With article fallback on, failover waits until the fleet was asked for 32 missing articles and supplied less than half, so a gap that borrowing can fill doesn't cost a failover. Without any backup, RustyGet parks a hopeless download anyway: at least a tenth of it tried with fewer than 10% of those articles present.
 
-Backups are chosen with care: a backup whose NZB file is gone, one that a check found dead, and a copy of the posting that just failed are skipped, and among equal scores the most complete one wins. If nothing qualifies, the download's log says why each backup was skipped.
+Failover chooses backups with care. It skips a backup whose NZB file is gone, one that a check found dead, and a copy of the posting that just failed, and among equal scores the most complete one wins. If nothing qualifies, the download's log says why each backup was skipped.
 
 ### Retry after a failure
 
@@ -143,7 +143,7 @@ Clients that already know every copy, such as the [Kodi add-on](kodi.md), send t
 4. Adds every usable member under the key, with scores that follow the rank. The duplicate check queues the top one and keeps the rest as backups. If a download of the key is already running, the members become its backups instead.
 5. Replies with the chosen download, a reason, and a status for every member.
 
-If the release is already on disk, nothing is added and the reply says `ALREADY_DOWNLOADED`. See [API and compatibility](api.md#appendfleet) for the full call.
+If the release is already on disk, RustyGet adds nothing and the reply says `ALREADY_DOWNLOADED`. See [API and compatibility](api.md#appendfleet) for the full call.
 
 ## What you see
 

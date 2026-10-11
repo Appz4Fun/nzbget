@@ -30,16 +30,16 @@ lede = "RustyGet started from NZBGet 27.0 and the work of pull request 850. This
 | Feature | Setting | Summary |
 |---|---|---|
 | Article fallback | `DupeArticleFallback=article` | Missing articles come from matching files in other copies, matched by par2 content, name, or structure, and checked against the download's par2 block checksums. |
-| Cutover and lead rotation | Part of article fallback | After three recoveries in a file, the lead duplicate is asked first; after three misses in a row, the next duplicate leads. |
+| Cutover and lead rotation | Part of article fallback | After three recoveries in a file, RustyGet asks the lead duplicate first; after three misses in a row, the next duplicate leads. |
 | Twins and alts | Automatic with Rust | par2 file lists prove which copies are byte-identical (twins) and which are other encodes (alts). |
-| par2 from a twin | Automatic | When recovery blocks run short, the fewest twin recovery volumes that cover the damage are fetched and used. |
+| par2 from a twin | Automatic | When recovery blocks run short, RustyGet fetches and uses the fewest twin recovery volumes that cover the damage. |
 | Stream repair | `DupeArticleFallback=stream` | Byte-level repair from duplicates after the download, with same-byte, whole-file, cross-packaging, and cross-encryption methods. |
 | Live repair | `DupeArticleFallback=live` | Stream repair during the download. |
 | Compressed donors | `DupeStreamDecompress=yes` | Extracts a compressed duplicate to repair from its contents. |
 | Repair time limit | `DupeStreamTimeout` | Stops a stream repair that stalls, or that would take longer than downloading again. |
 | Early failover | `HealthCheck=dupe` | Fails over as soon as a download can't complete, by failure counts, projected health, or par2 block damage. |
 | Dead-copy probe | `HealthCheck=dupe` | Ten articles checked on every server before a download starts, when a backup waits. |
-| Failed-article recheck | Article fallback or `HealthCheck=dupe` | After a failure, a sample of the failed articles is asked for again; if most now exist, they're retried once. |
+| Failed-article recheck | Article fallback or `HealthCheck=dupe` | After a failure, RustyGet asks for a sample of the failed articles again and retries them once if most now exist. |
 | Donor search | `DupeSearch=yes` | Finds, checks, and queues more copies through NZBHydra2. |
 | Fleet submission | `appendfleet` | A client sends up to 50 copies in one call. |
 
@@ -47,7 +47,7 @@ See [Duplicate fleets](duplicate-fleets.md) and [Donor search](dupesearch.md).
 
 ## Changes to inherited duplicate handling
 
-- A backup whose NZB file is gone, a backup found dead, and a copy of a posting that already failed are skipped during failover.
+- Failover skips a backup whose NZB file is gone, a backup found dead, and a copy of a posting that already failed.
 - Among backups with equal scores, the most complete one goes first.
 - A title already on disk isn't downloaded again, and once one copy is on disk, the other copies stop.
 - A forced download fails over to its backups like a scored one.
@@ -97,7 +97,7 @@ See [API and compatibility](api.md).
 
 ## Bug fixes
 
-More than 100 inherited bugs are fixed, most reported to the NZBGet project along the way. Highlights:
+RustyGet fixes more than 100 inherited bugs, most of them reported to the NZBGet project along the way. Highlights:
 
 - **Downloads:** 451 errors count as missing, 502 login refusals move on, malformed headers move to the next server, a connection that times out in the middle of an article is closed instead of reused, yEnc data can't overrun its range, and uuencoded parts no longer pass through the article cache.
 - **Post-processing:** `ParScan=extended` and `ParScan=dupe` find extra blocks again, split files join correctly, a failed direct unpack no longer deletes the download folder, `ParTimeLimit` counts from the right moment, RAR-rename works per folder, and archives with encrypted headers parse.
@@ -108,6 +108,6 @@ More than 100 inherited bugs are fixed, most reported to the NZBGet project alon
 
 ## Build
 
-- Rust 1.99.0 is pinned in `rust/rust-toolchain.toml`. CMake finds Cargo and builds the crate into the binary; without Rust, the C++ fallbacks build instead.
+- `rust/rust-toolchain.toml` pins Rust 1.99.0. CMake finds Cargo and builds the crate into the binary; without Rust, the C++ fallbacks build instead.
 - The par2 parsing for twins uses the `rust-par2` crate.
 - The inherited GitHub workflows for builds, packages, and tests are turned off while the tests are rebuilt. Only the documentation workflow runs.

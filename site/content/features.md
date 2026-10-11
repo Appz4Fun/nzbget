@@ -9,8 +9,8 @@ lede = "RustyGet keeps everything that made NZBGet fast and adds a new layer: it
 
 People new to Usenet often assume that download speed depends only on the connection, and that the program just writes data to disk. That holds for web and FTP downloads, but not for Usenet. Usenet was built to carry text messages, so sending files over it takes three extra steps:
 
-- **Splitting.** Messages have a size limit, usually under 1 MB, so each file is cut into thousands of small pieces called articles.
-- **Encoding.** Messages can only carry plain text safely, so the binary data is encoded as text, most often with yEnc.
+- **Splitting.** Messages have a size limit, usually under 1 MB, so the poster cuts each file into thousands of small pieces called articles.
+- **Encoding.** Messages can only carry plain text safely, so the poster encodes the binary data as text, most often with yEnc.
 - **Recovery data.** Usenet doesn't guarantee delivery, so posters add par2 recovery files that can rebuild lost pieces.
 
 A downloader reverses all three for every article: it decodes the text, checks each piece, joins the pieces into files, and repairs what's missing. That's real computation, and on a small device it decides how fast you can download.
@@ -40,7 +40,7 @@ Missing articles leave damaged files. Most postings include par2 recovery files 
 
 Both are slow. Verification takes minutes to tens of minutes; repair takes minutes to hours. Both depend on the damage and the CPU. For a large download with a little damage, verification can take longer than the repair. On a slow device, an hour of verification for five minutes of repair isn't unusual.
 
-RustyGet doesn't call an external par2 tool. The par2 code is part of the program, and RustyGet knows exactly which files had download errors. It passes that list straight to the repair module, so verification of the undamaged files is skipped and repair starts at once.
+RustyGet doesn't call an external par2 tool. The par2 code is part of the program, and RustyGet knows exactly which files had download errors. It passes that list straight to the repair module, so it skips verifying the undamaged files and starts the repair at once.
 
 ## Multicore par repair
 
@@ -82,9 +82,9 @@ Other programs often download the same title several times, because several post
 
 This is where RustyGet goes beyond NZBGet. NZBGet uses duplicates one at a time: when a download fails, the next copy starts from scratch. RustyGet uses them together:
 
-- **Article fallback.** An article that no server has is fetched from another posting of the same release.
+- **Article fallback.** RustyGet fetches an article that no server has from another posting of the same release.
 - **Twins and alts.** A *twin* is a copy whose files are byte-identical, proven by par2 checksums; RustyGet can borrow its articles and par2 volumes. An *alt* is the same release in another encode; it's a failover backup only.
-- **Stream repair.** Holes that article fallback can't fill are patched with bytes from duplicates, even when the duplicate is packed differently.
+- **Stream repair.** RustyGet patches holes that article fallback can't fill with bytes from duplicates, even from a duplicate that's packed differently.
 - **Early failover.** With `HealthCheck=dupe`, a download that can't complete switches to the best backup within seconds, and a probe catches copies that are dead before they start.
 - **Donor search.** RustyGet can search NZBHydra2 for more copies of a new download, check them on your servers, and queue the live ones as backups.
 - **Fleet submission.** Clients such as the Kodi add-on send every copy at once with `appendfleet`, and RustyGet picks the best one.

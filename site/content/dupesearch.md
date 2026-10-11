@@ -10,14 +10,14 @@ lede = "A fleet is only as strong as its backups. With DupeSearch, RustyGet look
 
 ## When a search runs
 
-RustyGet searches for a download after it's added and `DupeSearchDelay` (20 seconds by default) has passed. The delay lets a client's own backups arrive first, so the search doesn't duplicate them. A download is searched only when:
+RustyGet searches for a download after it's added and `DupeSearchDelay` (20 seconds by default) has passed. The delay lets a client's own backups arrive first, so the search doesn't duplicate them. RustyGet searches for a download only when:
 
 - `DupeCheck` is on, and the download is in `score` mode.
 - It's the top-scored item of its duplicate key, and it's still downloading.
 - It isn't itself a copy that DupeSearch added.
 - Its key wasn't searched in the last six hours, unless a higher-scored download arrived since.
 
-At startup, RustyGet also searches for queued downloads and for downloads that failed in the last hour. A download without a key gets one from its normalized name, such as `dupes:show-name-s02e14-1080p`, and its score is raised to 1,000,000 so that every copy found ranks below it.
+At startup, RustyGet also searches for queued downloads and for downloads that failed in the last hour. A download without a key gets one from its normalized name, such as `dupes:show-name-s02e14-1080p`, and RustyGet raises its score to 1,000,000 so that every copy found ranks below it.
 
 ## How it searches
 
@@ -39,7 +39,7 @@ Then RustyGet removes copies it doesn't need:
 
 - **Repeated listings.** Results with the same size, posted within 120 seconds of each other, are one posting.
 - **Same posting.** After it downloads the NZB files, RustyGet compares a fingerprint of each one's Message-IDs. NZB files that share more than 1% of their articles are the same posting, so only one stays.
-- **Known dead postings.** Postings found dead in the last three days are skipped.
+- **Known dead postings.** RustyGet skips postings found dead in the last three days.
 
 NZB files download one at a time per indexer, with one retry. An indexer that answers HTTP 403 or 429 gets a 30-minute break.
 
@@ -52,11 +52,11 @@ A listing says nothing about whether a posting still exists on your servers, so 
 - **Content.** Up to `DupeBodyChecks` articles download in full and must pass their yEnc checksum, because a server can claim an article whose body is gone.
 - **Limits.** The check uses at most half of each server's connections and ends after `DupeHealthBudget` seconds. An article counts as missing only when every server answered and none of them has it.
 
-A first pass checks about ten articles of each candidate. The `DupeFastDonors` best candidates that pass it are queued right away, before the full check finishes.
+A first pass checks about ten articles of each candidate. RustyGet queues the best `DupeFastDonors` candidates that pass it right away, before the full check finishes.
 
 ## Scoring and queueing
 
-A candidate that's at least `DupeMinAlive` percent alive is added as a backup under the download's key, with a score below the download's:
+RustyGet adds each candidate that's at least `DupeMinAlive` percent alive as a backup under the download's key, with a score below the download's:
 
 - The base is the download's score minus 1,000.
 - On top of the base, a live copy gets 9 plus up to 80 for its alive share, at most 90 in all. A copy that matches the download's file count and total size gets one more point, which breaks ties in its favor.
@@ -66,7 +66,7 @@ Because the score is lower, the duplicate check files each copy in history as a 
 
 ## Resume and dry run
 
-Search progress is saved in the queue directory, so a restart picks up where it stopped without downloading the NZB files again. With `DupeSearchDryRun=yes`, RustyGet logs every query, every candidate, and what it would queue and score, but changes nothing and leaves no saved state.
+RustyGet saves search progress in the queue directory, so a restart picks up where it stopped without downloading the NZB files again. With `DupeSearchDryRun=yes`, RustyGet logs every query, every candidate, and what it would queue and score, but changes nothing and leaves no saved state.
 
 ## Settings
 
