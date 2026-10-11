@@ -101,14 +101,17 @@ class PipelineContractTests(unittest.TestCase):
                                 "".join(json.dumps(row) + "\n" for row in
                                         (rows if rows is not None else controlled_rows())), encoding="utf-8")
         before = (self.manifest.read_bytes(), self.samples.read_bytes())
-        script = ROOT / "scripts/bench/summarize.py"
-        self.assertTrue(script.is_file(), f"Shared CLI dependency missing: {script}")
-        result = subprocess.run([sys.executable, str(script), "--manifest", str(self.manifest),
-                                 "--samples", str(self.samples), "--output-dir", str(self.output)],
-                                capture_output=True, text=True, timeout=30)
+        result = self.invoke_summary(self.manifest, self.samples, self.output)
         self.assertEqual(before, (self.manifest.read_bytes(), self.samples.read_bytes()),
                          "The shared CLI must preserve immutable raw inputs")
         return result
+
+    def invoke_summary(self, manifest, samples, output):
+        script = ROOT / "scripts/bench/summarize.py"
+        self.assertTrue(script.is_file(), f"Shared CLI dependency missing: {script}")
+        return subprocess.run([sys.executable, str(script), "--manifest", str(manifest),
+                               "--samples", str(samples), "--output-dir", str(output)],
+                              capture_output=True, text=True, timeout=30)
 
     def valid(self, status, **kwargs):
         result = self.summarize(**kwargs)
@@ -144,6 +147,21 @@ class PipelineContractTests(unittest.TestCase):
 
     def test_slower_candidate_is_held(self):
         self.valid("HOLD", rows=controlled_rows(candidate_ns=1200))
+
+    def test_current_rust_regression_holds_candidate_that_beats_both_cpp_controls(self):
+        latencies = {"cpp_current": 1000, "cpp_optimized": 1000,
+                     "rust_current": 500, "rust_candidate": 800}
+        rows = controlled_rows()
+        for row in rows:
+            row["elapsed_ns"] = latencies[row["variant"]] * 100
+        outputs = self.valid("HOLD", rows=rows)
+        case = outputs["summary.json"]["cases"][0]
+        self.assertEqual(case["raw_count"], 320, "All four raw control variants must survive HOLD")
+        self.assertEqual(set(case["variants"]), set(VARIANTS))
+        for variant in VARIANTS:
+            self.assertEqual(case["variants"][variant]["count"], 80)
+            self.assertEqual(outputs["bencher.json"]["controlled/caller/" + variant]["latency"]["value"],
+                             latencies[variant])
 
     def test_process_disagreement_is_held_despite_faster_pooled_values(self):
         self.valid("HOLD", rows=controlled_rows(candidate_ns=[500, 1300] * 4))
@@ -255,6 +273,43 @@ class PipelineContractTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                 finally:
                     alias.unlink(missing_ok=True)
+
+    def test_input_ancestor_entries_survive_rejected_summary(self):
+        for input_kind in ("manifest", "samples"):
+            for route in ("direct", "output_alias", "dotdot", "dangling_parent"):
+                with self.subTest(input_kind=input_kind, route=route):
+                    case = self.work / f"ancestor-{input_kind}-{route}"
+                    case.mkdir()
+                    output = case / "out"
+                    output.mkdir()
+                    originals = case / "originals"
+                    originals.mkdir()
+                    manifest = originals / "manifest.json"
+                    samples = originals / "samples.jsonl"
+                    manifest.write_bytes(json.dumps(controlled_manifest()).encode())
+                    samples.write_bytes(b"not-valid-json\n")
+                    before = (manifest.read_bytes(), samples.read_bytes())
+                    ancestor = output / "summary.json"
+                    target = case / "missing-originals" if route == "dangling_parent" else originals
+                    ancestor.symlink_to(target, target_is_directory=True)
+                    marker = output / "qualification.json"
+                    marker.write_bytes(b'{"status":"PASS"}')
+                    selected = ancestor / ("manifest.json" if input_kind == "manifest" else "samples.jsonl")
+                    if route == "dotdot":
+                        selected = ancestor / ".." / ".." / case.name / "originals" / selected.name
+                    output_arg = output
+                    if route == "output_alias":
+                        output_arg = case / "output-alias"
+                        output_arg.symlink_to(output, target_is_directory=True)
+                    result = self.invoke_summary(selected if input_kind == "manifest" else manifest,
+                                                 selected if input_kind == "samples" else samples,
+                                                 output_arg)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertTrue(ancestor.is_symlink(), "Rejected proof deleted an input ancestor link")
+                    self.assertEqual(ancestor.readlink(), target)
+                    self.assertEqual(before, (manifest.read_bytes(), samples.read_bytes()))
+                    self.assertEqual(marker.read_bytes(), b'{"status":"PASS"}',
+                                     "Alias rejection must precede generated-artifact cleanup")
 
 
 class PublisherIdentityContractTests(unittest.TestCase):
