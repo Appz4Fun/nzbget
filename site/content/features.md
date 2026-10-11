@@ -23,7 +23,7 @@ The same design pays off on large machines. Extra memory becomes an article cach
 
 Many postings hide their real filenames. A typical obfuscated posting has a 32-character hexadecimal base name and extensions such as `.01`, `.21`, and `.par2`. Archives can't be unpacked until their real names come back.
 
-The par2 files of a posting record the original names. The usual fix is to run par2cmdline, as in `par2cmdline r <name>.par2`, which reads every downloaded file before it restores the names. How long that takes depends on the size and the disk: from several minutes to tens of minutes.
+The par2 files of a posting record the original names. The usual fix is to run par2cmdline, whose command is `par2 r <name>.par2`, which reads every downloaded file before it restores the names. How long that takes depends on the size and the disk: from several minutes to tens of minutes.
 
 RustyGet's par-rename restores the names in seconds, even on slow devices, because it reads only the names that the par2 files store and needs no verification pass. NZBGet's own example: a 4 GB download with 75 renamed files, restored in two seconds on a slow Linux device. The download's log shows each step:
 
