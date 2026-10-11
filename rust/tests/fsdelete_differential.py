@@ -84,6 +84,7 @@ main = r'''
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -157,8 +158,27 @@ static std::string Snapshot(const stdfs::path& dir)
 		// target in this map and potentially hiding a deletion mismatch.
 		std::string rel = it->path().lexically_relative(dir).string();
 		struct stat st;
-		lstat(it->path().c_str(), &st);
-		std::string what = S_ISLNK(st.st_mode) ? "link->" + stdfs::read_symlink(it->path()).string() : S_ISDIR(st.st_mode) ? "dir" : "file";
+		if (lstat(it->path().c_str(), &st) != 0) throw std::runtime_error("snapshot lstat failed");
+		std::string what;
+		if (S_ISLNK(st.st_mode)) what = "link->" + stdfs::read_symlink(it->path()).string();
+		else if (S_ISDIR(st.st_mode)) what = "dir";
+		else if (S_ISREG(st.st_mode))
+		{
+			// Read only regular files: opening a FIFO can block, and opening a
+			// link would inspect data outside the tree. Hex keeps binary bytes
+			// (including NUL and newline) unambiguous in diagnostics.
+			std::ifstream file(it->path(), std::ios::binary);
+			if (!file) throw std::runtime_error("snapshot open failed");
+			what = "file:";
+			static const char* hex = "0123456789abcdef";
+			for (int byte; (byte = file.get()) != EOF; )
+			{
+				what += hex[(unsigned char)byte >> 4];
+				what += hex[(unsigned char)byte & 15];
+			}
+			if (file.bad()) throw std::runtime_error("snapshot read failed");
+		}
+		else what = "special:" + std::to_string(st.st_mode & S_IFMT);
 		entries[rel] = what + " " + std::to_string(st.st_mode & 0777);
 	}
 	std::string out;
@@ -341,6 +361,29 @@ template <class FS> static std::string EmptyDelete(bool content, const char* pat
 	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved);
 }
 
+template <class FS> static std::string BackupLinks(const stdfs::path& box, int variant)
+{
+	Clean(box);
+	stdfs::create_directories(box / "outside" / "dir");
+	stdfs::create_directories(box / "work");
+	std::ofstream(box / "outside" / "file") << "keep";
+	std::string source = (box / "work" / "source").string();
+	std::ofstream(source) << "move";
+	std::string backup = source + ".bak";
+	if (variant == 0) stdfs::create_symlink(box / "outside" / "file", backup);
+	else if (variant == 1) stdfs::create_directory_symlink(box / "outside" / "dir", backup);
+	else if (variant == 2) stdfs::create_symlink(box / "outside" / "missing", backup);
+	else if (variant == 3) stdfs::create_hard_link(box / "outside" / "file", backup);
+	else if (mkfifo(backup.c_str(), 0600) != 0) throw std::runtime_error("mkfifo failed");
+	const std::string outside = Snapshot(box / "outside");
+	CString output = "previous";
+	errno = 1234;
+	bool ok = FS::RenameBak(source.c_str(), "bak", false, output);
+	int saved = errno;
+	if (Snapshot(box / "outside") != outside) throw std::runtime_error("backup changed outside data");
+	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n" + Snapshot(box);
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
@@ -348,6 +391,27 @@ int main(int argc, char** argv)
 	stdfs::path work = temp / "box" / "work";
 	stdfs::path outside = temp / "outside";
 	if (geteuid() == 0) printf("note: running as root, permission failures don't happen\n");
+
+	// An overwrite preserving the name, mode and length must change a snapshot.
+	stdfs::create_directories(temp / "snapshot");
+	std::ofstream(temp / "snapshot" / "file") << "old";
+	std::string before = Snapshot(temp / "snapshot");
+	std::ofstream(temp / "snapshot" / "file") << "new";
+	if (before == Snapshot(temp / "snapshot")) throw std::runtime_error("snapshot missed overwritten bytes");
+	Clean(temp / "snapshot");
+
+	for (int variant = 0; variant < 5; variant++)
+	{
+		std::string a = BackupLinks<oldimpl::FileSystem>(temp / "backup-links", variant);
+		std::string b = BackupLinks<newimpl::FileSystem>(temp / "backup-links", variant);
+		std::string c = BackupLinks<fallbackimpl::FileSystem>(temp / "backup-links", variant);
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "backup links %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
+	Clean(temp / "backup-links");
 
 	for (int variant = 0; variant < 3; variant++)
 	{
