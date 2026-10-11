@@ -23,6 +23,12 @@ frozen and source reviewed. That is tool setup evidence, not timing proof.
 | Bencher project/API configuration | Absent at preflight; publication `ready=false` |
 | GitHub publication identity | `BENCHMARK_GITHUB_TOKEN` must authenticate as `xbmc4lyfe`; a default `GITHUB_TOKEN` bot is insufficient |
 
+The dedicated GitHub credential and `BENCH_TESTBED=i7-8700k-linux-x86_64` were
+configured through the verified GitHub account. Historical `i7-smoke` receipts
+remain validation records under their original identifier. Bencher project/key
+configuration and an observed successful publication are separate activation
+requirements.
+
 No successful Bencher activation or timing run is inferred from workflow files,
 configuration names, a signed commit, or a source-review verdict. Activation
 needs validated configuration and an observed successful trusted publication.
@@ -91,6 +97,10 @@ compiler, binary and input hashes in provenance.
 Variants are `cpp_current`, `cpp_optimized`, `rust_current`, `rust_candidate`.
 Omit unused variants, but never manufacture a required missing baseline. Keep
 the original C++ rows and any stronger optimized control visible.
+Set each fixture's `required_variants` explicitly. For an already-ported caller,
+include `rust_current` alongside the selected C++ and candidate variants so the
+preservation gate runs. Omitting this field defaults to the selected pair and
+does not establish current-Rust preservation.
 
 Each JSONL sample records `case`, `variant`, integer `process`, `round` and
 `order`, positive finite `elapsed_ns`, positive integer `iterations`, and the
@@ -130,6 +140,16 @@ The replacement must be independently faster than the C++ it replaces and
 must preserve existing Rust caller performance where that boundary is already
 ported. Inconclusive or missing complete-caller evidence is HOLD. Rework slower
 paths or hold/split them out; a kernel win cannot rescue a slower caller.
+
+For a changed complete caller, the selected C++ comparison needs a paired ratio
+95% interval with upper bound below 1. When `rust_current` is required and differs
+from the candidate, preservation also needs an upper bound at most 1, with the
+same process-count, order-balance and interval-width checks. An optimized C++ tie
+remains inconclusive for speedup even when Rust preservation passes. An unchanged
+control needs intervals containing 1 against both the selected baseline and any
+required distinct current-Rust baseline. Reports expose the separate
+`rust_preservation` result; comparing current Rust with itself adds no extra gate.
+
 Disclose fixed-object/DSO/static-link differences, compiler placement sensitivity
 and host noise. Bootstrap intervals do not remove systematic layout bias.
 
@@ -155,18 +175,65 @@ hashes. A signature proves commit identity, not measurement attestation.
 Create the collection receipt from captured references using the frozen CLI:
 
 ```sh
-python3 scripts/bench/collect_receipt.py --manifest benchmark-results/manifest.json --samples benchmark-results/samples.jsonl --build-metadata BUILD_METADATA --time-metadata TIME_METADATA --bindings BINDINGS --review-record REVIEW_RECORD --output RECEIPT
+mkdir -p benchmark-results
+python3 scripts/bench/collect_receipt.py --manifest benchmark-results/manifest.json --samples benchmark-results/samples.jsonl --build-metadata BUILD_METADATA --time-metadata TIME_METADATA --bindings BINDINGS --review-record REVIEW_RECORD --output benchmark-results/collection-receipt.json
 ```
 
 Repeat `--build-metadata` and `--time-metadata` for multiple captured records.
 Bindings and the reviewed collection record must refer to the actual captured
 source, compiler, binary and input identities; do not invent missing references.
 
+Capture the build and prebuilt execution for each reviewed complete-caller
+variant. Set `CXX_BIN`, `BUILD_ARGS`, `CALLER_BIN` and `RUN_ARGS` from that caller's
+reviewed compiler command and native measurement interface. Set `SOURCE_ARCHIVE`,
+`INPUT_FIXTURE` and `RUST_LIBRARY` to the actual source bundle, input and linked
+Rust archive. The arrays below preserve the reviewed argument vectors; they are
+not a new harness interface. Run from the recorded variant checkout, then repeat
+with distinct metadata files for the other required variants:
+
+```sh
+mkdir -p benchmark-captures benchmark-results
+python3 scripts/bench/run.py --mode build --jobs 3 --metadata benchmark-captures/build.json --testbed i7-8700k-linux-x86_64 --fixture "$SOURCE_ARCHIVE" --fixture "$INPUT_FIXTURE" --fixture "$RUST_LIBRARY" --toolchain-binary "$CXX_BIN" -- "$CXX_BIN" "${BUILD_ARGS[@]}"
+python3 scripts/bench/run.py --mode time --metadata benchmark-captures/time.json --testbed i7-8700k-linux-x86_64 --fixture "$SOURCE_ARCHIVE" --fixture "$INPUT_FIXTURE" --toolchain-binary "$CXX_BIN" -- "$CALLER_BIN" "${RUN_ARGS[@]}" > benchmark-captures/caller-output.log
+```
+
+This example captures a Rust-enabled caller. For a C++ variant that does not
+link a Rust archive, omit that unused fixture and its binding.
+
+Build captures identify the compiler as `executable` and `tool-0`, source bundle
+as `fixture-0`, input as `fixture-1`, and Rust archive as `fixture-2`. Time captures
+identify the prebuilt caller as `executable`, source/input as `fixture-0`/`fixture-1`,
+and compiler as `tool-0`. A reviewed source binding combines the captured source
+fixture and descriptive checkout SHA. Stable captures establish recorded file
+identity; they do not attest a clean checkout or prove build-to-binary linkage.
+The caller's genuine samples still need the v1 manifest/JSONL contract; capturing
+a kernel executable or a legacy log does not produce complete-caller qualification.
+After recording the bindings and operator review, use the actual metadata paths:
+
+```sh
+python3 scripts/bench/collect_receipt.py --manifest benchmark-results/manifest.json --samples benchmark-results/samples.jsonl --build-metadata benchmark-captures/build.json --time-metadata benchmark-captures/time.json --bindings "$BINDINGS" --review-record "$REVIEW_RECORD" --output benchmark-results/collection-receipt.json
+```
+
+Add repeated metadata arguments for every record referenced by the bindings.
+
 Measured PR executables receive no publisher credentials. Authentication and
 Bencher publication happen after artifact validation in the trusted stage.
 GitHub writes require verified `xbmc4lyfe` identity and valid commit signatures
 with that exact author and committer. Use the verified HTTPS credential helper,
 not an SSH transport whose account differs. Never print credentials.
+
+Trusted default-branch code handles lifecycle events without checking out PR
+code. Base pushes and PR updates invalidate outdated qualification; automatic
+invalidation preserves a newer trusted PASS already bound to the current base.
+Manual validation begins pending and reports HOLD when evidence or publication
+does not complete. These GitHub statuses require the dedicated verified identity
+independently of Bencher configuration. Publication and archival serialize their
+writes by canonical PR number; fork heads are ineligible for publication.
+
+The frozen Rust-source validation passed 219 unit tests (one ignored) and the
+allocation test. Clippy for the library and new Criterion benchmark passed with
+warnings denied. Strict Clippy across all targets failed on 30 existing test-code
+lints; this is retained as a failed check rather than reported as a full pass.
 
 Configuration names include `BENCHER_PROJECT`, `BENCHER_API_KEY` and optional
 `BENCHER_HOST`; discover presence without values. Report `ready=false` and
