@@ -372,7 +372,11 @@ BOOST_AUTO_TEST_CASE(StreamRepairSelectProbePartsIrregularGeometryTest)
 		{{{end, 1}, {end, 1}}, {{0, 1}}, {0, 1}},
 		// A preceding hit can short-circuit every check of an unsafe neighbor.
 		{{{0, 1}, {end - 10, 20}}, {{0, end}}, {}},
-		{{{start, -1}, {0, 100}}, {{start, 0}}, {0, 1}}
+		{{{start, -1}, {0, 100}}, {{start, 0}}, {0, 1}},
+		// Unordered or empty ranges must not hide a later unsafe endpoint.
+		{{{300, 1}, {0, 1}, {end - 10, 20}}, {{0, end}}, {}},
+		{{{0, 100}, {50, 100}, {end - 10, 20}}, {{0, end}}, {}},
+		{{{0, 0}, {100, 1}, {end - 10, 20}}, {{0, end}}, {}}
 	};
 	for (const TestCase& testCase : cases)
 	{

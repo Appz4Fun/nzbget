@@ -201,43 +201,53 @@ std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donor
 		return {};
 	}
 
-	auto hasSafeEnd = [](const StreamRange& range)
+	struct RangeProperties
 	{
-		if (range.Size > 0)
-		{
-			return range.Offset <= std::numeric_limits<int64>::max() - range.Size;
-		}
-		if (range.Size < 0)
-		{
-			return range.Offset >= std::numeric_limits<int64>::min() - range.Size;
-		}
-		return true;
+		bool SafeEnds = true;
+		bool Ordered = true;
 	};
-	// Cached checks evaluate each part, including neighbors that the original
-	// scan can short-circuit. Retain that scan when an end is unrepresentable.
-	bool safeEnds = holes.empty() ||
-		(std::all_of(donorRanges.begin(), donorRanges.end(), hasSafeEnd) &&
-			std::all_of(holes.begin(), holes.end(), hasSafeEnd));
-
-	// A forward sweep is valid only for positive, ordered, disjoint ranges.
-	// Keep the exact intersection predicate for all other geometries, including
-	// zero-size ranges, which can intersect a range containing their offset.
-	auto isOrdered = [](const StreamRangeList& ranges)
+	// Classify in one pass, continuing endpoint checks even after finding
+	// unordered or zero-size ranges: a later unsafe end requires the old scan.
+	auto classify = [](const StreamRangeList& ranges) -> RangeProperties
 	{
+		RangeProperties properties;
+		int64 previousEnd = 0;
 		for (size_t i = 0; i < ranges.size(); i++)
 		{
-			if (ranges[i].Size <= 0 || (i > 0 && ranges[i - 1].End() > ranges[i].Offset))
+			const StreamRange& range = ranges[i];
+			if ((range.Size > 0 && range.Offset > std::numeric_limits<int64>::max() - range.Size) ||
+				(range.Size < 0 && range.Offset < std::numeric_limits<int64>::min() - range.Size))
 			{
-				return false;
+				return {false, false};
 			}
+			if (range.Size <= 0 || (i > 0 && previousEnd > range.Offset))
+			{
+				properties.Ordered = false;
+			}
+			previousEnd = range.End();
 		}
-		return true;
+		return properties;
 	};
-	std::vector<char> intersects;
+	RangeProperties donorProperties;
+	RangeProperties holeProperties;
+	if (!holes.empty())
+	{
+		donorProperties = classify(donorRanges);
+		if (donorProperties.SafeEnds)
+		{
+			holeProperties = classify(holes);
+		}
+	}
+	bool safeEnds = donorProperties.SafeEnds && holeProperties.SafeEnds;
+
+	// Candidates use original article indices and their immediate neighbors.
+	std::vector<int> candidates;
+	candidates.reserve(donorRanges.size());
 	if (safeEnds)
 	{
-		intersects.resize(donorRanges.size(), false);
-		if (holes.empty() || (isOrdered(donorRanges) && isOrdered(holes)))
+		std::vector<char> intersects(donorRanges.size());
+		// Only positive, ordered, disjoint ranges permit a forward sweep.
+		if (donorProperties.Ordered && holeProperties.Ordered)
 		{
 			size_t holeIndex = 0;
 			for (size_t i = 0; i < donorRanges.size(); i++)
@@ -256,32 +266,31 @@ std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donor
 				intersects[i] = IntersectsAny(donorRanges[i], holes);
 			}
 		}
-	}
-
-	// candidates: parts whose estimated range - and the neighbors', to absorb
-	// estimation error - lies entirely inside already-downloaded regions
-	std::vector<int> candidates;
-	candidates.reserve(donorRanges.size());
-	for (size_t i = 0; i < donorRanges.size(); i++)
-	{
-		bool clear = true;
-		if (safeEnds)
+		for (size_t i = 0; i < donorRanges.size(); i++)
 		{
-			clear = !intersects[i] && (i == 0 || !intersects[i - 1]) &&
-				(i + 1 == donorRanges.size() || !intersects[i + 1]);
+			if (!intersects[i] && (i == 0 || !intersects[i - 1]) &&
+				(i + 1 == donorRanges.size() || !intersects[i + 1]))
+			{
+				candidates.push_back((int)i);
+			}
 		}
-		else
+	}
+	else
+	{
+		// Preserve short-circuit checks when an endpoint is unrepresentable.
+		for (size_t i = 0; i < donorRanges.size(); i++)
 		{
+			bool clear = true;
 			size_t from = i > 0 ? i - 1 : 0;
 			size_t to = std::min(donorRanges.size() - 1, i + 1);
 			for (size_t j = from; j <= to && clear; j++)
 			{
 				clear = !IntersectsAny(donorRanges[j], holes);
 			}
-		}
-		if (clear)
-		{
-			candidates.push_back((int)i);
+			if (clear)
+			{
+				candidates.push_back((int)i);
+			}
 		}
 	}
 
