@@ -24,8 +24,8 @@
 #include <filesystem>
 #include <fstream>
 #include "DeadPostings.h"
+#include "FileSystem.h"
 
-namespace fs = std::filesystem;
 
 namespace
 {
@@ -165,6 +165,37 @@ BOOST_AUTO_TEST_CASE(DeadPostingsRobustLoadTest)
 	BOOST_CHECK(!loaded.IsDead(future));
 	BOOST_CHECK(!loaded.IsDead(Posting::Sketch{ 0, 12, 99 }));
 	fs::remove(path);
+}
+
+// Persisted C-string number fields keep their historical NUL/sign/delimiter
+// behavior, and one malformed hash rejects the entire record.
+BOOST_AUTO_TEST_CASE(DeadPostingsStateFieldsTest)
+{
+    fs::path path = fs::temp_directory_path() / fs::make_unique_filename();
+    time_t now = time(nullptr);
+    std::string stamp = std::to_string((long long)now);
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << stamp << "\t3,1,3,2,\tignored\n";
+        std::string nulStamp = stamp + std::string("\0tail", 5);
+        std::string nulHashes = std::string("9\0tail,7", 8);
+        file << nulStamp << '\t' << nulHashes << "\t\n";
+        file << stamp << "\t12,x7,99\t\n";
+        file << stamp << "\t,77\t\n";
+    }
+    DeadPostings dead;
+    dead.SetStatePath(path.string());
+    dead.Load();
+    BOOST_CHECK(dead.IsDead(Posting::Sketch{1}, now));
+    BOOST_CHECK(dead.IsDead(Posting::Sketch{7}, now));
+    BOOST_CHECK(!dead.IsDead(Posting::Sketch{12}, now));
+    BOOST_CHECK(!dead.IsDead(Posting::Sketch{77}, now));
+    dead.Add(Posting::Sketch{42}, now);
+    std::ifstream file(path, std::ios::binary);
+    std::string saved((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    BOOST_CHECK_EQUAL(saved, stamp + "\t1,2,3\t\n" + stamp + "\t7,9\t\n" + stamp + "\t42\t\n");
+    file.close();
+    fs::remove(path);
 }
 
 BOOST_AUTO_TEST_CASE(PostingSketchOfFileTest)
