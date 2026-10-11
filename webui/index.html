@@ -42,6 +42,8 @@
 				theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 			}
 			document.documentElement.setAttribute('data-theme', theme);
+			// browser and PWA chrome follow the theme (bg-window of each theme)
+			document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'light' ? '#f7f7fa' : '#0a0a0e');
 		})();
 	</script>
 
