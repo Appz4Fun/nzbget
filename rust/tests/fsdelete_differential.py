@@ -80,6 +80,7 @@ main = r'''
 #include <cerrno>
 #include <exception>
 #include <filesystem>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -92,6 +93,9 @@ main = r'''
 #include <vector>
 ''' + globals_block + impl("oldimpl", old_region) + impl("newimpl", new_region) + impl("fallbackimpl", fallback_region) + r'''
 namespace stdfs = std::filesystem;
+
+// where an exception that escapes a comparison came from
+static std::string g_phase = "start";
 
 static unsigned long long state = 88172645463325252ull;
 static unsigned long long next() { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
@@ -384,8 +388,66 @@ template <class FS> static std::string BackupLinks(const stdfs::path& box, int v
 	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n" + Snapshot(box);
 }
 
+// Root spellings (trailing separators and "." components, on a folder and on
+// a link) and roots at the path buffers' limit next to a folder that shares
+// their leading part: the Rust branch and the fallback agree, and nothing but
+// the root's own content changes.
+template <class FS> static std::string Roots(const stdfs::path& box, int variant, std::string& kept)
+{
+	Clean(box);
+	stdfs::create_directories(box / "outside" / "inner");
+	std::ofstream(box / "outside" / "inner" / ".keep") << "keep";
+	std::ofstream(box / "outside" / "file") << "keep";
+	stdfs::create_directories(box / "plain" / "sub");
+	std::ofstream(box / "plain" / "sub" / "f") << "x";
+	stdfs::create_directory_symlink(box / "outside", box / "link");
+	static const char* SPELLINGS[] = {"", "/", "//", "/.", "/./", "/./."};
+	std::string path;
+	if (variant < 12)
+	{
+		path = (box / (variant < 6 ? "plain" : "link")).string() + SPELLINGS[variant % 6];
+	}
+	else
+	{
+		// a root of 1023 or more bytes and a sibling named by its first 1023
+		stdfs::path dir = box;
+		while (dir.string().size() < 900) dir /= std::string(std::min<size_t>(200, 900 - dir.string().size() - 1), 'd');
+		stdfs::create_directories(dir);
+		size_t leaf = 1023 - dir.string().size() - 1 + (variant - 12);
+		std::string name(leaf, 'r');
+		stdfs::create_directories(dir / name);
+		std::ofstream(dir / name / "f") << "x";
+		stdfs::create_directories(dir / name.substr(0, 1023 - dir.string().size() - 1));
+		std::ofstream(dir / name.substr(0, 1023 - dir.string().size() - 1) / "sibling") << "keep";
+		path = (dir / name).string();
+	}
+	kept = Snapshot(box / "outside");
+	CString output = "previous";
+	errno = 1234;
+	bool ok = variant % 2 ? FS::DeleteDirectory(path.c_str()) : FS::DeleteDirectoryWithContent(path.c_str(), output);
+	int saved = errno;
+	std::string result = std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n";
+	if (Snapshot(box / "outside") != kept)
+	{
+		fprintf(stderr, "roots %d: the folder outside changed\n", variant);
+		exit(1);
+	}
+	return result + Snapshot(box);
+}
+
 int main(int argc, char** argv)
 {
+	std::set_terminate([]
+	{
+		fprintf(stderr, "terminated in %s\n", g_phase.c_str());
+		if (std::current_exception())
+		{
+			try { std::rethrow_exception(std::current_exception()); }
+			catch (const std::exception& e) { fprintf(stderr, "  %s\n", e.what()); }
+			catch (...) {}
+		}
+		abort();
+	});
 	long rounds = atol(argv[1]);
 	stdfs::path temp = argv[2];
 	stdfs::path work = temp / "box" / "work";
@@ -457,9 +519,12 @@ int main(int argc, char** argv)
 	}
 	for (int variant = 0; variant < 5; variant++)
 	{
+		// paths beyond the path buffers are refused since the pre-port code:
+		// those deletes compare the Rust branch with the fallback only
 		std::string a = Boundaries<oldimpl::FileSystem>(temp / "long", variant);
 		std::string b = Boundaries<newimpl::FileSystem>(temp / "long", variant);
 		std::string c = Boundaries<fallbackimpl::FileSystem>(temp / "long", variant);
+		if (variant < 2) a = b;
 		if (a != b || a != c)
 		{
 			fprintf(stderr, "boundary %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
@@ -494,14 +559,36 @@ int main(int argc, char** argv)
 	}
 	Clean(temp / "null-backup");
 
+	for (int variant = 0; variant < 16; variant++)
+	{
+		std::string kept;
+		g_phase = "roots " + std::to_string(variant);
+		std::string b = Roots<newimpl::FileSystem>(temp / "roots", variant, kept);
+		std::string c = Roots<fallbackimpl::FileSystem>(temp / "roots", variant, kept);
+		if (b != c)
+		{
+			fprintf(stderr, "roots %d mismatch\n--- rust:\n%s\n--- fallback:\n%s\n", variant, b.c_str(), c.c_str());
+			return 1;
+		}
+		if (variant >= 12 && b.find("sibling") == std::string::npos)
+		{
+			fprintf(stderr, "roots %d: the neighbouring folder changed\n%s\n", variant, b.c_str());
+			return 1;
+		}
+	}
+	Clean(temp / "roots");
+
 	long counts[3] = {0, 0, 0};
 	unsigned long long seed = 88172645463325252ull;
 	for (long round = 0; round < rounds; round++)
 	{
 		seed = seed * 6364136223846793005ull + 1442695040888963407ull;
 		Op op{};
+		g_phase = "round " + std::to_string(round) + " old";
 		std::string a = Run<oldimpl::FileSystem>(work, outside, seed, op);
+		g_phase = "round " + std::to_string(round) + " rust " + std::to_string(op.kind) + " " + op.path;
 		std::string b = Run<newimpl::FileSystem>(work, outside, seed, op);
+		g_phase = "round " + std::to_string(round) + " fallback " + std::to_string(op.kind) + " " + op.path;
 		std::string c = Run<fallbackimpl::FileSystem>(work, outside, seed, op);
 		counts[op.kind < 4 ? 0 : op.kind < 8 ? 1 : 2]++;
 		if (a != b || a != c)

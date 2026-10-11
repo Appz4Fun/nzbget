@@ -916,6 +916,9 @@ typedef struct NzbgetRsFsOps
 	int (*dirExists)(void* ctx, const char* path);
 	int (*moveFile)(void* ctx, const char* from, const char* to);
 	int (*lastError)(void* ctx, void* sink, void (*set)(void* sink, const char* text));
+	// sets errno to ENAMETOOLONG: delete roots (without trailing separators or
+	// "." components) and paths below them longer than 1023 bytes are refused
+	int (*tooLong)(void* ctx);
 } NzbgetRsFsOps;
 int nzbget_rs_delete_directory(const NzbgetRsFsOps* ops, const char* dir, char separator);
 int nzbget_rs_delete_directory_with_content(const NzbgetRsFsOps* ops, const char* dir, char separator, NzbgetRsBuf* errmsg);

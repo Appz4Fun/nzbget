@@ -3451,6 +3451,7 @@ pub struct FsOps {
     pub move_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *const c_char) -> c_int>,
     pub last_error: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void,
         unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int>,
+    pub too_long: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> c_int>,
 }
 
 struct FsOpsFfi<'a>(&'a FsOps);
@@ -3516,6 +3517,10 @@ impl crate::fsdelete::Ops for FsOpsFfi<'_> {
             Self::int(unsafe { f(self.0.ctx, (&mut text as *mut Vec<u8>).cast(), fs_ops_set) })?;
         }
         Ok(text)
+    }
+    fn too_long(&mut self) -> crate::fsdelete::R<()> {
+        let Some(f) = self.0.too_long else { return Ok(()) };
+        Self::int(unsafe { f(self.0.ctx) }).map(drop)
     }
 }
 
@@ -3650,7 +3655,7 @@ mod tests {
         let mut ops = FsOps {
             ctx: (&mut st as *mut State).cast(), path_type: Some(kind), remove_dir: Some(fail),
             delete_file: Some(fail), delete_link: None, list: Some(list),
-            file_exists: None, dir_exists: None, move_file: None, last_error: Some(last_error),
+            file_exists: None, dir_exists: None, move_file: None, last_error: Some(last_error), too_long: None,
         };
         unsafe {
             let mut error = std::mem::MaybeUninit::uninit();

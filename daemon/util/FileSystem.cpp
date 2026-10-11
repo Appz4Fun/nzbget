@@ -1165,6 +1165,10 @@ public:
 		{
 			return Call(ctx, [&] { set(sink, FileSystem::GetLastErrorMessage()); return 0; });
 		};
+		ops.tooLong = [](void* ctx) noexcept -> int
+		{
+			return Call(ctx, [&] { errno = ENAMETOOLONG; return 0; });
+		};
 	}
 
 	int Finish(int result)
@@ -1246,9 +1250,50 @@ bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& er
 }
 
 #else
-/* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
-bool FileSystem::DeleteDirectory(const char* dirFilename)
+namespace
 {
+// Delete roots without trailing separators or trailing "." components; roots
+// and the paths below them longer than the path buffers are refused, never cut.
+constexpr size_t MaxDeletePath = 1023;
+
+std::string DeleteRoot(const char* dirFilename)
+{
+	std::string root = dirFilename;
+	for (;;)
+	{
+		if (root.size() > 1 && root.back() == PATH_SEPARATOR)
+		{
+			root.pop_back();
+		}
+		else if (root.size() > 2 && root[root.size() - 2] == PATH_SEPARATOR && root.back() == '.')
+		{
+			root.resize(root.size() - 2);
+		}
+		else
+		{
+			return root;
+		}
+	}
+}
+
+bool DeletePathFits(const char* dirFilename, const char* filename)
+{
+	return strlen(dirFilename) + 1 + strlen(filename) <= MaxDeletePath;
+}
+}
+
+/* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
+bool FileSystem::DeleteDirectory(const char* givenDirFilename)
+{
+	// a NULL root is passed on as before (the calls fail with EFAULT)
+	std::string root = givenDirFilename ? DeleteRoot(givenDirFilename) : std::string();
+	const char* dirFilename = givenDirFilename ? root.c_str() : nullptr;
+	if (root.size() > MaxDeletePath)
+	{
+		errno = ENAMETOOLONG;
+		return false;
+	}
+
 	if (RemoveDirectory(dirFilename))
 	{
 		return true;
@@ -1266,14 +1311,21 @@ bool FileSystem::DeleteDirectory(const char* dirFilename)
 		DirBrowser dir(dirFilename);
 		while (const char* filename = dir.Next())
 		{
-			BString<1024> fullFilename("%s%c%s", dirFilename, PATH_SEPARATOR, filename);
-
-			// Recursivly remove empty folder, useful in case of abort with direct rename and hardlinking
-			// lstat: a link to a folder elsewhere (from an archive) was followed and
-			// that folder's empty subfolders and hidden files deleted
-			if (GetPathTypeNoFollow(fullFilename) == PathType::Directory && DeleteDirectory(fullFilename))
+			if (!DeletePathFits(dirFilename, filename))
 			{
-				continue;
+				errno = ENAMETOOLONG;
+			}
+			else
+			{
+				BString<1024> fullFilename("%s%c%s", dirFilename, PATH_SEPARATOR, filename);
+
+				// Recursivly remove empty folder, useful in case of abort with direct rename and hardlinking
+				// lstat: a link to a folder elsewhere (from an archive) was followed and
+				// that folder's empty subfolders and hidden files deleted
+				if (GetPathTypeNoFollow(fullFilename) == PathType::Directory && DeleteDirectory(fullFilename))
+				{
+					continue;
+				}
 			}
 
 			if (*filename != '.')
@@ -1294,9 +1346,18 @@ bool FileSystem::DeleteDirectory(const char* dirFilename)
 	return true;
 }
 
-bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& errmsg)
+bool FileSystem::DeleteDirectoryWithContent(const char* givenDirFilename, CString& errmsg)
 {
 	errmsg.Clear();
+	// a NULL root is passed on as before (the calls fail with EFAULT)
+	std::string root = givenDirFilename ? DeleteRoot(givenDirFilename) : std::string();
+	const char* dirFilename = givenDirFilename ? root.c_str() : nullptr;
+	if (root.size() > MaxDeletePath)
+	{
+		errno = ENAMETOOLONG;
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
+		return false;
+	}
 	PathType rootType = GetPathTypeNoFollow(dirFilename);
 	if (rootType == PathType::Link || rootType == PathType::DirectoryLink)
 	{
@@ -1304,12 +1365,12 @@ bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& er
 		{
 			return true;
 		}
-		errmsg.Format("could not delete %s: %s", dirFilename, *GetLastErrorMessage());
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
 		return false;
 	}
 	if (rootType != PathType::Directory)
 	{
-		errmsg.Format("could not delete %s: %s", dirFilename, *GetLastErrorMessage());
+		errmsg.Format("could not delete %s: %s", givenDirFilename, *GetLastErrorMessage());
 		return false;
 	}
 
@@ -1320,6 +1381,16 @@ bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& er
 		DirBrowser dir(dirFilename);
 		while (const char* filename = dir.Next())
 		{
+			if (!DeletePathFits(dirFilename, filename))
+			{
+				errno = ENAMETOOLONG;
+				ok = false;
+				if (errmsg.Empty())
+				{
+					errmsg.Format("could not delete %s%c%s: %s", dirFilename, PATH_SEPARATOR, filename, *GetLastErrorMessage());
+				}
+				continue;
+			}
 			BString<1024> fullFilename("%s%c%s", dirFilename, PATH_SEPARATOR, filename);
 			PathType pathType = GetPathTypeNoFollow(fullFilename);
 
