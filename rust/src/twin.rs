@@ -209,10 +209,15 @@ pub fn merge(a: &[FileSig], b: &[FileSig]) -> Vec<FileSig> {
 
 /// The name of the duplicate's file holding the same bytes as our file named
 /// `target` (or `target_alt`, the name our nzb gives it). `None`: not known (our
-/// file isn't in our list, the name fits several, several donor files hold the
+/// list is partial or doesn't have the file, the name fits several, several donor files hold the
 /// bytes, or the donor's list is incomplete and doesn't have them). `Some("")`:
 /// the donor's complete list has no file with these bytes.
 pub fn match_by_content(own: &Listed, target: &str, target_alt: &str, donor: &Listed) -> Option<String> {
+    // our name is known to be unique only in our complete list: a FileDesc the
+    // partial one lacks may make the same valid name
+    if !own.complete {
+        return None;
+    }
     let ours = find_sig(&own.sigs, target).or_else(|| find_sig(&own.sigs, target_alt))?;
     let mut found = donor.sigs.iter().filter(|s| s.md5 == ours.md5 && s.length == ours.length);
     match (found.next(), found.next()) {
@@ -588,6 +593,13 @@ mod tests {
         let donor = listed(vec![sig("x?y.rar", "1", 1)], true);
         assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), Some("x_y.rar".into()));
         assert_eq!(own.sigs[0].name, "a:b.rar");
+    }
+
+    #[test]
+    fn partial_own_list_matches_nothing() {
+        let own = listed(vec![sig("a?b.rar", "2", 1)], false);
+        let donor = listed(vec![sig("y", "2", 1)], true);
+        assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), None);
     }
 
     #[test]
