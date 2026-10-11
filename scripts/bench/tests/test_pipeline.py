@@ -26,6 +26,38 @@ INPUT_DIGEST = hashlib.sha256(b"controlled integration input").hexdigest()
 OUTPUT_DIGEST = hashlib.sha256(b"controlled equivalent output").hexdigest()
 VARIANTS = ("cpp_current", "cpp_optimized", "rust_current", "rust_candidate")
 ARTIFACTS = ("summary.json", "bencher.json", "qualification.json", "report.md")
+RAW_PROOF_FILES = ("manifest.json", "samples.jsonl", "collection-receipt.json")
+
+
+def synthetic_receipt(manifest_raw, samples_raw, variants=VARIANTS, review_decision="required"):
+    """Explicit synthetic review assertions, never approval of a real capture."""
+    def toy_hash(label):
+        return hashlib.sha256(("synthetic fixture: " + label).encode()).hexdigest()
+    content = {variant: toy_hash("reviewed source " + variant) for variant in variants}
+    # The review is supplied independently as a fixed fixture assertion. Tests
+    # mutate captures later without regenerating that explicit review.
+    approved = {variant: toy_hash("reviewed source " + variant) for variant in variants}
+    command = {"name": "controlled-caller", "sha256": toy_hash("caller binary"),
+               "argv_sha256": toy_hash("nonsecret command arguments")}
+    return {"schema_version": 1,
+        "review": {"actor": "xbmc4lyfe", "status": "reviewed", "source_content_hashes": approved,
+                   "rust_preservation_applicability": {"controlled/caller": review_decision}},
+        "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+        "samples_sha256": hashlib.sha256(samples_raw).hexdigest(),
+        "base_sha": BASE_SHA, "candidate_sha": CANDIDATE_SHA,
+        "testbed": "synthetic-contract-test-no-performance-claim",
+        "source_hashes": {variant: CANDIDATE_SHA if variant == "rust_candidate" else BASE_SHA
+                          for variant in variants},
+        "source_content_hashes": content,
+        "binary_hashes": {variant: toy_hash("binary " + variant) for variant in variants},
+        "compiler_hashes": {"controlled-compiler": toy_hash("compiler binary")},
+        "input_hashes": {"controlled/caller": INPUT_DIGEST},
+        "variant_source_attribution": {"cpp_optimized": {"source_sha": BASE_SHA,
+            "reason": "Synthetic fixture explicitly models the optimized C++ control."}},
+        "commands": {"build": [dict(command)], "time": [dict(command)]},
+        "runner": {"implementation_sha256": toy_hash("runner implementation"), "lock_scope": "worker_default",
+                   "build_jobs": 3, "build_locks": ["i7-heavy.lock:exclusive", "nzbget-rust-benchmark.lock:shared"],
+                   "time_locks": ["nzbget-rust-benchmark.lock:exclusive"], "time_prebuilt": True}}
 
 # Replace only external HTTP transport. The actual publisher CLI, parsing,
 # signature/blob checks, identity binding and failure outputs still execute.
@@ -496,12 +528,14 @@ class PublisherIdentityContractTests(unittest.TestCase):
     def invoke(self, manifest=None, current_base=BASE_SHA, current_head=CANDIDATE_SHA,
                actor="xbmc4lyfe", identity_only=False, cli_arguments=None,
                raw_manifest=None, response_updates=None, allow_status_posts=False,
-               head_repository="Appz4Fun/nzbget", publish=False):
+               head_repository="Appz4Fun/nzbget", publish=False, raw_samples=b"", raw_receipt=None):
         import base64
         evidence_sha, tree_sha = "3" * 40, "4" * 40
         manifest = controlled_manifest() if manifest is None else manifest
         raw_files = {"manifest.json": raw_manifest if raw_manifest is not None else json.dumps(manifest).encode(),
-                     "samples.jsonl": b""}
+                     "samples.jsonl": raw_samples}
+        if raw_receipt is not None:
+            raw_files["collection-receipt.json"] = raw_receipt
         tree, blobs = [], {}
         for name, raw in raw_files.items():
             sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
@@ -669,6 +703,109 @@ class PublisherIdentityContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertTrue(any(call["endpoint"].endswith("&page=3") for call in self.api_calls()))
         self.assertNotIn("prs=", self.github_output.read_text())
+
+    def reviewed_inputs(self, first_port=False):
+        manifest = controlled_manifest()
+        variants = VARIANTS
+        decision = "required"
+        if first_port:
+            variants = tuple(variant for variant in VARIANTS if variant != "rust_current")
+            decision = "not_applicable"
+            manifest["fixtures"][0].update(required_variants=list(variants),
+                rust_preservation_applicability=decision, provenance={
+                    "rust_preservation_rationale": "Synthetic first-port fixture declares only C++ controls and its first Rust candidate."})
+        manifest_raw = json.dumps(manifest).encode()
+        samples_raw = "".join(json.dumps(row) + "\n" for row in controlled_rows(variants=variants)).encode()
+        return manifest_raw, samples_raw, synthetic_receipt(manifest_raw, samples_raw, variants, decision)
+
+    def validate_reviewed(self, manifest_raw, samples_raw, receipt, status):
+        result = self.invoke(raw_manifest=manifest_raw, raw_samples=samples_raw,
+                             raw_receipt=json.dumps(receipt).encode())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        qualification = json.loads((self.output / "qualification.json").read_text())
+        self.assertEqual(qualification["status"], status)
+        self.assertEqual(qualification["collection_provenance"]["receipt_valid"], status == "PASS")
+        self.assertIs(qualification["collection_provenance"]["signature_attests_execution"], False)
+        return qualification
+
+    def test_publisher_invalid_proof_retains_raw_transport_bytes(self):
+        raw = {"manifest.json": b"not valid JSON\n", "samples.jsonl": b"unparsed synthetic samples\n",
+               "collection-receipt.json": b'{"synthetic":"unparsed receipt"}\n'}
+        result = self.invoke(raw_manifest=raw["manifest.json"], raw_samples=raw["samples.jsonl"],
+                             raw_receipt=raw["collection-receipt.json"])
+        self.assertEqual(result.returncode, 2, result.stderr)
+        for name, original in raw.items():
+            self.assertTrue((self.output / name).is_file(), "Invalid import discarded signed transport bytes")
+            self.assertEqual((self.output / name).read_bytes(), original)
+        self.assertEqual(json.loads((self.output / "qualification.json").read_text())["status"], "HOLD")
+        self.assertNotIn("published=true", self.github_output.read_text())
+
+    def test_publisher_raw_output_reuse_preserves_prior_bytes_and_invalidates_pass(self):
+        self.output.mkdir()
+        prior = {name: ("synthetic prior raw proof: " + name).encode() for name in RAW_PROOF_FILES}
+        for name, raw in prior.items():
+            (self.output / name).write_bytes(raw)
+        (self.output / "qualification.json").write_text('{"status":"PASS"}')
+        (self.output / "selected-bencher.json").write_text('{"old":{}}')
+        result = self.invoke(raw_manifest=b"invalid new proof\n", raw_samples=b"new samples\n",
+                             raw_receipt=b'{"synthetic":"new receipt"}')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        for name, raw in prior.items():
+            self.assertTrue((self.output / name).is_file(), "Rejected reuse discarded prior raw evidence")
+            self.assertEqual((self.output / name).read_bytes(), raw)
+        self.assertEqual(json.loads((self.output / "qualification.json").read_text())["status"], "HOLD")
+        self.assertFalse((self.output / "selected-bencher.json").exists())
+        self.assertFalse(any("/git/blobs/" in call["endpoint"] for call in self.api_calls()),
+                         "Retained proof must block a new import before blob acquisition")
+
+    def test_publisher_explicit_reviewed_required_and_first_port_are_eligible(self):
+        for first_port in (False, True):
+            with self.subTest(first_port=first_port):
+                self.output = self.work / f"reviewed-positive-{first_port}"
+                self.validate_reviewed(*self.reviewed_inputs(first_port), "PASS")
+                self.assertIn("ready=true", self.github_output.read_text())
+
+    def test_publisher_changed_source_content_same_checkout_requires_new_review(self):
+        manifest, samples, receipt = self.reviewed_inputs()
+        self.validate_reviewed(manifest, samples, receipt, "PASS")
+        self.output = self.work / "changed-content"
+        changed = copy.deepcopy(receipt)
+        changed["source_content_hashes"]["rust_candidate"] = hashlib.sha256(b"synthetic edited source, same Git checkout").hexdigest()
+        self.assertEqual(changed["source_hashes"], receipt["source_hashes"])
+        self.validate_reviewed(manifest, samples, changed, "HOLD")
+
+    def test_publisher_review_maps_and_content_digests_must_match(self):
+        manifest, samples, receipt = self.reviewed_inputs()
+        variants = []
+        missing = copy.deepcopy(receipt)
+        del missing["review"]["rust_preservation_applicability"]
+        variants.append(missing)
+        decision = copy.deepcopy(receipt)
+        decision["review"]["rust_preservation_applicability"]["controlled/caller"] = "not_applicable"
+        variants.append(decision)
+        digest_mismatch = copy.deepcopy(receipt)
+        digest_mismatch["review"]["source_content_hashes"]["rust_candidate"] = "f" * 64
+        variants.append(digest_mismatch)
+        missing_capture = copy.deepcopy(receipt)
+        del missing_capture["source_content_hashes"]["rust_current"]
+        variants.append(missing_capture)
+        invalid_digest = copy.deepcopy(receipt)
+        invalid_digest["source_content_hashes"]["rust_candidate"] = "not-a-digest"
+        invalid_digest["review"]["source_content_hashes"]["rust_candidate"] = "not-a-digest"
+        variants.append(invalid_digest)
+        for index, altered in enumerate(variants):
+            with self.subTest(alteration=index):
+                self.output = self.work / f"review-negative-{index}"
+                self.validate_reviewed(manifest, samples, altered, "HOLD")
+
+    def test_publisher_optional_manifest_content_hashes_must_match_receipt(self):
+        manifest_raw, samples, receipt = self.reviewed_inputs()
+        manifest = json.loads(manifest_raw)
+        manifest["provenance"] = {"source_content_hashes": dict(receipt["source_content_hashes"])}
+        manifest["provenance"]["source_content_hashes"]["rust_candidate"] = "f" * 64
+        changed_manifest = json.dumps(manifest).encode()
+        receipt["manifest_sha256"] = hashlib.sha256(changed_manifest).hexdigest()
+        self.validate_reviewed(changed_manifest, samples, receipt, "HOLD")
 
 
 if __name__ == "__main__":
