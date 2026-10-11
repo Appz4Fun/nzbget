@@ -1,6 +1,7 @@
 """Lightweight runner tests; Linux process/lock tests use private fake locks."""
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 RUNNER = Path(__file__).resolve().parents[1] / "run.py"
 LINUX = sys.platform.startswith("linux")
@@ -200,6 +202,42 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(tool.read_bytes(), tool_bytes)
                 self.assertEqual(driver.read_bytes(), driver_bytes)
                 self.assertEqual(dest.lstat().st_ino, inode)
+
+    def test_metadata_guard_tracks_intermediate_symlinks_in_expanded_input_targets(self):
+        for role in ("fixture", "tool", "runner", "lock", "relative_dotdot"):
+            with self.subTest(role=role):
+                root = self.root / role
+                (root / "out").mkdir(parents=True)
+                real = root / "real"
+                real.mkdir()
+                (real / "fixture").write_bytes(b"preserve input")
+                metadata = root / "out" / "receipt.json"
+                metadata.symlink_to(real, target_is_directory=True)
+                outer = root / "outer-input"
+                if role == "relative_dotdot":
+                    (real / "nested").mkdir()
+                    metadata.unlink()
+                    metadata.symlink_to(real / "nested", target_is_directory=True)
+                    outer.symlink_to("out/receipt.json/../fixture")
+                elif role == "lock":
+                    (real / "locks").mkdir()
+                    outer.symlink_to(metadata / "locks", target_is_directory=True)
+                else:
+                    outer.symlink_to(metadata / "fixture")
+                spec = importlib.util.spec_from_file_location("runner_guard_probe", RUNNER)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                if role == "runner":
+                    module.RUNNER_ORIGINAL_PATH = outer
+                args = SimpleNamespace(metadata=metadata,
+                    fixture=[outer] if role in ("fixture", "relative_dotdot") else [],
+                    toolchain_binary=[outer] if role == "tool" else [],
+                    lock_dir=outer if role == "lock" else root / "unrelated-locks")
+                inode = metadata.lstat().st_ino
+                with self.assertRaises(ValueError):
+                    module.metadata_destination_safe(args, [sys.executable])
+                self.assertEqual(metadata.lstat().st_ino, inode)
+                self.assertEqual((real / "fixture").read_bytes(), b"preserve input")
 
     @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
     def test_metadata_collision_created_while_queued_is_rejected_under_lock(self):
