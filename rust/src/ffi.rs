@@ -5752,3 +5752,107 @@ pub unsafe extern "C" fn nzbget_rs_releasename_same_release(a: *const c_char, al
                                                             blen: usize) -> c_int {
     c_int::from(crate::releasename::same_release(arg(a, alen), arg(b, blen)))
 }
+
+/// One search result across the C ABI, as Posting's grouping and ordering read it.
+#[repr(C)]
+pub struct NzbgetRsListing {
+    pub link: *const c_char,
+    pub link_len: usize,
+    pub size: i64,
+    pub grabs: i32,
+    pub date: i64,
+}
+
+/// The strings of (pointer, length) arrays; NULL arrays are empty.
+unsafe fn strings<'a>(data: *const *const c_char, lens: *const usize, n: usize) -> Vec<&'a [u8]> {
+    if n == 0 || data.is_null() || lens.is_null() {
+        return Vec::new();
+    }
+    let (data, lens) = (std::slice::from_raw_parts(data, n), std::slice::from_raw_parts(lens, n));
+    data.iter().zip(lens).map(|(&p, &l)| arg(p, l)).collect()
+}
+
+unsafe fn listings<'a>(raw: *const NzbgetRsListing, n: usize) -> Vec<crate::posting::Listing<'a>> {
+    if n == 0 || raw.is_null() {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(raw, n)
+        .iter()
+        .map(|l| crate::posting::Listing { link: arg(l.link, l.link_len), size: l.size, grabs: l.grabs, date: l.date })
+        .collect()
+}
+
+/// Writes groups of indices: `indices` (writable for n) gets them group after
+/// group, `group_sizes` (writable for n) each group's length, `*groups` the
+/// number of groups; returns the indices written.
+unsafe fn write_groups(groups: Vec<Vec<usize>>, indices: *mut usize, group_sizes: *mut usize, count: *mut usize) -> usize {
+    let mut written = 0;
+    for (g, group) in groups.iter().enumerate() {
+        *group_sizes.add(g) = group.len();
+        for &i in group {
+            *indices.add(written) = i;
+            written += 1;
+        }
+    }
+    *count = groups.len();
+    written
+}
+
+/// Posting::MakeSketch: `out` (writable for 64) gets the sketch, `*out_len` its length.
+///
+/// # Safety
+/// `ids`/`lens` readable for `n`; `out` writable for 64; `out_len` writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_posting_sketch(ids: *const *const c_char, lens: *const usize, n: usize,
+                                                  out: *mut u32, out_len: *mut usize) {
+    let sketch = crate::posting::make_sketch(strings(ids, lens, n));
+    std::ptr::copy_nonoverlapping(sketch.as_ptr(), out, sketch.len());
+    *out_len = sketch.len();
+}
+
+/// Posting::SameSketch.
+///
+/// # Safety
+/// `a` and `b` readable for `na` and `nb` (NULL when 0).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_posting_same_sketch(a: *const u32, na: usize, b: *const u32, nb: usize) -> c_int {
+    let s = |p: *const u32, n: usize| if n == 0 || p.is_null() { &[][..] } else { std::slice::from_raw_parts(p, n) };
+    c_int::from(crate::posting::same_sketch(s(a, na), s(b, nb)))
+}
+
+/// Posting::SamePosting (both lists sorted).
+///
+/// # Safety
+/// The arrays must be readable for their counts.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_posting_same_posting(a: *const *const c_char, alens: *const usize, na: usize,
+                                                        b: *const *const c_char, blens: *const usize, nb: usize) -> c_int {
+    c_int::from(crate::posting::same_posting(&strings(a, alens, na), &strings(b, blens, nb)))
+}
+
+/// Posting::ListingMismatch.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_posting_listing_mismatch(listing_size: i64, nzb_bytes: i64) -> c_int {
+    c_int::from(crate::posting::listing_mismatch(listing_size, nzb_bytes))
+}
+
+/// Posting::GroupListings (see write_groups).
+///
+/// # Safety
+/// `listings` readable for `n`; `indices` and `group_sizes` writable for `n`; `groups` writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_posting_group(raw: *const NzbgetRsListing, n: usize, indices: *mut usize,
+                                                 group_sizes: *mut usize, groups: *mut usize) -> usize {
+    write_groups(crate::posting::group_listings(&listings(raw, n)), indices, group_sizes, groups)
+}
+
+/// Posting::OrderPostings (see write_groups).
+///
+/// # Safety
+/// `listings` readable for `n`; `indices` and `group_sizes` writable for `n`; `groups` writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_posting_order(raw: *const NzbgetRsListing, n: usize, pick_bytes: i64,
+                                                 max_postings: c_int, indices: *mut usize, group_sizes: *mut usize,
+                                                 groups: *mut usize) -> usize {
+    write_groups(crate::posting::order_postings(&listings(raw, n), pick_bytes, max_postings), indices, group_sizes, groups)
+}
