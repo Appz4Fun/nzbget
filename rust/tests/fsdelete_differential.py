@@ -36,7 +36,7 @@ def region(src, start, end_marker):
 
 old_region = region(old_src, "std::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
 new_region = region(new_src, "#ifdef NZBGET_USE_RUST\nstd::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
-win_roots = new_src[new_src.index("bool DeleteSeparator("):new_src.index("bool DeletePathFits(")]
+win_roots = new_src[new_src.index("#ifdef WIN32\n// room for the listing mask"):new_src.index("// strerror_r returns")]
 win_roots = win_roots.replace("#ifdef WIN32", "#if 1").replace("ALT_PATH_SEPARATOR", "'/'").replace("PATH_SEPARATOR", "'\\\\'")
 
 fallback_region = new_region.replace("#if defined(NZBGET_USE_RUST) && !defined(WIN32)", "#if 0").replace(
@@ -477,22 +477,38 @@ template <class FS> static void RootBoundary(const stdfs::path& box)
 {
 	for (size_t length : {1022, 1023, 1024})
 	for (bool content : {false, true})
+	for (int kind = 0; kind < 5; kind++)
 	for (const char* suffix : {"", "/", "//", "/.", "/./", "/././/"})
 	{
 		Clean(box);
+		stdfs::create_directories(box / "outside");
+		std::ofstream(box / "outside" / "file") << "keep";
+		std::string kept = Snapshot(box / "outside");
 		stdfs::path root = box;
 		while (root.string().size() < length)
-			root /= std::string(std::min<size_t>(180, length - root.string().size() - 1), 'r');
-		stdfs::create_directories(root);
+		{
+			std::string component(std::min<size_t>(180, length - root.string().size() - 1), 'r');
+			if (component.size() >= 3) component.replace(0, 3, "\xc3\xa9\xff");
+			root /= component;
+		}
+		stdfs::create_directories(root.parent_path());
+		if (kind == 0) stdfs::create_directory(root);
+		else if (kind == 1) std::ofstream(root) << "keep";
+		else if (kind == 2) stdfs::create_directory_symlink(box / "outside", root);
+		else if (kind == 3) stdfs::create_symlink(box / "outside" / "file", root);
+		else stdfs::create_symlink(box / "missing", root);
 		std::string path = root.string() + suffix;
 		CString error = "previous";
 		errno = 1234;
 		bool ok = content ? FS::DeleteDirectoryWithContent(path.c_str(), error) : FS::DeleteDirectory(path.c_str());
 		int saved = errno;
-		if (ok != (length <= 1023) || stdfs::exists(root) == ok || (length > 1023 && saved != ENAMETOOLONG))
+		bool expected = length <= 1023 && (kind == 0 || (content && kind >= 2));
+		if (ok != expected || stdfs::exists(stdfs::symlink_status(root)) == ok || (length > 1023 && saved != ENAMETOOLONG))
 			throw std::runtime_error("root boundary result");
 		if (length > 1023 && content && std::string(*error) != "could not delete " + path + ": " + strerror(ENAMETOOLONG))
 			throw std::runtime_error("root boundary message");
+		if (Snapshot(box / "outside") != kept)
+			throw std::runtime_error("root boundary content");
 	}
 	Clean(box);
 }
@@ -635,6 +651,12 @@ int main(int argc, char** argv)
 		{"\\\\?\\Volume{abc}\\.\\", "\\\\?\\Volume{abc}\\"}, {"/.", "/"}, {"\\.\\", "\\"}})
 		if (winroots::DeleteRoot(pair.first.c_str()) != pair.second)
 			throw std::runtime_error("Windows root spelling");
+	for (size_t length : {1012, 1013, 1014})
+	{
+		std::string dir(length - 2, 'd');
+		if (winroots::MaxDeletePath != 1013 || winroots::DeletePathFits(dir.c_str(), "f") != (length <= 1013))
+			throw std::runtime_error("Windows child boundary");
+	}
 	if (fallbackimpl::DeleteRoot("/.") != "/" || fallbackimpl::DeleteRoot("/.//./") != "/")
 		throw std::runtime_error("POSIX root spelling");
 	RootBoundary<newimpl::FileSystem>(temp / "root-boundary");
