@@ -12,7 +12,8 @@ import argparse
 import pathlib
 import subprocess
 
-COMMIT = '7faebdc2'
+# Reachable default-branch parent; its decision prefix equals the original port baseline.
+COMMIT = '2f0840a2e5d2528aca427061ad5d7778ac1e255f'
 STUB = r'''
 #include <algorithm>
 #include <chrono>
