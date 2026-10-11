@@ -7,6 +7,7 @@ This resource coordinator is not a sandbox for untrusted programs.
 """
 import argparse
 import ctypes
+from collections import deque
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -160,37 +161,66 @@ def argv_digest(command):
 def metadata_destination_safe(args, command):
     if args.metadata is None:
         return
-    # os.replace replaces the final directory entry, not a symlink's target.
-    # Preserve original ancestor entries before resolving any leaf: link/../x
-    # still depends on link, even if resolving x would hide that dependency.
-    def original_absolute(path):
-        return path if path.is_absolute() else Path.cwd() / path
+    # Record directory entries while expanding targets, before processing '..'.
+    # Resolving only an input leaf loses dependencies reached inside its link's
+    # target, including directory symlinks that os.replace could destroy.
+    def lookup(path):
+        absolute = path if path.is_absolute() else Path.cwd() / path
+        pending = deque(absolute.parts[1:])
+        current = Path(absolute.anchor)
+        visited = {current}
+        expansions = 0
+        while pending:
+            component = pending.popleft()
+            if component in ("", "."):
+                continue
+            if component == "..":
+                current = current.parent
+                visited.add(current)
+                continue
+            candidate = current / component
+            visited.add(candidate)
+            try:
+                is_link = stat.S_ISLNK(candidate.lstat().st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                is_link = False
+            if not is_link:
+                current = candidate
+                continue
+            expansions += 1
+            if expansions > 40:
+                raise ValueError("metadata dependency exceeds the symlink expansion limit")
+            target = Path(os.readlink(candidate))
+            if target.is_absolute():
+                current = Path(target.anchor)
+                visited.add(current)
+                parts = target.parts[1:]
+            else:
+                parts = target.parts
+            pending.extendleft(reversed(parts))
+        return visited, current
 
-    def entry(path):
-        path = original_absolute(path)
-        return path.parent.resolve() / path.name
+    def inode(path):
+        try:
+            value = path.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        return value.st_dev, value.st_ino
 
-    output = original_absolute(args.metadata)
-    output_entry, output_target = entry(output), output.resolve()
-    try:
-        output_stat = output.stat()
-    except FileNotFoundError:
-        output_stat = None
+    _, output_parent = lookup(args.metadata.parent)
+    output_entry = output_parent / args.metadata.name
+    _, output_target = lookup(args.metadata)
+    output_inodes = {value for value in (inode(output_entry), inode(output_target)) if value is not None}
     inputs = [Path(command[0]), RUNNER_ORIGINAL_PATH, *args.fixture, *args.toolchain_binary]
     inputs += [directory / name for directory in (args.lock_dir, Path("/tmp"))
                for name in ("i7-heavy.lock", "nzbget-rust-benchmark.lock")]
     for path in inputs:
-        original = original_absolute(path)
-        for protected in (original, *original.parents):
-            if output_entry == entry(protected) or output_target == protected.resolve():
+        visited, _ = lookup(path)
+        for protected in visited:
+            if output_entry == protected or output_target == protected:
                 raise ValueError("metadata destination collides with a protected input or lock")
-            if output_stat is not None:
-                try:
-                    protected_stat = protected.stat()
-                except FileNotFoundError:
-                    continue
-                if (output_stat.st_dev, output_stat.st_ino) == (protected_stat.st_dev, protected_stat.st_ino):
-                    raise ValueError("metadata destination collides with a protected input or lock")
+            if inode(protected) in output_inodes:
+                raise ValueError("metadata destination collides with a protected input or lock")
 
 
 def checkout_identity():
