@@ -335,8 +335,15 @@ class AdbProcess:
     def wait(self, timeout=60):
         deadline = time.monotonic() + timeout
         while True:
-            result = self.target._adb('shell',
-                'if kill -0 %d 2>/dev/null; then echo running; else echo exited; fi' % self.pid)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout)
+            try:
+                result = self.target._adb('shell',
+                    'if kill -0 %d 2>/dev/null; then echo running; else echo exited; fi' % self.pid,
+                    timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout) from None
             status = result.stdout.strip()
             if result.returncode != 0 or status not in ('running', 'exited'):
                 raise RuntimeError('could not check adb process %d: %s' % (self.pid, result.stderr))
@@ -367,12 +374,12 @@ class AdbTarget:
         self._adb('shell', 'rm', '-rf', self.work)
         self._adb('shell', 'mkdir', '-p', self.work)
 
-    def _adb(self, *args):
+    def _adb(self, *args, timeout=None):
         cmd = ['adb']
         if self.serial:
             cmd += ['-s', self.serial]
         cmd += list(args)
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
     def path(self, *parts):
         return '/'.join([self.work] + list(parts))
@@ -5564,8 +5571,11 @@ def scenario_idsafteremptyqueue(daemon, t):
         return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
     gone = [add('Gone.%d' % i) for i in range(3)]
     old_files = [f['ID'] for f in api.listfiles()]
-    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
-    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['GroupDelete', '', gone])
+    deadline = time.monotonic() + 30
+    while not set(gone).issubset({h['NZBID'] for h in api.history(False)}):
+        assert time.monotonic() < deadline, "deleted downloads must reach history"
+        time.sleep(0.3)
     _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
     time.sleep(2)
     empty = not api.listgroups() and not api.history()
@@ -5590,8 +5600,11 @@ def scenario_idsafteremptyfinaldelete(daemon, t):
         nzb = base64.standard_b64encode(_fake_nzb_ids(['%s@id' % uuid.uuid4().hex for _ in range(3)], 30_000)).decode()
         return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
     gone = [add('Gone.%d' % i) for i in range(3)]
-    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
-    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['GroupDelete', '', gone])
+    deadline = time.monotonic() + 30
+    while not set(gone).issubset({h['NZBID'] for h in api.history(False)}):
+        assert time.monotonic() < deadline, "deleted downloads must reach history"
+        time.sleep(0.3)
     _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
     time.sleep(2)
     assert not api.listgroups(), "queue must be empty before restart"
