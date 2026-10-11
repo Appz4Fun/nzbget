@@ -1423,3 +1423,17 @@ tr.checked:nth-child(odd) .progress-block .progress {
 	min-width: var(--size-control-lg);
 	height: var(--size-control-lg);
 }
+
+/* the toolbar group rule above must not reveal phone-only groups on desktop */
+.btn-toolbar .btn-group.phone-only {
+	display: none;
+}
+
+.phone .btn-toolbar .btn-group.phone-only {
+	display: inline-flex;
+}
+
+/* phone extension actions: two 38px buttons and the 4px gap per row */
+.phone #ExtensionManagerTable .btn-toolbar {
+	width: 80px;
+}
