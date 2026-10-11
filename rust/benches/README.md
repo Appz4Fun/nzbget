@@ -46,6 +46,22 @@ files, are rejected before the program argument boundary so they cannot bypass
 the job cap. Program arguments after Cargo's `run`/`test`/`bench` `--` boundary
 remain available to the prebuilt or launched caller.
 
+After acquiring the locks, `--timeout-seconds` supplies one deadline for recorded
+checkout identity, captures before execution, the command, and captures after
+execution. Cancellation also interrupts capture reads. `duration_ns` measures
+the command lifecycle, including descendant cleanup, rather than capture time.
+The invocation's runner-source hash has a separate startup bound of 1 MiB and
+two seconds.
+
+`--capture-max-bytes` sets the byte budget per captured artifact: 256 MiB by
+default, configurable up to 8 GiB. Hashing rejects nonregular files, oversized or
+growing reads, and files whose identity changes during the read. It never emits
+a partial digest. Incomplete captures retain `sha256: null` and an `error_code`;
+their stability reasons include `capture_<code>` and qualification is HOLD.
+The receipt assembler refuses these records. Missing source observations remain
+distinct from an observed source change; an underlying timeout or interruption
+keeps its execution result.
+
 From the repository root, using the shared runner:
 
 ```sh
