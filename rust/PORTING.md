@@ -49,6 +49,7 @@ in `rust/include/nzbget_rs.h`.
 | `FileSystem::DeleteDirectory`, `DeleteDirectoryWithContent`, `RenameBak`, `GetFileExtension` (links never followed, first error kept, errno as before; the file system calls stay C++) | `fsdelete` | port only |
 | BinRpc's frame (`BinRpcProcessor::Execute` credential check, request names, `Dispatch` size check, `SendBoolResponse`, `ReceiveTrailing` length check), list responses (List, Log, PostQueue, History entries), EditQueue's trailing data (size check, ids, names), Download's URL test, and the remote client's reading of list responses (`RemoteClient` entries, the log, post-queue and history lines) | `binrpc` | port; the client stops at an entry that doesn't fit the data, unknown stages and statuses print no text; entry fields a kind doesn't set are 0, a negative Log line count asks for no entries |
 | `DonorScore::Base`, `Target`, `Rerank` (duplicate scores under a pick; `Ranks` stays C++ and calls `Target`) | `donorscore` | 1.2x |
+| `ReleaseName::Clean`, `Normalize`, `ShortQuery`, `Parse`, `Readable`, `SameRelease` (the std::regex patterns matched by hand in the engine's order; C ctype as nzbget sets it) | `releasename` | 2.6x |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
