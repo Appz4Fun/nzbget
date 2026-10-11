@@ -4,9 +4,9 @@ wrappers of ParParser.cpp), and their C++ fallback, with the pre-port C++:
 ParseParFilename (result, base length, block count) and SameParCollection on
 generated and mutated par2 names, confirmed or not, in the C, C.UTF-8 and
 tr_TR.ISO8859-9 locales (tolower folds 'I' differently there). A generated
-locale also exercises NUL-producing folds and the distinction between EOF
-and unsigned byte 255. Both C++ char signedness modes, bounded reads, NULL
-outputs and aliased outputs are checked. Requires a Unix Makefiles build.
+locale also exercises NUL-producing and non-idempotent folds and the
+distinction between EOF and unsigned byte 255. Both C++ char signedness modes,
+bounded reads, NULL outputs and aliased outputs are checked. Requires a Unix Makefiles build.
 Run this script under chrt -i 0 nice -n 19 to keep compiles/tests at idle priority.
 
 Usage: parparser_differential.py BUILD_DIR [ROUNDS]
@@ -177,6 +177,7 @@ int main(int argc, char** argv)
 	{
 		if (!setlocale(LC_ALL, argv[l])) { fprintf(stderr, "no locale %s\n", argv[l]); return 1; }
         std::vector<std::string> cases = {"", ".par2", "a.par2", "a.par2Xjunk", "a.vol1+X8.par2",
+            "a.YAR2", "a.YAR2.trailing", "a.ZOL1+2.par2", "a.ZOL+2.par2",
             "a\xffpar2", "a.vol1+2147483648.par2", "a.vol1+9223372036854775808.par2",
             "a.vol1+-9223372036854775809.par2", "a.vol1+-2147483649.par2", "a.vol1+\r\n\v\f 8.par2", "a.vol1+  +12junk.par2", "a.vol1+\t-12.par2",
             "a.vol1-2+3.par2", "a.vol+2-3.par2", "a.vol-2+3.par2", "a.vol+.par2", "a.vol-.par2",
@@ -212,6 +213,22 @@ int main(int argc, char** argv)
             for (bool confirmed : {false, true})
                 for (const auto& b : {a, std::string("a.par2")})
                     if (!check(a, b, confirmed, argv[l])) return 1;
+        // SameParCollection compares the original bytes, not the folded copy.
+        // Exercise distinct high-byte pairs, including the EOF/255 distinction.
+        for (int byte = 1; byte <= 255; ++byte)
+            for (int other : {tolower(byte), toupper(byte), tolower((char)byte)})
+                for (bool confirmed : {false, true})
+                {
+                    std::string a = std::string("base") + (char)byte + ".vol1+2.par2";
+                    std::string b = std::string("base") + (char)other + ".par2";
+                    if (!check(a, b, confirmed, argv[l]) || !check(b, a, confirmed, argv[l])) return 1;
+                }
+        // Bytes past BString's cut cannot affect either parsing or comparison.
+        for (bool confirmed : {false, true})
+        {
+            std::string prefix = std::string(1018, 'a') + ".par2";
+            if (!check(prefix + "left.par2", prefix + "right.vol1+2.par2", confirmed, argv[l])) return 1;
+        }
 		for (long round = 0; round < rounds; round++)
 		{
 			std::string a = name(), b = below(3) ? name() : a;
@@ -242,6 +259,10 @@ with tempfile.TemporaryDirectory(prefix="nzbget-parparser-") as temp:
         ctype = ctype[ctype.index("LC_CTYPE\n"):ctype.index("END LC_CTYPE") + len("END LC_CTYPE")]
         ctype = ctype.replace("tolower /", "tolower (<U00FF>,<U002E>);/")
         ctype = ctype.replace("(<U0058>,<U0078>)", "(<U0058>,<U0000>)")
+        # A single fold can leave an uppercase letter: the confirmed extension
+        # and volume checks fold again, while the unconfirmed strstr does not.
+        ctype = ctype.replace("(<U0059>,<U0079>)", "(<U0059>,<U0050>)")
+        ctype = ctype.replace("(<U005A>,<U007A>)", "(<U005A>,<U0056>)")
         custom = Path("/usr/share/i18n/locales/en_US").read_text()
         custom = re.sub(r"LC_CTYPE\n.*?END LC_CTYPE", lambda _: ctype, custom, flags=re.S)
         source = temp / "custom"
