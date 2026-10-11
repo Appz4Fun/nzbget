@@ -21,6 +21,10 @@
 #include "nzbget.h"
 
 #include "RarRenamer.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include "nzbget_rs.h"
+#endif
 #include "Log.h"
 #include "Util.h"
 #include "FileSystem.h"
@@ -125,6 +129,80 @@ void RarRenamer::RenameFile(const char* srcFilename, const char* destFileName)
 	RegisterRenamedFile(FileSystem::BaseFileName(srcFilename), FileSystem::BaseFileName(destFileName));
 }
 
+#ifdef NZBGET_USE_RUST
+void RarRenamer::RenameFiles(const char* destDir)
+{
+	// rust/src/rarrenamer.rs builds the sets and picks the new names; the
+	// file checks, the regular expression and the moves stay here
+	std::vector<std::vector<NzbgetRsRarRenFile>> files;
+	std::vector<NzbgetRsRarRenVolume> volumes;
+	files.reserve(m_volumes.size());
+	volumes.reserve(m_volumes.size());
+	for (RarVolume& volume : m_volumes)
+	{
+		files.emplace_back();
+		for (RarFile& file : *volume.GetFiles())
+		{
+			files.back().push_back({file.GetFilename(), strlen(file.GetFilename()), file.GetSize(),
+				file.GetSplitBefore(), file.GetSplitAfter()});
+		}
+		volumes.push_back({volume.GetFilename(), strlen(volume.GetFilename()), volume.GetVersion(),
+			volume.GetVolumeNo(), volume.GetMultiVolume(), volume.GetHasNextVolume(), volume.GetNewNaming(),
+			files.back().data(), files.back().size()});
+	}
+
+	struct Context
+	{
+		RarRenamer* renamer;
+		RegEx regExPart{".*.part([0-9]+)\\.rar$"};
+		std::exception_ptr error;
+	} context{this};
+
+	NzbgetRsRarRenEnv env{};
+	env.ctx = &context;
+	env.fileExists = [](void* ctx, const char* path) -> int
+	{
+		Context* c = static_cast<Context*>(ctx);
+		if (c->error) return 0;
+		try
+		{
+			return FileSystem::FileExists(path) ? 1 : 0;
+		}
+		catch (...)
+		{
+			c->error = std::current_exception();
+			return 0;
+		}
+	};
+	env.matchPart = [](void* ctx, const char* name, size_t* start, size_t* len) -> int
+	{
+		Context* c = static_cast<Context*>(ctx);
+		if (c->error || !c->regExPart.Match(name)) return 0;
+		*start = (size_t)c->regExPart.GetMatchStart(1);
+		*len = (size_t)c->regExPart.GetMatchLen(1);
+		return 1;
+	};
+	env.rename = [](void* ctx, size_t index, const char* dest)
+	{
+		Context* c = static_cast<Context*>(ctx);
+		if (c->error) return;
+		try
+		{
+			c->renamer->RenameFile(c->renamer->m_volumes[index].GetFilename(), dest);
+		}
+		catch (...)
+		{
+			c->error = std::current_exception();
+		}
+	};
+
+	nzbget_rs_rar_rename_files(destDir, volumes.data(), volumes.size(), &env);
+	if (context.error)
+	{
+		std::rethrow_exception(context.error);
+	}
+}
+#else
 void RarRenamer::RenameFiles(const char* destDir)
 {
 	MakeSets();
@@ -174,6 +252,7 @@ void RarRenamer::RenameFiles(const char* destDir)
 		}
 	}
 }
+#endif
 
 CString RarRenamer::GenNewVolumeFilename(const char* destDir, const char* newBasename, RarVolume* volume)
 {

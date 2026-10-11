@@ -39,6 +39,7 @@ in `rust/include/nzbget_rs.h`.
 | `FileSystem::FileExists`, `DirectoryExists`, `ForceDirectories`, `MakeUniqueFilename`, `ExpandHomePath`, `GetLastErrorMessage` (fixed: XSI strerror_r) | `fsops` | port only |
 | `ParParser::ParseParFilename`, `SameParCollection` | `parparser` | port only |
 | `RarVolume` header parsing (RAR3/RAR5 blocks, files, encryption records; the source and OpenSSL stay C++) | `rarreader` | port only |
+| `RarRenamer::RenameFiles` (sets, proper names, main file, new names; the regex, file checks and moves stay C++) | `rarrenamer` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
