@@ -1,17 +1,23 @@
 # PAR success CRC caller validation
 
-Status: HOLD. The final full caller is about 14-15% slower than the production
+Current status: correctness validated; independent full-caller performance
+qualification and daemon integration remain pending.
+
+Historical HOLD at `12ded46af60c185bf5340b29efb457f8d506cc4a`: its full caller is about 14-15% slower than the production
 loop for three 512-byte blocks and about 18% slower than optimized C++; four
 512-byte blocks also regress against optimized C++. Large-packet gains do not
-qualify this prototype for integration. Keep it as evidence; do not land it.
+qualify that prototype for integration. Those measurements remain evidence
+and do not qualify the revised candidate.
 
 The candidate folds the little-endian CRC bytes in contiguous PAR2 verification
 entries. It keeps first-block initialization, empty results, zero-length
 behavior, uint32 block-length truncation, ordering and CRC representation.
 C++ retains packet loading/ownership, zero-padding, diagnostics and comparison.
-The candidate obtains the uniform length operator through the existing public
-`crc::combine(1 << 31, 0, blocksize)` primitive and applies it to each subsequent
-CRC. The first CRC initializes directly, and a zero block length ignores later
+The revised candidate generates the uniform length operator directly from a
+private table of squared polynomial powers, selecting the first length bit
+without multiplying by the identity. The unchanged public `crc::combine`
+primitive remains an independent correctness oracle. The operator is applied
+to each subsequent CRC. The first CRC initializes directly, and a zero block length ignores later
 CRCs exactly as the existing primitive does. Packets of at most two blocks keep
 the direct C++ loop to avoid batch setup costs. This is precomputation and ABI
 batching; it does not establish a language-specific speed advantage.
