@@ -1138,7 +1138,19 @@ var Statistics = new (function ($) {
 		newTab.addClass("btn-active");
 	}
 
+	// chart colours come from the design tokens, so the chart follows the theme
+	function themeColor(name, fallback) {
+		var value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return value || fallback;
+	}
+
 	function makeChart(serieData, curPointData, lineLabels, units, mousearea) {
+		var line = themeColor('--accent', '#5AF');
+		var now = themeColor('--label-primary', '#F21860');
+		var ground = themeColor('--bg-window', '#FFF');
+		var axisLabel = themeColor('--label-secondary', '#3a87ad');
+		var grid = themeColor('--rule', '#e0e0e0');
+		var mono = themeColor('--font-mono', 'monospace');
 		return {
 			height: 250,
 			values: {
@@ -1156,10 +1168,10 @@ var Statistics = new (function ($) {
 				},
 				dot: true,
 				dotProps: {
-					stroke: "#FFF",
+					stroke: ground,
 					size: 3.0,
 					"stroke-width": 1.0,
-					fill: "#5AF"
+					fill: line
 				},
 				highlight: {
 					scaleSpeed: 0,
@@ -1169,13 +1181,13 @@ var Statistics = new (function ($) {
 				tooltip: {
 					active: false
 				},
-				color: "#5AF"
+				color: line
 			},
 			series: {
 				serie2: {
 					dotProps: {
-						stroke: "#F21860",
-						fill: "#F21860",
+						stroke: now,
+						fill: now,
 						size: 3.5,
 						"stroke-width": 2.5
 					},
@@ -1187,8 +1199,9 @@ var Statistics = new (function ($) {
 			defaultAxis: {
 				labels: true,
 				labelsProps: {
-					"font-size": 13,
-					fill: "#3a87ad"
+					"font-size": 11,
+					"font-family": mono,
+					fill: axisLabel
 				},
 				labelsDistance: 12
 			},
@@ -1203,14 +1216,14 @@ var Statistics = new (function ($) {
 					draw: [true, false],
 					forceBorder: true,
 					props: {
-						stroke: "#e0e0e0",
+						stroke: grid,
 						"stroke-width": 1
 					},
 					ticks: {
 						active: [true, false, false],
 						size: [6, 0],
 						props: {
-							stroke: "#e0e0e0"
+							stroke: grid
 						}
 					}
 				},

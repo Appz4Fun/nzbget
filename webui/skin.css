@@ -2460,3 +2460,308 @@ label,
 	background: var(--bg-elevated);
 	box-shadow: var(--shadow-popover), inset 0 0 0 1px var(--separator);
 }
+
+/* ---------- Settings: sidebar ---------- */
+/* The section list is a card of quiet rows; the open section is tinted. */
+
+#ConfigNav,
+#ConfigNav.nav-list {
+	box-sizing: border-box;
+	margin: 0 0 var(--space-3);
+	padding: var(--space-2);
+	border: 0;
+	border-radius: var(--radius-xl);
+	background: var(--bg-content);
+	box-shadow: var(--shadow-card), inset 0 0 0 1px var(--separator);
+}
+
+#ConfigNav.nav-list > li > a,
+#ConfigNav.nav-list.long-list > li > a {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 28px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 4px var(--space-3);
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	line-height: 16px;
+	letter-spacing: 0.04em;
+	text-decoration: none;
+	text-shadow: none;
+}
+
+/* phones: bigger rows to tap (style.css sets 18px text here) */
+.phone #ConfigNav.nav-list > li > a {
+	min-height: 40px;
+	font-size: 13px;
+}
+
+.phone #ConfigNav.nav .nav-header {
+	font-size: 11px;
+}
+
+#ConfigNav.nav-list > li > a:hover {
+	background: var(--fill-tertiary);
+	color: var(--label-primary);
+}
+
+#ConfigNav.nav-list > .active > a,
+#ConfigNav.nav-list > .active > a:hover {
+	background: var(--accent-soft);
+	color: var(--label-primary);
+	font-weight: 600;
+	text-shadow: none;
+}
+
+#ConfigNav.nav-list > .active > a::before {
+	content: "";
+	flex: none;
+	width: 3px;
+	height: 14px;
+	margin-left: -6px;
+	border-radius: 2px;
+	background: var(--accent);
+}
+
+#ConfigNav.nav-list .divider,
+#ConfigNav .divider {
+	height: 1px;
+	margin: 6px var(--space-2);
+	border: 0;
+	background: var(--separator);
+}
+
+#ConfigNav.nav .nav-header {
+	padding: var(--space-3) var(--space-3) 4px;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 0.06em;
+	text-shadow: none;
+}
+
+#ConfigNav .system-health__err-icon {
+	color: var(--yellow);
+	font-size: 16px;
+}
+
+/* ---------- Settings: page header and section titles ---------- */
+
+#ConfigContent .config-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--space-4);
+	padding: 0 0 var(--space-3);
+	border: 0;
+	border-bottom: 1px solid var(--separator);
+	border-radius: 0;
+}
+
+#ConfigContent .config-header::before,
+#ConfigContent .config-header::after {
+	display: none;
+}
+
+#ConfigContent .config-header > .pull-left,
+#ConfigContent .config-header > .pull-right {
+	float: none;
+}
+
+#ConfigTitle {
+	margin: 0;
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 20px;
+	line-height: 28px;
+	font-weight: 500;
+	letter-spacing: -0.03em;
+}
+
+.config-header .btn {
+	margin-top: 0;
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+/* "Server1", "Category2": a set's heading */
+.config-settitle {
+	margin: var(--space-4) 0;
+	padding: 8px var(--space-3);
+	border: 0;
+	border-radius: var(--radius-md);
+	background: var(--fill-quaternary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.config-multicaption {
+	color: var(--label-tertiary);
+	font-weight: 400;
+}
+
+/* ---------- Settings: option rows ---------- */
+
+#DownloadsEdit_ParamTab div.control-group.wants-divider,
+#HistoryEdit_ParamTab div.control-group.wants-divider,
+#ConfigContent div.control-group,
+#ConfigContent.search div.control-group.multiset {
+	border-bottom: 1px solid var(--separator);
+}
+
+#ConfigContent .control-label {
+	color: var(--label-primary);
+	font-weight: 600;
+}
+
+#ConfigContent .control-label .label {
+	margin-left: 4px;
+}
+
+.search .option-name:hover {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+/* help under each option: plain secondary text, no box; the first line (the
+   summary) reads in the primary colour */
+.help-block,
+#ConfigContent .help-block,
+.form-horizontal .help-block {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--label-secondary);
+}
+
+.help-block pre.help-desc,
+#ConfigContent .help-block pre.help-desc {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.help-desc::first-line {
+	color: var(--label-primary);
+}
+
+/* the option's one-line summary; failures stay yellow */
+span.help-option-title {
+	color: var(--label-primary);
+	font-weight: 500;
+}
+
+.failure-message {
+	color: var(--yellow-text);
+}
+
+#ConfigContent hr,
+.ConfigFooter hr {
+	border: 0;
+	border-top: 1px solid var(--separator);
+}
+
+/* read-only values (system info, paths) */
+.uneditable-mulitline-input,
+.form-horizontal .help-block-uneditable {
+	border: 1px solid var(--separator);
+	border-radius: var(--radius-sm);
+	background: var(--fill-quaternary);
+	color: var(--label-primary);
+}
+
+/* the info page */
+#ConfigInfo h4 {
+	margin: var(--space-4) 0 4px;
+	color: var(--label-primary);
+	font-size: 14px;
+	font-weight: 600;
+}
+
+#ConfigInfo p {
+	color: var(--label-secondary);
+}
+
+#ConfigInfo p a.option,
+#ConfigInfo p em,
+#ConfigInfo p strong {
+	color: var(--label-primary);
+}
+
+/* ---------- Statistics ---------- */
+
+#StatisticsTab h4,
+.statistics__server-details h4 {
+	margin: var(--space-4) 0 var(--space-2);
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 14px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.statistics__server-details h4:first-child {
+	margin-top: 0;
+}
+
+.server-details__table th,
+.statistics__server-details .table th {
+	color: var(--label-secondary);
+	font-family: var(--font-sans);
+	font-size: 13px;
+	font-weight: 400;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.server-details__table td,
+.statistics__server-details .table td {
+	font-variant-numeric: tabular-nums;
+}
+
+.statistics__tooltip,
+#StatDialog_Tooltip {
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-style: normal;
+	font-variant-numeric: tabular-nums;
+}
+
+.statistics__chartblock {
+	border-radius: var(--radius-lg);
+	background: var(--bg-content);
+	box-shadow: var(--shadow-card), inset 0 0 0 1px var(--separator);
+}
+
+.statistics__no-servers-container {
+	color: var(--label-secondary);
+}
+
+.statistics__spinner,
+.statistics__chart-block-spinner .spinner {
+	color: var(--label-tertiary);
+}
+
+#StatisticsTab hr,
+.section-title hr {
+	border: 0;
+	border-top: 1px solid var(--separator);
+}

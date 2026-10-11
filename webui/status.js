@@ -882,6 +882,12 @@ var StatDialog = (new function($)
 		return size.SizeMB < 2000 ? size.SizeLo / 1024.0 / 1024.0 : size.SizeMB;
 	}
 
+	function themeColor(name, fallback)
+	{
+		var value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return value || fallback;
+	}
+
 	function redrawChart()
 	{
 		var serverNo = curServer;
@@ -1082,6 +1088,12 @@ var StatDialog = (new function($)
 
 		var $chart = $("#StatDialog_Chart");
 		if (!$chart) return;
+		var line = themeColor('--accent', '#5AF');
+		var now = themeColor('--label-primary', '#F21860');
+		var ground = themeColor('--bg-window', '#FFF');
+		var axisLabel = themeColor('--label-secondary', '#3a87ad');
+		var grid = themeColor('--rule', '#e0e0e0');
+		var mono = themeColor('--font-mono', 'monospace');
 
 		$chart.chart('clear').chart({
 			values: { serie1 : serieData, serie2: curPointData },
@@ -1096,10 +1108,10 @@ var StatDialog = (new function($)
 				},
 				dot: true,
 				dotProps: {
-					stroke: '#FFF',
+					stroke: ground,
 					size: 3.0,
 					'stroke-width': 1.0,
-					fill: '#5AF'
+					fill: line
 				},
 				highlight: {
 					scaleSpeed: 0,
@@ -1109,13 +1121,13 @@ var StatDialog = (new function($)
 				tooltip: {
 					active: false,
 				},
-	            color: '#5AF'
+	            color: line
 	        },
 			series: {
 				serie2: {
 					dotProps: {
-						stroke: '#F21860',
-						fill: '#F21860',
+						stroke: now,
+						fill: now,
 						size: 3.5,
 						'stroke-width': 2.5
 					},
@@ -1127,8 +1139,9 @@ var StatDialog = (new function($)
 			defaultAxis: {
 				labels: true,
 				labelsProps: {
-					'font-size': 13,
-					'fill': '#3a87ad'
+					'font-size': 11,
+					'font-family': mono,
+					'fill': axisLabel
 				},
 				labelsDistance: 12
 			},
@@ -1143,14 +1156,14 @@ var StatDialog = (new function($)
 					draw: [true, false],
 					forceBorder: true,
 					props: {
-						stroke: '#e0e0e0',
+						stroke: grid,
 						'stroke-width': 1
 					},
 					ticks: {
 						active: [true, false, false],
 						size: [6, 0],
 						props: {
-							stroke: '#e0e0e0'
+								stroke: grid
 						}
 					}
             	},

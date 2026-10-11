@@ -241,6 +241,9 @@ $(document).ready(function()
 		document.documentElement.setAttribute('data-theme', theme);
 		var windowColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-window').trim();
 		$('meta[name="theme-color"]').attr('content', windowColor || (theme === 'light' ? '#f7f7fa' : '#0a0a0e'));
+		// SVG colours are captured at draw time; refresh cached charts even when polling is off.
+		Statistics.redraw();
+		StatDialog.redraw();
 	}
 
 	function isSystemThemeDark()
