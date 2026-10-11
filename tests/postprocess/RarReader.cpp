@@ -90,6 +90,23 @@ BOOST_AUTO_TEST_CASE(Rar5OverlongVintTest)
 	fs::remove(file);
 }
 
+// every block must advance the read position: one that leads back to its own
+// start ends the parse (the volume isn't read)
+BOOST_AUTO_TEST_CASE(Rar3ZeroAdvanceTest)
+{
+	fs::path file = fs::temp_directory_path() / "rar3-zero-advance.rar";
+	{
+		std::ofstream out(file, std::ios::binary | std::ios::trunc);
+		const unsigned char data[] = {
+			'R', 'a', 'r', '!', 0x1a, 0x07, 0x00,
+			0x00, 0x00, 0x73, 0x00, 0x80, 0x10, 0x00, 0xf0, 0xff, 0xff, 0xff };
+		out.write((const char*)data, sizeof(data));
+	}
+	RarVolume volume(file.string().c_str());
+	BOOST_CHECK_EQUAL(volume.Read(), false);
+	fs::remove(file);
+}
+
 BOOST_AUTO_TEST_CASE(Rar5Test)
 {
 	{

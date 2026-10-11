@@ -424,8 +424,10 @@ impl Parser<'_, '_> {
         true
     }
 
-    /// the skip to the next block, with the encrypted padding
-    fn skip_to_next(&mut self, block: &Block, rar5: bool) -> bool {
+    /// the skip to the next block, with the encrypted padding; false when it
+    /// doesn't land past `start`, where the block began (the read position
+    /// must advance with every block)
+    fn skip_to_next(&mut self, block: &Block, rar5: bool, start: i64) -> bool {
         let mut skip = block.trailsize;
         if self.v.encrypted {
             skip = skip.wrapping_sub((16i32 - self.v.decrypt_pos as i32) as u64);
@@ -439,11 +441,12 @@ impl Parser<'_, '_> {
             }
             self.cipher.free();
         }
-        self.file.seek(skip as i64, SO_CUR)
+        self.file.seek(skip as i64, SO_CUR) && self.file.position > start
     }
 
     fn rar3_volume(&mut self) -> bool {
         while !self.file.eof {
+            let start = self.file.position;
             let Some(mut block) = self.rar3_block() else { return false };
             let mut file_block = false;
             if block.kind == RAR3_BLOCK_MAIN {
@@ -478,7 +481,7 @@ impl Parser<'_, '_> {
             } else if !(0x72..=0x7b).contains(&block.kind) {
                 return false;
             }
-            if !self.skip_to_next(&block, false) {
+            if !self.skip_to_next(&block, false, start) {
                 return false;
             }
             if file_block {
@@ -623,6 +626,7 @@ impl Parser<'_, '_> {
     fn rar5_volume(&mut self) -> bool {
         self.file.seek(8, SO_SET);
         while !self.file.eof {
+            let start = self.file.position;
             let Some(mut block) = self.rar5_block() else { return false };
             let mut file_block = false;
             if block.kind == RAR5_BLOCK_MAIN {
@@ -669,7 +673,7 @@ impl Parser<'_, '_> {
             } else if block.kind > 5 {
                 return false;
             }
-            if !self.skip_to_next(&block, true) {
+            if !self.skip_to_next(&block, true, start) {
                 return false;
             }
             if file_block {
@@ -777,7 +781,7 @@ mod tests {
         assert_eq!(second, [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
         assert_eq!(p.file.position, 32);
         assert_eq!(p.v.decrypt_pos, 3);
-        assert!(p.skip_to_next(&Block { trailsize: 13, ..Block::default() }, true));
+        assert!(p.skip_to_next(&Block { trailsize: 13, ..Block::default() }, true, 0));
         assert_eq!(p.file.position, 32);
         assert_eq!(p.v.decrypt_pos, 16);
         cipher.fail = true;
@@ -792,5 +796,15 @@ mod tests {
         assert_eq!(p.file.position, 48);
         assert_eq!(cipher.blocks, 3);
         assert_eq!(cipher.frees, 1);
+    }
+
+    #[test]
+    fn a_block_must_advance() {
+        let mut source = Bytes(b"Rar!\x1a\x07\x00\x00\x00\x73\x00\x80\x10\x00\xf0\xff\xff\xff".to_vec());
+        let mut volume = Volume::default();
+        let mut cipher = TestCipher { fail: false, blocks: 0, frees: 0 };
+        let mut files: Vec<RarFile> = Vec::new();
+        assert!(!read_from(&mut volume, &mut source, &mut cipher, &mut files));
+        assert_eq!(volume.version, 3);
     }
 }

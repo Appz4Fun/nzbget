@@ -415,6 +415,8 @@ bool RarVolume::ReadRar3Volume(RarSourceCursor& file)
 
 	while (!file.Eof())
 	{
+		// the read position must advance with every block
+		int64 blockStart = file.Position();
 		RarBlock block = ReadRar3Block(file);
 		if (!block.type)
 		{
@@ -469,7 +471,7 @@ bool RarVolume::ReadRar3Volume(RarSourceCursor& file)
 			DecryptFree();
 		}
 
-		if (!file.Seek(skip, DiskFile::soCur))
+		if (!file.Seek(skip, DiskFile::soCur) || file.Position() <= blockStart)
 		{
 			return false;
 		}
@@ -604,6 +606,8 @@ bool RarVolume::ReadRar5Volume(RarSourceCursor& file)
 
 	while (!file.Eof())
 	{
+		// the read position must advance with every block
+		int64 blockStart = file.Position();
 		RarBlock block = ReadRar5Block(file);
 		if (!block.type)
 		{
@@ -674,7 +678,7 @@ bool RarVolume::ReadRar5Volume(RarSourceCursor& file)
 			DecryptFree();
 		}
 
-		if (!file.Seek(skip, DiskFile::soCur))
+		if (!file.Seek(skip, DiskFile::soCur) || file.Position() <= blockStart)
 		{
 			return false;
 		}
