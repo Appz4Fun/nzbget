@@ -817,6 +817,11 @@ void TwinCheck::ServiceWork()
 		for (auto& entry : keys)
 		{
 			std::vector<Item>& items = entry.second;
+			// merged downloads (their nzb-file is two) aren't compared: no fingerprint
+			// stands for them
+			items.erase(std::remove_if(items.begin(), items.end(),
+				[](const Item& item) { return strchr(item.nzbInfo->GetQueuedFilename(), '|') != nullptr; }),
+				items.end());
 			if (items.size() < 2)
 			{
 				continue;

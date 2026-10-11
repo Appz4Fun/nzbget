@@ -58,7 +58,17 @@ fn valid_name(name: &str) -> String {
     String::from_utf8_lossy(&crate::paths::make_valid_filename(name.as_bytes(), false)).into_owned()
 }
 
-/// FileDesc packets read wherever they are in `data` (no Main packet needed).
+/// Whether a packet's bytes are its own: the MD5 in its header (bytes 16-31)
+/// covers the rest from the set id on. A lost article leaves zeros that pass
+/// the magic and length checks, not this one.
+fn packet_intact(packet: &[u8]) -> bool {
+    use md5::{Digest, Md5};
+    let digest = Md5::digest(&packet[32..]);
+    digest.as_slice() == &packet[16..32]
+}
+
+/// FileDesc packets read wherever they are in `data` (no Main packet needed),
+/// each checked against its MD5.
 fn scan_file_descs(data: &[u8]) -> Vec<FileSig> {
     let mut files: HashMap<[u8; 16], FileSig> = HashMap::new();
     let mut pos = 0usize;
@@ -68,7 +78,7 @@ fn scan_file_descs(data: &[u8]) -> Vec<FileSig> {
             continue;
         }
         let length = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap()) as usize;
-        if length < 64 || !length.is_multiple_of(4) || length > data.len() - pos {
+        if length < 64 || !length.is_multiple_of(4) || length > data.len() - pos || !packet_intact(&data[pos..pos + length]) {
             pos += 4;
             continue;
         }
@@ -186,9 +196,10 @@ pub fn kind(primary: &Listed, dupe: &Listed) -> String {
 /// The files of two partial lists of one posting together (each file once):
 /// retries that saw other articles of the par2-file add what they found.
 pub fn merge(a: &[FileSig], b: &[FileSig]) -> Vec<FileSig> {
-    let mut merged: Vec<FileSig> = a.to_vec();
-    for sig in b {
-        if !merged.contains(sig) {
+    let mut seen: std::collections::HashSet<(&str, &str, u64)> = std::collections::HashSet::new();
+    let mut merged: Vec<FileSig> = Vec::with_capacity(a.len() + b.len());
+    for sig in a.iter().chain(b) {
+        if seen.insert((sig.name.as_str(), sig.md5.as_str(), sig.length)) {
             merged.push(sig.clone());
         }
     }
@@ -653,6 +664,13 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         let (sigs, complete) = par2_set(&damaged);
         assert_eq!(sigs.len(), 1);
         assert!(!complete, "without its Main packet a list can't be known complete");
+        // zeros through the FileDesc packet too (a lost article): not taken
+        let desc = par2.windows(16).position(|w| w == b"PAR 2.0\0FileDesc").unwrap() - 48;
+        let mut torn = damaged.clone();
+        for b in torn.iter_mut().skip(desc + 70).take(16) {
+            *b = 0;
+        }
+        assert!(par2_set(&torn).0.is_empty(), "a FileDesc packet with zeros in it is rejected");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
