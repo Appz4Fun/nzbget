@@ -60,8 +60,8 @@ RustyGet checks a borrowed article before it counts:
 
 - Its yEnc header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written.
 - It's written to a staging file, never straight into the output, and the finished file must tile with no gaps or overlaps.
-- Its yEnc checksum must match, even with `CrcCheck=no`.
-- When the primary's par2 set describes the file, the article's data must match that set's block checksums. If the set doesn't list the file, or lists no usable checksums for it, this check can't run, and only the other checks apply. RustyGet blocks a donor that fails for the rest of the download.
+- Its yEnc checksum must match, as for any article, unless you set `CrcCheck=no`.
+- When the primary's par2 set describes the file, the article's data must match that set's block checksums. If the set doesn't list the file, or lists no usable checksums for it, this check can't run, and only the other checks apply. RustyGet blocks a donor that fails for the rest of the download. After a restart it no longer knows which donor supplied an earlier article, so a failure found then can't block that donor.
 
 That's why article fallback needs par2: RustyGet doesn't borrow articles for a download that has no par2 files, and it never borrows par2 files themselves. It also stays off for downloads in force mode and with `RawArticle=yes`.
 
@@ -90,7 +90,7 @@ Article fallback needs a donor with the same articles. Stream repair works with 
 4. **Different encryption.** For store-mode RAR with the password in the NZB, donor bytes are encrypted with the primary's key and compared and patched in encrypted form. This also works when the two postings use different passwords.
 5. **Compressed donors.** With `DupeStreamDecompress=yes`, RustyGet downloads a compressed donor archive, extracts it with `UnrarCmd` or `SevenZipCmd` into a temporary folder, and uses the extracted file. RustyGet rejects archives with symbolic links and caps the size at 16 GiB.
 
-Stream repair only writes inside holes, and only after a donor is verified against this file. par2 still has the final say: after any donor write, RustyGet runs a full par check, not the quick one, because download-time checksums don't cover donor data. A file whose holes are all filled counts as complete again, so a release without par2 can still finish with `SUCCESS`.
+Stream repair only writes inside holes, and only after a donor is verified against this file. par2 still has the final say: when par check runs after a donor write, it's a full check, not the quick one, because download-time checksums don't cover donor data. With `ParCheck=manual`, starting that check is up to you. Live repair doesn't start a check of its own; the check after the download also covers the bytes it wrote. A file whose holes are all filled counts as complete again, so a release without par2 can still finish with `SUCCESS`.
 
 ### Your own par2 files first
 
