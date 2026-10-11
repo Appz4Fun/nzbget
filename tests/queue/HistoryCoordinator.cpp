@@ -283,4 +283,26 @@ BOOST_FIXTURE_TEST_CASE(HistoryRetryMissingOutputStillDownloads, HistoryRetryFix
 	BOOST_CHECK(nzb->GetPostInfo() == nullptr);
 }
 
+BOOST_FIXTURE_TEST_CASE(IdFloorReplacesExistingFile, HistoryRetryFixture)
+{
+	NzbInfo first;
+	FileInfo firstFile;
+	BOOST_REQUIRE(g_DiskState->SaveDownloadQueue(&queue, true));
+	NzbInfo second;
+	FileInfo secondFile;
+	BOOST_REQUIRE_GT(second.GetId(), first.GetId());
+	BOOST_REQUIRE_GT(secondFile.GetId(), firstFile.GetId());
+	BOOST_REQUIRE(g_DiskState->SaveDownloadQueue(&queue, true));
+
+	std::ifstream saved(directory / "queue" / "ids");
+	std::string nzbLabel, fileLabel;
+	int nzbId = 0, savedFileId = 0;
+	BOOST_REQUIRE(saved >> nzbLabel >> nzbId >> fileLabel >> savedFileId);
+	BOOST_CHECK_EQUAL(nzbLabel, "nzb");
+	BOOST_CHECK_EQUAL(fileLabel, "file");
+	BOOST_CHECK_EQUAL(nzbId, second.GetId());
+	BOOST_CHECK_EQUAL(savedFileId, secondFile.GetId());
+	BOOST_CHECK(!fs::exists(directory / "queue" / "ids.new"));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

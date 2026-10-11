@@ -1,0 +1,37 @@
+name: ID persistence on Windows
+
+on:
+  pull_request:
+    branches: [dupe-article-fallback]
+    paths:
+      - daemon/queue/DiskState.cpp
+      - tests/queue/HistoryCoordinator.cpp
+      - .github/workflows/id-persistence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-id-persistence:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download build dependencies
+        shell: pwsh
+        run: |
+          $ProgressPreference = "SilentlyContinue"
+          Invoke-WebRequest https://github.com/nzbgetcom/build-files/releases/download/v5.0/vcpkg-windows-x64.zip -OutFile vcpkg.zip
+          Expand-Archive vcpkg.zip -DestinationPath .
+      - name: Build tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$pwd/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DBUILD_ONLY_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --config Release -j 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check replacement of saved ID floors
+        shell: pwsh
+        run: |
+          & build/tests/Release/nzbget_tests.exe --run_test=QueueTest/IdFloorReplacesExistingFile --log_level=test_suite
+          exit $LASTEXITCODE

@@ -5532,6 +5532,33 @@ def scenario_idsafterfinaldelete(daemon, t):
     return ('idsafterfinaldelete', ok, 'keep=%s gone=%s new=%s' % (keep, gone, new_id))
 
 
+def scenario_idsafteremptyqueue(daemon, t):
+    """Deleting all queue and history entries must still preserve both ID floors."""
+    api = daemon.wait_ready()
+    def add(name):
+        nzb = base64.standard_b64encode(_fake_nzb_ids(['%s@id' % uuid.uuid4().hex for _ in range(3)], 30_000)).decode()
+        return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
+    gone = [add('Gone.%d' % i) for i in range(3)]
+    old_files = [f['ID'] for f in api.listfiles()]
+    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
+    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
+    time.sleep(2)
+    empty = not api.listgroups() and not api.history()
+    try:
+        api.shutdown()
+    except Exception:
+        pass
+    t.procs[-1].wait(timeout=60)
+    daemon.start()
+    api = daemon.wait_ready()
+    new_id = add('New')
+    new_files = [f['ID'] for f in api.listfiles()]
+    ok = empty and new_id > max(gone) and bool(old_files) and bool(new_files) and min(new_files) > max(old_files)
+    return ('idsafteremptyqueue', ok, 'empty=%s gone=%s new=%s old_files=%s new_files=%s' %
+            (empty, gone, new_id, old_files, new_files))
+
+
 def scenario_fleetscoremax(daemon, t):
     """F17: the key holds an item scored at the int limit (in history): the
     fleet's scores were counted past it and wrapped around, negative, so a dead
@@ -10331,6 +10358,7 @@ SCENARIOS = {
     'newlinestate': scenario_newlinestate,
     'idsafterunreadable': scenario_idsafterunreadable,
     'idsafterfinaldelete': scenario_idsafterfinaldelete,
+    'idsafteremptyqueue': scenario_idsafteremptyqueue,
     'fleetduringpost': scenario_fleetduringpost,
     'fleetslowurl': scenario_fleetslowurl,
     'dupesearchpickdeleted': scenario_dupesearchpickdeleted,
