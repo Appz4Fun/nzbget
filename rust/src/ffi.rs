@@ -2793,9 +2793,148 @@ pub unsafe extern "C" fn nzbget_rs_rar_read(io: *const RarIo, state: *mut RarVol
     ok as c_int
 }
 
+/// NzbgetRsRarRenFile
+#[repr(C)]
+pub struct RarRenFile {
+    pub name: *const c_char,
+    pub name_len: usize,
+    pub size: i64,
+    pub split_before: c_int,
+    pub split_after: c_int,
+}
+
+/// NzbgetRsRarRenVolume
+#[repr(C)]
+pub struct RarRenVolume {
+    pub filename: *const c_char,
+    pub filename_len: usize,
+    pub version: c_int,
+    pub volume_no: u32,
+    pub multi_volume: c_int,
+    pub has_next_volume: c_int,
+    pub new_naming: c_int,
+    pub files: *const RarRenFile,
+    pub file_count: usize,
+}
+
+/// NzbgetRsRarRenEnv
+#[repr(C)]
+pub struct RarRenEnv {
+    pub ctx: *mut std::ffi::c_void,
+    pub file_exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub match_part: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *mut usize, *mut usize) -> c_int>,
+    pub rename: Option<unsafe extern "C" fn(*mut std::ffi::c_void, usize, *const c_char)>,
+}
+
+struct FfiRarRen<'a>(&'a RarRenEnv);
+
+fn c_string(b: &[u8]) -> std::ffi::CString {
+    // the names come from C strings (no NUL inside)
+    std::ffi::CString::new(b).unwrap_or_default()
+}
+
+impl crate::rarrenamer::Env for FfiRarRen<'_> {
+    fn file_exists(&mut self, path: &[u8]) -> bool {
+        let p = c_string(path);
+        self.0.file_exists.is_some_and(|f| unsafe { f(self.0.ctx, p.as_ptr()) } != 0)
+    }
+    fn match_part(&mut self, name: &[u8]) -> Option<(usize, usize)> {
+        let n = c_string(name);
+        let f = self.0.match_part?;
+        let (mut start, mut len) = (0usize, 0usize);
+        (unsafe { f(self.0.ctx, n.as_ptr(), &mut start, &mut len) } != 0).then_some((start, len))
+    }
+    fn rename(&mut self, index: usize, dest: &[u8]) {
+        let d = c_string(dest);
+        if let Some(f) = self.0.rename {
+            unsafe { f(self.0.ctx, index, d.as_ptr()) }
+        }
+    }
+}
+
+/// RarRenamer::RenameFiles for the volumes read from `dir`: renames the sets
+/// not properly named through the callbacks.
+///
+/// # Safety
+/// `dir` is NUL-terminated; `volumes` points to `count` volumes whose strings
+/// (readable for their stated byte lengths) and file arrays are valid for the
+/// call; `env` is valid and its callbacks don't unwind. Null pointers are
+/// accepted as documented in nzbget_rs.h. Callback strings are borrowed only
+/// for that callback and must not be freed. Rust panics abort at this ABI
+/// boundary rather than unwinding into C++.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rar_rename_files(dir: *const c_char, volumes: *const RarRenVolume, count: usize, env: *const RarRenEnv) {
+    let Some(env) = env.as_ref() else { return };
+    if dir.is_null() || (volumes.is_null() && count > 0) {
+        return;
+    }
+    let raw: &[RarRenVolume] = if count == 0 { &[] } else { std::slice::from_raw_parts(volumes, count) };
+    let text = |p: *const c_char, len: usize| if p.is_null() || len == 0 { Vec::new() } else { std::slice::from_raw_parts(p.cast::<u8>(), len).to_vec() };
+    let vols: Vec<crate::rarrenamer::Volume> = raw
+        .iter()
+        .map(|v| crate::rarrenamer::Volume {
+            filename: text(v.filename, v.filename_len),
+            version: v.version,
+            volume_no: v.volume_no,
+            multi_volume: v.multi_volume != 0,
+            has_next_volume: v.has_next_volume != 0,
+            new_naming: v.new_naming != 0,
+            files: if v.files.is_null() || v.file_count == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(v.files, v.file_count)
+                    .iter()
+                    .map(|f| crate::rarrenamer::File {
+                        name: text(f.name, f.name_len),
+                        size: f.size,
+                        split_before: f.split_before != 0,
+                        split_after: f.split_after != 0,
+                    })
+                    .collect()
+            },
+        })
+        .collect();
+    crate::rarrenamer::rename_files(input(dir), &vols, &mut FfiRarRen(env));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rarrenamer_nulls_and_borrowed_callback_strings() {
+        use std::ptr::{null, null_mut};
+        unsafe extern "C" fn rename(ctx: *mut std::ffi::c_void, index: usize, dest: *const c_char) {
+            let out = &mut *ctx.cast::<Vec<(usize, Vec<u8>)>>();
+            // Copy while borrowed, and retain the copy after the call returns.
+            out.push((index, CStr::from_ptr(dest).to_bytes().to_vec()));
+        }
+        let mut out: Vec<(usize, Vec<u8>)> = Vec::new();
+        let mut env = RarRenEnv { ctx: (&mut out as *mut Vec<(usize, Vec<u8>)>).cast(),
+            file_exists: None, match_part: None, rename: Some(rename) };
+        let file = RarRenFile { name: c"movie.mkv".as_ptr(), name_len: 9, size: 1,
+            split_before: 0, split_after: 0 };
+        let mut volume = RarRenVolume { filename: c"obfuscated".as_ptr(), filename_len: 10,
+            version: 5, volume_no: 0, multi_volume: 0, has_next_volume: 0,
+            new_naming: 1, files: &file, file_count: 1 };
+        unsafe {
+            nzbget_rs_rar_rename_files(null(), null(), 0, null());
+            nzbget_rs_rar_rename_files(null(), &volume, 1, &env);
+            nzbget_rs_rar_rename_files(c"dir".as_ptr(), null(), 1, &env);
+            nzbget_rs_rar_rename_files(c"dir".as_ptr(), null(), 0, &env);
+            assert!(out.is_empty());
+            nzbget_rs_rar_rename_files(c"dir".as_ptr(), &volume, 1, &env);
+            assert_eq!(out, vec![(0, [b"dir".as_slice(), &[crate::paths::PATH_SEPARATOR], b"movie.part0001.rar"].concat())]);
+            volume.files = null();
+            volume.filename = null();
+            nzbget_rs_rar_rename_files(c"dir".as_ptr(), &volume, 1, &env);
+            assert_eq!(out.len(), 1);
+            env.ctx = null_mut();
+            env.rename = None;
+            volume.files = &file;
+            nzbget_rs_rar_rename_files(c"dir".as_ptr(), &volume, 1, &env);
+        }
+    }
 
     #[test]
     fn rarreader_nulls_borrowed_files_and_failed_append() {

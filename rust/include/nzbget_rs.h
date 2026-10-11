@@ -657,6 +657,45 @@ typedef struct NzbgetRsRarVolume
 } NzbgetRsRarVolume;
 int nzbget_rs_rar_read(const NzbgetRsRarIo* io, NzbgetRsRarVolume* state);
 
+// RarRenamer::RenameFiles (rust/src/rarrenamer.rs): the volumes read from dir
+// gathered into sets; the sets not properly named are renamed through rename
+// (index into volumes, the new path). fileExists is FileSystem::FileExists;
+// matchPart the RegEx ".*.part([0-9]+)\\.rar$" (group 1's start and length).
+// All input buffers are borrowed for the call. Callback strings are borrowed
+// only until the callback returns; callbacks must copy them to retain them and
+// must not free them or throw. No allocation crosses the ownership boundary.
+// NULL dir/env or NULL volumes with nonzero count makes the call a no-op.
+// NULL names and file arrays are treated as empty. Rust panics abort, never
+// unwind through C++.
+typedef struct NzbgetRsRarRenFile
+{
+	const char* name;
+	size_t nameLen;
+	int64_t size;
+	int splitBefore;
+	int splitAfter;
+} NzbgetRsRarRenFile;
+typedef struct NzbgetRsRarRenVolume
+{
+	const char* filename;
+	size_t filenameLen;
+	int version;
+	uint32_t volumeNo;
+	int multiVolume;
+	int hasNextVolume;
+	int newNaming;
+	const NzbgetRsRarRenFile* files;
+	size_t fileCount;
+} NzbgetRsRarRenVolume;
+typedef struct NzbgetRsRarRenEnv
+{
+	void* ctx;
+	int (*fileExists)(void* ctx, const char* path);
+	int (*matchPart)(void* ctx, const char* name, size_t* start, size_t* len);
+	void (*rename)(void* ctx, size_t index, const char* dest);
+} NzbgetRsRarRenEnv;
+void nzbget_rs_rar_rename_files(const char* dir, const NzbgetRsRarRenVolume* volumes, size_t count, const NzbgetRsRarRenEnv* env);
+
 #ifdef __cplusplus
 }
 #endif

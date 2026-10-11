@@ -18,6 +18,7 @@ pub mod options;
 pub mod parparser;
 pub mod paths;
 pub mod rarreader;
+pub mod rarrenamer;
 pub mod rpcparams;
 pub mod rpcroute;
 pub mod scheduler;
