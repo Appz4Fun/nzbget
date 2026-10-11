@@ -45,6 +45,17 @@ NntpConnection::NntpConnection(NewsServer* newsServer) :
 }
 
 #ifdef NZBGET_USE_RUST
+namespace
+{
+#ifdef DEBUG
+constexpr bool RsDebugMessages = true;
+#else
+constexpr bool RsDebugMessages = false;
+#endif
+}
+#endif
+
+#ifdef NZBGET_USE_RUST
 // a callback that threw stops the exchange; the exception is rethrown after
 // Rust returned
 struct NntpConnection::RsExchange
@@ -71,7 +82,8 @@ struct NntpConnection::RsExchange
 	NzbgetRsNntpIo Io()
 	{
 		NewsServer* server = connection->m_newsServer;
-		return {this, RsWriteLine, RsReadLine, RsReportError, RsDebug, RsCancelled, server->GetUser(),
+		// no debug callback where debug() is compiled out: Rust then doesn't build the texts
+		return {this, RsWriteLine, RsReadLine, RsReportError, RsDebugMessages ? RsDebug : nullptr, RsCancelled, server->GetUser(),
 			server->GetPassword(), server->GetName(), server->GetHost(), connection->GetHost()};
 	}
 

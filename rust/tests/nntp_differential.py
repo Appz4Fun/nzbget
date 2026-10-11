@@ -166,9 +166,12 @@ main = r'''
 #ifdef TEST_DEBUG
 #define debug(...) Debug(__VA_ARGS__)
 #define RS_DEBUG(c, msg) c->Debug("%s", msg)
+// NntpConnection.cpp passes Rust a debug callback only where debug() is kept
+static constexpr bool RsDebugMessages = true;
 #else
 #define debug(...) (void)0
 #define RS_DEBUG(c, msg) (void)0
+static constexpr bool RsDebugMessages = false;
 #endif
 
 namespace oldimpl {

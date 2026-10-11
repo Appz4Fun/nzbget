@@ -5,7 +5,7 @@
 //! answers are the C++ line buffer, which the exchange cuts at its last CR
 //! for error messages, as before.
 
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CStr};
 
 /// A C++ callback failed (it threw): stop, the C++ wrapper rethrows.
 #[derive(Debug, PartialEq)]
@@ -25,6 +25,11 @@ pub unsafe trait Io {
     /// Connection::ReportError(prefix, arg, false, 0)
     fn report_error(&mut self, prefix: &CStr, arg: &CStr) -> Result<(), Abort>;
     fn debug(&mut self, msg: &CStr) -> Result<(), Abort>;
+    /// Whether debug messages are kept (a Release build of the C++ drops them,
+    /// so they aren't even built).
+    fn debug_enabled(&self) -> bool {
+        true
+    }
     /// GetStatus() == csCancelled
     fn cancelled(&mut self) -> Result<bool, Abort>;
     fn user(&self) -> &CStr;
@@ -51,15 +56,40 @@ fn push_capped(out: &mut Vec<u8>, part: &[u8]) {
     out.extend_from_slice(&part[..part.len().min(room)]);
 }
 
-/// BString<1024>: printf's output cut to 1023 bytes, as a C string. Built
-/// incrementally: an input (a group name from an NZB) is never copied whole.
-fn bstring(parts: &[&[u8]]) -> CString {
-    let mut v = Vec::with_capacity(BSTRING_MAX + 1);
-    for part in parts {
-        push_capped(&mut v, part);
+/// BString<1024> on the stack: printf's output cut to 1023 bytes, as a C
+/// string. Built incrementally: an input (a group name from an NZB) is never
+/// copied whole.
+struct BStr {
+    buf: [u8; BSTRING_MAX + 1],
+    len: usize,
+}
+
+impl std::ops::Deref for BStr {
+    type Target = CStr;
+    fn deref(&self) -> &CStr {
+        // the parts are C strings (no NUL inside) and a NUL follows
+        CStr::from_bytes_with_nul(&self.buf[..=self.len]).expect("no NUL inside")
     }
-    // the parts are C strings: no NUL inside
-    CString::new(v).expect("no NUL")
+}
+
+fn bstring(parts: &[&[u8]]) -> BStr {
+    let mut b = BStr { buf: [0; BSTRING_MAX + 1], len: 0 };
+    for part in parts {
+        let n = part.len().min(BSTRING_MAX - b.len);
+        b.buf[b.len..b.len + n].copy_from_slice(&part[..n]);
+        b.len += n;
+    }
+    b
+}
+
+/// debug(...): built and passed only when the C++ keeps debug messages.
+macro_rules! debug {
+    ($io:expr, $parts:expr) => {
+        if $io.debug_enabled() {
+            let msg = bstring($parts);
+            $io.debug(&msg)?;
+        }
+    };
 }
 
 /// A message format with "%s" fields, filled as printf would (a null
@@ -123,8 +153,7 @@ fn auth_info_pass(io: &mut dyn Io, auth: &mut Auth, mut recur: i32) -> Result<bo
         }
         let bytes = unsafe { answer_bytes(answer) };
         if bytes.starts_with(b"2") {
-            let msg = bstring(&[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
-            io.debug(&msg)?;
+            debug!(io, &[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
             return Ok(true);
         }
         if bytes.starts_with(b"381") {
@@ -149,8 +178,7 @@ fn auth_info_user(io: &mut dyn Io, auth: &mut Auth, mut recur: i32) -> Result<bo
         }
         let bytes = unsafe { answer_bytes(answer) };
         if bytes.starts_with(b"281") {
-            let msg = bstring(&[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
-            io.debug(&msg)?;
+            debug!(io, &[b"Authorization for ", io.conn_host().to_bytes(), b" successful"]);
             return Ok(true);
         }
         if bytes.starts_with(b"381") {
@@ -194,10 +222,7 @@ pub unsafe fn request(io: &mut dyn Io, auth: &mut Auth, req: *const c_char) -> R
         return Ok(answer);
     }
     if unsafe { answer_bytes(answer) }.starts_with(b"480") {
-        {
-            let msg = bstring(&[io.conn_host().to_bytes(), b" requested authorization"]);
-            io.debug(&msg)?;
-        }
+        debug!(io, &[io.conn_host().to_bytes(), b" requested authorization"]);
         if !authenticate(io, auth)? {
             return Ok(std::ptr::null_mut());
         }
@@ -225,8 +250,7 @@ pub fn handshake(io: &mut dyn Io, auth: &mut Auth) -> Result<i32, Abort> {
     if !io.user().is_empty() && !io.password().is_empty() && !authenticate(io, auth)? {
         return Ok(2);
     }
-    let msg = bstring(&[b"Connection to ", io.conn_host().to_bytes(), b" established"]);
-    io.debug(&msg)?;
+    debug!(io, &[b"Connection to ", io.conn_host().to_bytes(), b" established"]);
     Ok(0)
 }
 
@@ -240,13 +264,11 @@ pub unsafe fn join_group(io: &mut dyn Io, auth: &mut Auth, group: *const c_char)
     let req = bstring(&[b"GROUP ", unsafe { CStr::from_ptr(group) }.to_bytes(), b"\r\n"]);
     let answer = unsafe { request(io, auth, req.as_ptr()) }?;
     if !answer.is_null() && unsafe { answer_bytes(answer) }.starts_with(b"2") {
-        let msg = bstring(&[b"Changed group to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b" on ", io.conn_host().to_bytes()]);
-        io.debug(&msg)?;
+        debug!(io, &[b"Changed group to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b" on ", io.conn_host().to_bytes()]);
         return Ok((answer, true));
     }
     let text = if answer.is_null() { &b"(null)"[..] } else { unsafe { answer_bytes(answer) } };
-    let msg = bstring(&[b"Error changing group on ", io.conn_host().to_bytes(), b" to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b": ", text, b"."]);
-    io.debug(&msg)?;
+    debug!(io, &[b"Error changing group on ", io.conn_host().to_bytes(), b" to ", unsafe { CStr::from_ptr(group) }.to_bytes(), b": ", text, b"."]);
     Ok((answer, false))
 }
 
@@ -311,8 +333,8 @@ mod tests {
     fn capped_strings() {
         let long = vec![b'g'; 1 << 20];
         let s = bstring(&[b"GROUP ", &long, b"\r\n"]);
-        assert_eq!(s.as_bytes().len(), BSTRING_MAX);
-        assert!(s.as_bytes().starts_with(b"GROUP ggg"));
+        assert_eq!(s.to_bytes().len(), BSTRING_MAX);
+        assert!(s.to_bytes().starts_with(b"GROUP ggg"));
         assert_eq!(format(b"%s (%s)", &[Some(&long), None]).len(), BSTRING_MAX);
         assert_eq!(format(b"%s (%s): %s", &[Some(b"a"), None, Some(b"c")]), b"a ((null)): c");
     }
