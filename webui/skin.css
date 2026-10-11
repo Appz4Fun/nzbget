@@ -1,0 +1,53 @@
+/*!
+ * This file is part of nzbget. See <https://nzbget.com>.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * Web UI skin: restyles the existing Bootstrap 2 markup with the NZBGet
+ * Design System. Every value comes from tokens.css; component classes for
+ * new markup live in ds.css. Loaded after the theme stylesheet so it wins
+ * over light-theme.css and dark-theme.css while those are phased out.
+ */
+
+/* ---------- Base ---------- */
+
+html {
+	scrollbar-color: var(--fill-primary) transparent;
+}
+
+body {
+	background-color: var(--bg-window);
+	color: var(--label-primary);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+}
+
+::selection {
+	background: var(--accent-soft);
+}
+
+a,
+a:hover,
+a:focus {
+	color: var(--accent);
+}
+
+code,
+pre,
+kbd,
+samp {
+	font-family: var(--font-mono);
+}

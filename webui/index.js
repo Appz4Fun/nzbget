@@ -232,8 +232,11 @@ $(document).ready(function()
 	});
 
 	function turnOnThemeDependingOnSystemTheme() { if (isSystemThemeDark()) turnOnDarkTheme(); else turnOnLightTheme(); }
-	function turnOnLightTheme() { themeStyleSheet.attr('href', lightThemeStyleSheet); }
-	function turnOnDarkTheme() { themeStyleSheet.attr('href', darkThemeStyleSheet); }
+	function turnOnLightTheme() { themeStyleSheet.attr('href', lightThemeStyleSheet); setThemeAttribute('light'); }
+	function turnOnDarkTheme() { themeStyleSheet.attr('href', darkThemeStyleSheet); setThemeAttribute('dark'); }
+
+	// The design system tokens (tokens.css) switch on this attribute
+	function setThemeAttribute(theme) { document.documentElement.setAttribute('data-theme', theme); }
 
 	function isSystemThemeDark()
 	{
