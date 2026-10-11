@@ -29,9 +29,13 @@
 #include "Options.h"
 #include "FileSystem.h"
 #include "ParParser.h"
-#if defined(NZBGET_USE_RUST) && !defined(DISABLE_PARCHECK)
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include <locale>
 #include <memory>
 #include "nzbget_rs.h"
+#endif
+#if defined(NZBGET_USE_RUST) && !defined(DISABLE_PARCHECK)
 #define NZBGET_RS_RENAME_ANALYZER
 #endif
 
@@ -590,6 +594,93 @@ int DirectRenamer::RenameCompletedFiles(NzbInfo* nzbInfo, FileHashList* parHashe
 	return renamedFiles;
 }
 
+#ifdef NZBGET_USE_RUST
+std::string DirectRenamer::BuildNewRegularName(const char* oldName, FileHashList* parHashes, const char* hash16k)
+{
+	// rust/src/directrenamer.rs
+	ptrdiff_t index = nzbget_rs_direct_regular_name(oldName, hash16k, parHashes->size(),
+		[](void* ctx, size_t index, const char** filename, const char** hash)
+		{
+			FileHash& parHash = (*static_cast<FileHashList*>(ctx))[index];
+			*filename = parHash.GetFilename();
+			*hash = parHash.GetHash();
+		}, parHashes);
+	return index < 0 ? "" : (*parHashes)[index].GetFilename();
+}
+
+std::string DirectRenamer::BuildNewParName(const char* oldName, const char* destDir, const char* setId, int& vol)
+{
+	// rust/src/directrenamer.rs; an exception from FileExists ends the search
+	// and is rethrown here
+	struct Context
+	{
+		std::exception_ptr error;
+		std::stringstream stream;
+		std::string name;
+		const char* setId;
+	} context;
+	context.setId = setId;
+	// Keep num_put facets (including digit grouping) from the original
+	// stringstream. The usual classic locale is formatted entirely in Rust.
+	NzbgetRsFormatParName format = nullptr;
+	if (context.stream.getloc() != std::locale::classic())
+	{
+		format = [](void* ctx, int vol, const char** data, size_t* len) noexcept -> int
+		{
+			Context& context = *static_cast<Context*>(ctx);
+			try
+			{
+				context.stream << context.setId << ".vol" << std::setfill('0') << std::setw(3) << vol << "+01.PAR2";
+				context.name = context.stream.str();
+				context.stream.str("");
+				context.stream.clear();
+				*data = context.name.data();
+				*len = context.name.size();
+				return 1;
+			}
+			catch (...)
+			{
+				context.error = std::current_exception();
+				return 0;
+			}
+		};
+	}
+	NzbgetRsBuf name = nzbget_rs_direct_par_name(oldName, destDir, setId, PATH_SEPARATOR, &vol,
+		[](void* ctx, const char* path) noexcept -> int
+		{
+			try
+			{
+				return FileSystem::FileExists(path);
+			}
+			catch (...)
+			{
+				static_cast<Context*>(ctx)->error = std::current_exception();
+				return 0;
+			}
+		}, format, &context);
+	std::unique_ptr<NzbgetRsBuf, void(*)(NzbgetRsBuf*)> guard(&name, [](NzbgetRsBuf* buf) { nzbget_rs_free(*buf); });
+	if (context.error)
+	{
+		std::rethrow_exception(context.error);
+	}
+	return std::string(name.data, name.len);
+}
+
+bool DirectRenamer::NeedRenamePars(NzbInfo* nzbInfo)
+{
+	// rust/src/directrenamer.rs
+	ParFileList parFiles;
+	CollectPars(nzbInfo, &parFiles);
+
+	std::vector<NzbgetRsParName> names;
+	names.reserve(parFiles.size());
+	for (ParFile& parFile : parFiles)
+	{
+		names.push_back({parFile.GetFilename(), parFile.GetSetId()});
+	}
+	return nzbget_rs_direct_need_rename_pars(names.data(), names.size(), ParParser::FilenameFold) != 0;
+}
+#else
 std::string DirectRenamer::BuildNewRegularName(const char* oldName, FileHashList* parHashes, const char* hash16k)
 {
 	if (Util::EmptyStr(hash16k))
@@ -675,7 +766,7 @@ bool DirectRenamer::NeedRenamePars(NzbInfo* nzbInfo)
 
 	return false;
 }
-
+#endif
 
 bool DirectRenamer::RenameFile(NzbInfo* nzbInfo, const std::string& oldFullFilename, const std::string& newFullFilename)
 {

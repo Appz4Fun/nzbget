@@ -32,6 +32,10 @@ public:
 	static bool FindMainPars(const char* path, ParFileList* fileList);
 	static bool ParseParFilename(const char* parFilename, bool confirmedFilename, int* baseNameLen, int* blocks);
 	static bool SameParCollection(const char* filename1, const char* filename2, bool confirmedFilenames);
+#ifdef NZBGET_USE_RUST
+	/* the C++ tolower of a byte the Rust name checks fold with */
+	static int FilenameFold(int byte);
+#endif
 };
 
 #endif
