@@ -262,15 +262,15 @@ def bounded_read(path, maximum):
     return data
 
 
-def input_traversal_entries(path):
-    """Keep entries reached through symlink targets, including before '..'."""
+def bounded_path_traversal(path, budget):
+    """Resolve once within the guard budget, retaining traversed link entries."""
     absolute = path.absolute()
     pending = deque(absolute.parts[1:])
     current = Path(absolute.anchor)
-    links = steps = 0
+    entries = []
     while pending:
-        steps += 1
-        if steps > 4096:
+        budget["steps"] += 1
+        if budget["steps"] > 4096:
             raise ValueError("input path traversal exceeds component limit")
         component = pending.popleft()
         if component == "..":
@@ -279,10 +279,10 @@ def input_traversal_entries(path):
         if component in ("", "."):
             continue
         entry = current / component
-        yield entry
+        entries.append(entry)
         if entry.is_symlink():
-            links += 1
-            if links > 40:
+            budget["links"] += 1
+            if budget["links"] > 40:
                 raise ValueError("input path traversal exceeds symlink limit")
             target = Path(os.readlink(entry))
             parts = target.parts
@@ -292,41 +292,40 @@ def input_traversal_entries(path):
             pending.extendleft(reversed(parts))
         else:
             current = entry
+    return current, entries
 
 
 def check_paths(manifest, source, output):
     """Resolve aliases before any cleanup; an input under output is unsafe."""
-    destination = output.resolve()
     if output.is_symlink():
         raise ValueError("output-dir must not be a symlink")
-    inputs = [manifest.resolve(), source.resolve()]
+    # No Path.resolve() or parent.resolve() precedes these bounds. All input,
+    # output and owned-artifact traversal shares one budget, and the canonical
+    # paths and intermediate entries come from the same bounded walk.
+    budget = {"steps": 0, "links": 0}
+    destination, _ = bounded_path_traversal(output, budget)
+    traversals = [bounded_path_traversal(path, budget) for path in (manifest, source)]
+    inputs = [resolved for resolved, _ in traversals]
     if inputs[0] == inputs[1] or (manifest.exists() and source.exists() and manifest.samefile(source)):
         raise ValueError("manifest and source must be separate files")
-    for original, path in zip((manifest, source), inputs):
+    for original, (path, entries) in zip((manifest, source), traversals):
         lexical = Path(os.path.abspath(original))
         lexical_output = Path(os.path.abspath(output))
         if (path == destination or destination in path.parents or
                 lexical == destination or destination in lexical.parents or
                 lexical == lexical_output or lexical_output in lexical.parents):
             raise ValueError("input/output collision")
-        # Keep every directory entry used to reach the input, not just its
-        # final resolved target. Resolving parents can erase a directory link
-        # under output; '..' may also hide that link from lexical containment.
-        absolute = original.absolute()
-        for ancestor in (absolute, *absolute.parents):
-            entry = ancestor.parent.resolve() / ancestor.name
-            if entry == destination or destination in entry.parents:
-                raise ValueError("input/output ancestor collision")
         # An outer input link can name an owned output link inside its target.
         # Inspect the traversal itself: the final target and lexical ancestors
         # alone lose intermediates, especially targets containing '..'.
-        for entry in input_traversal_entries(original):
+        for entry in entries:
             if entry == destination or destination in entry.parents:
                 raise ValueError("input/output symlink-target collision")
     for filename in ["source.raw", "source-manifest.raw", "manifest.json", "samples.jsonl", "adapter-status.json", "legacy-evidence.json"]:
-        target = output / filename
+        target = destination / filename
         if target.exists() or target.is_symlink():
-            if (target.resolve() in inputs or
+            resolved_target, _ = bounded_path_traversal(target, budget)
+            if (resolved_target in inputs or
                     (target.exists() and any(path.exists() and target.samefile(path) for path in inputs))):
                 raise ValueError("input/output alias collision")
 
