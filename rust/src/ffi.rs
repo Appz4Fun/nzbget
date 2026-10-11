@@ -3702,6 +3702,36 @@ mod binrpc_tests {
     use std::ptr::{null, null_mut};
 
     #[test]
+    fn entry_buffer_ownership_and_nulls() {
+        unsafe {
+            nzbget_rs_binrpc_buf_free(null_mut());
+            assert_eq!(nzbget_rs_binrpc_buf_len(null()), 0);
+            nzbget_rs_binrpc_entry(null_mut(), null(), 1, null(), null(), 1, 0);
+            let empty = nzbget_rs_binrpc_buf_take(null_mut());
+            assert_eq!(empty.len, 0);
+            nzbget_rs_free(empty);
+
+            let buf = nzbget_rs_binrpc_buf_new();
+            // NULL arrays are empty even with nonzero counts.
+            nzbget_rs_binrpc_entry(buf, null(), 1, null(), null(), 1, 0);
+            assert_eq!(nzbget_rs_binrpc_buf_len(buf), 0);
+            let ints = [u32::MAX, 0, 0];
+            let strings = [c"ab".as_ptr(), null()];
+            let fields = [1, 2];
+            nzbget_rs_binrpc_entry(buf, ints.as_ptr(), 3, strings.as_ptr(), fields.as_ptr(), 2, 2);
+            assert_eq!(nzbget_rs_binrpc_buf_len(buf), 16);
+            let bytes = nzbget_rs_binrpc_buf_take(buf);
+            assert_eq!(bytes_arg(bytes.data.cast(), bytes.len),
+                [255, 255, 255, 255, 0, 0, 0, 3, 0, 0, 0, 1, b'a', b'b', 0, 0]);
+            // take consumes the builder; the returned allocation has its own owner.
+            let other = nzbget_rs_binrpc_buf_new();
+            nzbget_rs_binrpc_buf_free(other);
+            nzbget_rs_free(bytes);
+
+        }
+    }
+
+    #[test]
     fn null_and_short_inputs() {
         unsafe {
             let base = [0u8; BASE_SIZE];
@@ -3770,6 +3800,71 @@ mod binrpc_tests {
             assert_eq!(control_password, 14);
         }
     }
+}
+
+/// NzbgetRsBinBuf: the trailing data of a list response being built.
+pub struct BinBuf(Vec<u8>);
+
+/// A new, empty response buffer; free with nzbget_rs_binrpc_buf_free (or
+/// nzbget_rs_binrpc_buf_take).
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_buf_new() -> *mut BinBuf {
+    Box::into_raw(Box::new(BinBuf(Vec::new())))
+}
+
+/// Frees a response buffer (null: nothing).
+///
+/// # Safety
+/// `buf` is null or from nzbget_rs_binrpc_buf_new, not yet freed or taken.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_buf_free(buf: *mut BinBuf) {
+    if !buf.is_null() {
+        drop(Box::from_raw(buf));
+    }
+}
+
+/// The bytes written so far (null buffer: 0).
+///
+/// # Safety
+/// `buf` is null or a live buffer.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_buf_len(buf: *const BinBuf) -> usize {
+    buf.as_ref().map_or(0, |b| b.0.len())
+}
+
+/// The buffer's bytes (free with nzbget_rs_free); the buffer itself is
+/// freed. A null buffer gives an empty result.
+///
+/// # Safety
+/// As nzbget_rs_binrpc_buf_free.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_buf_take(buf: *mut BinBuf) -> RsBuf {
+    if buf.is_null() {
+        return into_buf(Vec::new());
+    }
+    into_buf(Box::from_raw(buf).0)
+}
+
+/// Appends a list entry (binrpc::append_entry): `ints` in host order, the
+/// lengths of `strings` put into the fields `fields` names, padding counted
+/// in field `pad_field`.
+///
+/// # Safety
+/// `buf` is null (nothing) or a live buffer; `ints` is null or `nints`
+/// values; `strings` and `fields` are null or `nstrings` entries, each string
+/// null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_entry(buf: *mut BinBuf, ints: *const u32, nints: usize, strings: *const *const c_char,
+    fields: *const usize, nstrings: usize, pad_field: usize) {
+    let Some(buf) = buf.as_mut() else { return };
+    let ints = if ints.is_null() { &[][..] } else { std::slice::from_raw_parts(ints, nints) };
+    let (strings, fields) = if strings.is_null() || fields.is_null() {
+        (&[][..], &[][..])
+    } else {
+        (std::slice::from_raw_parts(strings, nstrings), std::slice::from_raw_parts(fields, nstrings))
+    };
+    let pairs: Vec<(&[u8], usize)> = strings.iter().zip(fields).map(|(&s, &f)| (input(s), f)).collect();
+    crate::binrpc::append_entry(&mut buf.0, ints, &pairs, pad_field);
 }
 
 #[cfg(test)]

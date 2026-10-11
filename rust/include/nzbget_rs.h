@@ -952,6 +952,19 @@ int nzbget_rs_binrpc_size_ok(const unsigned char* base, size_t len, const uint32
 	uint32_t* expected, uint32_t* received);
 NzbgetRsBuf nzbget_rs_binrpc_bool_response(int success, const char* text);
 int nzbget_rs_binrpc_trailing_ok(int64_t len, int64_t max);
+// The trailing data of a list response (List, Log, PostQueue, History).
+// entry appends ints (host order) written big-endian, puts each string's
+// length with its NUL into the field fields[i] names, then the strings with
+// their NULs, padded with zeros to 4 bytes counted in field padField. Fields
+// not given values are 0. take returns the bytes (free with nzbget_rs_free)
+// and frees the buffer; free frees an untaken one. NULL buffers do nothing.
+typedef struct NzbgetRsBinBuf NzbgetRsBinBuf;
+NzbgetRsBinBuf* nzbget_rs_binrpc_buf_new(void);
+void nzbget_rs_binrpc_buf_free(NzbgetRsBinBuf* buf);
+size_t nzbget_rs_binrpc_buf_len(const NzbgetRsBinBuf* buf);
+NzbgetRsBuf nzbget_rs_binrpc_buf_take(NzbgetRsBinBuf* buf);
+void nzbget_rs_binrpc_entry(NzbgetRsBinBuf* buf, const uint32_t* ints, size_t nints, const char* const* strings,
+	const size_t* fields, size_t nstrings, size_t padField);
 
 #ifdef __cplusplus
 }

@@ -82,6 +82,40 @@ pub fn trailing_ok(len: i64, max: i64) -> bool {
     !(len < 0 || len > max)
 }
 
+/// One entry of a list response (List, Log, PostQueue, History): `ints`
+/// (host order) written big-endian, each string's length with its NUL put
+/// into its field (`strings`: the text and the index of its length field),
+/// then the strings with their NULs, and zeros to a 4-byte boundary counted
+/// in the length field at `pad_field`, as the C++ aligned the entries (its
+/// buffer started aligned, so the offset decides). Fields not given a value
+/// are 0.
+pub fn append_entry(buf: &mut Vec<u8>, ints: &[u32], strings: &[(&[u8], usize)], pad_field: usize) {
+    let start = buf.len();
+    let mut fields = ints.to_vec();
+    for &(text, field) in strings {
+        let text = &text[..text.iter().position(|&b| b == 0).unwrap_or(text.len())];
+        if let Some(f) = fields.get_mut(field) {
+            *f = (text.len() + 1) as u32;
+        }
+    }
+    buf.resize(start + fields.len() * 4, 0);
+    for &(text, _) in strings {
+        let text = &text[..text.iter().position(|&b| b == 0).unwrap_or(text.len())];
+        buf.extend_from_slice(text);
+        buf.push(0);
+    }
+    let pad = (4 - buf.len() % 4) % 4;
+    if pad > 0 {
+        buf.resize(buf.len() + pad, 0);
+        if let Some(f) = fields.get_mut(pad_field) {
+            *f = f.wrapping_add(pad as u32);
+        }
+    }
+    for (k, f) in fields.iter().enumerate() {
+        buf[start + 4 * k..start + 4 * k + 4].copy_from_slice(&f.to_be_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +164,21 @@ mod tests {
             assert_eq!(request_name(kind), c"Unknown");
         }
         assert_eq!(size_error(&base(14, u32::MAX, b"", b""), &sizes), Some((114, u32::MAX)));
+    }
+
+    #[test]
+    fn entries() {
+        let mut buf = Vec::new();
+        append_entry(&mut buf, &[7, 0, 9], &[(b"ab", 1)], 1);
+        assert_eq!(buf, [0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 9, b'a', b'b', 0, 0]);
+        // 33 bytes: 3 bytes of padding, counted in the empty string's length
+        append_entry(&mut buf, &[1, 0, 0], &[(b"xyz", 1), (b"", 2)], 2);
+        assert_eq!(&buf[16..], [0, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 4, b'x', b'y', b'z', 0, 0, 0, 0, 0]);
+        assert_eq!(buf.len() % 4, 0);
+        // a string ends at its NUL; the offset (not the entry) decides the padding
+        let mut buf = vec![0u8; 2];
+        append_entry(&mut buf, &[0], &[(b"a\0hidden", 0)], 0);
+        assert_eq!(buf, [0, 0, 0, 0, 0, 2, b'a', 0]);
     }
 
     #[test]
