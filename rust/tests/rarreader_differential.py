@@ -5,7 +5,9 @@ RAR3/RAR5 volume of tests/testdata (plain, encrypted data, encrypted headers),
 with and without the password, then the same volumes mutated (byte flips,
 truncations, insertions, deletions) - comparing the result, the volume state
 and every file's fields. Also covers synthetic integer/crypt-record boundaries,
-source exceptions, repeated reads and truncations of a two-file archive.
+source exceptions (including crypt records), repeated reads, exhaustive short
+synthetic-archive truncations, overlong/overflowing vints, encrypted padding
+boundaries, and source call traces.
 
 All three C++ readers are compiled as separate translation units with renamed
 classes and test-only access to the decrypt cache. This also instruments the
@@ -82,19 +84,22 @@ struct MemSource : ContentSource
 	int reads = 0;
 	int sizes = 0;
 	int fault = 0; // throw Read, refuse Read, throw Size
+	std::string trace;
 	int64 Size() override
 	{
+		trace += "S;";
 		if (sizes++ == failAt && fault == 2) throw std::runtime_error("size failure");
 		return (int64)data.size();
 	}
 	bool Read(int64 offset, void* buffer, int64 size) override
 	{
+		trace += "R" + std::to_string(offset) + "," + std::to_string(size) + ";";
 		if (reads++ == failAt && fault != 2)
 		{
 			if (fault == 1) return false;
 			throw std::runtime_error("source failure");
 		}
-		if (offset < 0 || size < 0 || offset + size > (int64)data.size()) return false;
+		if (offset < 0 || size < 0 || offset > (int64)data.size() || size > (int64)data.size() - offset) return false;
 		memcpy(buffer, data.data() + offset, (size_t)size);
 		return true;
 	}
@@ -137,7 +142,8 @@ template <class V> static std::string run(const std::string& data, const char* p
 					hex(c->Salt, 16) + hex(c->Iv, 16) + hex(c->CheckValue, 12) + std::to_string(c->HasCheck);
 			s += ";";
 		}
-		result += s + "\n";
+		result += s + "|" + source.trace + "\n";
+		source.trace.clear();
 		source.reads = 0;
 		source.sizes = 0;
 		source.failAt = failAt;
@@ -177,10 +183,81 @@ template <class Cursor> static bool wrappingRead()
 		byte == 'x' && cursor.Position() == INT64_MIN;
 }
 
+#ifndef DISABLE_TLS
+// Use a one-iteration RAR5 key to exercise encrypted plaintext layouts without
+// multiplying the expensive KDF work of the real encrypted fixtures.
+static std::string encrypted5(const std::string& header)
+{
+	uint8 key[32], salt[16] = {}, iv[16] = {};
+	if (!PKCS5_PBKDF2_HMAC("123", 3, salt, 16, 1, EVP_sha256(), 32, key))
+		throw std::runtime_error("test key derivation failed");
+	std::string padded = header;
+	padded.resize((padded.size() + 15) & ~size_t(15), '\0');
+	std::string encrypted(padded.size() + 16, '\0');
+	OpenSSL::EVPCipherCtxPtr ctx{EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free};
+	int count = 0;
+	if (!ctx || !EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_cbc(), nullptr, key, iv) ||
+		!EVP_CIPHER_CTX_set_padding(ctx.get(), 0) ||
+		!EVP_EncryptUpdate(ctx.get(), (uint8*)&encrypted[0], &count,
+			(const uint8*)padded.data(), (int)padded.size()) || count != (int)padded.size())
+		throw std::runtime_error("test encryption failed");
+	encrypted.resize(count);
+	return std::string((char*)iv, 16) + encrypted;
+}
+
+static bool encryptedBoundaries()
+{
+	std::string prefix("Rar!\x1a\x07\x01\0", 8);
+	const char crypt[] = {0,0,0,0,21,4,0,0,0,0};
+	prefix.append(crypt, sizeof(crypt));
+	prefix.append(16, '\0'); // salt, KDF count above is zero
+	const char end[] = {0,0,0,0,3,5,0,1};
+	for (int length = 0; length <= 32; ++length)
+	{
+		for (int packed : {0, 1, 15, 16, 17})
+		{
+			const char file[] = {0,0,0,0,(char)(9 + length),2,2,(char)packed,0,0,0,0,0,(char)length};
+			std::string header(file, sizeof(file));
+			header.append(length, 'a');
+			std::string data = prefix + encrypted5(header) + std::string(packed, '\0') +
+				encrypted5(std::string(end, sizeof(end)));
+			std::string label = "encrypted name/data lengths " + std::to_string(length) + "/" + std::to_string(packed);
+			if (!check(data, "123", label, -1, 2)) return false;
+			if (packed == 0)
+			{
+				for (size_t cut = prefix.size(); cut < data.size(); ++cut)
+					if (!check(data.substr(0, cut), "123", label + " cut " + std::to_string(cut))) return false;
+				for (int at = 0; at < 32; ++at)
+					for (int fault = 0; fault < 3; ++fault)
+						if (!check(data, "123", label + " failure " + std::to_string(at) + "/" +
+							std::to_string(fault), at, 1, fault)) return false;
+			}
+		}
+	}
+	return true;
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#ifndef DISABLE_TLS
+	if (!encryptedBoundaries()) return 1;
+#endif
 	if (!wrappingRead<OldRarSourceCursor>() || !wrappingRead<PortRarSourceCursor>() ||
 		!wrappingRead<FallbackRarSourceCursor>()) return 1;
+	// The old RAR3 parser can revisit a zero-sized header indefinitely. Bound
+	// the source calls to compare that quirk without hanging or exhausting RAM.
+	for (int wrapped = 0; wrapped < 2; ++wrapped)
+	{
+		std::string cycling("Rar!\x1a\x07\0", 7);
+		const char header[] = {0,0,0x74,0,(char)0x80,(char)wrapped,0};
+		cycling.append(header, sizeof(header));
+		cycling.append(4, wrapped ? (char)0xff : '\0');
+		cycling.append(32, '\0');
+		for (int fault = 0; fault < 3; ++fault)
+			if (!check(cycling, nullptr, "non-progressing RAR3 header " + std::to_string(wrapped),
+				40, 1, fault)) return 1;
+	}
 	long rounds = atol(argv[1]);
 	std::vector<std::string> files;
 	for (int i = 2; i < argc; i++)
@@ -191,6 +268,20 @@ int main(int argc, char** argv)
 		{
 			if (getenv("NZBGET_TEST_VERBOSE")) fprintf(stderr, "volume %s pw %s\n", argv[i], pw ? pw : "-");
 			if (!check(files.back(), pw, argv[i])) return 1;
+		}
+		// Synthetic archives are small and unencrypted, so exhaust every byte
+		// boundary and source failure without paying for password derivation.
+		// This includes failures in ReadVLimited: a refused read may be ignored
+		// by the legacy crypt parser, while a thrown exception must stop it.
+		if (std::string(argv[i]).find("synthetic-") != std::string::npos && files.back().size() <= 256)
+		{
+			for (size_t length = 0; length <= files.back().size(); ++length)
+				if (!check(files.back().substr(0, length), nullptr,
+					std::string(argv[i]) + " truncated at " + std::to_string(length))) return 1;
+			for (int at = 0; at < (int)files.back().size() + 1; ++at)
+				for (int fault = 0; fault < 3; ++fault)
+					if (!check(files.back(), nullptr, std::string(argv[i]) + " source failure " +
+						std::to_string(at) + "/" + std::to_string(fault), at, 2, fault)) return 1;
 		}
 		// Exercise the cached decrypt position across calls and a short encrypted
 		// header, using only the first volume to keep key derivations bounded.
@@ -287,6 +378,29 @@ def synthetic_volumes():
         yield sig5 + block5(1, 0, vint(3) + vint(value)) + end5
         yield sig5 + block5(2, 0, body, size=value) + end5
         yield sig5 + block5(2, 2, body, data=value) + end5
+    # Ten-byte vints accept (and discard) high bits in the last byte;
+    # an eleventh byte is refused. Exercise ordinary and bounded readers.
+    for raw in [b"\x80" * 9 + b"\x02", b"\xff" * 9 + b"\x7f",
+                b"\x80" * 10, b"\x80" * 10 + b"\0"]:
+        yield sig5 + block5(1, 0, b"\3" + raw) + end5
+        yield sig5 + block5(2, 1, body, record(1, raw + crypt)) + end5
+        yield sig5 + block5(2, 1, body, record(1, b"\0" + raw + crypt)) + end5
+    # Preserve a previous complete crypt record when a later one is ignored,
+    # and preserve the previous file if the next header cannot be completed.
+    first = block5(2, 1, body, record(1, crypt))
+    for tail in [record(1, b""), record(1, b"\0"), record(1, b"\0\1")]:
+        yield sig5 + first + block5(2, 1, body, record(1, crypt) + tail) + end5
+    # RAR3 end flags and undersized/wrapping block headers are quirks rather
+    # than validation errors; check the whole reader as well as Rust's Block.
+    sig3 = b"Rar!\x1a\x07\0"
+    for flags in range(16):
+        yield sig3 + struct.pack("<HBHHII", 0, 0x7b, flags, 15, 0x12345678, 0x87654321)
+    for size in [0, 1, 6, 7, 10, 11, 65535]:
+        for add in [0, 1, 0xfffffff0, 0xffffffff]:
+            # Zero total size revisits the same header forever in the reference.
+            if (size + add) & 0xffffffff == 0:
+                continue
+            yield sig3 + struct.pack("<HBHHI", 0, 0x74, 0x8000, size, add) + bytes(32)
     for high in [None, 0, 1, 0x80000000, 0xffffffff]:
         for salt in [b"", bytes(range(8))]:
             flags = 0x8000 | (0x100 if high is not None else 0) | (0x404 if salt else 0)
