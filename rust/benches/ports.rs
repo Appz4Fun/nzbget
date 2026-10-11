@@ -305,6 +305,20 @@ fn main() {
             black_box(b"Show.S01E01.1080p.WEB.H264-GRP.mkv"), 5_000_000_000, 1_000_000_000));
     });
 
+    // Stream comparison floor: regression metrics; end-to-end C++ caller qualification
+    // is in rust/tests/streamcompare_differential.py, including fair C++ controls.
+    use nzbget_rs::streamcompare::{required_compare_floor, Range as CompareRange};
+    let donors = [CompareRange { offset: 0, size: 1024 * 1024 }, CompareRange { offset: 1024 * 1024, size: 1024 * 1024 }];
+    let sparse: Vec<CompareRange> = (0..1024).map(|i| CompareRange { offset: i * 2048, size: 16 }).collect();
+    bench("streamcompare/empty", &mut || { black_box(required_compare_floor(black_box(100000), &[], &[], &[])); });
+    bench("streamcompare/two probes sparse 1024 holes", &mut || {
+        black_box(required_compare_floor(black_box(2 * 1024 * 1024), black_box(&sparse), black_box(&donors), black_box(&[0, 1])));
+    });
+    let reversed = [CompareRange { offset: 500, size: -100 }];
+    bench("streamcompare/reversed hole", &mut || {
+        black_box(required_compare_floor(black_box(100000), black_box(&reversed), black_box(&donors), black_box(&[0, 0])));
+    });
+
     // Bencher Metric Format
     let mut out = String::from("{\n");
     let last = results.len().saturating_sub(1);
