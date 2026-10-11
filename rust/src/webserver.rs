@@ -6,6 +6,7 @@
 
 use std::ffi::{c_char, c_int, CString};
 
+use crate::bytes::{find, find_byte};
 use crate::wildmask::{wild_match, Lower};
 
 extern "C" {
@@ -37,8 +38,6 @@ fn prefix(line: &[u8], lit: &str) -> bool {
     true
 }
 
-use crate::bytes::{find, find_byte};
-
 /// What a header line (its last '\r' cut off) does in ParseHeaders.
 #[derive(Debug, PartialEq)]
 pub enum Header<'a> {
@@ -69,28 +68,38 @@ fn auth(b64: &[u8]) -> Header<'_> {
     }
 }
 
-pub fn header(line: &[u8], auth_info_empty: bool) -> Header<'_> {
-    // the C string of the line ends at a NUL
-    let line = &line[..find_byte(line, 0).unwrap_or(line.len())];
+fn c_bytes(b: &[u8]) -> &[u8] {
+    &b[..find_byte(b, 0).unwrap_or(b.len())]
+}
+
+pub fn header(buffer: &[u8], auth_info_empty: bool) -> Header<'_> {
+    let line = c_bytes(buffer);
+    // An unusual locale can make strncasecmp match at an early NUL. C++
+    // still takes the value at the fixed offset, possibly beyond that NUL.
+    // Keep the initialized buffer available, and bound every value read.
+    let value = |at: usize| match line.get(at..) {
+        Some(value) => value,
+        None => c_bytes(&buffer[at.min(buffer.len())..]),
+    };
     if prefix(line, "Content-Length: ") {
-        Header::ContentLength(unsafe { atoi(c(&line[16..]).as_ptr()) })
+        Header::ContentLength(unsafe { atoi(c(value(16)).as_ptr()) })
     } else if prefix(line, "Authorization: Basic ") && auth_info_empty {
-        auth(&line[21..])
+        auth(value(21))
     } else if prefix(line, "X-Authorization: Basic ") {
-        auth(&line[23..])
+        auth(value(23))
     } else if prefix(line, "Accept-Encoding: ") {
         Header::AcceptEncoding { gzip: find(line, b"gzip").is_some() }
     } else if prefix(line, "Origin: ") {
-        Header::Origin(&line[8..])
+        Header::Origin(value(8))
     } else if prefix(line, "Cookie: ") {
         match find(line, b"Auth-Token=").map(|k| &line[k + 11..]) {
             Some(tok) if !tok.is_empty() && tok[0] != b';' => Header::AuthToken(&tok[..tok.len().min(TOKEN_SIZE - 1)]),
             _ => Header::Other,
         }
     } else if prefix(line, "X-Forwarded-For: ") {
-        Header::ForwardedFor(&line[17..])
+        Header::ForwardedFor(value(17))
     } else if prefix(line, "If-None-Match: ") {
-        Header::IfNoneMatch(&line[15..])
+        Header::IfNoneMatch(value(15))
     } else if prefix(line, "Connection: keep-alive") {
         Header::KeepAlive
     } else if line.is_empty() {
@@ -114,34 +123,31 @@ pub enum Url {
 pub fn parse_url(url: &[u8]) -> Url {
     // Like the header parser, preserve the original C string boundary even
     // when a bounded FFI input includes bytes after its terminator.
-    let url = &url[..url.iter().position(|&b| b == 0).unwrap_or(url.len())];
-    let mut url = url.to_vec();
-    if url.starts_with(b"/nzbget/") {
-        url.drain(..7);
-    }
+    let url = c_bytes(url);
+    let url = if url.starts_with(b"/nzbget/") { &url[7..] } else { url };
     if url == b"/nzbget" {
         // BString<1024>("%s/")
-        let mut loc = [&url[..], b"/"].concat();
+        let mut loc = [url, b"/"].concat();
         loc.truncate(1023);
         return Url::Redirect(loc);
     }
     // "/username:password/jsonrpc"
     let rest = url.get(1..).unwrap_or_default();
-    let colon = rest.iter().position(|&b| b == b':');
-    let slash = rest.iter().position(|&b| b == b'/');
+    let colon = find_byte(rest, b':');
+    let slash = find_byte(rest, b'/');
     if let (Some(c), Some(s)) = (colon, slash) {
         if c < s {
             let mut auth = rest[..s.min(AUTH_INFO_SIZE - 1)].to_vec();
             let len = crate::text::url_decode(&mut auth);
             auth.truncate(len);
-            if let Some(n) = auth.iter().position(|&b| b == 0) {
+            if let Some(n) = find_byte(&auth, 0) {
                 auth.truncate(n);
             }
             let url = url[1 + s..].to_vec();
             return Url::Go { url, auth: Some(auth) };
         }
     }
-    Url::Go { url, auth: None }
+    Url::Go { url: url.to_vec(), auth: None }
 }
 
 /// The options CheckCredentials compares with (null C strings as None).
@@ -207,7 +213,7 @@ pub fn check_credentials(
         return r;
     }
     // "username:password"
-    let (user, pw) = match auth_info.iter().position(|&b| b == b':') {
+    let (user, pw) = match find_byte(auth_info, b':') {
         Some(k) => {
             r.auth_cut = Some(k);
             (&auth_info[..k], Some(&auth_info[k + 1..]))

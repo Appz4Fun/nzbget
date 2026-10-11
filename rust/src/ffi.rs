@@ -1180,7 +1180,9 @@ unsafe fn lower_of<'f>(table: *const c_int, char_signed: c_int, call: &'f dyn Fn
 /// and length in the line, and a number (Content-Length, gzip).
 ///
 /// # Safety
-/// `line` is readable for `len` bytes; the outputs are null or writable.
+/// `line` is null (empty) or readable for `len` initialized bytes. Header
+/// tests stop at the first NUL; fixed-offset values may start beyond it in
+/// unusual locales. Outputs are null or writable and disjoint from inputs.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_web_header(
     line: *const c_char,

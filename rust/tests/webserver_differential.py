@@ -2,7 +2,8 @@
 """Compare WebProcessor's request decisions (rust/src/webserver.rs with the
 C++ wrappers of WebServer.cpp) with the pre-port C++: ParseHeaders, ParseUrl,
 CheckCredentials and IsAuthorizedIp on random header sets, URLs and
-credentials, in the C, C.UTF-8 and tr_TR.ISO8859-9 locales.
+credentials, in the C, C.UTF-8, tr_TR.ISO8859-9 and custom locales.
+The custom locale maps letters to NUL to exercise early strncasecmp matches.
 
 Both versions' method bodies are compiled into a stand-in class with the
 members they use, a scripted connection and options.
@@ -52,7 +53,11 @@ struct FakeConnection {
     std::vector<std::string> lines; size_t next = 0; std::string remote; char line[1100];
     char* ReadLine(char* buffer, int size, int*) {
         if (next >= lines.size()) return nullptr;
-        snprintf(buffer, size, "%s", lines[next++].c_str());
+        // Initialize the full destination so even fixed-offset values beyond
+        // an early NUL are defined in the C++ oracle. Preserve embedded NULs.
+        memset(buffer, 0, size);
+        const auto& text = lines[next++];
+        memcpy(buffer, text.data(), std::min(text.size(), size_t(size - 1)));
         return buffer;
     }
     const char* GetRemoteAddr() { return remote.c_str(); }
@@ -136,6 +141,47 @@ int main(int argc, char** argv) {
     int rounds = atoi(argv[1]);
     for (int l = 2; l < argc; ++l) {
         if (!setlocale(LC_CTYPE, argv[l])) { printf("locale %s unavailable\n", argv[l]); return 1; }
+        // Exhaust every byte at every prefix position, including the NUL
+        // just after each name. Compare values and parser stopping as well.
+        auto header_case = [&](const std::string& line) {
+            FakeConnection a, b;
+            a.lines = {line, "Content-Length: 73"};
+            b = a;
+            OldWP o; NewWP w;
+            o.m_connection = &a; w.m_connection = &b;
+            int before = warnings;
+            o.ParseHeaders();
+            int middle = warnings;
+            w.ParseHeaders();
+            if (o.State() != w.State() || a.next != b.next ||
+                middle - before != warnings - middle) {
+                printf("Prefix mismatch (locale %s):", argv[l]);
+                for (unsigned char c : line) printf(" %02x", c);
+                printf("\n");
+                exit(1);
+            }
+            ++cases;
+        };
+        for (const char* head : heads) {
+            std::string base = std::string(head) + "17";
+            for (size_t pos = 0; pos <= strlen(head); ++pos) {
+                header_case(base.substr(0, pos));
+                for (int byte = 0; byte < 256; ++byte) {
+                    std::string line = base;
+                    line[pos] = static_cast<char>(byte);
+                    header_case(line);
+                }
+            }
+        }
+        // Bounded and NULL FFI inputs must not abort or read past their end,
+        // even when the locale makes an empty line match X-Authorization.
+        for (size_t len = 0; len < 24; ++len) {
+            std::vector<char> line(len, 0);
+            size_t start = 99, count = 99;
+            nzbget_rs_web_header(line.data(), len, 1, &start, &count, nullptr);
+            if (start > len || count > len - start) abort();
+        }
+        nzbget_rs_web_header(nullptr, 0, 1, nullptr, nullptr, nullptr);
         for (int r = 0; r < rounds; ++r) {
             FakeConnection a, b;
             int n = pick(6);
@@ -204,6 +250,17 @@ with tempfile.TemporaryDirectory(prefix="nzbget-web-") as temp:
                 os.symlink(sysloc, locdir / "C.UTF-8")
                 break
         locales.append("tr_TR.ISO8859-9")
+        ctype = Path("/usr/share/i18n/locales/i18n_ctype").read_text()
+        ctype = ctype[ctype.index("LC_CTYPE\n"):ctype.index("END LC_CTYPE") + len("END LC_CTYPE")]
+        ctype = ctype.replace("(<U0058>,<U0078>)", "(<U0058>,<U0000>)")
+        ctype = ctype.replace("(<U004F>,<U006F>)", "(<U004F>,<U0000>)")
+        custom = Path("/usr/share/i18n/locales/en_US").read_text()
+        custom = re.sub(r"LC_CTYPE\n.*?END LC_CTYPE", lambda _: ctype, custom, flags=re.S)
+        source = temp / "custom"
+        source.write_text(custom)
+        subprocess.run(["localedef", "--no-archive", "-i", str(source), "-f", "ISO-8859-1",
+                        str(locdir / "custom")], check=True)
+        locales.append("custom")
     binary = temp / "web"
     for char_flag in ("-fsigned-char", "-funsigned-char"):
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
