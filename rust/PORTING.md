@@ -55,6 +55,12 @@ in `rust/include/nzbget_rs.h`.
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
 
+Each port also adds its hot function to `rust/benches/ports.rs`, and its pull
+request shows the C++ time, the Rust time and the percentage change. A Rust port
+more than 10% slower than the C++ it replaces is optimized further before it is
+merged; a slowdown that can't be removed is explained in the pull request. CI
+tracks the benchmarks with Bencher (see `rust/benches/README.md`).
+
 ## Parked
 
 - NZB parsing (`NzbFile::Parse`, libxml2 SAX1): a Rust parser that matches

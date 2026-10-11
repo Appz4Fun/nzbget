@@ -1,0 +1,66 @@
+# Continuous benchmarking of the Rust ports with Bencher (https://bencher.dev):
+# every push to the base branch records the benchmarks of rust/benches/ports.rs
+# and sets the thresholds the pull requests are compared with (see
+# rust/benches/README.md for the setup: a Bencher project, the BENCHER_API_KEY
+# secret and the BENCHER_PROJECT variable).
+name: bench base
+
+on:
+  push:
+    branches: [dupe-article-fallback]
+  workflow_dispatch:
+
+jobs:
+  benchmark_base_branch:
+    name: Track the base branch's benchmarks with Bencher
+    # nothing to do until the project is set up
+    if: ${{ vars.BENCHER_PROJECT != '' }}
+    permissions:
+      contents: read
+      checks: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Rust toolchain (the version rust/rust-toolchain.toml pins)
+        working-directory: rust
+        run: |
+          rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+          rustc --version
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: bench-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'rust/rust-toolchain.toml') }}
+          restore-keys: bench-${{ runner.os }}-
+
+      - uses: bencherdev/bencher@main
+
+      - name: Track the base branch's benchmarks with Bencher
+        env:
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+        run: |
+          if [ -z "$BENCHER_KEY" ]; then
+            echo "::notice::BENCHER_API_KEY is not set: benchmarks are not tracked"
+            exit 0
+          fi
+          # a port more than 10% slower than the base branch's recent runs is an alert
+          bencher run \
+            ${BENCHER_HOST_URL:+--host "$BENCHER_HOST_URL"} \
+            --project '${{ vars.BENCHER_PROJECT }}' \
+            --key "$BENCHER_KEY" \
+            --branch "$GITHUB_REF_NAME" \
+            --testbed ubuntu-latest \
+            --threshold-measure latency \
+            --threshold-test percentage \
+            --threshold-max-sample-size 16 \
+            --threshold-upper-boundary 0.10 \
+            --thresholds-reset \
+            --adapter json \
+            --github-actions '${{ secrets.GITHUB_TOKEN }}' \
+            --error-on-alert \
+            "cd rust && cargo bench --bench ports"

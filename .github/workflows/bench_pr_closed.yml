@@ -1,0 +1,34 @@
+# Archives a pull request's branch in Bencher when the pull request is closed.
+name: bench archive closed pull request
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  archive_pr_branch:
+    name: Archive the closed pull request's branch with Bencher
+    if: >-
+      ${{ vars.BENCHER_PROJECT != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bencherdev/bencher@main
+
+      - name: Archive the closed pull request's branch with Bencher
+        env:
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+        run: |
+          if [ -z "$BENCHER_KEY" ]; then
+            exit 0
+          fi
+          bencher archive \
+            ${BENCHER_HOST_URL:+--host "$BENCHER_HOST_URL"} \
+            --project '${{ vars.BENCHER_PROJECT }}' \
+            --key "$BENCHER_KEY" \
+            --branch "$GITHUB_HEAD_REF"
