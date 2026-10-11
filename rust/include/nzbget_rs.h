@@ -17,6 +17,16 @@ typedef struct
 	size_t cap;
 } NzbgetRsBuf;
 
+// Stream-repair floor: arrays remain C++ owned and borrowed only during the call.
+// Nonempty arrays are readable/aligned for count entries; empty arrays may be NULL.
+// Probe indexes must identify donor entries. Invalid indexes abort before an
+// out-of-bounds read. Overflowing reference C++ arithmetic is outside parity.
+typedef struct { int64_t offset; int64_t size; } NzbgetRsStreamCompareRange;
+int64_t nzbget_rs_stream_compare_floor(int64_t decoded_size,
+    const NzbgetRsStreamCompareRange* holes, size_t hole_count,
+    const NzbgetRsStreamCompareRange* donors, size_t donor_count,
+    const int32_t* probes, size_t probe_count);
+
 // raw may be NULL (treated as empty); otherwise it must point to a readable
 // NUL-terminated string for the duration of the call. Results own their storage.
 // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.

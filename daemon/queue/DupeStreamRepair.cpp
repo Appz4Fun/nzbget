@@ -34,6 +34,10 @@
 #include "Options.h"
 #include "Log.h"
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
+#include <type_traits>
+#include "nzbget_rs.h"
+#endif
 
 bool DupeStreamRepair::IsStreamEligible(const char* filename)
 {
@@ -274,6 +278,24 @@ void DupeStreamRepair::SubtractCovered(StreamRangeList& ranges, const StreamRang
 int64 DupeStreamRepair::RequiredCompareFloor(int64 decodedFileSize, const StreamRangeList& holes,
 	const StreamRangeList& donorRanges, const std::vector<int>& probeParts)
 {
+#ifdef NZBGET_USE_RUST
+	static_assert(MinProbeCompareBytes == 16 * 1024, "Rust stream compare floor cap");
+	static_assert(std::is_standard_layout<StreamRange>::value, "StreamRange C ABI layout");
+	static_assert(sizeof(StreamRange) == sizeof(NzbgetRsStreamCompareRange), "StreamRange C ABI size");
+	static_assert(alignof(StreamRange) == alignof(NzbgetRsStreamCompareRange), "StreamRange C ABI alignment");
+	static_assert(offsetof(StreamRange, Offset) == offsetof(NzbgetRsStreamCompareRange, offset), "StreamRange offset");
+	static_assert(offsetof(StreamRange, Size) == offsetof(NzbgetRsStreamCompareRange, size), "StreamRange size");
+	static_assert(sizeof(int) == sizeof(int32_t), "Probe index C ABI size");
+	// No probes need only the original base calculation; avoid FFI overhead.
+	if (probeParts.empty())
+	{
+		return BaseCompareFloor(decodedFileSize - TotalSize(holes));
+	}
+	return nzbget_rs_stream_compare_floor(decodedFileSize,
+		reinterpret_cast<const NzbgetRsStreamCompareRange*>(holes.data()), holes.size(),
+		reinterpret_cast<const NzbgetRsStreamCompareRange*>(donorRanges.data()), donorRanges.size(),
+		probeParts.data(), probeParts.size());
+#else
 	int64 base = BaseCompareFloor(decodedFileSize - TotalSize(holes));
 
 	int64 achievable = 0;
@@ -288,6 +310,7 @@ int64 DupeStreamRepair::RequiredCompareFloor(int64 decodedFileSize, const Stream
 	}
 
 	return achievable >= 64 ? std::min(base, achievable) : base;
+#endif
 }
 
 bool DupeStreamRepair::BuildRepairJob(FileInfo* fileInfo, const char* diskBasename)
