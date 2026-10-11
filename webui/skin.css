@@ -914,7 +914,13 @@ input[type="submit"].btn-large {
 }
 
 .btn-group > .btn:last-child,
-.btn-group > .dropdown-toggle:last-child,
+.btn-group > .dropdown-toggle:last-child {
+	border-top-right-radius: var(--radius-sm);
+	border-bottom-right-radius: var(--radius-sm);
+}
+
+/* a toggle followed by its menu is not :last-child; kept in its own rule so
+   browsers without :has() (Firefox before 121) still apply the one above */
 .btn-group > .btn:has(+ .dropdown-menu:last-child) {
 	border-top-right-radius: var(--radius-sm);
 	border-bottom-right-radius: var(--radius-sm);
@@ -1059,7 +1065,12 @@ input[type="submit"].btn-large {
 	text-shadow: none;
 }
 
-/* a menu item that carries its own button (saved filters, RSS feeds) */
+/* a menu item that carries its own button (saved filters, RSS feeds): keep
+   style.css's room on the right for the button that appears on hover */
+.dropdown-menu.menu-with-button li > a {
+	padding-right: 70px;
+}
+
 .menu-with-button a .btn {
 	height: var(--size-control-sm);
 	padding: 0 var(--space-2);
