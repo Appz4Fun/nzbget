@@ -40,22 +40,25 @@ Send credentials with HTTP basic authentication, or in the path, as in `http://u
 > [!WARNING] Use HTTPS on untrusted networks
 > Basic authentication only encodes the password; it doesn't encrypt it. Turn on the HTTPS port in **SECURITY** if clients connect over a network you don't control.
 
-JSON-RPC takes positional parameters only: names are ignored, and every parameter must be present, in order. Integers wider than 32 bits are split into `Lo` and `Hi` fields, such as `FileSizeLo` and `FileSizeHi`.
+JSON-RPC takes positional parameters only: names are ignored, and the order matters. Send every required parameter; a method's optional trailing parameters may be left out. Integers wider than 32 bits are split into `Lo` and `Hi` fields, such as `FileSizeLo` and `FileSizeHi`.
 
 ## Methods
 
-These methods are inherited from NZBGet. The repository's [API reference](https://github.com/Appz4Fun/nzbget/blob/dupe-article-fallback/docs/api/API.md) documents each one's parameters and results.
+This is every method that RustyGet answers. All but `appendfleet` are inherited from NZBGet, and the repository's [API reference](https://github.com/Appz4Fun/nzbget/blob/dupe-article-fallback/docs/api/API.md) documents most of them in detail.
 
 | Area | Methods |
 |---|---|
-| Program | `version`, `shutdown`, `reload` |
-| Queue | `listgroups`, `listfiles`, `append`, `appendfleet`, `editqueue`, `scan` |
+| Program | `version`, `shutdown`, `reload`, `dump` |
+| Queue | `listgroups`, `listfiles`, `postqueue`, `urlqueue`, `append`, `appendurl`, `appendfleet`, `editqueue`, `scan` |
 | History | `history` |
-| Status and logs | `status`, `sysinfo`, `systemhealth`, `log`, `writelog`, `loadlog`, `logscript`, `logupdate`, `servervolumes`, `resetservervolume` |
-| Pause and speed | `rate`, `pausedownload`, `resumedownload`, `pausepost`, `resumepost`, `pausescan`, `resumescan`, `scheduleresume` |
-| Configuration | `config`, `loadconfig`, `saveconfig`, `configtemplates` |
-| Extensions | `loadextensions`, `downloadextension`, `updateextension`, `deleteextension`, `testextension` |
-| Tests | `testserver`, `testserverspeed`, `testdiskspeed`, `testnetworkspeed` |
+| Status and logs | `status`, `sysinfo`, `systemhealth`, `log`, `clearlog`, `writelog`, `loadlog`, `logscript`, `logupdate`, `servervolumes`, `resetservervolume` |
+| Pause and speed | `rate`, `pausedownload`, `resumedownload`, `pausepost`, `resumepost`, `pausescan`, `resumescan`, `scheduleresume`, and the older names `pause` and `resume` |
+| Configuration | `config`, `loadconfig`, `saveconfig`, `configtemplates`, `editserver` |
+| RSS feeds | `fetchfeed`, `viewfeed`, `previewfeed` |
+| Extensions and scripts | `loadextensions`, `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `startscript` |
+| Updates | `checkupdates`, `startupdate` |
+| Tests and tools | `testserver`, `testserverspeed`, `testdiskspeed`, `testnetworkspeed`, `readurl` |
+| XML-RPC only | `system.multicall` |
 
 ## appendfleet
 

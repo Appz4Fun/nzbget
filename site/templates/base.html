@@ -12,15 +12,15 @@
 <meta property="og:title" content="{{ page.title }} · {{ site.name }}">
 <meta property="og:description" content="{{ page.meta.description }}">
 <meta property="og:type" content="website">
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/site.css">
+<link rel="icon" href="{{ root }}assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{ root }}assets/site.css">
 <script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
-<script defer src="assets/site.js"></script>
+<script defer src="{{ root }}assets/site.js"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="masthead">
-  <a class="brand" href="index.html" aria-label="{{ site.name }} documentation home">
+  <a class="brand" href="{{ root }}index.html" aria-label="{{ site.name }} documentation home">
     <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3.5 56.7 17.75v28.5L32 60.5 7.3 46.25v-28.5Z" fill="var(--rust)"/><path d="M32 17v20m-9-9 9 9 9-9M21.5 45h21" fill="none" stroke="var(--on-accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span class="brand-name">{{ site.name_head }}<span>{{ site.name_tail }}</span></span>
   </a>
@@ -28,7 +28,7 @@
   <div class="masthead-tools">
     <div class="search" role="search">
       <label class="skip" for="search">Search the documentation</label>
-      <input id="search" type="search" placeholder="Search docs" autocomplete="off" spellcheck="false" data-index="search.json" data-root="" aria-controls="search-results">
+      <input id="search" type="search" placeholder="Search docs" autocomplete="off" spellcheck="false" data-index="{{ root }}search.json" data-root="{{ root }}" aria-controls="search-results">
       <kbd>/</kbd>
       <ul id="search-results" class="search-results" hidden></ul>
     </div>
@@ -47,7 +47,7 @@
         <div class="nav-group">
           <p class="nav-label">{{ group.title }}</p>
           {% for item in group.pages %}
-          <a href="{{ item.url }}"{% if item.slug == page.slug %} aria-current="page"{% endif %}>{{ item.meta.get("nav_title") or item.title }}</a>
+          <a href="{{ root }}{{ item.url }}"{% if item.slug == page.slug %} aria-current="page"{% endif %}>{{ item.meta.get("nav_title") or item.title }}</a>
           {% endfor %}
         </div>
         {% endfor %}
@@ -58,13 +58,13 @@
     {% block main %}{% endblock %}
     {% if prev or next %}
     <nav class="pager" aria-label="Previous and next pages">
-      {% if prev %}<a class="prev" href="{{ prev.url }}"><span>previous</span>{{ prev.meta.get("nav_title") or prev.title }}</a>{% endif %}
-      {% if next %}<a class="next" href="{{ next.url }}"><span>next</span>{{ next.meta.get("nav_title") or next.title }}</a>{% endif %}
+      {% if prev %}<a class="prev" href="{{ root }}{{ prev.url }}"><span>previous</span>{{ prev.meta.get("nav_title") or prev.title }}</a>{% endif %}
+      {% if next %}<a class="next" href="{{ root }}{{ next.url }}"><span>next</span>{{ next.meta.get("nav_title") or next.title }}</a>{% endif %}
     </nav>
     {% endif %}
     <footer class="footer">
       <span>{{ site.name }} is free software under the <a href="{{ site.repo }}/blob/{{ site.branch }}/COPYING">GNU GPL v2</a>. It started from NZBGet and keeps its copyright notices.</span>
-      <a href="{{ site.repo }}/edit/{{ site.branch }}/site/content/{{ page.slug }}.md">Edit this page</a>
+      {% if page.slug != "404" %}<a href="{{ site.repo }}/edit/{{ site.branch }}/site/content/{{ page.slug }}.md">Edit this page</a>{% endif %}
       <a href="{{ site.repo }}/issues">Report an issue</a>
       <span class="built">built from {{ sha or "a local tree" }}{% if built %} · {{ built }}{% endif %}</span>
     </footer>

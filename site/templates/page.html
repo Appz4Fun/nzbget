@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block main %}
 <article class="content">
-  <p class="path"><a href="index.html">{{ site.crate }}</a>::<a href="index.html">docs</a>::<b>{{ page.slug | replace("-", "_") }}</b></p>
+  <p class="path"><a href="{{ root }}index.html">{{ site.crate }}</a>::<a href="{{ root }}index.html">docs</a>::<b>{{ page.slug | replace("-", "_") }}</b></p>
   <header class="page-head">
     {% if page.meta.get("eyebrow") %}<p class="eyebrow">{{ page.meta.eyebrow }}</p>{% endif %}
     <h1>{{ page.title }}</h1>

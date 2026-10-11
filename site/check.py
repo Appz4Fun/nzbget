@@ -10,6 +10,7 @@ title, a description or exactly one h1, or when an id repeats on a page.
 from __future__ import annotations
 
 import sys
+import tomllib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -55,6 +56,8 @@ def main() -> int:
         print(__doc__)
         return 2
     root = Path(sys.argv[1]).resolve()
+    config = tomllib.loads((Path(__file__).resolve().parent / "site.toml").read_text(encoding="utf-8"))
+    base_path = urlsplit(config["site"]["base_url"]).path or "/"
     pages = {p.relative_to(root).as_posix(): p for p in root.rglob("*.html")}
     scans: dict[str, PageScan] = {}
     for name, path in pages.items():
@@ -77,7 +80,13 @@ def main() -> int:
             parts = urlsplit(link)
             if parts.scheme or link.startswith("//") or link.startswith("mailto:"):
                 continue
-            target = name if not parts.path else (Path(name).parent / unquote(parts.path)).as_posix()
+            if parts.path.startswith("/"):
+                if not parts.path.startswith(base_path):
+                    errors.append(f"{name}: link outside the site {link}")
+                    continue
+                target = unquote(parts.path[len(base_path):]) or "index.html"
+            else:
+                target = name if not parts.path else (Path(name).parent / unquote(parts.path)).as_posix()
             target = Path(target).as_posix()
             if not (root / target).exists():
                 errors.append(f"{name}: broken link {link}")

@@ -20,6 +20,7 @@ import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from markdown_it import MarkdownIt
@@ -438,19 +439,24 @@ def build(out: Path) -> None:
             next=order[i + 1] if i + 1 < len(order) else None,
             sha=sha,
             built=built,
+            root="",
         )
         (out / page.url).write_text(rendered, encoding="utf-8")
         for section in page.sections:
             index.append(section)
 
+    # GitHub Pages serves 404.html at whatever path was missing, so its links
+    # start at the site's base path instead of being relative
+    base_path = urlsplit(config["site"]["base_url"]).path or "/"
     not_found = Page(slug="404", source="", meta={"title": "Page not found", "description": "The page does not exist."})
     not_found.body = (
         '<p class="lede-sm">This page does not exist. It may have moved when the documentation was reorganized.</p>'
-        '<p><a class="button primary" href="index.html">Go to the overview</a></p>'
+        f'<p><a class="button primary" href="{base_path}index.html">Go to the overview</a></p>'
     )
     (out / "404.html").write_text(
         jenv.get_template("page.html").render(
-            site=config["site"], nav=nav, page=not_found, prev=None, next=None, sha=sha, built=built
+            site=config["site"], nav=nav, page=not_found, prev=None, next=None, sha=sha, built=built,
+            root=base_path,
         ),
         encoding="utf-8",
     )
