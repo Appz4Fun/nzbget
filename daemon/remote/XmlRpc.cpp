@@ -4271,6 +4271,48 @@ void TestServerXmlCommand::Execute()
 	// a JSON body only with POST: over GET (JSON-P) m_request is the query string
 	if (IsJson() && m_request && m_httpMethod == XmlRpcProcessor::hmPost)
 	{
+#ifdef NZBGET_USE_RUST
+		// rust/src/rpcparams.rs; a std::exception while copying the strings
+		// gives "Invalid parameters", as in ParseRequestParams
+		struct Context
+		{
+			ServerParams* params;
+			bool failed;
+		} context{&params, false};
+		const NzbgetRsJsonLimits limits{Json::string::max_size(), Json::JsonArray::max_size(), Json::JsonObject::max_size()};
+		int parsed = nzbget_rs_test_server_params(m_request, limits, &context,
+			[](void* ctx, const NzbgetRsTestServerParams* from) noexcept
+			{
+				Context& context = *static_cast<Context*>(ctx);
+				try
+				{
+					ServerParams p;
+					p.host.assign(from->host.data, from->host.len);
+					p.port = from->port;
+					p.username.assign(from->username.data, from->username.len);
+					p.password.assign(from->password.data, from->password.len);
+					p.encryption = from->encryption != 0;
+					p.cipher.assign(from->cipher.data, from->cipher.len);
+					p.timeout = from->timeout;
+					p.certVerifLevel = from->certVerifLevel;
+					*context.params = std::move(p);
+				}
+				catch (const std::exception&)
+				{
+					context.failed = true;
+				}
+			});
+		if (parsed == 0)
+		{
+			BuildErrorResponse(2, "Invalid JSON");
+			return;
+		}
+		if (parsed < 0 || context.failed)
+		{
+			BuildErrorResponse(2, "Invalid parameters");
+			return;
+		}
+#else
 		const auto jsonResult = Json::Deserialize(m_request);
 		if (!jsonResult)
 		{
@@ -4284,6 +4326,7 @@ void TestServerXmlCommand::Execute()
 			return;
 		}
 		params = std::move(*paramsResult);
+#endif
 	}
 	else if (!NextParamAsStr(&host) || !NextParamAsInt(&port) || !NextParamAsStr(&username) ||
 		!NextParamAsStr(&password) || !NextParamAsBool(&encryption) ||

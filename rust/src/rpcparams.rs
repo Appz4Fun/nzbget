@@ -217,6 +217,56 @@ pub fn next_bool(buf: &mut [u8], kind: Kind, json: bool) -> (usize, Option<bool>
     }
 }
 
+/// TestServerXmlCommand::ServerParams.
+#[derive(Debug, PartialEq)]
+pub struct ServerParams {
+    pub host: Vec<u8>,
+    pub port: i32,
+    pub username: Vec<u8>,
+    pub password: Vec<u8>,
+    pub encryption: bool,
+    pub cipher: Vec<u8>,
+    pub timeout: i32,
+    pub cert_verif_level: i32,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ServerParamsError {
+    /// "Invalid JSON"
+    Json,
+    /// "Invalid parameters"
+    Params,
+}
+
+/// TestServerXmlCommand's JSON body: Json::Deserialize, then
+/// ParseRequestParams - an object whose "params" array has at least 8
+/// entries: host, port, username, password, encryption, cipher, timeout and
+/// certVerifLevel, as value_to<std::string/int/bool> takes them (strings
+/// whole, NULs included).
+pub fn test_server_params(request: &[u8], limits: crate::json::Limits) -> Result<ServerParams, ServerParamsError> {
+    use crate::json::Value;
+    let json = crate::json::parse(request, limits).ok_or(ServerParamsError::Json)?;
+    let Some(Value::Array(params)) = json.get(b"params") else { return Err(ServerParamsError::Params) };
+    if params.len() < 8 {
+        return Err(ServerParamsError::Params);
+    }
+    let string = |v: &Value| match v {
+        Value::String(s) => Some(s.clone()),
+        _ => None,
+    };
+    let parsed = (|| Some(ServerParams {
+        host: string(&params[0])?,
+        port: params[1].to_i32()?,
+        username: string(&params[2])?,
+        password: string(&params[3])?,
+        encryption: match params[4] { Value::Bool(b) => b, _ => return None },
+        cipher: string(&params[5])?,
+        timeout: params[6].to_i32()?,
+        cert_verif_level: params[7].to_i32()?,
+    }))();
+    parsed.ok_or(ServerParamsError::Params)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

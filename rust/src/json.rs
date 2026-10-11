@@ -37,6 +37,16 @@ impl Value {
         }
     }
 
+    /// value_to<int>: an integer in int's range, or a double that is one.
+    pub fn to_i32(&self) -> Option<i32> {
+        match *self {
+            Value::Int(i) => i32::try_from(i).ok(),
+            Value::Uint(u) => i32::try_from(u).ok(),
+            Value::Double(d) => (d >= i32::MIN as f64 && d <= i32::MAX as f64 && d == (d as i32) as f64).then_some(d as i32),
+            _ => None,
+        }
+    }
+
     /// object::if_contains: the value of a key (keys are unique).
     pub fn get(&self, key: &[u8]) -> Option<&Value> {
         match self {
@@ -556,6 +566,18 @@ mod tests {
         assert_eq!(parse(b"{\"a\":1,\"b\":3,\"a\":2}"),
             Some(Value::Object(vec![(b"a".to_vec(), Value::Int(2)), (b"b".to_vec(), Value::Int(3))])));
         assert_eq!(parse(b"\"a\\u0000b\""), Some(Value::String(b"a\0b".to_vec())));
+    }
+
+    #[test]
+    fn to_i32_is_value_to_int() {
+        let i = |s: &str| parse(s.as_bytes()).unwrap().to_i32();
+        for (s, v) in [("1", Some(1)), ("-1", Some(-1)), ("2147483647", Some(i32::MAX)), ("2147483648", None),
+                       ("-2147483648", Some(i32::MIN)), ("-2147483649", None), ("1.0", Some(1)), ("1.5", None), ("1e2", Some(100)),
+                       ("1e10", None), ("-0.0", Some(0)), ("18446744073709551615", None), ("1e-300", None),
+                       ("2147483647.0", Some(i32::MAX)), ("2147483648.0", None), ("-2147483648.0", Some(i32::MIN)),
+                       ("2147483647.5", None), ("true", None), ("\"1\"", None), ("null", None), ("1e400", None)] {
+            assert_eq!(i(s), v, "{s}");
+        }
     }
 
     #[test]

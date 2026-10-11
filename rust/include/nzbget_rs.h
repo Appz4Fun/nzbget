@@ -808,6 +808,25 @@ typedef struct NzbgetRsJsonLimits
 int nzbget_rs_manifest_load(const char* text, size_t len, NzbgetRsJsonLimits limits, void* ctx,
 	void (*loaded)(void* ctx, const NzbgetRsManifest* manifest));
 
+// TestServerXmlCommand's JSON body (rust/src/rpcparams.rs with the parser
+// above): 1 when parsed, after parsed got the parameters (strings borrowed
+// for the call only, whole - NULs included - and not NUL-terminated); 0 not
+// JSON ("Invalid JSON"); -1 "Invalid parameters". NULL request is empty;
+// NULL parsed is not called. parsed must not throw; panics abort.
+typedef struct NzbgetRsTestServerParams
+{
+	NzbgetRsStr host;
+	NzbgetRsStr username;
+	NzbgetRsStr password;
+	NzbgetRsStr cipher;
+	int port;
+	int timeout;
+	int certVerifLevel;
+	int encryption;
+} NzbgetRsTestServerParams;
+int nzbget_rs_test_server_params(const char* request, NzbgetRsJsonLimits limits, void* ctx,
+	void (*parsed)(void* ctx, const NzbgetRsTestServerParams* params));
+
 #ifdef __cplusplus
 }
 #endif
