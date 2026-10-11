@@ -1114,6 +1114,25 @@ size_t nzbget_rs_posting_group(const NzbgetRsListing* listings, size_t n, size_t
 size_t nzbget_rs_posting_order(const NzbgetRsListing* listings, size_t n, int64_t pickBytes, int maxPostings,
 	size_t* indices, size_t* groupSizes, size_t* groups);
 
+// Native duplicate-discovery identity. Inputs are caller-owned; NULL is empty.
+// Inner result is size:u64 LE, extension-length:u32 LE, extension, name; empty
+// means unknown. The caller releases it with nzbget_rs_free.
+typedef struct
+{
+    uint64_t bytes;
+    const char* name;
+    size_t name_len;
+    const char* extension;
+    size_t extension_len;
+} NzbgetRsDupeIdentityInput;
+NzbgetRsBuf nzbget_rs_dupe_inner(const char* data, size_t len, const char* name, size_t nameLen,
+    uint64_t total, uint64_t minimum);
+int nzbget_rs_dupe_same_data(uint64_t aBytes, uint32_t aFiles, uint64_t bBytes, uint32_t bFiles);
+int nzbget_rs_dupe_candidate(const char* title, size_t titleLen, uint64_t bytes,
+    const char* name, size_t nameLen, uint64_t size);
+int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* mainName, size_t mainLen,
+    const NzbgetRsDupeIdentityInput* mine, const NzbgetRsDupeIdentityInput* theirs);
+
 #ifdef __cplusplus
 }
 #endif

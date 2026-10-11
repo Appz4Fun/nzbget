@@ -5947,3 +5947,64 @@ pub unsafe extern "C" fn nzbget_rs_posting_order(raw: *const NzbgetRsListing, n:
                                                  groups: *mut usize) -> usize {
     write_groups(crate::posting::order_postings(&listings(raw, n), pick_bytes, max_postings), indices, group_sizes, groups)
 }
+
+// Native duplicate-discovery identity (rust/src/dupeidentity.rs).
+#[repr(C)]
+pub struct DupeIdentityInput {
+    pub bytes: u64,
+    pub name: *const c_char,
+    pub name_len: usize,
+    pub extension: *const c_char,
+    pub extension_len: usize,
+}
+
+unsafe fn dupe_identity_input(raw: *const DupeIdentityInput) -> Option<crate::dupeidentity::Identity> {
+    if raw.is_null() { return None; }
+    let raw = &*raw;
+    if raw.bytes == 0 { return None; }
+    Some(crate::dupeidentity::Identity {
+        bytes: raw.bytes,
+        name: arg(raw.name, raw.name_len).to_vec(),
+        extension: arg(raw.extension, raw.extension_len).to_vec(),
+    })
+}
+
+/// A bounded decoded first article. Result: u64 size LE, u32 extension length LE,
+/// extension bytes, name bytes. Empty means unknown; release with nzbget_rs_free.
+/// # Safety
+/// Inputs are readable for their lengths, or NULL (empty).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_inner(data: *const c_char, len: usize, name: *const c_char,
+    name_len: usize, total: u64, minimum: u64) -> RsBuf {
+    let Some(found) = crate::dupeidentity::inner_entry(arg(data, len), arg(name, name_len), total, minimum) else {
+        return into_buf(Vec::new());
+    };
+    let mut out = found.bytes.to_le_bytes().to_vec();
+    out.extend_from_slice(&(found.extension.len() as u32).to_le_bytes());
+    out.extend_from_slice(&found.extension);
+    out.extend_from_slice(&found.name);
+    into_buf(out)
+}
+
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_same_data(a_bytes: u64, a_files: u32, b_bytes: u64, b_files: u32) -> c_int {
+    c_int::from(crate::dupeidentity::same_data(a_bytes, a_files, b_bytes, b_files))
+}
+
+/// # Safety
+/// Names are readable for their lengths, or NULL (empty).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_candidate(title: *const c_char, title_len: usize, bytes: u64,
+    name: *const c_char, name_len: usize, size: u64) -> c_int {
+    c_int::from(crate::dupeidentity::candidate_ok(arg(title, title_len), bytes, arg(name, name_len), size, 0.0, true))
+}
+
+/// # Safety
+/// Names readable for their lengths; identities NULL or valid with readable fields.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_lenient_ok(title: *const c_char, title_len: usize,
+    main_name: *const c_char, main_len: usize, mine: *const DupeIdentityInput, theirs: *const DupeIdentityInput) -> c_int {
+    let mine = dupe_identity_input(mine);
+    let theirs = dupe_identity_input(theirs);
+    c_int::from(crate::dupeidentity::lenient_ok(arg(title, title_len), arg(main_name, main_len), mine.as_ref(), theirs.as_ref()))
+}

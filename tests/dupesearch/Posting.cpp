@@ -22,7 +22,10 @@
 
 #include <boost/test/unit_test.hpp>
 #include "NzbReader.h"
+#include "DupeIdentity.h"
 #include "Posting.h"
+#include "Util.h"
+#include <stdexcept>
 
 namespace
 {
@@ -113,6 +116,162 @@ BOOST_AUTO_TEST_CASE(NzbReaderMainNameTest)
 	// only par2 files: the largest of them
 	BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "a.par2", { 5 } }, { "a.vol0+1.par2", { 50 } } }, "a"), info));
 	BOOST_CHECK_EQUAL(info.mainName, "a.vol0+1.par2");
+}
+
+BOOST_AUTO_TEST_CASE(NzbReaderNativeIdentityMetadataTest)
+{
+	NzbSummary info;
+	BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "small.nfo", { 10 } }, { "big.part1.rar", { 100, 100 } },
+		{ "rel.vol0+1.par2", { 500 } }, { "rel.par2", { 50 } } }, "identity"), info));
+	BOOST_CHECK_EQUAL(info.dataBytes, 210);
+	BOOST_CHECK_EQUAL(info.dataFiles, 2);
+	BOOST_REQUIRE_EQUAL(info.heads.size(), 2);
+	BOOST_CHECK_EQUAL(info.heads[0].name, "big.part1.rar");
+	BOOST_CHECK_EQUAL(info.heads[0].messageId, "identity-1-0@x");
+	BOOST_CHECK_EQUAL(info.heads[0].bytes, 200);
+	BOOST_CHECK_EQUAL(info.heads[1].name, "small.nfo");
+
+	// Input order is not part order, and an invalid first id is no identity source.
+	std::string xml = "<nzb><file subject='&quot;x.rar&quot;'><segments>"
+		"<segment number='2' bytes='100'>second@x</segment>"
+		"<segment number='1' bytes='100'>first@x</segment></segments></file></nzb>";
+	BOOST_REQUIRE(NzbReader::Parse(xml, info));
+	BOOST_REQUIRE_EQUAL(info.heads.size(), 1);
+	BOOST_CHECK_EQUAL(info.heads[0].messageId, "first@x");
+	BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "only.par2", { 50 } } }, "p"), info));
+	BOOST_CHECK_EQUAL(info.dataBytes, 0);
+	BOOST_CHECK_EQUAL(info.dataFiles, 0);
+	BOOST_CHECK(info.heads.empty());
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityHintTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "rel.part1.rar", { 200 } }, { "rel.par2", { 10 } } }, "pick"), pick));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "rel.part1.rar", { 200 } }, { "rel.vol1+9.par2", { 90 } } }, "donor"), donor));
+    BOOST_CHECK(DupeIdentity::SameData(pick, donor));
+    BOOST_CHECK(DupeIdentity::Hints(pick, donor, true) == (std::vector<std::string>{ "DupeSameSize=1", "DupeSameInner=1" }));
+    donor.dataFiles++;
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+    BOOST_CHECK(DupeIdentity::Hints(pick, donor, false).empty());
+#ifdef NZBGET_USE_RUST
+    std::vector<char> body{ 'v', 'i', 'd', 'e', 'o' };
+    DupeIdentity::Identity mine = DupeIdentity::FromArticle(body, "Show.S01E01.1080p.WEB.H264-GRP.mkv", 100000, 100);
+    BOOST_REQUIRE((bool)mine);
+    BOOST_CHECK_EQUAL(mine.bytes, 100000);
+    BOOST_CHECK_EQUAL(mine.extension, "mkv");
+    DupeIdentity::Identity renamed = mine;
+    renamed.name = "a8f3c9e1b7d24f60.mkv";
+    BOOST_CHECK(DupeIdentity::Matches("Show.S01E01.1080p.WEB.H264-GRP", "hash.rar", mine, renamed));
+    renamed.name = "Other.S01E01.1080p.WEB.H264-GRP.mkv";
+    BOOST_CHECK(!DupeIdentity::Matches("Show.S01E01.1080p.WEB.H264-GRP", "hash.rar", mine, renamed));
+    BOOST_CHECK(!DupeIdentity::FromArticle(body, "sample.mkv", 100000, 100));
+#endif
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityDuplicateFileGeometryTest)
+{
+    NzbSummary separate, joined;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "same.rar", { 100 } }, { "same.rar", { 100 } } }, "a"), separate));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "same.rar", { 200 } } }, "b"), joined));
+    BOOST_CHECK_EQUAL(separate.dataFiles, 2);
+    BOOST_CHECK(!DupeIdentity::SameData(separate, joined));
+    BOOST_REQUIRE_EQUAL(separate.heads.size(), 2);
+    BOOST_CHECK_NE(separate.heads[0].messageId, separate.heads[1].messageId);
+}
+
+#ifdef NZBGET_USE_RUST
+BOOST_AUTO_TEST_CASE(NativeIdentityFetchExceptionTest)
+{
+    NzbSummary info;
+    info.dataBytes = 200;
+    info.heads = { { "first.mkv", "a@x", 100 }, { "second.mkv", "b@x", 100 } };
+    int attempts = 0;
+    auto found = DupeIdentity::Read(info, Util::CurrentTime() + 10,
+        [&](const std::string&, const std::vector<CString>&) -> ArticleFetcher::FetchedArticle {
+            if (++attempts == 1) throw std::runtime_error("fake transport exception");
+            ArticleFetcher::FetchedArticle result;
+            result.Success = true;
+            result.FileSize = 1000;
+            result.Data = { 'v' };
+            return result;
+        });
+    BOOST_CHECK_EQUAL(attempts, 2);
+    BOOST_CHECK((bool)found);
+    BOOST_CHECK_EQUAL(found.bytes, 1000);
+}
+#endif
+
+BOOST_AUTO_TEST_CASE(NativeIdentityParitySuffixTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "movie.vol1+2.mkv", { 500 } } }, "d"), donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 700);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 2);
+    BOOST_CHECK_EQUAL(donor.mainName, "movie.vol1+2.mkv");
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityUnquotedParityTest)
+{
+    NzbSummary donor;
+    std::string nzb = "<nzb><file subject='ordinary.mkv yEnc (1/1)'><segments>"
+        "<segment number='1' bytes='200'>data@x</segment></segments></file>"
+        "<file subject='rel.vol001+002.PAR2 yEnc (1/20)'><segments>"
+        "<segment number='1' bytes='500'>par@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(nzb, donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 200);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 1);
+    BOOST_CHECK_EQUAL(donor.mainName, "ordinary.mkv");
+    BOOST_CHECK_EQUAL(donor.heads.size(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityInvalidIdsTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    std::string broken = "<nzb><file subject='&quot;ordinary.mkv&quot;'><segments>"
+        "<segment number='1' bytes='200'>good@x</segment></segments></file>"
+        "<file subject='&quot;extra.rar&quot;'><segments>"
+        "<segment number='1' bytes='300'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(broken, donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 0);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 0);
+    BOOST_CHECK(donor.heads.empty());
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+    // A malformed segment inside an otherwise valid file also makes its geometry unknown.
+    broken = "<nzb><file subject='&quot;ordinary.mkv&quot;'><segments>"
+        "<segment number='1' bytes='200'>good@x</segment>"
+        "<segment number='2' bytes='300'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(broken, donor));
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+    BOOST_CHECK(donor.heads.empty());
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityEmptyDataFileTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "empty.rar", {} } }, "d"), donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 0);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 0);
+    BOOST_CHECK(donor.heads.empty());
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityParityGeometryIndependenceTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    for (int parityBytes : { 0, -10 })
+    {
+        BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "extra.PAR2", { parityBytes } } }, "d"), donor));
+        BOOST_CHECK_EQUAL(donor.dataBytes, 200);
+        BOOST_CHECK_EQUAL(donor.dataFiles, 1);
+        BOOST_CHECK_EQUAL(donor.heads.size(), 1);
+        BOOST_CHECK(DupeIdentity::SameData(pick, donor));
+    }
 }
 
 BOOST_AUTO_TEST_CASE(NzbReaderRejectsBadNzbTest)

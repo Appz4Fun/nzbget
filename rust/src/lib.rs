@@ -45,3 +45,5 @@ pub mod releasename;
 pub mod posting;
 pub mod twin;
 pub mod wildmask;
+
+pub mod dupeidentity;

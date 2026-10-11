@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <regex>
+#include <limits>
 #include "NzbReader.h"
 #include "XmlReader.h"
 
@@ -45,6 +46,14 @@ std::string NameOfSubject(const std::string& subject)
 			return Trim(subject.substr(open + 1, close - open - 1));
 		}
 	}
+    // Standard unquoted yEnc subjects decorate the filename with a part count.
+    // Strip only that terminal decoration, so volume-like media names stay data.
+    static const std::regex tail(R"(\s+yEnc(?:\s+\([0-9]+/[0-9]+\))?\s*$)", std::regex::icase);
+    std::smatch match;
+    if (std::regex_search(subject, match, tail))
+    {
+        return Trim(subject.substr(0, (size_t)match.position()));
+    }
 	return Trim(subject);
 }
 
@@ -68,9 +77,7 @@ bool ValidMessageId(const std::string& id)
 
 bool IsParName(const std::string& name)
 {
-	static const std::regex regex("\\.par2$|\\.vol\\d+[+-]\\d+", std::regex::icase);
-	// the end is what counts; a subject of any length isn't run through a regex
-	return std::regex_search(name.size() > 512 ? name.substr(name.size() - 512) : name, regex);
+	return name.size() >= 5 && Lower(name.substr(name.size() - 5)) == ".par2";
 }
 
 class Reader : public XmlReader::Handler
@@ -92,10 +99,13 @@ public:
 				poster = XmlReader::Attr(attrs, "poster");
 			}
 			m_name = NameOfSubject(XmlReader::Attr(attrs, "subject"));
+			m_fileBytes = 0;
+			m_firstId.clear();
 		}
 		else if (name == "segment" && m_inFile)
 		{
 			m_segmentBytes = atoll(XmlReader::Attr(attrs, "bytes").c_str());
+			m_segmentNumber = atoll(XmlReader::Attr(attrs, "number").c_str());
 			m_inSegment = true;
 		}
 	}
@@ -117,7 +127,14 @@ public:
 			{
 				sizes[m_name] += m_segmentBytes;
 				ids.insert(id);
+				if (m_segmentBytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - m_segmentBytes)
+				{
+					m_fileBytes += m_segmentBytes;
+				}
+				else if (!IsParName(m_name)) geometryValid = false;
+				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
 			}
+			else if (!IsParName(m_name)) geometryValid = false;
 			m_inSegment = false;
 		}
 		else if (name == "group" && m_inFile)
@@ -130,6 +147,14 @@ public:
 		}
 		else if (name == "file")
 		{
+			if (!IsParName(m_name) && m_fileBytes > 0)
+			{
+				dataFiles++;
+				if (dataBytes <= std::numeric_limits<long long>::max() - m_fileBytes) dataBytes += m_fileBytes;
+				else geometryValid = false;
+				if (!m_firstId.empty()) heads.push_back({ m_name, m_firstId, m_fileBytes });
+			}
+			else if (!IsParName(m_name)) geometryValid = false;
 			m_inFile = false;
 		}
 		m_text.clear();
@@ -143,6 +168,10 @@ public:
 	int files = 0;
 	std::string poster;
 	std::map<std::string, long long> sizes;
+	std::vector<NzbSummary::Head> heads;
+	long long dataBytes = 0;
+	int dataFiles = 0;
+	bool geometryValid = true;
 	std::set<std::string> ids;
 	std::set<std::string> groups;
 	std::map<std::string, std::string> meta;
@@ -152,6 +181,9 @@ private:
 	std::string m_metaType;
 	std::string m_name;
 	long long m_segmentBytes = 0;
+	long long m_segmentNumber = 0;
+	long long m_fileBytes = 0;
+	std::string m_firstId;
 	bool m_inFile = false;
 	bool m_inSegment = false;
 };
@@ -210,5 +242,14 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
 		}
 	}
 	summary.mainName = mainSize >= 0 ? mainName : anyName;
+	if (reader.geometryValid)
+	{
+		summary.dataBytes = reader.dataBytes;
+		summary.dataFiles = reader.dataFiles;
+		summary.heads = std::move(reader.heads);
+	}
+	std::stable_sort(summary.heads.begin(), summary.heads.end(),
+		[](const NzbSummary::Head& a, const NzbSummary::Head& b) { return a.bytes > b.bytes; });
+	if (summary.heads.size() > 3) summary.heads.resize(3);
 	return true;
 }
