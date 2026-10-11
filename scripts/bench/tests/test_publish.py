@@ -124,6 +124,7 @@ class PublisherTests(unittest.TestCase):
                     "build": [{"name": "cmake", "sha256": "6" * 64, "argv_sha256": "8" * 64}],
                     "time": [{"name": "prebuilt-caller", "sha256": "7" * 64, "argv_sha256": "9" * 64}]},
                 "runner": {"implementation_sha256": "e" * 64, "build_jobs": 3,
+                           "lock_scope": "worker_default",
                            "build_locks": ["i7-heavy.lock:exclusive", "nzbget-rust-benchmark.lock:shared"],
                            "time_locks": ["nzbget-rust-benchmark.lock:exclusive"], "time_prebuilt": True}}
 
@@ -135,6 +136,16 @@ class PublisherTests(unittest.TestCase):
                        lambda r: r["runner"].update(time_prebuilt=False), lambda r: r["input_hashes"].update(caller="f" * 64)):
             receipt = self.receipt()
             mutate(receipt)
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+
+    def test_lock_namespace_provenance_requires_canonical_worker_scope(self):
+        self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])
+        for scope in (None, "test_override", "custom", []):
+            receipt = self.receipt()
+            if scope is None:
+                receipt["runner"].pop("lock_scope")
+            else:
+                receipt["runner"]["lock_scope"] = scope
             self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
 
     def test_malformed_nested_receipt_shapes_hold_without_traceback(self):

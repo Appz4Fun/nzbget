@@ -257,6 +257,7 @@ def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
     check(isinstance(runner, dict), "missing runner provenance")
     if isinstance(runner, dict):
         check(digest(runner.get("implementation_sha256")), "missing runner implementation hash")
+        check(runner.get("lock_scope") == "worker_default", "runner locks are not the canonical worker namespace")
         check(type(runner.get("build_jobs")) is int and 1 <= runner["build_jobs"] <= 3, "runner build jobs exceed contract")
         check(runner.get("build_locks") == ["i7-heavy.lock:exclusive", "nzbget-rust-benchmark.lock:shared"] and runner.get("time_locks") == ["nzbget-rust-benchmark.lock:exclusive"] and runner.get("time_prebuilt") is True, "runner lock or prebuilt timing provenance differs")
     # If the manifest independently records a receipt-controlled digest, bind it.
