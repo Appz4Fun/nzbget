@@ -14,6 +14,10 @@ rust-par2 = { git = "https://github.com/TheDancingDeveloper-org/Rust-PAR2", rev 
 quick-xml = { version = "0.41", features = ["encoding"] }
 md-5 = "0.11"
 
+[[bench]]
+name = "ports"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
