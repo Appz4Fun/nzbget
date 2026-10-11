@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -77,12 +78,13 @@ def controlled_manifest(scope="complete_caller"):
         "testbed": "synthetic-contract-test-no-performance-claim",
         "toolchain": {"compiler": "controlled fixture", "flags": "none"},
         "fixtures": [{"id": "controlled/caller", "sha256": INPUT_DIGEST,
-                      "scope": scope, "role": "changed", "required_variants": list(VARIANTS)}],
+                      "scope": scope, "role": "changed", "required_variants": list(VARIANTS),
+                      "rust_preservation_applicability": "required"}],
         "comparison": {"baseline": "cpp_optimized", "candidate": "rust_candidate"},
     }
 
 
-def controlled_rows(candidate_ns=800, processes=8, rounds=10, case="controlled/caller"):
+def controlled_rows(candidate_ns=800, processes=8, rounds=10, case="controlled/caller", variants=VARIANTS):
     """Literal controls; alternate positions without simulating measured clocks."""
     rows = []
     for process in range(processes):
@@ -93,6 +95,7 @@ def controlled_rows(candidate_ns=800, processes=8, rounds=10, case="controlled/c
             order = ("cpp_optimized", "cpp_current", "rust_current", "rust_candidate")
             if round_ % 2:
                 order = tuple(reversed(order))
+            order = tuple(variant for variant in order if variant in variants)
             for position, variant in enumerate(order):
                 rows.append({"case": case, "variant": variant,
                              "process": process, "round": round_, "order": position,
@@ -123,12 +126,12 @@ class PipelineContractTests(unittest.TestCase):
                          "The shared CLI must preserve immutable raw inputs")
         return result
 
-    def invoke_summary(self, manifest, samples, output):
+    def invoke_summary(self, manifest, samples, output, timeout=30):
         script = ROOT / "scripts/bench/summarize.py"
         self.assertTrue(script.is_file(), f"Shared CLI dependency missing: {script}")
         return subprocess.run([sys.executable, str(script), "--manifest", str(manifest),
                                "--samples", str(samples), "--output-dir", str(output)],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=timeout)
 
     def valid(self, status, **kwargs):
         result = self.summarize(**kwargs)
@@ -191,6 +194,47 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(preservation["status"], "PASS")
         self.assertAlmostEqual(preservation["ratio"]["upper"], 1.0)
         self.assertEqual(outputs["qualification.json"]["cases"][0]["rust_preservation"]["status"], "PASS")
+
+    def test_non_cpp_selected_baseline_remains_diagnostic_hold(self):
+        latencies = {"cpp_current": 1000, "cpp_optimized": 1000,
+                     "rust_current": 2000, "rust_candidate": 1500}
+        for scope in ("complete_caller", "kernel"):
+            with self.subTest(scope=scope):
+                manifest = controlled_manifest(scope=scope)
+                manifest["comparison"]["baseline"] = "rust_current"
+                rows = controlled_rows()
+                for row in rows:
+                    row["elapsed_ns"] = latencies[row["variant"]] * 100
+                outputs = self.valid("HOLD", manifest=manifest, rows=rows)
+                case = outputs["summary.json"]["cases"][0]
+                self.assertAlmostEqual(case["ratio"]["estimate"], 0.75)
+                self.assertEqual(case["raw_count"], 320)
+                self.assertEqual(set(case["variants"]), set(VARIANTS))
+
+    def test_missing_rust_applicability_decision_is_hold(self):
+        manifest = controlled_manifest()
+        del manifest["fixtures"][0]["rust_preservation_applicability"]
+        self.valid("HOLD", manifest=manifest)
+
+    def test_required_current_rust_without_declared_baseline_is_hold(self):
+        manifest = controlled_manifest()
+        variants = [variant for variant in VARIANTS if variant != "rust_current"]
+        manifest["fixtures"][0]["required_variants"] = variants
+        self.valid("HOLD", manifest=manifest, rows=controlled_rows(variants=variants))
+
+    def test_explicit_first_port_applicability_is_numerically_eligible(self):
+        manifest = controlled_manifest()
+        variants = [variant for variant in VARIANTS if variant != "rust_current"]
+        manifest["fixtures"][0].update(required_variants=variants,
+            rust_preservation_applicability="not_applicable", provenance={
+                "rust_preservation_rationale": "Synthetic first-port fixture has C++ controls and a first Rust candidate; no current Rust control exists."})
+        self.valid("PASS", manifest=manifest, rows=controlled_rows(variants=variants))
+
+    def test_not_applicable_with_declared_current_rust_is_rejected(self):
+        manifest = controlled_manifest()
+        manifest["fixtures"][0].update(rust_preservation_applicability="not_applicable", provenance={
+            "rust_preservation_rationale": "This controlled assertion contradicts the declared current Rust control."})
+        self.invalid(manifest=manifest)
 
     def test_optimized_cpp_tie_is_hold_despite_preserved_current_rust(self):
         rows = controlled_rows(candidate_ns=1000)
@@ -378,6 +422,66 @@ class PipelineContractTests(unittest.TestCase):
                     self.assertEqual(before, (manifest.read_bytes(), samples.read_bytes()))
                     self.assertEqual(marker.read_bytes(), b'{"status":"PASS"}',
                                      "Alias rejection must precede generated-artifact cleanup")
+
+    def test_input_symlink_target_intermediate_entry_survives_rejection(self):
+        for input_kind in ("manifest", "samples"):
+            with self.subTest(input_kind=input_kind):
+                case = self.work / f"target-intermediate-{input_kind}"
+                case.mkdir()
+                output = case / "out"
+                output.mkdir()
+                originals = case / "originals"
+                originals.mkdir()
+                raw = json.dumps(controlled_manifest()).encode() if input_kind == "manifest" else b"not-json\n"
+                original = originals / ("manifest.json" if input_kind == "manifest" else "samples.jsonl")
+                original.write_bytes(raw)
+                intermediate = output / "summary.json"
+                intermediate.symlink_to(originals, target_is_directory=True)
+                outer = case / "outer-input"
+                outer.symlink_to(intermediate / original.name)
+                other = case / "other-input"
+                other_raw = b"not-json\n" if input_kind == "manifest" else json.dumps(controlled_manifest()).encode()
+                other.write_bytes(other_raw)
+                marker = output / "qualification.json"
+                marker.write_bytes(b'{"status":"PASS"}')
+                original_entries = [(path, path.lstat().st_ino, path.readlink()) for path in (outer, intermediate)]
+                result = self.invoke_summary(outer if input_kind == "manifest" else other,
+                                             outer if input_kind == "samples" else other, output)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                for path, inode, target in original_entries:
+                    self.assertTrue(path.is_symlink(), "Rejected proof deleted a traversed symlink target entry")
+                    self.assertEqual(path.lstat().st_ino, inode)
+                    self.assertEqual(path.readlink(), target)
+                self.assertEqual(original.read_bytes(), raw)
+                self.assertEqual(other.read_bytes(), other_raw)
+                self.assertEqual(marker.read_bytes(), b'{"status":"PASS"}')
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO input contract requires POSIX")
+    def test_fifo_input_is_rejected_without_blocking_or_mutation(self):
+        for input_kind in ("manifest", "samples"):
+            with self.subTest(input_kind=input_kind):
+                case = self.work / f"fifo-{input_kind}"
+                case.mkdir()
+                manifest = case / "manifest.json"
+                samples = case / "samples.jsonl"
+                manifest.write_bytes(json.dumps(controlled_manifest()).encode())
+                samples.write_bytes(b"")
+                fifo = manifest if input_kind == "manifest" else samples
+                other = samples if input_kind == "manifest" else manifest
+                other_raw = other.read_bytes()
+                fifo.unlink()
+                os.mkfifo(fifo)
+                inode = fifo.lstat().st_ino
+                output = case / "out"
+                try:
+                    result = self.invoke_summary(manifest, samples, output, timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.fail("Non-regular FIFO input blocked the shared CLI")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertTrue(stat.S_ISFIFO(fifo.lstat().st_mode))
+                self.assertEqual(fifo.lstat().st_ino, inode)
+                self.assertEqual(other.read_bytes(), other_raw)
+                self.assertFalse(any((output / name).exists() for name in ARTIFACTS))
 
 
 class PublisherIdentityContractTests(unittest.TestCase):
