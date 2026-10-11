@@ -175,8 +175,9 @@ void WebProcessor::Execute()
 #ifdef NZBGET_USE_RUST
 void WebProcessor::ParseHeaders()
 {
-	// rust/src/webserver.rs decides what each line means
-	char buffer[1024];
+	// Keep the entire initialized buffer: in unusual locales strncasecmp can
+	// match at an early NUL, but C++ still reads values at fixed offsets.
+	char buffer[1024]{};
 	m_contentLen = 0;
 	while (char* p = m_connection->ReadLine(buffer, sizeof(buffer), nullptr))
 	{
@@ -185,7 +186,7 @@ void WebProcessor::ParseHeaders()
 
 		size_t start = 0, len = 0;
 		int number = 0;
-		int kind = nzbget_rs_web_header(p, strlen(p), Util::EmptyStr(m_authInfo), &start, &len, &number);
+		int kind = nzbget_rs_web_header(p, sizeof(buffer), Util::EmptyStr(m_authInfo), &start, &len, &number);
 		std::string value(p + start, len);
 		switch (kind)
 		{

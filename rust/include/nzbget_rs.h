@@ -268,6 +268,9 @@ NzbgetRsBuf nzbget_rs_collection_name(int op, const char* a, size_t aLen, const 
 // 0 other, 1 Content-Length (number), 2 credentials (value), 3 credentials
 // too long, 4 Accept-Encoding (number: gzip), 5 Origin, 6 Auth-Token cookie,
 // 7 X-Forwarded-For, 8 If-None-Match, 9 keep-alive, 10 end of headers
+// line is NULL (empty) or len initialized bytes. Tests stop at its first NUL;
+// a locale-induced early match still reads the value at its fixed offset,
+// bounded by len. Outputs may be NULL and must not alias the input.
 int nzbget_rs_web_header(const char* line, size_t len, int authInfoEmpty,
 	size_t* valueStart, size_t* valueLen, int* number);
 // NULL URL means empty; embedded NUL ends the URL. Outputs may be NULL.
