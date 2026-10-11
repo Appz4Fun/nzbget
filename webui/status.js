@@ -774,6 +774,9 @@ var StatDialog = (new function($)
 
 		Util.show('#StatDialog_ArticleCache_Row', status.ArticleCacheMB > 0 || status.ArticleCacheLo > 0);
 		Util.show('#StatDialog_QueueScripts_Row', status.QueueScriptCount > 0);
+		// The optional scripts row is last in the DOM; Threads owns the bottom
+		// edge when it is hidden. Keep this compatible with Firefox 115.
+		$StatDialog_DataThreads.parent().toggleClass('table-last-visible', !(status.QueueScriptCount > 0));
 
 		var content = '';
 		var label = function(key, type) {

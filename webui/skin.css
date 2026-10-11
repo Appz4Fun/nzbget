@@ -1470,3 +1470,587 @@ tr.checked:nth-child(odd) .progress-block .progress {
 	box-shadow: inset 0 0 0 1px var(--separator);
 	color: var(--label-primary);
 }
+
+/* ---------- Section toolbars ---------- */
+/* The button rows above the tables: one wrapping row with even gaps. */
+
+.section-toolbar.btn-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-3);
+}
+
+.section-toolbar.btn-toolbar::before,
+.section-toolbar.btn-toolbar::after {
+	display: none;
+}
+
+.section-toolbar.btn-toolbar > .btn-group,
+.section-toolbar.btn-toolbar > .btn-group + .btn-group {
+	margin: 0;
+}
+
+.section-toolbar.btn-toolbar > .btn-group.phone-only {
+	display: none;
+}
+
+.phone .section-toolbar.btn-toolbar > .btn-group.phone-only {
+	display: inline-flex;
+}
+
+/* ---------- Table controls: records per page, pager, record count ---------- */
+
+.toolbox-top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-2);
+}
+
+.toolbox-top::before,
+.toolbox-top::after {
+	display: none;
+}
+
+.toolbox-top > .pull-left,
+.toolbox-top > .pull-right {
+	float: none;
+}
+
+.toolbox-length {
+	display: inline-flex;
+	align-items: center;
+}
+
+/* index.js re-appends this block after the pager when leaving phone layout */
+.toolbox-top > .toolbox-length {
+	order: -1;
+}
+
+/* only inside the flex rows, which space with gap; modal toolboxes keep
+   style.css's 10px */
+.toolbox-top div.btn-group + div.toolbox-length,
+.section-toolbar div.btn-group + div.toolbox-length {
+	margin-left: 0;
+}
+
+div.toolbox-length select {
+	width: auto;
+	height: var(--size-control-md);
+	margin: 0;
+	padding: 0 26px 0 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background-color: var(--fill-tertiary);
+	background-image:
+		linear-gradient(45deg, transparent 50%, var(--label-secondary) 50%),
+		linear-gradient(135deg, var(--label-secondary) 50%, transparent 50%);
+	background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%;
+	background-size: 4px 4px;
+	background-repeat: no-repeat;
+	box-shadow: inset 0 0 0 1px var(--separator);
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+div.toolbox-length select:hover {
+	background-color: var(--fill-secondary);
+}
+
+div.toolbox-length select:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
+
+.records-label {
+	padding: 0 0 0 var(--space-2);
+	color: var(--label-secondary);
+	font-size: 12px;
+}
+
+.toolbox-info {
+	margin: var(--space-2) 0 0;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 14px;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+.toolbox-info::before,
+.toolbox-info::after {
+	display: none;
+}
+
+/* the pager: a quiet track of mono page numbers, the current page in accent */
+.pagination {
+	height: auto;
+	margin: 0;
+}
+
+.pagination ul,
+.pagination[id] {
+	display: inline-flex;
+	gap: 2px;
+	margin: 0;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--fill-tertiary);
+	box-shadow: inset 0 0 0 1px var(--separator);
+}
+
+.pagination ul > li > a,
+.pagination > li > a,
+.pagination ul > li > span,
+.pagination > li > span {
+	float: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 26px;
+	height: calc(var(--size-control-md) - 4px);
+	box-sizing: border-box;
+	padding: 0 var(--space-2);
+	border: 0;
+	border-radius: var(--radius-xs);
+	background: transparent;
+	color: var(--label-primary);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	text-decoration: none;
+}
+
+.pagination ul > li > a:hover,
+.pagination > li > a:hover {
+	background: var(--fill-secondary);
+	color: var(--label-primary);
+}
+
+.pagination ul > .active > a,
+.pagination > .active > a,
+.pagination ul > .active > a:hover,
+.pagination > .active > a:hover,
+.pagination ul > .active > span,
+.pagination > .active > span {
+	background: var(--accent-fill);
+	color: var(--on-accent);
+	font-weight: 600;
+	cursor: default;
+}
+
+.pagination ul > .disabled > a,
+.pagination > .disabled > a,
+.pagination ul > .disabled > a:hover,
+.pagination > .disabled > a:hover,
+.pagination ul > .disabled > span,
+.pagination > .disabled > span {
+	background: transparent;
+	color: var(--label-tertiary);
+	cursor: default;
+}
+
+.pagination ul > li:first-child > a,
+.pagination > li:first-child > a,
+.pagination ul > li:last-child > a,
+.pagination > li:last-child > a {
+	border-radius: var(--radius-xs);
+}
+
+/* ---------- Tables ---------- */
+/* Hairline rows on the content surface; data tables sit on a rounded card.
+   No vertical rules or zebra stripes, a quiet hover, accent-soft selection. */
+
+.table {
+	color: var(--label-primary);
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.table th,
+.table td,
+.table-bordered th,
+.table-bordered td,
+.table-bordered:not(.table-fixed) th,
+.table-bordered:not(.table-fixed) td {
+	border-top: 0;
+	border-left: 0;
+	border-bottom: 1px solid var(--separator);
+	background-color: transparent;
+}
+
+.table th,
+.table td {
+	padding: 6px var(--space-3);
+}
+
+.table-condensed th,
+.table-condensed td {
+	padding: 3px var(--space-2);
+}
+
+/* The inner div owns the dropdown's padding and click target. */
+.table > tbody > tr > td.dropdown-cell {
+	padding: 0;
+}
+
+.table > tbody > tr > td.dropafter-cell {
+	padding-left: 0;
+}
+
+.table tbody tr:last-child > td,
+.table tbody tr:last-child > th,
+.table > tbody > tr.table-last-visible > td,
+.table > tbody > tr.table-last-visible > th {
+	border-bottom: 0;
+}
+
+.table-bordered,
+.modal .table-bordered {
+	border: 0;
+	border-radius: var(--radius-lg);
+	background: var(--bg-content);
+	box-shadow: var(--shadow-card), inset 0 0 0 1px var(--separator);
+}
+
+/* round the corner cells too, so a hovered or selected row stays inside the card */
+.table-bordered > thead:first-child > tr:first-child > th:first-child,
+.table-bordered > tbody:first-child > tr:first-child > td:first-child,
+.table-bordered > tbody:first-child > tr:first-child > th:first-child {
+	border-top-left-radius: var(--radius-lg);
+}
+
+.table-bordered > thead:first-child > tr:first-child > th:last-child,
+.table-bordered > tbody:first-child > tr:first-child > td:last-child,
+.table-bordered > tbody:first-child > tr:first-child > th:last-child {
+	border-top-right-radius: var(--radius-lg);
+}
+
+.table-bordered > tbody:last-child > tr:last-child > td:first-child,
+.table-bordered > tbody:last-child > tr:last-child > th:first-child,
+.table-bordered > tbody > tr.table-last-visible > td:first-child,
+.table-bordered > tbody > tr.table-last-visible > th:first-child {
+	border-bottom-left-radius: var(--radius-lg);
+}
+
+.table-bordered > tbody:last-child > tr:last-child > td:last-child,
+.table-bordered > tbody:last-child > tr:last-child > th:last-child,
+.table-bordered > tbody > tr.table-last-visible > td:last-child,
+.table-bordered > tbody > tr.table-last-visible > th:last-child {
+	border-bottom-right-radius: var(--radius-lg);
+}
+
+.table thead th {
+	height: 34px;
+	box-sizing: border-box;
+	color: var(--label-secondary);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 14px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+
+.table thead th a,
+.table thead th a:hover {
+	color: inherit;
+	text-decoration: none;
+}
+
+.table thead th a:hover {
+	color: var(--label-primary);
+}
+
+#DownloadsTable th a::after {
+	opacity: 0.5;
+}
+
+/* stripes off; a quiet hover */
+.table-striped tbody tr:nth-child(odd) td,
+.table-striped tbody tr:nth-child(odd) th,
+.table-striped tbody tr:nth-child(odd) {
+	background-color: transparent;
+}
+
+/* The cells own hover tint; legacy themes must not paint beneath them. */
+.table tbody tr:hover {
+	background-color: transparent;
+}
+
+.table > tbody > tr:hover > td,
+.table > tbody > tr:hover > th,
+.table-hover > tbody > tr:hover > td,
+.table > tbody > tr > td:hover {
+	background-color: var(--fill-quaternary);
+}
+
+.table a,
+.table a:hover {
+	color: inherit;
+}
+
+.table tbody a:hover {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+/* selected rows: the cells carry the tint (outranking the cell reset above);
+   the row itself stays clear, since the old themes colour tr.checked and the
+   header row takes that class when every row is selected */
+.table tr.checked,
+.table tr.checked:nth-child(odd),
+.table tr.checked:nth-child(even),
+.table tbody tr.checked:hover,
+.table.check-simple tbody tr.checked:hover {
+	background-color: transparent;
+}
+
+.table tbody tr.checked td,
+.table tbody tr.checked:hover td,
+.table-striped tbody tr.checked:nth-child(odd) td {
+	background-color: var(--accent-soft);
+}
+
+/* simple check lists show the state in the checkbox only */
+.table.check-simple tbody tr.checked td,
+.table-striped.check-simple tbody tr.checked:nth-child(odd) td {
+	background-color: transparent;
+}
+
+.table.check-simple tbody tr.checked:hover td {
+	background-color: var(--fill-quaternary);
+}
+
+/* "N records selected" bar under the header */
+.table > thead > tr > th.table-selector {
+	height: auto;
+	padding: 4px var(--space-3);
+	background: var(--accent-soft);
+	color: var(--accent);
+	font-size: 10.5px;
+	line-height: 14px;
+	text-align: center;
+	text-shadow: none;
+}
+
+/* checkboxes: drawn in CSS instead of the old sprite */
+div.check,
+div.check.img-check,
+table.table-cancheck tr div.img-check,
+table.table-cancheck tr.checked div.img-check,
+table.table-cancheck tr.checkremove div.img-check {
+	position: relative;
+	width: 14px;
+	height: 14px;
+	box-sizing: border-box;
+	margin: 0;
+	border: 0;
+	border-radius: 4px;
+	background: var(--fill-tertiary);
+	background-image: none;
+	box-shadow: inset 0 0 0 1px var(--control-border);
+	cursor: pointer;
+}
+
+div.check:hover {
+	border: 0;
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+table.table-cancheck tr.checked div.img-check,
+table.table-cancheck tr.checkremove div.img-check {
+	background: var(--accent-fill);
+	box-shadow: none;
+}
+
+table.table-cancheck tr.checked div.img-check::after {
+	content: "";
+	position: absolute;
+	left: 4.5px;
+	top: 1.5px;
+	width: 4px;
+	height: 8px;
+	border: solid var(--on-accent);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+table.table-cancheck tr.checkremove div.img-check::after {
+	content: "";
+	position: absolute;
+	left: 3px;
+	top: 6px;
+	width: 8px;
+	height: 2px;
+	border-radius: 1px;
+	background: var(--on-accent);
+}
+
+table.table-check > thead > tr > th:first-child,
+table.table-check > tbody > tr > td:first-child {
+	width: 14px;
+	padding-right: 0;
+	padding-left: var(--space-3);
+}
+
+/* drag and drop in the queue */
+table.table-drag > tbody > tr:hover > td:first-child,
+#TableDragBox table.table-drag > tbody > tr > td:first-child {
+	background-image: radial-gradient(circle, var(--label-tertiary) 1px, transparent 1.5px);
+	background-position: 3px 50%;
+	background-size: 4px 4px;
+	background-repeat: repeat-y;
+}
+
+#TableDragBox .table-bordered {
+	border-radius: var(--radius-md);
+	background: var(--bg-elevated);
+	box-shadow: none;
+}
+
+tr.drag-source > td {
+	background-color: var(--fill-quaternary) !important;
+	color: transparent !important;
+}
+
+.table-striped > tbody > tr.drag-finish > td,
+.table-striped > tbody > tr.drag-finish > th {
+	background-color: var(--green-soft) !important;
+}
+
+/* The cell is the flash layer; nested links and tracks must not tint again. */
+.table-striped tbody tr.drag-finish .progress,
+.table-striped tbody tr.drag-finish td a {
+	background-color: transparent !important;
+}
+
+body.dragover {
+	background-color: var(--bg-window);
+	background-image: linear-gradient(var(--accent-soft), var(--accent-soft));
+}
+
+/* Phone tables lose their bordered card class; retain one opaque backing. */
+body.dragover .table {
+	background-color: var(--bg-content);
+}
+
+/* Cards are opaque, so tint every cell instead of relying on the body tint. */
+body.dragover .table > tbody > tr > td,
+body.dragover .table > tbody > tr > th {
+	background-color: var(--accent-soft) !important;
+}
+
+/* phone: each row is a block; hairlines between rows, bigger checkboxes */
+.phone table.datatable > tbody > tr > td {
+	border-bottom: 0;
+}
+
+.phone table.datatable > tbody > tr > td:first-child {
+	border-top: 1px solid var(--separator);
+}
+
+.phone table.datatable > tbody > tr:first-child > td:first-child {
+	border-top: 0;
+}
+
+.phone table.datatable > tbody > tr:last-child > td:last-child {
+	border-bottom: 0;
+}
+
+.phone table.datatable > tbody > tr > td:first-child {
+	padding-top: var(--space-3);
+}
+
+.phone table.datatable > tbody > tr > td:last-child {
+	padding-bottom: var(--space-3);
+}
+
+.phone table.table-check > tbody > tr > td {
+	padding-left: 56px;
+}
+
+/* on phones the first cell carries the whole row, not just the checkbox */
+.phone table.table-check > tbody > tr > td:first-child {
+	width: auto;
+	padding-right: var(--space-3);
+}
+
+.phone div.check,
+.phone table.table-cancheck tr div.img-check,
+.phone table.table-cancheck tr.checked div.img-check {
+	position: absolute;
+	width: 28px;
+	height: 28px;
+	margin: 0 0 0 -44px;
+	border-radius: var(--radius-sm);
+}
+
+.phone table.table-cancheck tr.checked div.img-check::after {
+	left: 10px;
+	top: 4px;
+	width: 6px;
+	height: 13px;
+	border-width: 0 3px 3px 0;
+}
+
+.phone .toolbox-top {
+	justify-content: center;
+}
+
+.phone div.toolbox-length select {
+	height: var(--size-control-lg);
+	font-size: 14px;
+}
+
+.phone .pagination {
+	width: auto;
+	margin-top: 0;
+}
+
+.phone .pagination ul > li > a,
+.phone .pagination > li > a {
+	min-width: 34px;
+	height: calc(var(--size-control-lg) - 4px);
+	padding: 0 var(--space-3);
+	font-size: 13px;
+	line-height: 1;
+}
+
+.phone .toolbox-info {
+	text-align: center;
+}
+
+/* nested borderless tables (feed filter help) keep no rules */
+.table .table-nonbordered td,
+.table .table-nonbordered th,
+.table-nonbordered td,
+.table-nonbordered th {
+	border: 0;
+}
+
+/* Legacy hover rules also reach nested help tables: avoid a second tint. */
+.table tbody .table-nonbordered tr > td,
+.table tbody .table-nonbordered tr > th {
+	background-color: transparent;
+}
+
+/* the drag box itself: the old themes give it a square bordered grey shell */
+#TableDragBox {
+	border: 0;
+	border-radius: var(--radius-md);
+	background-color: var(--bg-elevated);
+	box-shadow: var(--shadow-popover);
+}
