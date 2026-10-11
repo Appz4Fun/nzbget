@@ -122,7 +122,7 @@
 		<div class="container-fluid navbar-container" id="NavbarContainer">
 
 			<!-- LOGO -->
-			<div id="Logo" onclick="$('#DownloadsTabLink').click()"><i class="img-logo"></i></div>
+			<div id="Logo" onclick="$('#DownloadsTabLink').click()"><img class="nzb-logo-icon" src="img/nzbget-icon-dark.svg" alt="" width="32" height="32"><span class="nzb-logo-name">NZBGet</span></div>
 
 			<!-- PLAY/PAUSE-BUTTON -->
 			<div id="PlayBlock">
@@ -266,13 +266,14 @@
 			<!-- TABS -->
 			<div class="nav" id="NavLinks">
 				<ul class="nav">
-					<li class="active"><a data-toggle="tab" href="#DownloadsTab" id="DownloadsTabLink"><span class="phone-hide" data-i18n-title="tab_downloads_title" data-i18n-title-arg-1="[Shift+D]" data-i18n="tab_downloads"></span> <i class="material-icon phone-only inline">download</i><br class="phone-only"><span class="badge" id="DownloadsTabBadge" style="display: none;"></span><span class="badge badge-empty" id="DownloadsTabBadgeEmpty">&nbsp;</span></a></li>
-					<li><a data-toggle="tab" href="#HistoryTab" id="HistoryTabLink"><span class="phone-hide" data-i18n-title="tab_history_title" data-i18n-title-arg-1="[Shift+H]" data-i18n="tab_history"></span> <i class="material-icon phone-only inline">calendar_today</i><br class="phone-only"><span class="badge" id="HistoryTabBadge" style="display: none;"></span><span class="badge badge-empty" id="HistoryTabBadgeEmpty">&nbsp;</span></a></li>
-					<li><a data-toggle="tab" href="#StatisticsTab" id="StatisticsTabLink"><span class="phone-hide" data-i18n-title="tab_statistics_title" data-i18n-title-arg-1="[Shift+I]" data-i18n="tab_statistics"></span> <i class="material-icon phone-only inline">analytics</i><br class="phone-only"><span class="badge" id="StatisticsTabBadge" style="display: none;"></span><span class="phone-only"><span class="badge badge-empty" id="StatisticsTabBadgeEmpty">&nbsp;</span></span></a></li>
-					<li><a data-toggle="tab" href="#MessagesTab" id="MessagesTabLink"><span class="phone-hide" data-i18n-title="tab_messages_title" data-i18n-title-arg-1="[Shift+M]" data-i18n="tab_messages"></span> <i class="material-icon phone-only inline">mail</i><br class="phone-only"><span class="badge" id="MessagesTabBadge" style="display: none;"></span><span class="badge badge-empty" id="MessagesTabBadgeEmpty">&nbsp;</span></a></li>
+					<li class="active"><a data-toggle="tab" href="#DownloadsTab" id="DownloadsTabLink"><kbd class="ng-kbd nav-kbd phone-hide">D</kbd><span class="phone-hide" data-i18n-title="tab_downloads_title" data-i18n-title-arg-1="[Shift+D]" data-i18n="tab_downloads"></span> <i class="material-icon phone-only inline">download</i><br class="phone-only"><span class="badge" id="DownloadsTabBadge" style="display: none;"></span><span class="badge badge-empty" id="DownloadsTabBadgeEmpty">&nbsp;</span></a></li>
+					<li><a data-toggle="tab" href="#HistoryTab" id="HistoryTabLink"><kbd class="ng-kbd nav-kbd phone-hide">H</kbd><span class="phone-hide" data-i18n-title="tab_history_title" data-i18n-title-arg-1="[Shift+H]" data-i18n="tab_history"></span> <i class="material-icon phone-only inline">calendar_today</i><br class="phone-only"><span class="badge" id="HistoryTabBadge" style="display: none;"></span><span class="badge badge-empty" id="HistoryTabBadgeEmpty">&nbsp;</span></a></li>
+					<li><a data-toggle="tab" href="#StatisticsTab" id="StatisticsTabLink"><kbd class="ng-kbd nav-kbd phone-hide">I</kbd><span class="phone-hide" data-i18n-title="tab_statistics_title" data-i18n-title-arg-1="[Shift+I]" data-i18n="tab_statistics"></span> <i class="material-icon phone-only inline">analytics</i><br class="phone-only"><span class="badge" id="StatisticsTabBadge" style="display: none;"></span><span class="phone-only"><span class="badge badge-empty" id="StatisticsTabBadgeEmpty">&nbsp;</span></span></a></li>
+					<li><a data-toggle="tab" href="#MessagesTab" id="MessagesTabLink"><kbd class="ng-kbd nav-kbd phone-hide">M</kbd><span class="phone-hide" data-i18n-title="tab_messages_title" data-i18n-title-arg-1="[Shift+M]" data-i18n="tab_messages"></span> <i class="material-icon phone-only inline">mail</i><br class="phone-only"><span class="badge" id="MessagesTabBadge" style="display: none;"></span><span class="badge badge-empty" id="MessagesTabBadgeEmpty">&nbsp;</span></a></li>
 
 					<li>
 						<a data-toggle="tab" href="#ConfigTab" id="ConfigTabLink">
+							<kbd class="ng-kbd nav-kbd phone-hide">S</kbd>
 							<span class="phone-hide" data-i18n="tab_settings" data-i18n-title="tab_settings_title" data-i18n-title-arg-1="[Shift+S]"></span>
 							<i class="material-icon phone-only inline">settings</i>
 							<br class="phone-only">

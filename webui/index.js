@@ -683,6 +683,13 @@ var Frontend = (new function($)
 				$('#Navbar ul.nav > li').css('min-width', '');
 			}
 		}
+
+		// the tab panes take the window height below the toolbar (see skin.css)
+		var navbarSpace = $('#Navbar').outerHeight(true);
+		if (navbarSpace > 0)
+		{
+			document.documentElement.style.setProperty('--navbar-space', navbarSpace + 'px');
+		}
 	}
 
 	function updateTabInfo(control, stat)
