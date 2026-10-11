@@ -27,6 +27,7 @@ qualification and metrics while preserving earlier archives byte for byte.
 """
 
 import argparse
+from collections import deque
 import csv
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -351,53 +352,73 @@ def adapt(kind, paths, manifest, metadata_paths=(), manifest_source=None):
             "qualification": qualification, "adapter-evidence": evidence, "_report": report}
 
 
+def bounded_path(path, budget, cache):
+    """Return the canonical path and traversed entries without resolve().
+
+    Prefixes become canonical only through this bounded walk. Symlink targets
+    and '..' are processed in filesystem order; entries are retained before
+    following them. All paths in one guard share the same expansion budget.
+    """
+    absolute = path.absolute()
+    if absolute in cache:
+        return cache[absolute]
+    pending = deque(absolute.parts[1:])
+    current = Path(absolute.anchor)
+    entries = []
+    while pending:
+        budget["components"] += 1
+        if budget["components"] > 4096:
+            raise AliasError("path component budget exceeded; refusing mutation")
+        component = pending.popleft()
+        if component == "..":
+            current = current.parent
+            continue
+        if component in ("", "."):
+            continue
+        entry = current / component
+        entries.append(entry)
+        if entry.is_symlink():
+            budget["links"] += 1
+            if budget["links"] > 256:
+                raise AliasError("symlink expansion budget exceeded; refusing mutation")
+            target = Path(os.readlink(entry))
+            parts = target.parts
+            if target.is_absolute():
+                current = Path(target.anchor)
+                parts = parts[1:]
+            pending.extendleft(reversed(parts))
+        else:
+            current = entry
+    result = current, tuple(entries)
+    cache[absolute] = result
+    return result
+
+
 def check_aliases(output, inputs):
-    # resolve() follows a dangling input symlink outside the output directory.
-    # Check its lexical directory entry before following it: cleanup must never
-    # unlink that immutable input entry, even when its target does not exist.
+    budget, cache = {"links": 0, "components": 0}, {}
     lexical_destination = Path(os.path.abspath(output))
-    destination = output.resolve()
+    destination, _ = bounded_path(output, budget, cache)
+    if destination.exists() and not destination.is_dir():
+        raise AliasError("output path is not a directory")
+    artifacts = []
+    for name in GENERATED:
+        artifact = destination / name
+        if artifact.exists() or artifact.is_symlink():
+            target, _ = bounded_path(artifact, budget, cache)
+            artifacts.append(target)
     for source in inputs:
         lexical_source = Path(os.path.abspath(source))
         if lexical_source == lexical_destination or lexical_destination in lexical_source.parents:
             raise AliasError("lexical input/output paths overlap; refusing mutation")
-        # Preserve each entry before following its final component. An input
-        # may traverse OUT/manifest.json (a directory symlink) while output is
-        # named through another symlink to OUT. Resolving only the leaf loses
-        # the ancestor entry that generated-artifact cleanup would unlink.
-        # Preserve '..' in original paths and symlink targets. A final resolve
-        # can hide intermediate generated links even when '..' later escapes
-        # their target directory. Bound expansion and fail without cleanup.
-        pending, visited = [source.absolute()], set()
-        while pending:
-            traversal = pending.pop()
-            if traversal in visited:
-                continue
-            if len(visited) >= 256:
-                raise AliasError("input symlink traversal budget exceeded; refusing mutation")
-            visited.add(traversal)
-            for ancestor in (traversal, *traversal.parents):
-                entry = ancestor.parent.resolve() / ancestor.name
-                if entry == destination or destination in entry.parents:
-                    raise AliasError("input ancestor traverses the output directory; refusing mutation")
-                if ancestor.is_symlink():
-                    target = ancestor.readlink()
-                    pending.append((target if target.is_absolute() else ancestor.parent / target).absolute())
-        resolved = source.resolve()
+        resolved, entries = bounded_path(source, budget, cache)
+        if any(entry == destination or destination in entry.parents for entry in entries):
+            raise AliasError("input traversal crosses the output directory; refusing mutation")
         if resolved == destination or destination in resolved.parents:
             raise AliasError("input/output paths overlap; refusing mutation")
-        for name in GENERATED:
-            artifact = output / name
-            if artifact.exists() or artifact.is_symlink():
-                target = artifact.resolve()
-                # An outer input symlink can target a directory symlink among
-                # generated artifacts. Its final file resolves outside output,
-                # but unlinking that intermediate would still break the input.
-                if (target == resolved or target in resolved.parents or
-                        (artifact.exists() and source.exists() and artifact.samefile(source))):
-                    raise AliasError("input/output artifact alias; refusing mutation")
-    if output.exists() and not output.is_dir():
-        raise AliasError("output path is not a directory")
+        for target in artifacts:
+            if (target == resolved or target in resolved.parents or
+                    (target.exists() and resolved.exists() and target.samefile(resolved))):
+                raise AliasError("input/output artifact alias; refusing mutation")
 
 
 def reject_archive_reuse(output):

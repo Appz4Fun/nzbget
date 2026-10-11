@@ -319,6 +319,68 @@ class PostprocessAdapterTests(unittest.TestCase):
                     self.assertTrue(outer.exists(), "immutable input link must still reach its original bytes")
                     self.assertEqual(original.read_text(), text)
 
+    def test_symlink_parent_budget_rejects_before_unbounded_resolution(self):
+        spec = importlib.util.spec_from_file_location("postprocess_bound_fixture", ADAPTER)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        real = self.root / "real-input"
+        real.mkdir()
+        original = real / "samples.csv"
+        original.write_text(ARTICLE)
+        links = [self.root / f"parent-link-{i}" for i in range(300)]
+        targets = []
+        for index, link in enumerate(links):
+            target = links[index + 1] if index + 1 < len(links) else real
+            link.symlink_to(target, target_is_directory=True)
+            targets.append(target)
+        readlink = os.readlink
+        calls = []
+
+        def counted_readlink(path, *args, **kwargs):
+            calls.append(path)
+            return readlink(path, *args, **kwargs)
+
+        with patch.object(adapter.os, "readlink", counted_readlink):
+            with self.assertRaises(adapter.AliasError):
+                adapter.check_aliases(self.output, [self.manifest, links[0] / "samples.csv"])
+        self.assertLessEqual(len(calls), 256, "filesystem expansion must stop at the budget, before resolve()")
+        self.assertEqual(original.read_text(), ARTICLE)
+        for link, target in zip(links, targets):
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.readlink(), target)
+        self.assertFalse(self.output.exists())
+
+    def test_alias_guard_never_calls_unbounded_path_resolve(self):
+        spec = importlib.util.spec_from_file_location("postprocess_no_resolve_fixture", ADAPTER)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        original = self.root / "regular.csv"
+        original.write_text(ARTICLE)
+        with patch.object(Path, "resolve", side_effect=AssertionError("unbounded resolution used")):
+            adapter.check_aliases(self.output, [self.manifest, original])
+
+    def test_cyclic_and_component_budget_rejection_preserves_inputs(self):
+        spec = importlib.util.spec_from_file_location("postprocess_limit_fixture", ADAPTER)
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        left, right = self.root / "left", self.root / "right"
+        left.symlink_to(right, target_is_directory=True)
+        right.symlink_to(left, target_is_directory=True)
+        segment = self.root / "segment"
+        segment.mkdir()
+        original = self.root / "original.csv"
+        original.write_text(ARTICLE)
+        long_route = self.root / Path("/".join(["segment", ".."] * 2200)) / original.name
+        for source in (left / "samples.csv", long_route):
+            with self.subTest(source_kind="cycle" if source == left / "samples.csv" else "components"):
+                with patch.object(adapter.os, "open", side_effect=AssertionError("input opened before guard rejection")):
+                    with self.assertRaisesRegex(adapter.AliasError, "budget"):
+                        adapter.check_aliases(self.output, [self.manifest, source])
+                self.assertTrue(left.is_symlink())
+                self.assertTrue(right.is_symlink())
+                self.assertEqual(original.read_text(), ARTICLE)
+                self.assertFalse(self.output.exists())
+
     def test_valid_reimport_rejects_reuse_without_losing_raw_archive(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
         archived = (self.output / "adapter-evidence.json").read_bytes()
