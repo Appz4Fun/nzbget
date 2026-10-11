@@ -67,6 +67,7 @@ globals_block = tests_main[tests_main.index('#include "ServerPool.h"'):tests_mai
 main = r'''
 #include "nzbget.h"
 #include "ArticleDownloader.h"
+#include "DirectRenamer.h"
 #include "nzbget_rs.h"
 #include <cstddef>
 #include <memory>
@@ -104,6 +105,28 @@ template<class A> static void check_disabled()
 	A a;
 	a.Reset(); a.Append("PAR2\0PKT", 8); a.Append("", 0); a.Finish();
 	if (a.GetParFile() || a.GetParSetId() || a.GetHash16k()) std::abort();
+}
+
+// Exercise the linked production factory and the flag read by QueueCoordinator,
+// as well as the extracted implementations below. Finish must not be needed to
+// make the PAR2-content guard work, and Reset must retain a recognized header.
+static void check_par_content_guard()
+{
+	struct Renamer : DirectRenamer {
+		void RenameCompleted(DownloadQueue*, NzbInfo*) override {}
+	} renamer;
+	auto a = renamer.MakeArticleContentAnalyzer();
+	char header[64] = "PAR2\0PKT";
+	a->Reset();
+	if (DirectRenamer::AnalyzedParFile(a.get())) std::abort();
+	a->Append(header, 63);
+	a->Append(header + 63, 1);
+	if (DirectRenamer::AnalyzedParFile(a.get())) std::abort();
+	a->Append(header, 0);
+	if (!DirectRenamer::AnalyzedParFile(a.get())) std::abort();
+	a->Reset();
+	a->Append("ordinary data", 13);
+	if (!DirectRenamer::AnalyzedParFile(a.get())) std::abort();
 }
 
 static unsigned long long state = 0x9e3779b97f4a7c15ull;
@@ -166,6 +189,7 @@ template<class A> static std::string wrap()
 
 int main(int argc, char** argv)
 {
+	check_par_content_guard();
 	check_disabled<disabledold::RenameContentAnalyzer>();
 	check_disabled<disablednew::RenameContentAnalyzer>();
 #ifdef TEST_SIZE_WRAP
