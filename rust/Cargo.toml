@@ -14,8 +14,16 @@ rust-par2 = { git = "https://github.com/TheDancingDeveloper-org/Rust-PAR2", rev 
 quick-xml = { version = "0.41", features = ["encoding"] }
 md-5 = "0.11"
 
+[dev-dependencies]
+# Kernel diagnostics only; complete C++/Rust caller measurements remain the gate.
+criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
 [[bench]]
 name = "ports"
+harness = false
+
+[[bench]]
+name = "criterion_ports"
 harness = false
 
 [profile.release]
