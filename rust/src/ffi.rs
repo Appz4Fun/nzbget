@@ -2189,6 +2189,9 @@ unsafe impl crate::nntp::Io for FfiNntp<'_> {
             None => Ok(()),
         }
     }
+    fn debug_enabled(&self) -> bool {
+        self.io.debug.is_some()
+    }
     fn cancelled(&mut self) -> Result<bool, crate::nntp::Abort> {
         let f = self.io.cancelled.ok_or(crate::nntp::Abort)?;
         let mut c = 0;
