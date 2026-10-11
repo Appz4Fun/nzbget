@@ -37,6 +37,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 
 
@@ -155,8 +156,17 @@ def validate_manifest(manifest):
 
 
 def read_source(path, limit=MAX_SOURCE_BYTES):
-    with path.open("rb") as stream:
-        data = stream.read(limit + 1)
+    # Opening a FIFO normally blocks before a byte limit can be checked.
+    # Validate the opened descriptor (following regular-file symlinks) before
+    # reading; never reopen the path after this check.
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise EvidenceError(f"{path.name}: input must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read(limit + 1)
+    finally:
+        os.close(descriptor)
     if len(data) > limit:
         raise EvidenceError(f"{path.name}: input exceeds {limit} bytes")
     return {"name": path.name, "sha256": hashlib.sha256(data).hexdigest(),
