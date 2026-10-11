@@ -35,7 +35,7 @@ def region(src, start, end_marker):
 
 
 old_region = region(old_src, "std::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
-new_region = region(new_src, "#ifdef NZBGET_USE_RUST\nstd::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n#endif\n")
+new_region = region(new_src, "#ifdef NZBGET_USE_RUST\nstd::optional<std::string> FileSystem::GetFileExtension", "return MoveFile(filename, newName);\n}\n")
 fallback_region = new_region.replace("#if defined(NZBGET_USE_RUST) && !defined(WIN32)", "#if 0").replace(
     "#ifdef NZBGET_USE_RUST\nstd::optional", "#if 0\nstd::optional")
 
@@ -313,6 +313,25 @@ template <class FS> static std::string Boundaries(const stdfs::path& box, int va
 	return result + Snapshot(box);
 }
 
+// NULL backup suffixes historically use the platform printf's %s behavior.
+// Compare NULL and empty sources/suffixes separately. A NULL source with
+// removeExt=true is excluded: the legacy BString copy dereferences NULL.
+template <class FS> static std::string NullBackup(const stdfs::path& box, int variant)
+{
+	Clean(box);
+	stdfs::create_directories(box);
+	std::string filename = (box / "source.nzb").string();
+	std::ofstream(filename) << "source";
+	CString output = "previous";
+	errno = 1234;
+	const char* source = variant < 4 ? filename.c_str() : variant < 6 ? nullptr : "";
+	const char* suffix = variant & 1 ? "" : nullptr;
+	bool removeExt = variant < 4 && (variant & 2);
+	bool ok = FS::RenameBak(source, suffix, removeExt, output);
+	int saved = errno;
+	return std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n" + Snapshot(box);
+}
+
 int main(int argc, char** argv)
 {
 	long rounds = atol(argv[1]);
@@ -359,6 +378,19 @@ int main(int argc, char** argv)
 			return 1;
 		}
 	}
+
+	for (int variant = 0; variant < 8; variant++)
+	{
+		std::string a = NullBackup<oldimpl::FileSystem>(temp / "null-backup", variant);
+		std::string b = NullBackup<newimpl::FileSystem>(temp / "null-backup", variant);
+		std::string c = NullBackup<fallbackimpl::FileSystem>(temp / "null-backup", variant);
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "NULL backup mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
+	Clean(temp / "null-backup");
 
 	long counts[3] = {0, 0, 0};
 	unsigned long long seed = 88172645463325252ull;

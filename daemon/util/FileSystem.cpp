@@ -1390,20 +1390,22 @@ std::optional<FileSystem::DiskState> FileSystem::GetDiskState(const char* path)
 	return std::nullopt;
 }
 
+bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool removeOldExtension, CString& newName)
+{
 #if defined(NZBGET_USE_RUST) && !defined(WIN32)
-bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool removeOldExtension, CString& newName)
-{
-	// rust/src/fsdelete.rs
-	RsFsOps ops;
-	NzbgetRsBuf name{};
-	int result = nzbget_rs_rename_bak(&ops.ops, filename, bakPart, removeOldExtension, &name);
-	newName.Set(name.data, (int)name.len);
-	nzbget_rs_free(name);
-	return ops.Finish(result) == 1;
-}
-#else
-bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool removeOldExtension, CString& newName)
-{
+	// The Rust ABI treats NULL strings as empty. Preserve the platform C
+	// library's original formatting/syscall behavior for NULL arguments.
+	if (filename && bakPart)
+	{
+		// rust/src/fsdelete.rs
+		RsFsOps ops;
+		NzbgetRsBuf name{};
+		int result = nzbget_rs_rename_bak(&ops.ops, filename, bakPart, removeOldExtension, &name);
+		newName.Set(name.data, (int)name.len);
+		nzbget_rs_free(name);
+		return ops.Finish(result) == 1;
+	}
+#endif
 	BString<1024> changedFilename;
 
 	if (removeOldExtension)
@@ -1426,7 +1428,6 @@ bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool remov
 
 	return MoveFile(filename, newName);
 }
-#endif
 
 #ifndef WIN32
 #ifdef NZBGET_USE_RUST
