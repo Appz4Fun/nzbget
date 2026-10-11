@@ -199,6 +199,21 @@ bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
 	return false;
 }
 #else
+#ifdef NZBGET_USE_RUST
+bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
+{
+	// rust/src/fsops.rs
+	NzbgetRsBuf msg;
+	bool ok = nzbget_rs_force_directories(path, &msg) != 0;
+	errmsg.Clear();
+	if (!ok)
+	{
+		errmsg = msg.data;
+	}
+	nzbget_rs_free(msg);
+	return ok;
+}
+#else
 bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
 {
 	errmsg.Clear();
@@ -260,6 +275,7 @@ bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
 
 	return true;
 }
+#endif
 #endif
 
 bool FileSystem::CreateHardLink(const char *from, const char *to, CString& errmsg)
@@ -743,6 +759,16 @@ std::string FileSystem::SanitizeRelativePath(std::string_view path)
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+CString FileSystem::MakeUniqueFilename(const char* destDir, const char* basename)
+{
+	// rust/src/fsops.rs
+	NzbgetRsBuf buf = nzbget_rs_make_unique_filename(destDir, basename);
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString FileSystem::MakeUniqueFilename(const char* destDir, const char* basename)
 {
 	CString result;
@@ -783,6 +809,7 @@ CString FileSystem::MakeUniqueFilename(const char* destDir, const char* basename
 
 	return result;
 }
+#endif
 
 bool FileSystem::MoveFile(const char* srcFilename, const char* dstFilename)
 {
@@ -854,6 +881,13 @@ bool FileSystem::DeleteFile(const char* filename)
 #endif
 }
 
+#ifdef NZBGET_USE_RUST
+bool FileSystem::FileExists(const char* filename)
+{
+	// rust/src/fsops.rs (stat, a regular file)
+	return nzbget_rs_file_exists(filename) != 0;
+}
+#else
 bool FileSystem::FileExists(const char* filename)
 {
 #ifdef WIN32
@@ -873,7 +907,15 @@ bool FileSystem::FileExists(const char* filename)
 	return exists;
 #endif
 }
+#endif
 
+#ifdef NZBGET_USE_RUST
+bool FileSystem::DirectoryExists(const char* dirFilename)
+{
+	// rust/src/fsops.rs (stat, a directory)
+	return nzbget_rs_directory_exists(dirFilename) != 0;
+}
+#else
 bool FileSystem::DirectoryExists(const char* dirFilename)
 {
 #ifdef WIN32
@@ -900,6 +942,7 @@ bool FileSystem::DirectoryExists(const char* dirFilename)
 	return exists;
 #endif
 }
+#endif
 
 bool FileSystem::CreateDirectory(const char* dirFilename)
 {
@@ -1223,6 +1266,29 @@ bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool remov
 }
 
 #ifndef WIN32
+#ifdef NZBGET_USE_RUST
+CString FileSystem::ExpandHomePath(const char* filename)
+{
+	// rust/src/fsops.rs; the home directory looked up as before
+	const char* home = nullptr;
+	if (filename && filename[0] == '~' && filename[1] == '/')
+	{
+		home = getenv("HOME");
+		if (!home)
+		{
+			struct passwd* pw = getpwuid(getuid());
+			if (pw)
+			{
+				home = pw->pw_dir;
+			}
+		}
+	}
+	NzbgetRsBuf buf = nzbget_rs_expand_home_path(filename, home);
+	CString result(buf.data, static_cast<int>(buf.len));
+	nzbget_rs_free(buf);
+	return result;
+}
+#else
 CString FileSystem::ExpandHomePath(const char* filename)
 {
 	CString result;
@@ -1262,6 +1328,7 @@ CString FileSystem::ExpandHomePath(const char* filename)
 
 	return result;
 }
+#endif
 #endif
 
 CString FileSystem::ExpandFileName(const char* filename)
