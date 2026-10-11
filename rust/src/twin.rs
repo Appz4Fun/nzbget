@@ -50,6 +50,7 @@ fn find_magic(hay: &[u8]) -> Option<usize> {
 /// size and file ids, and the FileDesc packets' files by file id.
 struct Walked {
     slice_size: u64,
+    main_valid: bool,
     file_order: Vec<[u8; 16]>,
     files: IdMap<FileSig>,
 }
@@ -69,7 +70,7 @@ struct Walked {
 /// data ends the walk. The flag is whether a packet magic was seen at all.
 fn walk(data: &[u8], files: bool) -> (Option<Walked>, bool) {
     use md5::{Digest, Md5};
-    let mut walked = Walked { slice_size: 0, file_order: Vec::new(), files: IdMap::default() };
+    let mut walked = Walked { slice_size: 0, main_valid: false, file_order: Vec::new(), files: IdMap::default() };
     let mut have_main = false;
     let mut seen = false;
     let mut pos = 0usize;
@@ -129,6 +130,10 @@ fn walk(data: &[u8], files: bool) -> (Option<Walked>, bool) {
             // The count field covers recoverable files only. Non-recoverable
             // IDs follow them and also require FileDesc packets for completeness.
             let count = (packet.len() - 44) / 16;
+            let recoverable = u32::from_le_bytes(packet[40..44].try_into().unwrap()) as usize;
+            // A packet checksum does not validate its file count or ID array.
+            // Keep any usable descriptions, but this Main cannot prove completeness.
+            walked.main_valid = (packet.len() - 44).is_multiple_of(16) && recoverable <= count;
             walked.slice_size = u64::from_le_bytes(packet[32..40].try_into().unwrap());
             walked.file_order = (0..count).map(|i| packet[44 + 16 * i..60 + 16 * i].try_into().unwrap()).collect();
             have_main = true;
@@ -157,12 +162,13 @@ pub fn par2_sigs(data: &[u8]) -> Vec<FileSig> {
 }
 
 /// The files of the par2 set in `data`, and whether the list is complete: the
-/// Main packet arrived and every file it names has its FileDesc packet. A
+/// Main packet has whole file IDs and a consistent recoverable count, and every
+/// file it names has its FileDesc packet. A
 /// partial list proves nothing about a file it doesn't name.
 pub fn par2_set(data: &[u8]) -> (Vec<FileSig>, bool) {
     let (mut sigs, complete) = match walk(data, true).0 {
         Some(set) if !set.files.is_empty() => {
-            let complete = !set.file_order.is_empty() && set.file_order.iter().all(|id| set.files.contains_key(id));
+            let complete = set.main_valid && !set.file_order.is_empty() && set.file_order.iter().all(|id| set.files.contains_key(id));
             (set.files.into_values().collect(), complete)
         }
         // its Main packet lost (the first article of the par2-file missing): the
@@ -995,6 +1001,37 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         assert!(hashes.len() > 1, "independent maps must use randomized hash state");
     }
 
+    #[test]
+    fn malformed_main_recoverable_count_leaves_list_incomplete() {
+        let mut rng = Rng(72);
+        for count in [2, u32::MAX] {
+            let mut data = main_packet(4096, &[1], count);
+            data.extend_from_slice(&file_desc(1, "a.bin", 10, &mut rng));
+            let (sigs, complete) = par2_set(&data);
+            assert_eq!(sigs.len(), 1);
+            assert_eq!(sigs[0].name, "a.bin");
+            assert_eq!(sigs[0].length, 10);
+            assert!(!complete, "more recoverable files declared than IDs present");
+        }
+    }
+
+    #[test]
+    fn malformed_main_partial_file_id_leaves_list_incomplete() {
+        for tail in [4, 8, 12] {
+            let mut body = 4096u64.to_le_bytes().to_vec();
+            body.extend_from_slice(&1u32.to_le_bytes());
+            body.extend_from_slice(&[1; 16]);
+            body.extend(std::iter::repeat_n(0, tail));
+            let mut data = packet([7; 16], TYPE_MAIN, &body);
+            data.extend_from_slice(&file_desc(1, "a.bin", 10, &mut Rng(73)));
+            let (sigs, complete) = par2_set(&data);
+            assert_eq!(sigs.len(), 1);
+            assert_eq!(sigs[0].name, "a.bin");
+            assert_eq!(sigs[0].length, 10);
+            assert!(!complete, "a partial file ID cannot prove a complete list");
+        }
+    }
+
     // ---- the walk against rust-par2's parser ----
 
     struct Rng(u64);
@@ -1041,11 +1078,13 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         packet([7; 16], TYPE_MAIN, &body)
     }
 
-    fn random_set(rng: &mut Rng) -> Vec<u8> {
+    fn random_set(rng: &mut Rng, valid_main_counts: bool) -> Vec<u8> {
         let files = 1 + rng.below(6) as u8;
         let ids: Vec<u8> = (1..=files).collect();
         let mut packets: Vec<Vec<u8>> = Vec::new();
-        packets.push(main_packet(1 << (10 + rng.below(8)), &ids, files as u32 + rng.below(2) as u32));
+        let slice = 1 << (10 + rng.below(8));
+        let extra = rng.below(2) as u32;
+        packets.push(main_packet(slice, &ids, files as u32 + if valid_main_counts { 0 } else { extra }));
         for &id in &ids {
             let name = ["a.mkv", "b.rar", "caf\u{e9}.nfo", "x y.part01.rar", ""][rng.below(5) as usize];
             packets.push(file_desc(id, name, rng.next() >> 20, rng));
@@ -1084,7 +1123,9 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
                 5 => {
                     // the same packet again, other values: a second Main or FileDesc
                     packets.push(if rng.below(2) == 0 {
-                        main_packet(1 << (10 + rng.below(8)), &ids[..(rng.below(files as u64) as usize + 1)], files as u32)
+                        let slice = 1 << (10 + rng.below(8));
+                        let n = rng.below(files as u64) as usize + 1;
+                        main_packet(slice, &ids[..n], if valid_main_counts { n as u32 } else { files as u32 })
                     } else {
                         file_desc(ids[rng.below(files as u64) as usize], "dup.bin", 1, rng)
                     });
@@ -1120,7 +1161,7 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         let mut rng = Rng(0x9E3779B97F4A7C15);
         let (mut ok, mut err) = (0, 0);
         for round in 0..20000 {
-            let data = random_set(&mut rng);
+            let data = random_set(&mut rng, false);
             let expected = crate_set(&data);
             for files in [true, false] {
                 let got = walk(&data, files).0;
@@ -1181,11 +1222,15 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
     }
 
     #[test]
-    fn par2_set_and_block_size_are_as_before() {
+    fn par2_set_and_block_size_match_before_with_all_files_recoverable() {
         let mut rng = Rng(0xA0761D6478BD642F);
         let mut sizes = 0;
         for round in 0..30000 {
-            let mut data = random_set(&mut rng);
+            // Oversized counts now intentionally leave lists incomplete (see
+            // the dedicated regressions). Other corruption and framing still
+            // compare against the previous parser with every Main file recoverable.
+            // Non-recoverable lists have their own corrected-completeness tests.
+            let mut data = random_set(&mut rng, true);
             if rng.below(6) == 0 {
                 // a packet at a 4-byte offset in the shadow of the first 8 bytes, or past junk
                 let junk = [4usize, 1, 2, 3, 5, 6, 7, 8, 12][rng.below(9) as usize];
