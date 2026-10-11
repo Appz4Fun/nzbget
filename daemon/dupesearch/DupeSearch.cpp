@@ -480,12 +480,14 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     uint32_t pickFlags = flags(pick, history);
     time_t now = Util::CurrentTime();
     NzbgetRsDupeWatchPeer snapshot{ nzbId, pick->GetDupeScore(), pickFlags, lowerKey.data(), lowerKey.size() };
+    const uint32_t preliminaryFlags = snapshot.flags;
+    int preliminary = -1;
     if (cachedName && havePrevious && !previous.retryable && !rankOnly)
     {
         // A known unchanged title can be suppressed before building snapshots.
         // Any higher peer/fleet could only suppress it too; a Search still needs
         // the complete peer check below. Post-process retry precedes peer rules.
-        int preliminary = nzbget_rs_dupe_watch(&snapshot, nullptr, 0, (int64_t)now,
+        preliminary = nzbget_rs_dupe_watch(&snapshot, nullptr, 0, (int64_t)now,
             previous.score, (int64_t)previous.time, true, false);
         if (preliminary == 0) return false;
         if (preliminary == 1) {
@@ -520,7 +522,10 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
         peers.push_back({ others[i]->GetId(), others[i]->GetDupeScore(), f, keys[i].data(), keys[i].size() });
     }
     snapshot.flags = pickFlags;
-    int decision = nzbget_rs_dupe_watch(&snapshot, peers.data(), peers.size(), (int64_t)now,
+    // With no retained peers the snapshot is unchanged: the accepted early
+    // decision already checked the exact same stamp, time and identity.
+    int decision = preliminary == 2 && peers.empty() && snapshot.flags == preliminaryFlags ? preliminary :
+        nzbget_rs_dupe_watch(&snapshot, peers.data(), peers.size(), (int64_t)now,
         previous.score, (int64_t)previous.time, havePrevious && !previous.retryable && !rankOnly, changedIdentity);
     if (decision == 1) {
         if (rankOnly) { std::lock_guard<std::mutex> guard(m_mutex); m_rankPending.insert(nzbId); }
@@ -753,8 +758,8 @@ void DupeSearch::Search(const Job& job)
 	// search and fetch together are meant to fit in about this long
 	time_t deadline = Util::CurrentTime() + SearchDeadlineSec;
 
-	// what the pick's own nzb-file says: its size ranks the candidates (the
-	// closest size is the likeliest byte-identical repost), its ids narrow the search
+	// The pick's ids narrow the search. Infer its whole size when a truncated
+    // NZB declares unlisted parts, so complete postings rank before partial relists.
 	NzbSummary pick;
 	if (!job.queuedFile.empty())
 	{
@@ -795,7 +800,10 @@ void DupeSearch::Search(const Job& job)
 		job.name.c_str(), (int)results.size(), stats.queries, stats.failed, stats.pages, (int)candidates.size());
 
 	// the postings to fetch, best first: fetching each costs a grab of an indexer
-	std::vector<Posting::Group> order = Posting::OrderPostings(candidates, pick.totalBytes,
+    unsigned long long wholeBytes = DupeIdentity::WholeBytes(pick);
+    long long orderBytes = (long long)std::min(wholeBytes,
+        (unsigned long long)std::numeric_limits<long long>::max());
+	std::vector<Posting::Group> order = Posting::OrderPostings(candidates, orderBytes,
 		g_Options->GetDupeSearchMaxDonors());
 
 	// the sketches of what nzbget already holds, read beside the fetches
