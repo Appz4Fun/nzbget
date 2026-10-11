@@ -100,11 +100,11 @@ cd rustyget
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 8
 sudo cmake --install build
-sudo cmake --build build --target install-conf
+install -m 600 /usr/local/share/nzbget/nzbget.conf ~/.nzbget
 nzbget -D
 ```
 
-Then open `http://<host>:6789`. The default login is `nzbget` with the password `tegbzn6789`. Change it first. See [Install and build](https://appz4fun.github.io/nzbget/install.html) for the libraries each platform needs, and [Quick start](https://appz4fun.github.io/nzbget/quick-start.html) for the first settings.
+`~/.nzbget` is the first place RustyGet looks for its configuration, and the web interface saves your settings there. Then open `http://<host>:6789`. The default login is `nzbget` with the password `tegbzn6789`. Change it first. See [Install and build](https://appz4fun.github.io/nzbget/install.html) for the libraries each platform needs, and [Quick start](https://appz4fun.github.io/nzbget/quick-start.html) for the first settings.
 
 To move from NZBGet, stop it, back up the queue directory and `nzbget.conf`, and start RustyGet with the same configuration file.
 

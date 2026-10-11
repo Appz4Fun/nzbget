@@ -12,7 +12,7 @@ lede = "RustyGet builds from source with CMake, a C++20 compiler, and Rust. Rele
 
 | Tool or library | Version | Notes |
 |---|---|---|
-| CMake | 3.13 or later | |
+| CMake | 3.15 or later | 3.13 can build, but `cmake --install` needs 3.15. |
 | C++ compiler | GCC 11+ or Clang 14+ | C++20 support is required. GCC 13 or later is recommended. |
 | Rust | 1.99.0 | Pinned in `rust/rust-toolchain.toml`. With rustup, the right toolchain installs itself on the first build. |
 | libxml2 | any current | Development headers |
@@ -24,11 +24,13 @@ lede = "RustyGet builds from source with CMake, a C++20 compiler, and Rust. Rele
 
 ### Install the libraries
 
-Debian and Ubuntu:
+Debian 13 and Ubuntu 24.04:
 
 ```bash
 sudo apt install cmake build-essential libncurses-dev libssl-dev libxml2-dev zlib1g-dev libboost-json-dev
 ```
+
+Debian 12 names the Boost package by version, so use `libboost-json1.81-dev` instead of `libboost-json-dev`. On a release with neither, leave the Boost package out, and CMake fetches Boost itself.
 
 macOS with Homebrew:
 
@@ -64,11 +66,17 @@ cmake --build build -j 8
 
 The binary is `build/nzbget`. The program still uses NZBGet's filenames, such as `nzbget` and `nzbget.conf`, while the rename is in progress.
 
-To install it system-wide, along with the web interface and a default configuration:
+To install it system-wide, along with the web interface, a configuration template, and a default configuration in `/usr/local/etc`:
 
 ```bash
 sudo cmake --install build
 sudo cmake --build build --target install-conf
+```
+
+To run it as your own user instead of as a service, give yourself a private copy of the configuration, which RustyGet finds at `~/.nzbget`:
+
+```bash
+install -m 600 /usr/local/share/nzbget/nzbget.conf ~/.nzbget
 ```
 
 Add `-DCMAKE_INSTALL_PREFIX=~/usr` to the first `cmake` command to install into your home directory instead.
@@ -91,11 +99,11 @@ Add `-DCMAKE_INSTALL_PREFIX=~/usr` to the first `cmake` command to install into 
 Copy the default configuration, then start RustyGet in the foreground from the source tree to check it:
 
 ```bash
-cp nzbget.conf ~/rustyget.conf
+install -m 600 nzbget.conf ~/rustyget.conf
 build/nzbget -c ~/rustyget.conf -o WebDir="$PWD/webui" -o ConfigTemplate="$PWD/nzbget.conf" -s
 ```
 
-Downloads go under `~/downloads` until you change `MainDir`. After `cmake --install` and the `install-conf` target, the installed configuration already points at the installed web interface, and `nzbget -s` is enough.
+Downloads go under `~/downloads` until you change `MainDir`. After `cmake --install`, the installed configuration files already point at the installed web interface, and `nzbget -s` is enough.
 
 Then open the web interface at `http://<host>:6789`. The default login is `nzbget` with the password `tegbzn6789`. Change it in **SECURITY** before you expose the port. [Quick start](quick-start.md) walks through the first settings.
 
@@ -108,7 +116,10 @@ On Linux with systemd, run RustyGet as its own user. Create the user with a home
 ```bash
 sudo useradd --system --create-home --home-dir /var/lib/nzbget nzbget
 sudo chown nzbget: /usr/local/etc/nzbget.conf
+sudo chmod 600 /usr/local/etc/nzbget.conf
 ```
+
+The file holds your news-server passwords and API keys once you save settings, so only the service user may read it.
 
 Then add a unit such as `/etc/systemd/system/nzbget.service`:
 
