@@ -978,6 +978,24 @@ int nzbget_rs_binrpc_edit_sizes(int32_t nrIds, int32_t nrNames, int32_t namesLen
 int nzbget_rs_binrpc_edit_split(const char* data, size_t len, size_t textLen, size_t nrIds, size_t nrNames,
 	uint32_t* ids);
 int nzbget_rs_binrpc_is_url(const char* content);
+// The remote client's side (RemoteClient.cpp). read_entry: one list-response
+// entry at *at: 1 with nints big-endian ints in ints (host order), the start
+// of each of nfields strings in starts (string k's length in ints[fields[k]],
+// each ending with a NUL within the data) and *at past the entry (the header
+// and those lengths); 0 (outputs untouched) when the entry or a string
+// doesn't fit in len. log_line: "[INFO] text" and so on for Message::EKind,
+// 0 for an unknown kind. post_queue_line: "[id] name, stage, n%".
+// history_line: "[id] name (...)" for an NZB, URL or hidden entry, 0 for
+// other kinds; unknown stages and statuses have no text. Lines are freed
+// with nzbget_rs_free; NULL outputs aren't written, NULL strings are empty.
+// read_entry requires at and nonempty arrays; ints and starts are writable
+// arrays and may be uninitialized. NULL arrays are allowed for zero counts.
+int nzbget_rs_binrpc_read_entry(const char* data, size_t len, size_t* at, uint32_t* ints, size_t nints,
+	const size_t* fields, size_t* starts, size_t nfields);
+int nzbget_rs_binrpc_log_line(uint32_t kind, const char* text, NzbgetRsBuf* line);
+NzbgetRsBuf nzbget_rs_binrpc_post_queue_line(uint32_t id, uint32_t stage, uint32_t progress, const char* infoName);
+int nzbget_rs_binrpc_history_line(uint32_t id, uint32_t kind, const char* nicename, uint32_t fileCount, uint32_t sizeHi,
+	uint32_t sizeLo, uint32_t parStatus, uint32_t scriptStatus, uint32_t urlStatus, NzbgetRsBuf* line);
 
 // UrlCoordinator (rust/src/urlcoord.rs). dnzb_header: UrlDownloader's
 // X-DNZB headers; 1 with *first X-DNZB-Category's trimmed value, 2 with

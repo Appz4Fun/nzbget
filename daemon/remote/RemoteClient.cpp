@@ -27,6 +27,38 @@
 #include "Log.h"
 #include "Util.h"
 #include "FileSystem.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
+
+#ifdef NZBGET_USE_RUST
+// One entry of a list response, read by rust/src/binrpc.rs: its ints (host
+// order) and strings; Next is false at an entry that doesn't fit the data,
+// which ends the listing
+template <size_t Ints, size_t Strings>
+struct RsEntry
+{
+	uint32 ints[Ints];
+	const char* strings[Strings];
+
+	bool Next(const char* data, size_t len, size_t& at, const size_t (&fields)[Strings])
+	{
+		size_t starts[Strings];
+		if (!nzbget_rs_binrpc_read_entry(data, len, &at, ints, Ints, fields, starts, Strings))
+		{
+			return false;
+		}
+		for (size_t k = 0; k < Strings; k++)
+		{
+			strings[k] = data + starts[k];
+		}
+		return true;
+	}
+};
+
+// prints a line from Rust and frees it
+#define RS_PRINT_LINE(buf) do { NzbgetRsBuf rsLine = (buf); printf("%s\n", rsLine.data); nzbget_rs_free(rsLine); } while (0)
+#endif
 
 void RemoteClient::printf(const char * msg,...)
 {
@@ -185,6 +217,86 @@ bool RemoteClient::RequestServerDownload(const char* nzbFilename, const char* nz
 	return OK;
 }
 
+#ifdef NZBGET_USE_RUST
+void RemoteClient::BuildFileList(SNzbListResponse* listResponse, const char* trailingData, DownloadQueue* downloadQueue)
+{
+	size_t len = ntohl(listResponse->m_trailingDataLength);
+	if (len == 0)
+	{
+		return;
+	}
+	size_t at = 0;
+
+	// read nzb entries
+	static const size_t nzbStrings[] = {12, 13, 14, 15, 16};
+	for (uint32 i = 0; i < ntohl(listResponse->m_nrTrailingNzbEntries); i++)
+	{
+		RsEntry<17, 5> e;
+		if (!e.Next(trailingData, len, at, nzbStrings))
+		{
+			return;
+		}
+		std::unique_ptr<MatchedNzbInfo> nzbInfo = std::make_unique<MatchedNzbInfo>();
+		nzbInfo->SetId(e.ints[0]);
+		nzbInfo->SetKind((NzbInfo::EKind)e.ints[1]);
+		nzbInfo->SetSize(Util::JoinInt64(e.ints[3], e.ints[2]));
+		nzbInfo->SetRemainingSize(Util::JoinInt64(e.ints[5], e.ints[4]));
+		nzbInfo->SetPausedSize(Util::JoinInt64(e.ints[7], e.ints[6]));
+		nzbInfo->SetPausedFileCount(e.ints[8]);
+		nzbInfo->SetRemainingParCount(e.ints[9]);
+		nzbInfo->SetFilename(e.strings[0]);
+		nzbInfo->SetName(e.strings[1]);
+		nzbInfo->SetDestDir(e.strings[2]);
+		nzbInfo->SetCategory(e.strings[3]);
+		nzbInfo->SetQueuedFilename(e.strings[4]);
+		nzbInfo->SetPriority(e.ints[10]);
+		nzbInfo->m_match = e.ints[11];
+
+		downloadQueue->GetQueue()->Add(std::move(nzbInfo));
+	}
+
+	//read ppp entries
+	static const size_t pppStrings[] = {1, 2};
+	for (uint32 i = 0; i < ntohl(listResponse->m_nrTrailingPPPEntries); i++)
+	{
+		RsEntry<3, 2> e;
+		if (!e.Next(trailingData, len, at, pppStrings))
+		{
+			return;
+		}
+		std::unique_ptr<NzbInfo>& nzbInfo = downloadQueue->GetQueue()->at(e.ints[0] - 1);
+		nzbInfo->GetParameters()->SetParameter(e.strings[0], e.strings[1]);
+	}
+
+	//read file entries
+	static const size_t fileStrings[] = {10, 11};
+	for (uint32 i = 0; i < ntohl(listResponse->m_nrTrailingFileEntries); i++)
+	{
+		RsEntry<12, 2> e;
+		if (!e.Next(trailingData, len, at, fileStrings))
+		{
+			return;
+		}
+		std::unique_ptr<MatchedFileInfo> fileInfo = std::make_unique<MatchedFileInfo>();
+		fileInfo->SetId(e.ints[0]);
+		fileInfo->SetSize(Util::JoinInt64(e.ints[3], e.ints[2]));
+		fileInfo->SetRemainingSize(Util::JoinInt64(e.ints[5], e.ints[4]));
+		fileInfo->SetPaused(e.ints[6]);
+		fileInfo->SetSubject(e.strings[0]);
+		fileInfo->SetFilename(e.strings[1]);
+		fileInfo->SetFilenameConfirmed(e.ints[7]);
+		fileInfo->SetActiveDownloads(e.ints[8]);
+		fileInfo->m_match = e.ints[9];
+
+		std::unique_ptr<NzbInfo>& nzbInfo = downloadQueue->GetQueue()->at(e.ints[1] - 1);
+		// the group's count is its files' (the answer has none per group): it
+		// stayed 0, and -L G never showed the threads of a downloading group
+		nzbInfo->SetActiveDownloads(nzbInfo->GetActiveDownloads() + fileInfo->GetActiveDownloads());
+		fileInfo->SetNzbInfo(nzbInfo.get());
+		nzbInfo->GetFileList()->Add(std::move(fileInfo));
+	}
+}
+#else
 void RemoteClient::BuildFileList(SNzbListResponse* listResponse, const char* trailingData, DownloadQueue* downloadQueue)
 {
 	if (ntohl(listResponse->m_trailingDataLength) > 0)
@@ -274,6 +386,7 @@ void RemoteClient::BuildFileList(SNzbListResponse* listResponse, const char* tra
 		}
 	}
 }
+#endif
 
 bool RemoteClient::RequestServerList(bool files, bool groups, const char* pattern)
 {
@@ -658,6 +771,23 @@ bool RemoteClient::RequestServerLog(int lines)
 		printf("Log (last %i entries)\n", ntohl(LogResponse.m_nrTrailingEntries));
 		printf("-----------------------------------\n");
 
+#ifdef NZBGET_USE_RUST
+		size_t at = 0;
+		static const size_t textString[] = {3};
+		for (uint32 i = 0; i < ntohl(LogResponse.m_nrTrailingEntries); i++)
+		{
+			RsEntry<4, 1> e;
+			if (!e.Next(buf, buf.Size(), at, textString))
+			{
+				break;
+			}
+			NzbgetRsBuf line;
+			if (nzbget_rs_binrpc_log_line(e.ints[1], e.strings[0], &line))
+			{
+				RS_PRINT_LINE(line);
+			}
+		}
+#else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(LogResponse.m_nrTrailingEntries); i++)
 		{
@@ -685,6 +815,7 @@ bool RemoteClient::RequestServerLog(int lines)
 
 			bufPtr += sizeof(SNzbLogResponseEntry) + ntohl(logAnswer->m_textLen);
 		}
+#endif
 
 		printf("-----------------------------------\n");
 	}
@@ -950,6 +1081,19 @@ bool RemoteClient::RequestPostQueue()
 		printf("Post-Processing List\n");
 		printf("-----------------------------------\n");
 
+#ifdef NZBGET_USE_RUST
+		size_t at = 0;
+		static const size_t postStrings[] = {6, 7, 8, 9};
+		for (uint32 i = 0; i < ntohl(PostQueueResponse.m_nrTrailingEntries); i++)
+		{
+			RsEntry<10, 4> e;
+			if (!e.Next(buf, buf.Size(), at, postStrings))
+			{
+				break;
+			}
+			RS_PRINT_LINE(nzbget_rs_binrpc_post_queue_line(e.ints[0], e.ints[1], e.ints[2], e.strings[1]));
+		}
+#else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(PostQueueResponse.m_nrTrailingEntries); i++)
 		{
@@ -975,6 +1119,7 @@ bool RemoteClient::RequestPostQueue()
 				ntohl(postQueueAnswer->m_infoNameLen) + ntohl(postQueueAnswer->m_destDirLen) +
 				ntohl(postQueueAnswer->m_progressLabelLen);
 		}
+#endif
 
 		printf("-----------------------------------\n");
 	}
@@ -1075,6 +1220,24 @@ bool RemoteClient::RequestHistory(bool withHidden)
 		printf("History (most recent first)\n");
 		printf("-----------------------------------\n");
 
+#ifdef NZBGET_USE_RUST
+		size_t at = 0;
+		static const size_t nameString[] = {3};
+		for (uint32 i = 0; i < ntohl(HistoryResponse.m_nrTrailingEntries); i++)
+		{
+			RsEntry<10, 1> e;
+			if (!e.Next(buf, buf.Size(), at, nameString))
+			{
+				break;
+			}
+			NzbgetRsBuf line;
+			if (nzbget_rs_binrpc_history_line(e.ints[0], e.ints[1], e.strings[0], e.ints[6], e.ints[5], e.ints[4],
+				e.ints[7], e.ints[8], e.ints[9], &line))
+			{
+				RS_PRINT_LINE(line);
+			}
+		}
+#else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(HistoryResponse.m_nrTrailingEntries); i++)
 		{
@@ -1109,6 +1272,7 @@ bool RemoteClient::RequestHistory(bool withHidden)
 
 			bufPtr += sizeof(SNzbHistoryResponseEntry) + ntohl(listAnswer->m_nicenameLen);
 		}
+#endif
 
 		printf("-----------------------------------\n");
 		printf("Items: %i\n", ntohl(HistoryResponse.m_nrTrailingEntries));
