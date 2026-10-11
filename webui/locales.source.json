@@ -4621,5 +4621,9 @@
   "progress_awaiting_par_files": {
     "message": "Awaiting additional par-files",
     "description": "Progress status indicating waiting for additional par files to download."
+  },
+  "config_server_issues": {
+    "message": "issues",
+    "description": "Plural label after a count of server configuration health notices, including errors, warnings and informational checks."
   }
 }

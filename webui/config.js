@@ -750,12 +750,13 @@ var Config = (new function($)
 		$ViewButton = $('#Config_ViewButton');
 		$LeaveConfigDialog = $('#LeaveConfigDialog');
 		$('#ConfigTable_filter').val('');
-		compactMode = UISettings.read('$Config_ViewCompact', 'no') == 'yes';
+		compactMode = UISettings.read('$Config_ViewCompact', 'yes') == 'yes';
 		setViewMode();
 
 		$(window).bind('beforeunload', userLeavesPage);
 
 		$ConfigNav.on('click', 'li > a', navClick);
+		$ConfigData.on('input change', '.NEWS-SERVERS input', refreshServerRows);
 
 		$ConfigTable = $('#ConfigTable');
 		$ConfigTable.fasttable(
@@ -1083,7 +1084,8 @@ var Config = (new function($)
 		// makeId removes colons, so label: IDs cannot collide with option controls.
 		var i18nCaptionAttr = option.i18nCaption ? 'data-i18n="' + Util.textToAttr(option.i18nCaption) + '" ' : '';
 		var html =
-			'<div class="control-group ' + option.sectionId + (section.multi ? ' multiid' + option.multiid + ' multiset' : '') + '">'+
+			'<div class="control-group ' + option.sectionId + (section.multi ? ' multiid' + option.multiid + ' multiset' : '') +
+				(section.id === 'NEWS-SERVERS' ? ' config-server-detail server-closed' : '') + (!compactMode ? ' help-expanded' : '') + '">'+
 				'<label class="control-label">' +
 				'<a class="option-name" id="label:' + option.formId + '" href="#" data-optid="' + option.formId + '" ' + i18nCaptionAttr +
 				'onclick="Config.scrollToOption(event, this)">' + caption + '</a>' +
@@ -1298,7 +1300,11 @@ var Config = (new function($)
 				htmldescr = htmldescr.replace(new RegExp(section.multiprefix + '[X|1]\.', 'g'), '');
 			}
 
-			html += '<div class="help-block">' + htmldescr + '</div>';
+			html = html.replace('class="control-group ', 'class="control-group config-has-help ');
+			html += '<button type="button" class="btn config-help-toggle" aria-expanded="' + (!compactMode) +
+				'" aria-controls="help:' + option.formId + '" aria-label="' + Util.textToAttr(I18n.translate('btn_quick_help') + ': ' + option.caption) +
+				'" onclick="Config.toggleHelp(this)"><i class="material-icon" aria-hidden="true">help</i></button>' +
+				'<div class="help-block" id="help:' + option.formId + '">' + htmldescr + '</div>';
 		}
 
 		if (option.check)
@@ -1331,6 +1337,15 @@ var Config = (new function($)
 	{
 		var name = option.caption;
 		var setname = name.substr(0, name.indexOf('.')) || option.prefix + option.multiid;
+		if (section.id === 'NEWS-SERVERS')
+		{
+			return '<div class="config-settitle config-server-row ' + section.id + ' multiid' + multiid +
+				' multiset" data-multiid="' + multiid + '"><strong class="config-server-name"></strong>' +
+				'<span class="config-server-host"></span><span class="config-server-status"></span>' +
+				'<span class="config-server-connections"></span><span class="config-server-health"></span>' +
+				'<button type="button" class="btn config-button config-server-edit" data-multiid="' + multiid +
+				'" aria-expanded="false" onclick="Config.editServer(this)"></button></div>';
+		}
 		var html = '<div class="config-settitle ' + section.id + ' multiid' + multiid + ' multiset">' + setname + '</div>';
 		return html;
 	}
@@ -1344,7 +1359,8 @@ var Config = (new function($)
 
 		if (hasoptions)
 		{
-			html += '<div class="' + section.id + ' multiid' + multiid + ' multiset multiset-toolbar">';
+			html += '<div class="' + section.id + ' multiid' + multiid + ' multiset multiset-toolbar' +
+				(section.id === 'NEWS-SERVERS' ? ' config-server-detail server-closed' : '') + '">';
 			html += '<button type="button" class="btn btn-default config-button config-delete" data-multiid="' + multiid + '" ' +
 				'onclick="Config.deleteSet(this, \'' + setname + '\',\'' + section.id + '\')">' +
 				'<span data-i18n="btn_delete"></span> ' + setname + multiid + '</button>';
@@ -1463,6 +1479,7 @@ var Config = (new function($)
 
 		I18n.translatePage($ConfigNav);
 		I18n.translatePage($ConfigData);
+		refreshServerRows();
 		$ConfigNav.toggleClass('long-list', $ConfigNav.children().length > 20);
 
 		Config.showSection('Config-Info', false);
@@ -1608,6 +1625,10 @@ var Config = (new function($)
 
 		// switch to tab and scroll the option into view
 		Config.showSection(option.sectionId, false);
+		if (option.sectionId === 'NEWS-SERVERS')
+		{
+			setServerEditor(option.multiid, true);
+		}
 
 		var element = $('#' + option.formId);
 		var smallScreen = $(window).width() <= 768;
@@ -1640,6 +1661,7 @@ var Config = (new function($)
 			}
 
 			tlsSwitchHelper(option)
+			refreshServerRows();
 		}
 	}
 
@@ -1877,6 +1899,7 @@ var Config = (new function($)
 			(hasOptions ? '<span data-i18n="label_another"></span> ' : '') +
 			setname);
 		I18n.translatePage(addButton);
+		refreshServerRows();
 	}
 
 	function reformatSet(section, setname, oldMultiId, newMultiId)
@@ -1891,7 +1914,8 @@ var Config = (new function($)
 				div.attr('id', setname + newMultiId);
 
 				// update captions
-				$('.config-settitle.' + section.id + '.multiid' + oldMultiId, $ConfigData).text(setname + newMultiId);
+				$('.config-settitle.' + section.id + '.multiid' + oldMultiId, $ConfigData).not('.config-server-row').text(setname + newMultiId);
+				$('.config-server-row.' + section.id + '.multiid' + oldMultiId, $ConfigData).attr('data-multiid', newMultiId);
 				$('.' + section.id + '.multiid' + oldMultiId + ' .config-multicaption', $ConfigData).text(setname + newMultiId + '.');
 
 				var delBtn = $('.' + section.id + '.multiid' + oldMultiId + ' .config-delete', $ConfigData);
@@ -1916,6 +1940,10 @@ var Config = (new function($)
 
 				// update label data-optid
 				$('a[data-optid=' + oldFormId + ']').attr('data-optid', option.formId).attr('id', 'label:' + option.formId);
+				var row = optionControl.closest('.control-group');
+				row.find('.help-block').attr('id', 'help:' + option.formId);
+				row.find('.config-help-toggle').attr('aria-controls', 'help:' + option.formId)
+					.attr('aria-label', I18n.translate('btn_quick_help') + ': ' + setname + newMultiId + '.' + option.caption.split('.').slice(1).join('.'));
 
 				// update editor id
 				$('#' + oldFormId + '_Editor').attr('id', option.formId + '_Editor');
@@ -1979,6 +2007,10 @@ var Config = (new function($)
 		I18n.translatePage(div);
 		div.hide();
 		addButton.parent().before(div);
+		if (sectionId === 'NEWS-SERVERS')
+		{
+			setServerEditor(multiid, true);
+		}
 
 		for (var j=0; j < addedOptions.length; j++)
 		{
@@ -2021,6 +2053,7 @@ var Config = (new function($)
 		reformatSet(section, setname, 10000 + id2, id1);
 
 		section.modified = true;
+		refreshServerRows();
 	}
 
 	this.viewMode = function()
@@ -2042,6 +2075,54 @@ var Config = (new function($)
 		}
 		
 		$ConfigContent.toggleClass('hide-help-block', compactMode);
+		$ConfigData.find('.control-group:has(.config-help-toggle)').toggleClass('help-expanded', !compactMode);
+		$ConfigData.find('.config-help-toggle').attr('aria-expanded', !compactMode);
+	}
+
+	this.toggleHelp = function(control)
+	{
+		var row = $(control).closest('.control-group');
+		var expanded = !row.hasClass('help-expanded');
+		row.toggleClass('help-expanded', expanded);
+		$(control).attr('aria-expanded', expanded);
+	}
+
+	function refreshServerRows()
+	{
+		$('.config-server-row', $ConfigData).each(function()
+		{
+			var row = $(this);
+			var multiid = row.attr('data-multiid');
+			function value(name)
+			{
+				var option = findOptionByName('Server' + multiid + '.' + name);
+				return option ? getOptionValue(option) || '' : '';
+			}
+			var name = value('Name') || 'Server' + multiid;
+			row.find('.config-server-name').text(name);
+			row.find('.config-server-host').text(value('Host') + (value('Port') ? ':' + value('Port') : ''));
+			row.find('.config-server-status').text(I18n.defaultValue(value('Active') === 'yes' ? 'label_active' : 'label_disabled', value('Active') === 'yes' ? 'Active' : 'Disabled'));
+			row.find('.config-server-connections').text(value('Connections') + ' ' + I18n.translate('stat_server_connections'));
+			var details = $('.config-server-detail.multiid' + multiid, $ConfigData);
+			var issues = details.find('.option-alert').length;
+			row.find('.config-server-health').text(issues ? issues + ' ' + I18n.translate('config_server_issues') : '').toggle(issues > 0);
+			var edit = row.find('.config-server-edit');
+			var caption = I18n.translate(edit.attr('aria-expanded') === 'true' ? 'btn_close' : 'btn_edit');
+			edit.text(caption).attr('aria-label', caption + ': ' + name);
+			edit.attr('aria-controls', details.find('input[id],.btn-switch[id]').map(function() { return this.id; }).get().join(' '));
+		});
+	}
+
+	function setServerEditor(multiid, expanded)
+	{
+		$('.config-server-row.multiid' + multiid + ' .config-server-edit', $ConfigData).attr('aria-expanded', expanded);
+		$('.config-server-detail.multiid' + multiid, $ConfigData).toggleClass('server-closed', !expanded);
+		refreshServerRows();
+	}
+
+	this.editServer = function(control)
+	{
+		setServerEditor($(control).attr('data-multiid'), $(control).attr('aria-expanded') !== 'true');
 	}
 
 	/*** OPTION SPECIFIC EDITORS *************************************************/
