@@ -25,6 +25,12 @@ import sys
 import tempfile
 import time
 
+# Preserve the invocation's implementation identity. Later source changes must
+# not relabel already-loaded code as though it came from the new file.
+RUNNER_ORIGINAL_PATH = Path(__file__)
+RUNNER_PATH = RUNNER_ORIGINAL_PATH.resolve()
+INVOCATION_RUNNER_SHA256 = hashlib.sha256(RUNNER_PATH.read_bytes()).hexdigest()
+
 BUILD_TOOLS = {"cargo", "rustc", "rustup", "make", "gmake", "ninja", "cmake", "cc", "gcc", "g++",
                "c++", "clang", "clang++", "ccache", "sccache", "meson", "bazel", "just", "task",
                "npm", "npx", "yarn", "pnpm", "pip", "pip3", "uv"}
@@ -89,9 +95,12 @@ def prepare_command(args):
         raise ValueError("timing requires a prebuilt native program, not an interpreter or build tool")
     command = list(args.command)
     if args.mode == "build":
-        # Reject unlimited/over-cap job arguments even for wrapped tools. Flags
-        # after -- belong to a program invoked by cargo and are left untouched.
-        end = command.index("--") if "--" in command else len(command)
+        # Only Cargo's run/test/bench program arguments are exempt. CMake's
+        # trailing -- arguments go to the native builder and still need a cap.
+        cargo_prefix = 2 if len(command) > 1 and command[1].startswith("+") else 1
+        program_args = (name == "cargo" and len(command) > cargo_prefix and
+                        command[cargo_prefix] in ("run", "test", "bench"))
+        end = command.index("--") if program_args and "--" in command else len(command)
         for index, value in enumerate(command[1:end], 1):
             jobs = None
             if value in ("-j", "--jobs", "--parallel"):
@@ -107,7 +116,8 @@ def prepare_command(args):
         if name == "ninja":
             command[1:1] = [f"-j{args.jobs}"]
         elif name == "cmake" and "--build" in command:
-            command[end:end] = ["--parallel", str(args.jobs)]
+            native_start = command.index("--") if "--" in command else len(command)
+            command[native_start:native_start] = ["--parallel", str(args.jobs)]
     executable = shutil.which(command[0])
     if not executable:
         raise ValueError("command executable was not found")
@@ -132,7 +142,114 @@ def prepare_command(args):
 
 def digest_file(path):
     with path.open("rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("captured artifacts must be regular files")
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def argv_digest(command):
+    return hashlib.sha256(json.dumps(command, separators=(",", ":")).encode()).hexdigest()
+
+
+def metadata_destination_safe(args, command):
+    if args.metadata is None:
+        return
+    # os.replace replaces the final directory entry, not a symlink's target.
+    # Preserve original ancestor entries before resolving any leaf: link/../x
+    # still depends on link, even if resolving x would hide that dependency.
+    def original_absolute(path):
+        return path if path.is_absolute() else Path.cwd() / path
+
+    def entry(path):
+        path = original_absolute(path)
+        return path.parent.resolve() / path.name
+
+    output = original_absolute(args.metadata)
+    output_entry, output_target = entry(output), output.resolve()
+    try:
+        output_stat = output.stat()
+    except FileNotFoundError:
+        output_stat = None
+    inputs = [Path(command[0]), RUNNER_ORIGINAL_PATH, *args.fixture, *args.toolchain_binary]
+    inputs += [directory / name for directory in (args.lock_dir, Path("/tmp"))
+               for name in ("i7-heavy.lock", "nzbget-rust-benchmark.lock")]
+    for path in inputs:
+        original = original_absolute(path)
+        for protected in (original, *original.parents):
+            if output_entry == entry(protected) or output_target == protected.resolve():
+                raise ValueError("metadata destination collides with a protected input or lock")
+            if output_stat is not None:
+                try:
+                    protected_stat = protected.stat()
+                except FileNotFoundError:
+                    continue
+                if (output_stat.st_dev, output_stat.st_ino) == (protected_stat.st_dev, protected_stat.st_ino):
+                    raise ValueError("metadata destination collides with a protected input or lock")
+
+
+def checkout_identity():
+    git = shutil.which("git")
+    if not git:
+        return None
+    revision = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True,
+                              env=safe_environment("time", 3), timeout=5)
+    if revision.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}\n?", revision.stdout):
+        return revision.stdout.strip()
+    return None
+
+
+def capture_artifacts(args, command):
+    paths = [("runner", "implementation", RUNNER_PATH),
+             ("executable", "executable", Path(command[0]))]
+    paths += [(f"fixture-{index}", "fixture", path) for index, path in enumerate(args.fixture)]
+    paths += [(f"tool-{index}", "toolchain", path) for index, path in enumerate(args.toolchain_binary)]
+    records = []
+    for identifier, kind, path in paths:
+        try:
+            digest = digest_file(path)
+        except (OSError, ValueError):
+            digest = None
+        records.append({"id": identifier, "kind": kind, "sha256": digest})
+    return records
+
+
+def capture_stability(before, after):
+    first = {record["id"]: record["sha256"] for record in before}
+    last = {record["id"]: record["sha256"] for record in after}
+    changed = {identifier for identifier in first.keys() | last.keys()
+               if first.get(identifier) is None or last.get(identifier) is None or
+               first.get(identifier) != last.get(identifier)}
+    reasons = set()
+    if any(record["sha256"] is None for record in before + after):
+        reasons.add("artifact_unavailable")
+    if first.get("runner") != INVOCATION_RUNNER_SHA256 or last.get("runner") != INVOCATION_RUNNER_SHA256:
+        changed.add("runner")
+        reasons.add("runner_source_changed")
+    if changed - {"runner"}:
+        reasons.add("artifact_changed")
+    return {"status": "changed" if changed else "stable", "changed_ids": sorted(changed),
+            "reason_codes": sorted(reasons)}
+
+
+def captured_fields(command, executable, before, after):
+    first = {record["id"]: record["sha256"] for record in before}
+    return {"capture_version": 1, "captures": {"before": before, "after": after},
+            "stability": capture_stability(before, after),
+            "command": {"name": executable.name, "sha256": first.get("executable"),
+                        "argv_sha256": argv_digest(command)},
+            "fixtures": [{"id": record["id"], "sha256": record["sha256"]} for record in before if record["kind"] == "fixture"],
+            "toolchain_binaries": [{"id": record["id"], "sha256": record["sha256"]} for record in before if record["kind"] == "toolchain"]}
+
+
+def mark_drift(result):
+    result.update(exit_code=76, outcome="provenance_drift", qualification="HOLD")
+    return result
+
+
+def send_result(fd, result):
+    data = json.dumps(result).encode()
+    while data:
+        data = data[os.write(fd, data):]
 
 
 def safe_environment(mode, jobs):
@@ -238,6 +355,33 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
         raise OSError("cannot enable Linux descendant supervision")
+    original_argv = argv_digest(command)
+    try:
+        command, executable = prepare_command(args)
+    except (OSError, ValueError):
+        send_result(result_pipe, mark_drift({"command_started": False, "duration_ns": 0,
+            "captures": {"before": [], "after": []}, "stability": {"status": "changed",
+            "changed_ids": ["argv"], "reason_codes": ["command_revalidation_failed"]}}))
+        return
+    metadata_destination_safe(args, command)
+    checkout_before = checkout_identity()
+    before = capture_artifacts(args, command)
+    fields = captured_fields(command, executable, before, before)
+    if argv_digest(command) != original_argv:
+        fields["stability"]["status"] = "changed"
+        fields["stability"]["changed_ids"].append("argv")
+        fields["stability"]["reason_codes"].append("argv_changed")
+    if fields["stability"]["status"] != "stable":
+        # Even a prevented launch keeps independently observed before/after
+        # records; never reconstruct the second observation from the first.
+        fields["captures"]["after"] = capture_artifacts(args, command)
+        observed = capture_stability(before, fields["captures"]["after"])
+        fields["stability"]["changed_ids"] = sorted(set(fields["stability"]["changed_ids"] + observed["changed_ids"]))
+        fields["stability"]["reason_codes"] = sorted(set(fields["stability"]["reason_codes"] + observed["reason_codes"]))
+        fields.update(command_started=False, duration_ns=0, checkout_sha=checkout_before,
+                      checkout_sha_before=checkout_before, checkout_sha_after=checkout_identity())
+        send_result(result_pipe, mark_drift(fields))
+        return
     start = time.monotonic()
     child = subprocess.Popen(command, env=env, start_new_session=True, pass_fds=tuple(locks))
     root_status = None
@@ -273,9 +417,20 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
         time.sleep(POLL_SECONDS)
     if stopping_at is None:
         exit_code = root_status if root_status >= 0 else 128 - root_status
-    result = json.dumps({"exit_code": exit_code, "outcome": outcome, "command_started": True,
-                         "duration_ns": int((time.monotonic() - start) * 1e9)}).encode()
-    os.write(result_pipe, result)
+    result = {"exit_code": exit_code, "outcome": outcome, "command_started": True,
+              "child_exit_code": root_status, "duration_ns": int((time.monotonic() - start) * 1e9)}
+    # The same identities are captured while the custodian still owns the locks,
+    # after every descendant has exited and been reaped.
+    result.update(captured_fields(command, executable, before, capture_artifacts(args, command)))
+    checkout_after = checkout_identity()
+    result.update(checkout_sha=checkout_before, checkout_sha_before=checkout_before, checkout_sha_after=checkout_after)
+    if checkout_before != checkout_after:
+        result["stability"]["status"] = "changed"
+        result["stability"]["changed_ids"].append("checkout")
+        result["stability"]["reason_codes"].append("checkout_changed")
+    if result["stability"]["status"] != "stable":
+        mark_drift(result)
+    send_result(result_pipe, result)
     # Inherited lock fds close only after all descendants have been reaped.
 
 
@@ -306,15 +461,23 @@ def execute(args, command, env, locks, interrupted):
     for fd in locks:
         os.close(fd)
     try:
+        received = []
         while True:
             if interrupted[0] and parent_write is not None:
                 os.close(parent_write)
                 parent_write = None
+            if select.select([result_read], [], [], 0)[0]:
+                received.append(os.read(result_read, 65536))
             done, _ = os.waitpid(pid, os.WNOHANG)
             if done:
                 break
             time.sleep(POLL_SECONDS)
-        raw = os.read(result_read, 4096)
+        while True:
+            chunk = os.read(result_read, 65536)
+            if not chunk:
+                break
+            received.append(chunk)
+        raw = b"".join(received)
         if not raw:
             raise ValueError("lock supervisor failed without a result")
         result = json.loads(raw)
@@ -332,25 +495,21 @@ def utc_now():
 
 
 def provenance(args, command, executable):
-    proof = {"schema_version": 1, "mode": args.mode, "testbed": args.testbed,
+    proof = {"schema_version": 1, "capture_version": 1, "mode": args.mode, "testbed": args.testbed,
              "lock_scope": "worker_default" if args.lock_dir.samefile(Path("/tmp")) else "test_override",
-             "runner_sha256": digest_file(Path(__file__).resolve()),
+             "runner_sha256": INVOCATION_RUNNER_SHA256,
+             "checkout_sha": None, "checkout_sha_before": None, "checkout_sha_after": None,
+             "captures": {"before": [], "after": []},
+             "stability": {"status": "not_captured", "changed_ids": [], "reason_codes": []},
              "lock_modes": {"i7-heavy.lock": "exclusive", "nzbget-rust-benchmark.lock": "shared"} if args.mode == "build" else {"nzbget-rust-benchmark.lock": "exclusive"},
              "time_prebuilt": args.mode == "time",
              "started_at": utc_now(), "build_jobs": args.jobs if args.mode == "build" else None,
              "limits": {"timeout_seconds": args.timeout_seconds, "lock_timeout_seconds": args.lock_timeout_seconds,
                         "shutdown_grace_seconds": args.shutdown_grace_seconds},
-             "command": {"name": executable.name, "sha256": digest_file(executable),
-                         "argv_sha256": hashlib.sha256(json.dumps(command, separators=(",", ":")).encode()).hexdigest()},
-             "fixtures": [{"id": f"fixture-{index}", "sha256": digest_file(path)} for index, path in enumerate(args.fixture)],
+             "command": {"name": executable.name, "sha256": None, "argv_sha256": argv_digest(command)},
+             "fixtures": [],
              "toolchain": {"python": platform.python_version(), "kernel": platform.release(), "machine": platform.machine()},
-             "toolchain_binaries": [{"id": f"tool-{index}", "sha256": digest_file(path)} for index, path in enumerate(args.toolchain_binary)]}
-    git = shutil.which("git")
-    if git:
-        revision = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True,
-                                  env=safe_environment("time", args.jobs), timeout=5)
-        if revision.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}\n?", revision.stdout):
-            proof["checkout_sha"] = revision.stdout.strip()
+             "toolchain_binaries": []}
     return proof
 
 
@@ -376,6 +535,7 @@ def main(argv=None):
         command, executable = prepare_command(args)
         if not sys.platform.startswith("linux"):
             raise ValueError("command execution requires the existing Linux worker")
+        metadata_destination_safe(args, command)
         if args.metadata:
             proof = provenance(args, command, executable)
         env = safe_environment(args.mode, args.jobs)
@@ -397,8 +557,9 @@ def main(argv=None):
     if proof is not None:
         proof.update(result, finished_at=utc_now())
         try:
+            metadata_destination_safe(args, command)
             save_metadata(args.metadata, proof)
-        except OSError:
+        except (OSError, ValueError):
             print("runner: could not save metadata", file=sys.stderr)
             return 2
     return result["exit_code"]

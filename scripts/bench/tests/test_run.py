@@ -60,6 +60,18 @@ class RunnerTests(unittest.TestCase):
             time.sleep(0.02)
         self.fail(f"helper did not create {path.name}")
 
+    def wait_queued(self, child, name):
+        target = str(self.locks / name)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                if any(os.readlink(fd) == target for fd in Path(f"/proc/{child.pid}/fd").iterdir()):
+                    return
+            except FileNotFoundError:
+                pass
+            time.sleep(.01)
+        self.fail("runner never entered lock acquisition")
+
     def available(self, name, kind=fcntl.LOCK_EX):
         with (self.locks / name).open("a+") as stream:
             try:
@@ -107,6 +119,117 @@ class RunnerTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 status, _, _ = self.run_cli("build", argv)
                 self.assertEqual(status, 2)
+
+    @unittest.skipUnless(LINUX, "fake build-driver tests are Linux-only")
+    def test_native_cmake_flags_are_capped_but_cargo_program_args_are_not_build_jobs(self):
+        ready = self.root / "launched"
+        body = f"#!/usr/bin/env python3\nfrom pathlib import Path\nPath({str(ready)!r}).touch()\n"
+        for name in ("cmake", "cargo"):
+            (self.root / name).write_text(body)
+            (self.root / name).chmod(0o755)
+        for argv in ([str(self.root / "cmake"), "--build", ".", "--", "-j99"],
+                     [str(self.root / "cargo"), "build", "--", "-j99"]):
+            status, _, _ = self.run_cli("build", argv)
+            self.assertEqual(status, 2)
+            self.assertFalse(ready.exists())
+        status, _, error = self.run_cli("build", [str(self.root / "cargo"), "run", "--", "-j99"])
+        self.assertEqual(status, 0, error)
+        self.assertTrue(ready.exists())
+
+    @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
+    def test_metadata_cannot_replace_inputs_aliases_or_lock_files(self):
+        for case in ("fixture", "tool", "executable", "lock", "hardlink", "symlink", "parent_symlink", "parent_symlink_dotdot"):
+            with self.subTest(case=case):
+                root = self.root / case
+                root.mkdir()
+                ready = root / "never"
+                driver = root / "driver"
+                driver.write_text(f"#!/usr/bin/env python3\nfrom pathlib import Path\nPath({str(ready)!r}).touch()\n")
+                driver.chmod(0o755)
+                fixture, tool = root / "fixture", root / "compiler"
+                fixture.write_bytes(b"fixture bytes")
+                tool.write_bytes(b"compiler bytes")
+                dest = fixture
+                fixture_arg = fixture
+                if case == "tool":
+                    dest = tool
+                elif case == "executable":
+                    dest = driver
+                elif case == "lock":
+                    dest = self.locks / "i7-heavy.lock"
+                    dest.write_bytes(b"lock bytes")
+                elif case == "hardlink":
+                    dest = root / "receipt"
+                    os.link(fixture, dest)
+                elif case == "symlink":
+                    dest = root / "receipt"
+                    dest.symlink_to(fixture)
+                elif case == "parent_symlink":
+                    dest = root / "linked-directory"
+                    dest.symlink_to(root, target_is_directory=True)
+                    fixture_arg = dest / "fixture"
+                elif case == "parent_symlink_dotdot":
+                    (root / "inner").mkdir()
+                    dest = root / "linked-directory"
+                    dest.symlink_to(root / "inner", target_is_directory=True)
+                    fixture_arg = dest / ".." / "fixture"
+                driver_bytes = driver.read_bytes()
+                fixture_bytes = fixture.read_bytes()
+                tool_bytes = tool.read_bytes()
+                inode = dest.lstat().st_ino
+                status, _, _ = self.run_cli("build", [str(driver)], ("--metadata", str(dest),
+                    "--testbed", "fixture-worker", "--fixture", str(fixture_arg), "--toolchain-binary", str(tool)))
+                self.assertEqual(status, 2)
+                self.assertFalse(ready.exists())
+                self.assertEqual(fixture.read_bytes(), fixture_bytes)
+                self.assertEqual(tool.read_bytes(), tool_bytes)
+                self.assertEqual(driver.read_bytes(), driver_bytes)
+                self.assertEqual(dest.lstat().st_ino, inode)
+
+    @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
+    def test_metadata_collision_created_while_queued_is_rejected_under_lock(self):
+        metadata, fixture, ready = self.root / "receipt", self.root / "fixture", self.root / "never"
+        fixture.write_bytes(b"protected input")
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        with (self.locks / "i7-heavy.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            child = self.start("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker", "--fixture", str(fixture)))
+            self.wait_queued(child, "i7-heavy.lock")
+            os.link(fixture, metadata)
+            inode = metadata.stat().st_ino
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 2)
+        self.assertFalse(ready.exists())
+        self.assertEqual(fixture.read_bytes(), b"protected input")
+        self.assertEqual(metadata.stat().st_ino, inode)
+
+    @unittest.skipUnless(LINUX, "checkout capture tests are Linux-only")
+    def test_checkout_identity_change_is_descriptive_hold(self):
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("Git is unavailable")
+        repo = self.root / "checkout"
+        subprocess.run([git, "init", "-q", str(repo)], check=True, capture_output=True)
+        # Blobs, not commits: this isolated fixture tests revision resolution
+        # without creating unsigned development commits.
+        before = subprocess.check_output([git, "hash-object", "-w", "--stdin"], cwd=repo, input=b"before").decode().strip()
+        after = subprocess.check_output([git, "hash-object", "-w", "--stdin"], cwd=repo, input=b"after").decode().strip()
+        head = repo / ".git" / "HEAD"
+        head.write_text(before + "\n")
+        argv = self.script(f"from pathlib import Path\nPath({str(head)!r}).write_text({(after + chr(10))!r})\n")
+        metadata = self.root / "checkout.json"
+        child = subprocess.Popen(self.command("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker")),
+                                 cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.children.append(child)
+        _, error = child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 76, error)
+        proof = json.loads(metadata.read_text())
+        self.assertEqual(proof["checkout_sha"], before)
+        self.assertEqual(proof["checkout_sha_before"], before)
+        self.assertEqual(proof["checkout_sha_after"], after)
+        self.assertEqual(proof["qualification"], "HOLD")
+        self.assertIn("checkout", proof["stability"]["changed_ids"])
 
     def test_rejects_unbounded_timeout_and_jobs(self):
         for extra in (("--timeout-seconds", "nan"), ("--timeout-seconds", "0"),
@@ -192,6 +315,103 @@ raise SystemExit(runner.main())
         status, output, error = self.run_cli("build", argv)
         self.assertEqual(status, 0, error)
         self.assertEqual(output.strip(), "aliased-python")
+
+    @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
+    def test_queued_artifacts_are_captured_only_after_lock_acquisition(self):
+        metadata = self.root / "queued.json"
+        fixture, tool = self.root / "fixture", self.root / "compiler"
+        fixture.write_bytes(b"old input")
+        tool.write_bytes(b"old compiler")
+        alias = self.root / "driver"
+        alias.symlink_to(shutil.which("true"))
+        with (self.locks / "i7-heavy.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            child = self.start("build", [str(alias)], ("--metadata", str(metadata), "--testbed", "fixture-worker",
+                "--fixture", str(fixture), "--toolchain-binary", str(tool)))
+            self.wait_queued(child, "i7-heavy.lock")
+            fixture.write_bytes(b"new input")
+            tool.write_bytes(b"new compiler")
+            alias.unlink()
+            alias.symlink_to(shutil.which("false"))
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 1)
+        proof = json.loads(metadata.read_text())
+        before = {record["id"]: record["sha256"] for record in proof["captures"]["before"]}
+        self.assertEqual(proof["capture_version"], 1)
+        self.assertEqual(before["fixture-0"], hashlib.sha256(b"new input").hexdigest())
+        self.assertEqual(before["tool-0"], hashlib.sha256(b"new compiler").hexdigest())
+        self.assertEqual(before["executable"], hashlib.sha256(Path(shutil.which("false")).read_bytes()).hexdigest())
+        self.assertEqual(proof["captures"]["before"], proof["captures"]["after"])
+        self.assertEqual(proof["stability"]["status"], "stable")
+
+    @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
+    def test_changes_during_child_execution_are_hold_with_original_before_hashes(self):
+        metadata = self.root / "changed.json"
+        fixture, tool = self.root / "fixture", self.root / "compiler"
+        fixture.write_bytes(b"old input")
+        tool.write_bytes(b"old compiler")
+        alias = self.root / "driver"
+        alias.symlink_to(sys.executable)
+        argv = self.script(f"from pathlib import Path\nPath({str(fixture)!r}).write_bytes(b'new input')\nPath({str(tool)!r}).write_bytes(b'new compiler')\np=Path({str(alias)!r})\np.unlink()\np.symlink_to({shutil.which('true')!r})\n")
+        argv[0] = str(alias)
+        status, _, error = self.run_cli("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker",
+                "--fixture", str(fixture), "--toolchain-binary", str(tool)))
+        self.assertEqual(status, 76, error)
+        proof = json.loads(metadata.read_text())
+        before = {record["id"]: record["sha256"] for record in proof["captures"]["before"]}
+        after = {record["id"]: record["sha256"] for record in proof["captures"]["after"]}
+        self.assertEqual(before["fixture-0"], hashlib.sha256(b"old input").hexdigest())
+        self.assertEqual(after["fixture-0"], hashlib.sha256(b"new input").hexdigest())
+        self.assertEqual(proof["fixtures"][0]["sha256"], before["fixture-0"])
+        self.assertEqual(proof["command"]["sha256"], before["executable"])
+        self.assertEqual(set(proof["stability"]["changed_ids"]), {"executable", "fixture-0", "tool-0"})
+        self.assertEqual(proof["outcome"], "provenance_drift")
+        self.assertEqual(proof["qualification"], "HOLD")
+        self.assertEqual(proof["child_exit_code"], 0)
+
+    @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
+    def test_runner_source_change_while_queued_preserves_loaded_identity_and_prevents_launch(self):
+        copy = self.root / "copied-runner.py"
+        copy.write_bytes(RUNNER.read_bytes())
+        original_hash = hashlib.sha256(copy.read_bytes()).hexdigest()
+        metadata, ready = self.root / "source.json", self.root / "never"
+        argv = self.script(f"from pathlib import Path\nPath({str(ready)!r}).touch()\n")
+        command = self.command("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker"))
+        command[1] = str(copy)
+        with (self.locks / "i7-heavy.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.children.append(child)
+            self.wait_queued(child, "i7-heavy.lock")
+            copy.write_bytes(copy.read_bytes() + b"\n# source changed while queued\n")
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 76)
+        proof = json.loads(metadata.read_text())
+        self.assertEqual(proof["runner_sha256"], original_hash)
+        self.assertFalse(proof["command_started"])
+        self.assertFalse(ready.exists())
+        self.assertIn("runner", proof["stability"]["changed_ids"])
+
+    @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
+    def test_timing_path_changed_while_queued_is_revalidated_before_launch(self):
+        metadata = self.root / "path.json"
+        alias = self.root / "measurement"
+        alias.symlink_to(shutil.which("true"))
+        with (self.locks / "nzbget-rust-benchmark.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            child = self.start("time", [str(alias), "--version"],
+                ("--metadata", str(metadata), "--testbed", "fixture-worker"))
+            self.wait_queued(child, "nzbget-rust-benchmark.lock")
+            alias.unlink()
+            alias.symlink_to(sys.executable)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 76)
+        proof = json.loads(metadata.read_text())
+        self.assertFalse(proof["command_started"])
+        self.assertIn("command_revalidation_failed", proof["stability"]["reason_codes"])
 
     @unittest.skipUnless(LINUX, "descendant supervision is Linux-only")
     def test_build_lock_order_and_shared_benchmark_lock(self):
