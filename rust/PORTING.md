@@ -41,6 +41,7 @@ in `rust/include/nzbget_rs.h`.
 | `RarVolume` header parsing (RAR3/RAR5 blocks, files, encryption records; the source and OpenSSL stay C++) | `rarreader` | port only |
 | `RarRenamer::RenameFiles` (sets, proper names, main file, new names; the regex, file checks and moves stay C++) | `rarrenamer` | port only |
 | DirectRenamer's `RenameContentAnalyzer` (PAR2 header and set id, MD5 of the first 16 KiB) | `renameanalyzer` | port only |
+| DirectRenamer's new names (`BuildNewRegularName`, `BuildNewParName`, `NeedRenamePars`) | `directrenamer` | port only |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
