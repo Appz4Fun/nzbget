@@ -538,13 +538,24 @@ typedef struct NzbgetRsCmdlineSink
 int nzbget_rs_cmdline_parse(int argc, char** argv, int useLong, const NzbgetRsCmdlineSink* sink);
 
 // FileSystem's file operations (rust/src/fsops.rs, POSIX). error_message:
-// the text of an errno value into a 1024-byte buffer. force_directories: 1, or
-// 0 with *errmsg. The buffers returned are freed with nzbget_rs_free.
+// writes at most 1022 bytes plus NUL (the original BString capacity argument)
+// to a 1024-byte buffer; NULL is a no-op. Buffers returned by these functions
+// are Rust-owned and must be freed with nzbget_rs_free, never free/delete.
+// Panics abort; they do not unwind across the ABI.
+// stat: borrowed for the call, takes a borrowed NUL-terminated path and returns
+// -errno on failure, 1 for a regular file, 2 for a directory, 0 otherwise.
+// It follows symlinks, uses the caller's stat ABI, and must not throw/unwind.
+typedef int (*NzbgetRsFsStat)(const char* path);
 void nzbget_rs_error_message(int errnum, char* buf);
-int nzbget_rs_file_exists(const char* path);
-int nzbget_rs_directory_exists(const char* path);
-int nzbget_rs_force_directories(const char* path, NzbgetRsBuf* errmsg);
-NzbgetRsBuf nzbget_rs_make_unique_filename(const char* dir, const char* basename);
+// NULL paths or callbacks return 0.
+int nzbget_rs_file_exists(const char* path, NzbgetRsFsStat stat);
+int nzbget_rs_directory_exists(const char* path, NzbgetRsFsStat stat);
+// 1 on success, 0 on failure; every non-NULL errmsg is initialized (empty on
+// success or invalid NULL arguments). errmsg must not overlap the input.
+int nzbget_rs_force_directories(const char* path, NzbgetRsBuf* errmsg, NzbgetRsFsStat stat);
+// NULL dir/basename mean empty strings; a NULL stat reports no collisions.
+NzbgetRsBuf nzbget_rs_make_unique_filename(const char* dir, const char* basename, NzbgetRsFsStat stat);
+// NULL filename means empty; NULL home leaves the filename unchanged.
 NzbgetRsBuf nzbget_rs_expand_home_path(const char* filename, const char* home);
 
 #ifdef __cplusplus

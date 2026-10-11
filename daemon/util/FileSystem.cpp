@@ -44,7 +44,21 @@ const char* RESERVED_DEVICE_NAMES[] = { "CON", "PRN", "AUX", "NUL",
 	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
 	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", NULL };
 
-#ifdef NZBGET_USE_RUST
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
+// Keep the platform's stat ABI and errno behavior (Rust metadata can use
+// statx, whose availability probe changes errno, and different time widths).
+static int RustStat(const char* path)
+{
+	struct stat buffer;
+	if (stat(path, &buffer) != 0)
+	{
+		return -errno;
+	}
+	return S_ISREG(buffer.st_mode) ? 1 : S_ISDIR(buffer.st_mode) ? 2 : 0;
+}
+#endif
+
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
 CString FileSystem::GetLastErrorMessage()
 {
 	// rust/src/fsops.rs: the XSI strerror_r (glibc's GNU strerror_r left the
@@ -203,8 +217,8 @@ bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
 bool FileSystem::ForceDirectories(const char* path, CString& errmsg)
 {
 	// rust/src/fsops.rs
-	NzbgetRsBuf msg;
-	bool ok = nzbget_rs_force_directories(path, &msg) != 0;
+	NzbgetRsBuf msg{};
+	bool ok = nzbget_rs_force_directories(path, &msg, RustStat) != 0;
 	errmsg.Clear();
 	if (!ok)
 	{
@@ -759,11 +773,11 @@ std::string FileSystem::SanitizeRelativePath(std::string_view path)
 }
 #endif
 
-#ifdef NZBGET_USE_RUST
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
 CString FileSystem::MakeUniqueFilename(const char* destDir, const char* basename)
 {
 	// rust/src/fsops.rs
-	NzbgetRsBuf buf = nzbget_rs_make_unique_filename(destDir, basename);
+	NzbgetRsBuf buf = nzbget_rs_make_unique_filename(destDir, basename, RustStat);
 	CString result(buf.data, static_cast<int>(buf.len));
 	nzbget_rs_free(buf);
 	return result;
@@ -881,11 +895,11 @@ bool FileSystem::DeleteFile(const char* filename)
 #endif
 }
 
-#ifdef NZBGET_USE_RUST
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
 bool FileSystem::FileExists(const char* filename)
 {
 	// rust/src/fsops.rs (stat, a regular file)
-	return nzbget_rs_file_exists(filename) != 0;
+	return nzbget_rs_file_exists(filename, RustStat) != 0;
 }
 #else
 bool FileSystem::FileExists(const char* filename)
@@ -909,11 +923,11 @@ bool FileSystem::FileExists(const char* filename)
 }
 #endif
 
-#ifdef NZBGET_USE_RUST
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
 bool FileSystem::DirectoryExists(const char* dirFilename)
 {
 	// rust/src/fsops.rs (stat, a directory)
-	return nzbget_rs_directory_exists(dirFilename) != 0;
+	return nzbget_rs_directory_exists(dirFilename, RustStat) != 0;
 }
 #else
 bool FileSystem::DirectoryExists(const char* dirFilename)
@@ -1312,7 +1326,7 @@ CString FileSystem::ExpandHomePath(const char* filename)
 			return filename;
 		}
 
-		if (home[strlen(home)-1] == '/')
+		if (home[0] && home[strlen(home)-1] == '/')
 		{
 			result.Format("%s%s", home, filename + 2);
 		}

@@ -2270,39 +2270,59 @@ pub unsafe extern "C" fn nzbget_rs_error_message(errnum: c_int, buf: *mut c_char
     *buf.add(msg.len()) = 0;
 }
 
+/// Borrowed native stat callback; see nzbget_rs.h. It must not unwind.
+#[cfg(unix)]
+pub type FsStat = unsafe extern "C" fn(*const c_char) -> c_int;
+
+#[cfg(unix)]
+fn fs_stat(stat: Option<FsStat>, path: &[u8]) -> i32 {
+    let Some(stat) = stat else { return -22 }; // EINVAL
+    let mut path = path.to_vec();
+    path.push(0);
+    unsafe { stat(path.as_ptr().cast()) }
+}
+
 /// FileSystem::FileExists (0 for null).
 ///
 /// # Safety
-/// `path` is null or NUL-terminated.
+/// `path` is null or NUL-terminated. `stat`, when present, follows the
+/// FsStat contract and must not unwind.
 #[cfg(unix)]
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_file_exists(path: *const c_char) -> c_int {
-    (!path.is_null() && crate::fsops::file_exists(input(path))) as c_int
+pub unsafe extern "C" fn nzbget_rs_file_exists(path: *const c_char, stat: Option<FsStat>) -> c_int {
+    (!path.is_null() && crate::fsops::file_exists(input(path), &|_| stat.map_or(-22, |f| f(path)))) as c_int
 }
 
 /// FileSystem::DirectoryExists (0 for null).
 ///
 /// # Safety
-/// `path` is null or NUL-terminated.
+/// `path` is null or NUL-terminated. `stat`, when present, follows the
+/// FsStat contract and must not unwind.
 #[cfg(unix)]
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_directory_exists(path: *const c_char) -> c_int {
-    (!path.is_null() && crate::fsops::directory_exists(input(path))) as c_int
+pub unsafe extern "C" fn nzbget_rs_directory_exists(path: *const c_char, stat: Option<FsStat>) -> c_int {
+    (!path.is_null() && crate::fsops::directory_exists(input(path), &|_| stat.map_or(-22, |f| f(path)))) as c_int
 }
 
 /// FileSystem::ForceDirectories: 1 created or there, else 0 with the message
 /// in `*errmsg` (free with nzbget_rs_free; empty on success).
 ///
 /// # Safety
-/// `path` is NUL-terminated; `errmsg` is writable.
+/// `path` is null or NUL-terminated; `errmsg` is null or writable and disjoint
+/// from the input. Every non-null output is initialized, including on failure.
+/// `stat`, when present, follows the FsStat contract and must not unwind.
 #[cfg(unix)]
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_force_directories(path: *const c_char, errmsg: *mut RsBuf) -> c_int {
-    if path.is_null() || errmsg.is_null() {
+pub unsafe extern "C" fn nzbget_rs_force_directories(path: *const c_char, errmsg: *mut RsBuf, stat: Option<FsStat>) -> c_int {
+    if errmsg.is_null() {
+        return 0;
+    }
+    if path.is_null() || stat.is_none() {
+        errmsg.write(into_buf(Vec::new()));
         return 0;
     }
     let mut msg = Vec::new();
-    let ok = crate::fsops::force_directories(input(path), &mut msg);
+    let ok = crate::fsops::force_directories(input(path), &mut msg, &|p| fs_stat(stat, p));
     errmsg.write(into_buf(msg));
     ok as c_int
 }
@@ -2310,12 +2330,13 @@ pub unsafe extern "C" fn nzbget_rs_force_directories(path: *const c_char, errmsg
 /// FileSystem::MakeUniqueFilename; free with nzbget_rs_free.
 ///
 /// # Safety
-/// `dir` and `basename` are NUL-terminated.
+/// `dir` and `basename` are null (empty) or NUL-terminated. `stat`, when
+/// present, follows the FsStat contract and must not unwind.
 #[cfg(unix)]
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_make_unique_filename(dir: *const c_char, basename: *const c_char) -> RsBuf {
+pub unsafe extern "C" fn nzbget_rs_make_unique_filename(dir: *const c_char, basename: *const c_char, stat: Option<FsStat>) -> RsBuf {
     let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
-    into_buf(crate::fsops::make_unique_filename(as_c(dir), as_c(basename)))
+    into_buf(crate::fsops::make_unique_filename(as_c(dir), as_c(basename), &|p| fs_stat(stat, p)))
 }
 
 /// FileSystem::ExpandHomePath with the home directory the C++ looked up
@@ -2334,6 +2355,28 @@ pub unsafe extern "C" fn nzbget_rs_expand_home_path(filename: *const c_char, hom
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn fsops_null_outputs_and_ownership() {
+        unsafe extern "C" fn directory(_: *const c_char) -> c_int { 2 }
+        unsafe {
+            let mut msg = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_force_directories(std::ptr::null(), msg.as_mut_ptr(), Some(directory)), 0);
+            let msg = msg.assume_init();
+            assert_eq!(msg.len, 0);
+            assert_eq!(CStr::from_ptr(msg.data), c"");
+            nzbget_rs_free(msg);
+            assert_eq!(nzbget_rs_force_directories(c".".as_ptr(), std::ptr::null_mut(), Some(directory)), 0);
+            assert_eq!(nzbget_rs_file_exists(std::ptr::null(), Some(directory)), 0);
+            assert_eq!(nzbget_rs_directory_exists(c".".as_ptr(), None), 0);
+            let mut source = b"~/x\0".to_vec();
+            let expanded = nzbget_rs_expand_home_path(source.as_ptr().cast(), c"".as_ptr());
+            source[2] = b'y';
+            assert_eq!(CStr::from_ptr(expanded.data), c"/x");
+            nzbget_rs_free(expanded);
+        }
+    }
 
     #[test]
     fn nntp_nulls_and_missing_callbacks() {
