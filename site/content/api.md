@@ -77,7 +77,7 @@ appendfleet(DupeKey, Category, Priority, Timeout, Name1, Content1, Name2, Conten
 | `NameN` | string | The member's filename, such as `Release.Name.nzb`. |
 | `ContentN` | string | The NZB file in base64, or an `http://` or `https://` URL to fetch it from. |
 
-Up to 50 members. It works over JSON-RPC and JSON-P; XML-RPC callers get an error.
+Up to 50 members. Call it over JSON-RPC with POST. XML-RPC callers get an error, and JSON-P, like any GET, can't call it.
 
 The result:
 
@@ -133,7 +133,7 @@ RustyGet also stores its findings as NZB parameters, which the API returns in `P
 
 RustyGet fixes several problems in NZBGet's API. Clients that rely on the old behavior may need changes:
 
-- **POST on the JSON-RPC and XML-RPC paths.** `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `readurl`, `testserverspeed`, `testdiskspeed`, and `testnetworkspeed` no longer run from a GET request to `/jsonrpc` or `/xmlrpc`. JSON-P requests to `/jsonprpc` still run every method, as in NZBGet, so keep the API port away from untrusted networks and browsers you don't control.
+- **POST for methods that change something.** Plain GET and JSON-P run only the methods that read: `config`, `configtemplates`, `dump`, `history`, `listfiles`, `listgroups`, `loadconfig`, `loadextensions`, `loadlog`, `log`, `logscript`, `logupdate`, `postqueue`, `servervolumes`, `status`, `sysinfo`, `systemhealth`, `urlqueue`, and `version`. Every other method answers error 4 there. `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `readurl`, `testserverspeed`, `testdiskspeed`, and `testnetworkspeed` joined the methods that need POST. In NZBGet, JSON-P ran every method, so a `<script>` tag on any web page could edit the queue, change settings, or shut NZBGet down with the browser's saved login.
 - **Access checks in multicalls.** The XML-RPC `system.multicall` method runs each call with the caller's access level. In NZBGet, a restricted account could read passwords through it.
 - **Range checks.** Integers outside the 32-bit range are rejected instead of wrapping around. `editqueue` checks scores, priorities, parameters, and duplicate modes.
 - **Safe configuration saves.** `saveconfig` refuses an empty or malformed option list instead of truncating the file.

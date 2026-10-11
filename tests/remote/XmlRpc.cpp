@@ -290,4 +290,64 @@ BOOST_AUTO_TEST_CASE(TestWhitespaceAfterLastParam)
 	}
 }
 
+// the reply to one request, as the web server would send it
+static std::string RpcReply(const char* url, XmlRpcProcessor::EHttpMethod httpMethod, const char* body = "")
+{
+	std::string request(body);
+	XmlRpcProcessor processor;
+	processor.SetUrl(url);
+	processor.SetHttpMethod(httpMethod);
+	processor.SetUserAccess(XmlRpcProcessor::uaControl);
+	processor.SetRequest(&request[0]);
+	processor.Execute();
+	return processor.GetResponse() ? processor.GetResponse() : "";
+}
+
+static bool HasErrorCode(const std::string& reply, int code)
+{
+	return reply.find("\"code\" : " + std::to_string(code) + ",") != std::string::npos;
+}
+
+// JSON-P is a GET that any web page can make a browser send: it runs only the methods
+// that read. Each method below changes something; run without parameters it would
+// answer its own "Invalid parameter" (code 2), so a code 4 shows it didn't run.
+BOOST_AUTO_TEST_CASE(TestJsonPRefusesUnsafeMethods)
+{
+	for (const char* method : {"editqueue", "readurl", "append"})
+	{
+		std::string reply = RpcReply(("/jsonprpc/" + std::string(method) + "?=cb").c_str(), XmlRpcProcessor::hmGet);
+		BOOST_TEST_INFO(method << ": " << reply);
+		BOOST_CHECK(HasErrorCode(reply, 4));
+		BOOST_CHECK(!HasErrorCode(reply, 2));
+		// through the callback, so the page that loaded it sees the refusal
+		BOOST_CHECK(reply.rfind("cb(", 0) == 0);
+		BOOST_CHECK(!reply.empty() && reply.back() == ')');
+	}
+}
+
+BOOST_AUTO_TEST_CASE(TestJsonPRunsReadingMethods)
+{
+	std::string reply = RpcReply("/jsonprpc/version?=cb", XmlRpcProcessor::hmGet);
+	BOOST_TEST_INFO(reply);
+	BOOST_CHECK(reply.rfind("cb(", 0) == 0);
+	BOOST_CHECK(reply.find("\"result\"") != std::string::npos);
+	BOOST_CHECK(reply.find("\"error\"") == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(TestPlainGetRefusesUnsafeMethods)
+{
+	std::string reply = RpcReply("/jsonrpc/editqueue", XmlRpcProcessor::hmGet);
+	BOOST_TEST_INFO(reply);
+	BOOST_CHECK(HasErrorCode(reply, 4));
+}
+
+BOOST_AUTO_TEST_CASE(TestPostRunsUnsafeMethods)
+{
+	// it runs, and answers that its parameter is missing
+	std::string reply = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"editqueue","params":[],"id":1})");
+	BOOST_TEST_INFO(reply);
+	BOOST_CHECK(HasErrorCode(reply, 2));
+	BOOST_CHECK(!HasErrorCode(reply, 4));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

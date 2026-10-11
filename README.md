@@ -45,7 +45,7 @@ RustyGet is a Usenet downloader that started as a fork of [NZBGet](https://githu
 | Finding more copies | Only what feeds and clients send | `DupeSearch` queries NZBHydra2, checks each copy on your servers, and queues the live ones as backups |
 | Clients with many copies | One `append` per copy | One `appendfleet` call: RustyGet checks every copy and downloads the most complete one |
 | Configuration | 155 options | 16 new options and a new `HealthCheck` value, all off by default |
-| API | NZBGet API | NZBGet API, plus `appendfleet`, new fields, POST for risky methods on the JSON-RPC and XML-RPC paths, and access checks in multicalls |
+| API | NZBGet API | NZBGet API, plus `appendfleet`, new fields, POST for every method that changes something (plain GET and JSON-P run only the methods that read), and access checks in multicalls |
 | Queue and history files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
 | Inherited bugs | | About 100 fixed, 96 of them [reported to NZBGet as its issues 940 to 1046](https://github.com/nzbgetcom/nzbget/issues?q=is%3Aissue+author%3Axbmc4lyfe): downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
 | CI workflows | Builds and tests for every platform | Turned off in the Actions tab while the tests are rebuilt; only the documentation workflow runs |

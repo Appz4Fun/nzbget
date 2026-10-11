@@ -5911,9 +5911,11 @@ def scenario_staleprogress(daemon, t):
 def scenario_apiformat(daemon, t):
     """Response and GET edge cases (upstream too): a GET parameter holding an encoded
     "&" (%26) stays one value (the whole query was decoded before it was split);
-    servervolumes with some arrays turned off is valid JSON (stray and doubled
-    commas); a JSON-RPC id over 99 characters comes back whole (it was cut, and the
-    response wasn't valid JSON)."""
+    JSON-P runs only the reading methods (any web page can send it: it ran every
+    method), so readurl by JSON-P is refused and fetches nothing, while by POST it
+    still runs; servervolumes with some arrays turned off is valid JSON (stray and
+    doubled commas); a JSON-RPC id over 99 characters comes back whole (it was cut,
+    and the response wasn't valid JSON)."""
     import json as _json
     import urllib.request as _req
     api = daemon.wait_ready()
@@ -5922,8 +5924,11 @@ def scenario_apiformat(daemon, t):
     import threading
     import urllib.parse as _parse
 
+    hits = []
+
     class Echo(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            hits.append(self.path)
             body = self.path.encode()
             self.send_response(200)
             self.send_header('Content-Length', str(len(body)))
@@ -5936,11 +5941,19 @@ def scenario_apiformat(daemon, t):
     echo.daemon_threads = True
     threading.Thread(target=echo.serve_forever, daemon=True).start()
     target = 'http://127.0.0.1:%d/p?x=1&y=2' % echo.server_address[1]
-    # over JSON-P, which takes every method by GET (plain GET is for reading
-    # methods only, and readurl reaches out: it needs POST there since 658acb11)
+    # the GET parameter: a JSON-P callback name holding an encoded "&" comes back whole
+    with _req.urlopen(base + '/jsonprpc/version?=a%26b', timeout=10) as r:
+        callback_whole = r.read().decode().startswith('a&b(')
+    # readurl reaches out: by JSON-P (a GET) it's refused through the callback and
+    # fetches nothing ...
     with _req.urlopen(base + '/jsonprpc/readurl?=cb&1=%s&2=echo' % _parse.quote(target, safe=''), timeout=20) as r:
         reply = r.read().decode()
-        fetched = _json.loads(reply[reply.index('(') + 1:reply.rindex(')')]).get('result')
+        refused = _json.loads(reply[reply.index('(') + 1:reply.rindex(')')]).get('error', {}).get('code') == 4
+    jsonp_fetches = len(hits)
+    # ... and by POST it runs
+    body = _json.dumps({'method': 'readurl', 'params': [target, 'echo']}).encode()
+    with _req.urlopen(_req.Request(base + '/jsonrpc', body), timeout=20) as r:
+        fetched = _json.loads(r.read().decode()).get('result')
     echo.shutdown()
     valid = True
     for flags in ([False, True, False, True, False], [True, True, True, False, True], [False, False, False, False, False]):
@@ -5957,8 +5970,11 @@ def scenario_apiformat(daemon, t):
             echoed = _json.loads(r.read().decode()).get('id')
         except ValueError:
             echoed = None
-    ok = fetched == '/p?x=1&y=2' and valid and echoed == long_id
-    return ('apiformat', ok, 'fetched=%r volumes_valid=%s id_echoed=%s' % (fetched, valid, echoed == long_id))
+    ok = (callback_whole and refused and jsonp_fetches == 0 and fetched == '/p?x=1&y=2'
+          and valid and echoed == long_id)
+    return ('apiformat', ok, 'callback_whole=%s jsonp_refused=%s jsonp_fetches=%d post_fetched=%r '
+            'volumes_valid=%s id_echoed=%s' % (callback_whole, refused, jsonp_fetches, fetched, valid,
+                                              echoed == long_id))
 
 
 def scenario_directunpackkeep(daemon, t):
@@ -7961,7 +7977,8 @@ def scenario_xmlparamdecode(daemon, t):
     startscript weren't decoded: over XML-RPC a url with "&" (sent as
     "&amp;") was fetched with "&amp;" in it. And testserver over JSON-P (GET)
     parsed the query string as a JSON body and always answered "Invalid
-    JSON"."""
+    JSON"; JSON-P now runs only the reading methods, so testserver, which
+    connects out, is refused there (error 4, through the callback)."""
     import http.server
     import urllib.request as _req
     hits = []
@@ -7987,7 +8004,8 @@ def scenario_xmlparamdecode(daemon, t):
     url = 'http://127.0.0.1:%d/jsonprpc/testserver?=cb&=127.0.0.1&=%d&=&=&=false&=&=5&=0' % (daemon.rpc_port, daemon.nntp_port)
     with _req.urlopen(url, timeout=30) as reply:
         jsonp = reply.read().decode()
-    ok = hits and hits[0] == '/x.nzb?a=1&b=2' and 'Invalid JSON' not in jsonp
+    refused = jsonp.startswith('cb(') and '"code" : 4,' in jsonp
+    ok = hits and hits[0] == '/x.nzb?a=1&b=2' and 'Invalid JSON' not in jsonp and refused
     return ('xmlparamdecode', bool(ok), 'fetched=%s jsonp=%s' % (hits[:1], jsonp[:160].replace('\n', ' ')))
 
 
