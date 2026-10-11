@@ -1,0 +1,358 @@
+"""Publisher trust-boundary tests; no credentials, API writes, or benchmarks."""
+import copy
+import argparse
+import contextlib
+import hashlib
+import importlib.util
+import json
+import io
+import os
+import shutil
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+SCRIPT = Path(__file__).resolve().parents[1] / "publish.py"
+spec = importlib.util.spec_from_file_location("publish", SCRIPT) if SCRIPT.exists() else None
+publish = importlib.util.module_from_spec(spec) if spec else None
+if spec:
+    spec.loader.exec_module(publish)
+
+BASE, HEAD, EVIDENCE = "1" * 40, "2" * 40, "3" * 40
+
+
+class PublisherTests(unittest.TestCase):
+    def setUp(self):
+        self.assertIsNotNone(publish, "trusted data-only publisher has not been implemented")
+
+    def commit(self):
+        return {"sha": EVIDENCE, "author": {"login": "xbmc4lyfe"},
+                "committer": {"login": "xbmc4lyfe"}, "commit": {
+                    "author": {"name": "xbmc4lyfe"}, "committer": {"name": "xbmc4lyfe"},
+                    "verification": {"verified": True, "reason": "valid"},
+                    "tree": {"sha": "4" * 40}},
+                "files": [{"filename": "benchmark-results/manifest.json", "status": "added"}]}
+
+    def test_rejects_unsigned_other_actor_and_executable_evidence_commits(self):
+        publish.validate_evidence_commit(self.commit(), EVIDENCE)
+        for mutate in (lambda c: c["commit"]["verification"].update(verified=False),
+                       lambda c: c["author"].update(login="someone"),
+                       lambda c: c["committer"].update(login="github-actions[bot]"),
+                       lambda c: c["commit"]["author"].update(name="Someone Else"),
+                       lambda c: c["files"].append({"filename": "scripts/run.py", "status": "modified"})):
+            bad = self.commit()
+            mutate(bad)
+            with self.assertRaises(publish.PublicationError):
+                publish.validate_evidence_commit(bad, EVIDENCE)
+
+    def test_rejects_truncated_or_symlink_tree(self):
+        tree = {"truncated": False, "tree": [{"path": "benchmark-results/manifest.json", "mode": "100644", "type": "blob", "sha": "4" * 40}]}
+        self.assertIn("benchmark-results/manifest.json", publish.data_tree(tree))
+        for mode in ("120000", "100755", "160000"):
+            bad = copy.deepcopy(tree)
+            bad["tree"][0]["mode"] = mode
+            with self.assertRaises(publish.PublicationError):
+                publish.data_tree(bad)
+        tree["truncated"] = True
+        with self.assertRaises(publish.PublicationError):
+            publish.data_tree(tree)
+
+    def test_json_rejects_duplicates_nonfinite_and_nonobject(self):
+        for raw in (b'{"a":1,"a":2}', b'{"a":NaN}', b'{"a":Infinity}', b'{"a":1e1000}', b'[]', b'bad'):
+            with self.assertRaises(publish.PublicationError):
+                publish.json_object(raw)
+
+    def test_blob_sha_binds_downloaded_bytes(self):
+        raw = b'{"a":1}'
+        sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        publish.verify_blob(raw, sha, 100)
+        for altered, bound in ((raw + b" ", 100), (raw, 2)):
+            with self.assertRaises(publish.PublicationError):
+                publish.verify_blob(altered, sha, bound)
+
+    def test_pr_binding_rejects_stale_base_head_closed_and_wrong_repository(self):
+        pr = {"number": 7, "state": "open", "base": {"sha": BASE, "ref": "dupe-article-fallback", "repo": {"full_name": "Appz4Fun/nzbget"}},
+              "head": {"sha": HEAD}}
+        publish.validate_pr(pr, "Appz4Fun/nzbget", 7, BASE, HEAD)
+        for mutate in (lambda p: p["base"].update(sha="9" * 40), lambda p: p["head"].update(sha="9" * 40),
+                       lambda p: p.update(state="closed"), lambda p: p["base"]["repo"].update(full_name="other/repo")):
+            bad = copy.deepcopy(pr)
+            mutate(bad)
+            with self.assertRaises(publish.PublicationError):
+                publish.validate_pr(bad, "Appz4Fun/nzbget", 7, BASE, HEAD)
+
+    def test_identity_uses_api_not_actor_environment(self):
+        class API:
+            def get(self, endpoint):
+                self.endpoint = endpoint
+                return {"login": "github-actions[bot]"}
+        with self.assertRaises(publish.PublicationError):
+            publish.verified_github_actor(API())
+        class User(API):
+            def get(self, endpoint):
+                return {"login": "xbmc4lyfe"}
+        self.assertEqual(publish.verified_github_actor(User()), "xbmc4lyfe")
+
+    def test_archive_checks_identity_live_state_and_same_repository(self):
+        class API:
+            def __init__(self, state="closed", actor="xbmc4lyfe", repository="Appz4Fun/nzbget"):
+                self.state, self.actor, self.repository = state, actor, repository
+            def get(self, endpoint):
+                if endpoint == "/user":
+                    return {"login": self.actor}
+                return {"number": 7, "state": self.state, "base": {"ref": "dupe-article-fallback", "repo": {"full_name": "Appz4Fun/nzbget"}},
+                        "head": {"repo": {"full_name": self.repository}}}
+        self.assertEqual(publish.archive_guard(API(), "Appz4Fun/nzbget", 7), {"status": "ready", "ready": True, "actor": "xbmc4lyfe"})
+        self.assertEqual(publish.archive_guard(API(state="open"), "Appz4Fun/nzbget", 7)["status"], "skip_reopened")
+        for api in (API(actor="bot"), API(repository="fork/repo"), API(state="unknown")):
+            with self.assertRaises(publish.PublicationError):
+                publish.archive_guard(api, "Appz4Fun/nzbget", 7)
+
+    def manifest(self):
+        return {"schema_version": 1, "base_sha": BASE, "candidate_sha": HEAD, "testbed": "i7-existing",
+                "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
+                "fixtures": [{"id": "caller", "sha256": "a" * 64, "scope": "complete_caller"}]}
+
+    def receipt(self, manifest_raw=b"manifest", samples_raw=b"samples"):
+        return {"schema_version": 1, "review": {"actor": "xbmc4lyfe", "status": "reviewed"},
+                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(), "samples_sha256": hashlib.sha256(samples_raw).hexdigest(),
+                "base_sha": BASE, "candidate_sha": HEAD, "testbed": "i7-existing",
+                "source_hashes": {"cpp_current": BASE, "rust_candidate": HEAD},
+                "compiler_hashes": {"c++": "b" * 64}, "binary_hashes": {"cpp_current": "c" * 64, "rust_candidate": "d" * 64},
+                "input_hashes": {"caller": "a" * 64}, "commands": {
+                    "build": [{"name": "cmake", "sha256": "6" * 64, "argv_sha256": "8" * 64}],
+                    "time": [{"name": "prebuilt-caller", "sha256": "7" * 64, "argv_sha256": "9" * 64}]},
+                "runner": {"implementation_sha256": "e" * 64, "build_jobs": 3,
+                           "build_locks": ["i7-heavy.lock:exclusive", "nzbget-rust-benchmark.lock:shared"],
+                           "time_locks": ["nzbget-rust-benchmark.lock:exclusive"], "time_prebuilt": True}}
+
+    def test_missing_mismatched_and_unreviewed_receipt_hold_publication(self):
+        self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])
+        self.assertTrue(publish.receipt_reasons(None, self.manifest(), b"manifest", b"samples"))
+        for mutate in (lambda r: r.update(samples_sha256="0" * 64), lambda r: r["review"].update(actor="bot"),
+                       lambda r: r["source_hashes"].update(rust_candidate=BASE), lambda r: r["runner"].update(build_jobs=4),
+                       lambda r: r["runner"].update(time_prebuilt=False), lambda r: r["input_hashes"].update(caller="f" * 64)):
+            receipt = self.receipt()
+            mutate(receipt)
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+
+    def test_malformed_nested_receipt_shapes_hold_without_traceback(self):
+        for key in ("review", "source_hashes", "binary_hashes", "compiler_hashes", "input_hashes", "commands", "runner"):
+            for value in ([], None):
+                bad = self.receipt()
+                bad[key] = value
+                self.assertTrue(publish.receipt_reasons(bad, self.manifest(), b"manifest", b"samples"))
+        manifest = self.manifest()
+        manifest["provenance"] = []
+        self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+
+    def test_hashes_are_strings_and_every_required_variant_has_reviewed_provenance(self):
+        for value in (int("9" * 64), None, {}):
+            receipt = self.receipt()
+            receipt["binary_hashes"]["rust_candidate"] = value
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+            receipt = self.receipt()
+            receipt["runner"]["implementation_sha256"] = value
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        manifest = self.manifest()
+        manifest["fixtures"][0]["required_variants"] = ["cpp_current", "cpp_optimized", "rust_current", "rust_candidate"]
+        receipt = self.receipt()
+        self.assertTrue(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"))
+        receipt["source_hashes"].update(cpp_optimized="5" * 40, rust_current=BASE)
+        receipt["binary_hashes"].update(cpp_optimized="6" * 64, rust_current="7" * 64)
+        self.assertTrue(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"))
+        receipt["variant_source_attribution"] = {"cpp_optimized": {"source_sha": "5" * 40, "reason": "Reviewed optimized implementation commit"}}
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"), [])
+
+    def test_command_provenance_rejects_raw_argv_unhashed_executables_and_manifest_mismatch(self):
+        for records in ([["cmake", "private-token"]], [{"name": "cmake", "argv_sha256": "8" * 64}],
+                        [{"name": "../cmake", "sha256": "6" * 64, "argv_sha256": "8" * 64}],
+                        [{"name": "cmake", "sha256": "6" * 64, "argv_sha256": int("9" * 64)}]):
+            receipt = self.receipt()
+            receipt["commands"]["build"] = records
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        manifest = self.manifest()
+        manifest["provenance"] = {"commands": {"build": []}}
+        self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+
+    def test_controls_need_independent_receipt_attribution(self):
+        manifest = self.manifest()
+        manifest["fixtures"][0].update(role="unchanged_control", provenance={"label": "unchanged"})
+        self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+        receipt = self.receipt()
+        receipt["control_attribution"] = {"caller": {"source_sha256": "a" * 64, "reason": "Identical caller fixture implementation reviewed"}}
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"), [])
+
+    def test_selected_metric_keeps_same_case_between_base_and_pr(self):
+        bmf = {"caller/cpp_current": {"latency": {"value": 100, "lower_value": 95, "upper_value": 105}},
+               "caller/rust_candidate": {"latency": {"value": 80, "lower_value": 75, "upper_value": 85}}}
+        self.assertEqual(publish.selected_bmf(bmf, self.manifest(), "base"), {"caller": bmf["caller/cpp_current"]})
+        self.assertEqual(publish.selected_bmf(bmf, self.manifest(), "pr"), {"caller": bmf["caller/rust_candidate"]})
+        bmf["caller/rust_candidate"]["latency"]["value"] = float("nan")
+        with self.assertRaises(publish.PublicationError):
+            publish.selected_bmf(bmf, self.manifest(), "pr")
+
+    def test_bencher_environment_cannot_execute_ambient_commands_or_leak_tokens(self):
+        env = publish.bencher_environment({"PATH": "/bin", "BENCHER_CMD": "evil", "BENCHER_API_KEY": "wrong", "GITHUB_TOKEN": "private", "LD_PRELOAD": "evil"}, "bencher-secret")
+        self.assertEqual(env, {"PATH": "/bin", "CI": "true", "BENCHER_API_KEY": "bencher-secret"})
+        command = publish.bencher_command("project", "pr-7", BASE, HEAD, "i7-existing", Path("bencher.json"), "")
+        self.assertIn("--file", command)
+        self.assertEqual(command[command.index("--hash") + 1], HEAD)
+        self.assertEqual(command[command.index("--start-point-hash") + 1], BASE)
+        self.assertNotIn("--github-actions", command)
+        self.assertNotIn("bencher-secret", command)
+
+    def test_invalid_main_clears_stale_pass_and_writes_hold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            (output / "qualification.json").write_text('{"status":"PASS"}')
+            (output / "selected-bencher.json").write_text('{"stale":"data"}')
+            with patch.dict("os.environ", {}, clear=True):
+                status = publish.main(["--mode", "pr", "--output-dir", str(output), "--evidence-sha", EVIDENCE])
+            self.assertEqual(status, 2)
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+            self.assertFalse((output / "selected-bencher.json").exists())
+
+    def test_unsigned_evidence_main_clears_stale_pass_without_secret_diagnostic(self):
+        bad = self.commit()
+        bad["commit"]["verification"]["verified"] = False
+        class API:
+            def get(self, endpoint):
+                return bad
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            (output / "qualification.json").write_text('{"status":"PASS"}')
+            (output / "selected-bencher.json").write_text('{"stale":"data"}')
+            diagnostic = io.StringIO()
+            with patch.object(publish, "GitHub", return_value=API()), patch.dict("os.environ", {"BENCH_GITHUB_TOKEN": "private-token"}), contextlib.redirect_stderr(diagnostic):
+                status = publish.main(["--mode", "pr", "--repository", "Appz4Fun/nzbget", "--evidence-sha", EVIDENCE,
+                                       "--expected-base-sha", BASE, "--expected-head-sha", HEAD, "--controller-sha", BASE,
+                                       "--pr", "7", "--testbed", "i7-existing", "--output-dir", str(output)])
+            self.assertEqual(status, 2)
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+            self.assertFalse((output / "selected-bencher.json").exists())
+            self.assertIn("signature", diagnostic.getvalue())
+            self.assertNotIn("private-token", diagnostic.getvalue())
+
+    def test_hold_pr_and_unreviewed_receipt_never_invoke_bencher_or_github_writes(self):
+        args = argparse.Namespace(mode="pr", repository="Appz4Fun/nzbget", pr=7, expected_base_sha=BASE,
+                                  controller_sha=BASE, testbed="i7-existing", output_dir=Path("results"), evidence_sha=EVIDENCE)
+        class API:
+            def get(self, endpoint):
+                raise AssertionError("HOLD must not cross the publication boundary")
+            def post(self, endpoint, payload):
+                raise AssertionError("HOLD must not write")
+        with patch.dict("os.environ", {"BENCHER_KEY": "private-key", "BENCHER_PROJECT": "existing-project"}), patch.object(publish.subprocess, "run") as run:
+            for status, receipt_ok in (("HOLD", True), ("PASS", False)):
+                with self.assertRaises(publish.PublicationError):
+                    publish.publish_results(API(), args, self.manifest(), {"status": status}, receipt_ok)
+            run.assert_not_called()
+
+    def test_base_hold_is_monitoring_only_and_wrong_identity_blocks_bencher(self):
+        args = argparse.Namespace(mode="base", repository="Appz4Fun/nzbget", pr=None, expected_base_sha=BASE,
+                                  controller_sha=BASE, testbed="i7-existing", output_dir=Path("results"), evidence_sha=EVIDENCE)
+        class API:
+            def __init__(self, actor="xbmc4lyfe"):
+                self.actor = actor
+            def get(self, endpoint):
+                if endpoint == "/user":
+                    return {"login": self.actor}
+                if "/branches/" in endpoint:
+                    return {"commit": {"sha": BASE}, "protected": False}
+                return {"default_branch": "dupe-article-fallback"}
+            def post(self, endpoint, payload):
+                raise AssertionError("baseline monitoring must not claim PR qualification")
+        with patch.dict("os.environ", {"BENCHER_KEY": "private-key", "BENCHER_PROJECT": "existing-project"}), patch.object(publish.subprocess, "run") as run:
+            with self.assertRaises(publish.PublicationError):
+                publish.publish_results(API(actor="github-actions[bot]"), args, self.manifest(), {"status": "HOLD"}, True)
+            run.assert_not_called()
+            run.return_value = argparse.Namespace(returncode=0)
+            publish.publish_results(API(), args, self.manifest(), {"status": "HOLD"}, True)
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--hash") + 1], BASE)
+            self.assertNotIn("--github-actions", command)
+
+    def test_output_directory_cannot_overwrite_trusted_controller_inputs(self):
+        for output in (SCRIPT.parent, SCRIPT.parent.parent, SCRIPT.parent.parent.parent):
+            with self.assertRaises(publish.PublicationError):
+                publish.clear_owned_outputs(output)
+
+    def test_baseline_retains_original_history_alert_policy(self):
+        command = publish.bencher_command("project", "dupe-article-fallback", BASE, BASE, "i7-existing", Path("data.json"), "")
+        for flag, value in (("--threshold-measure", "latency"), ("--threshold-test", "percentage"),
+                            ("--threshold-max-sample-size", "16"), ("--threshold-upper-boundary", "0.10")):
+            self.assertEqual(command[command.index(flag) + 1], value)
+        self.assertIn("--thresholds-reset", command)
+
+    def test_real_summary_pipeline_synthetic_pass_missing_receipt_and_stale_head(self):
+        summary_source = Path(os.environ.get("BENCH_SUMMARY_SOURCE", SCRIPT.with_name("summarize.py")))
+        if not summary_source.is_file():
+            self.skipTest("statistics owner dependency not present; set BENCH_SUMMARY_SOURCE for temporary overlay")
+        manifest = self.manifest()
+        manifest["toolchain"] = {"fixture": "synthetic controlled clock test"}
+        manifest_raw = json.dumps(manifest).encode()
+        rows = []
+        for process in range(8):
+            for round_number in range(10):
+                variants = ["cpp_current", "rust_candidate"] if round_number % 2 == 0 else ["rust_candidate", "cpp_current"]
+                for order, variant in enumerate(variants):
+                    rows.append({"case": "caller", "variant": variant, "process": process, "round": round_number,
+                                 "order": order, "elapsed_ns": 1000 if variant == "cpp_current" else 800,
+                                 "iterations": 1, "observable_digest": "a" * 64})
+        samples_raw = b"\n".join(json.dumps(row).encode() for row in rows) + b"\n"
+        receipt_raw = json.dumps(self.receipt(manifest_raw, samples_raw)).encode()
+        with tempfile.TemporaryDirectory() as temp:
+            overlay = Path(temp) / "trusted" / "scripts" / "bench"
+            overlay.mkdir(parents=True)
+            shutil.copyfile(SCRIPT, overlay / "publish.py")
+            shutil.copyfile(summary_source, overlay / "summarize.py")
+            overlay_spec = importlib.util.spec_from_file_location("publisher_overlay", overlay / "publish.py")
+            controller = importlib.util.module_from_spec(overlay_spec)
+            overlay_spec.loader.exec_module(controller)
+            for missing_receipt, stale_head, expected in ((False, False, "PASS"), (True, False, "HOLD"), (False, True, "HOLD")):
+                contents = {"benchmark-results/manifest.json": manifest_raw, "benchmark-results/samples.jsonl": samples_raw}
+                if not missing_receipt:
+                    contents["benchmark-results/collection-receipt.json"] = receipt_raw
+                blobs = {}
+                entries = []
+                for path, raw in contents.items():
+                    sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+                    entries.append({"path": path, "sha": sha, "mode": "100644", "type": "blob", "size": len(raw)})
+                    blobs[sha] = {"sha": sha, "encoding": "base64", "content": __import__("base64").b64encode(raw).decode()}
+                commit = self.commit()
+                commit["files"] = [{"filename": path, "status": "added"} for path in contents]
+                class API:
+                    def get(self, endpoint):
+                        if endpoint.endswith("/commits/" + EVIDENCE):
+                            return commit
+                        if "/git/trees/" in endpoint:
+                            return {"truncated": False, "tree": entries}
+                        if "/git/blobs/" in endpoint:
+                            return blobs[endpoint.rsplit("/", 1)[1]]
+                        if endpoint.endswith("/branches/dupe-article-fallback"):
+                            return {"protected": False, "commit": {"sha": BASE}}
+                        if endpoint.endswith("/pulls/7"):
+                            return {"number": 7, "state": "open", "base": {"sha": BASE, "ref": "dupe-article-fallback", "repo": {"full_name": "Appz4Fun/nzbget"}},
+                                    "head": {"sha": "9" * 40 if stale_head else HEAD}}
+                        return {"default_branch": "dupe-article-fallback"}
+                    def post(self, endpoint, payload):
+                        raise AssertionError("validation must never write")
+                output = Path(temp) / ("output-" + str(missing_receipt) + str(stale_head))
+                diagnostic = io.StringIO()
+                with patch.object(controller, "GitHub", return_value=API()), contextlib.redirect_stdout(diagnostic), contextlib.redirect_stderr(diagnostic):
+                    status = controller.main(["--mode", "pr", "--repository", "Appz4Fun/nzbget", "--evidence-sha", EVIDENCE,
+                                              "--expected-base-sha", BASE, "--expected-head-sha", HEAD, "--controller-sha", BASE,
+                                              "--pr", "7", "--testbed", "i7-existing", "--output-dir", str(output)])
+                self.assertEqual(status, 2 if stale_head else 0, diagnostic.getvalue())
+                qualification = json.loads((output / "qualification.json").read_text())
+                self.assertEqual(qualification["status"], expected, diagnostic.getvalue())
+                if expected == "PASS":
+                    self.assertEqual(json.loads((output / "selected-bencher.json").read_text())["caller"]["latency"]["value"], 800)
+                    self.assertFalse(qualification["collection_provenance"]["signature_attests_execution"])
+
+
+if __name__ == "__main__":
+    unittest.main()
