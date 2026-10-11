@@ -106,6 +106,31 @@ int main(int argc, char** argv) {
         if (!setlocale(LC_CTYPE, loc)) { printf("locale %s unavailable\n", loc); return 1; }
         for (const char* s : {"", ".", "..", "../..", "/../a", "\\\\server\\share\\..\\x", "C:\\..\\x",
                              "CON", "con.txt", "COM1..x", ".. .\t", "a/.../b", "a\\..\\b"}) check(s);
+        for (const char** p = OLD_RESERVED_DEVICE_NAMES; *p; ++p) {
+            const std::string word = *p;
+            // Every ASCII case combination, exact names, extensions and
+            // nonmatching continuations, including bytes after a NUL.
+            for (unsigned mask = 0; mask < (1u << word.size()); ++mask) {
+                std::string s = word;
+                for (size_t k = 0; k < s.size(); ++k)
+                    if ((mask & (1u << k)) && s[k] >= 'A' && s[k] <= 'Z') s[k] += 'a' - 'A';
+                check(s);
+                check(s + ".txt");
+                check(s + "x");
+                check(s + std::string("\0.txt", 5));
+            }
+            // All byte substitutions exercise the C library's locale folding;
+            // all following bytes exercise the result[len] dot/NUL rule.
+            for (int c = 0; c <= 255; ++c) {
+                check(word + static_cast<char>(c) + "tail");
+                for (size_t k = 0; k < word.size(); ++k) {
+                    std::string s = word;
+                    s[k] = static_cast<char>(c);
+                    check(s);
+                }
+            }
+            for (size_t k = 0; k < word.size(); ++k) check(word.substr(0, k));
+        }
         // std::string/view inputs retain NULs; the C-string functions stop at them.
         for (int c = 0; c <= 255; ++c) {
             check(std::string(1, static_cast<char>(c)));

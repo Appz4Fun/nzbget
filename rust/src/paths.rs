@@ -65,18 +65,18 @@ pub fn reserved_char(c: u8) -> bool {
 /// The text is a C string: it ends at a NUL.
 pub fn make_valid_filename(name: &[u8], allow_slashes: bool) -> Vec<u8> {
     let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
-    let mut r: Vec<u8> = name
-        .iter()
-        .map(|&c| {
-            if !reserved_char(c) {
-                c
-            } else if allow_slashes && (c == PATH_SEPARATOR || c == ALT_PATH_SEPARATOR) {
-                PATH_SEPARATOR
-            } else {
-                b'_'
-            }
-        })
-        .collect();
+    // Leave room for the temporary C terminator (or the reserved-name prefix)
+    // so appending it does not grow an otherwise exactly-sized allocation.
+    let mut r = Vec::with_capacity(name.len() + 1);
+    r.extend(name.iter().map(|&c| {
+        if !reserved_char(c) {
+            c
+        } else if allow_slashes && (c == PATH_SEPARATOR || c == ALT_PATH_SEPARATOR) {
+            PATH_SEPARATOR
+        } else {
+            b'_'
+        }
+    }));
     while matches!(r.last(), Some(b'.' | b' ')) {
         r.pop();
     }
