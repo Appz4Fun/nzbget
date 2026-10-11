@@ -47,9 +47,17 @@ impl LineBuf {
         if self.data.len() < end + 1 {
             self.data.resize(end + 1, 0);
         }
-        let copy = find_byte(src, 0).unwrap_or(src.len());
-        self.data[self.len..self.len + copy].copy_from_slice(&src[..copy]);
-        self.data[self.len + copy..end].fill(0);
+        // strncpy: the bytes up to a NUL, zeros after it - one pass in the C library
+        #[cfg(unix)]
+        unsafe {
+            strncpy(self.data.as_mut_ptr().add(self.len).cast(), src.as_ptr().cast(), src.len());
+        }
+        #[cfg(not(unix))]
+        {
+            let copy = find_byte(src, 0).unwrap_or(src.len());
+            self.data[self.len..self.len + copy].copy_from_slice(&src[..copy]);
+            self.data[self.len + copy..end].fill(0);
+        }
         self.data[end] = 0;
         self.len = end;
     }
@@ -97,6 +105,8 @@ pub struct Decoder {
 extern "C" {
     #[link_name = "atoll"]
     fn c_atoll(s: *const c_char) -> c_longlong;
+    #[cfg(unix)]
+    fn strncpy(dst: *mut c_char, src: *const c_char, n: usize) -> *mut c_char;
     #[link_name = "isspace"]
     fn c_isspace(c: c_int) -> c_int;
     #[link_name = "strtoul"]
@@ -134,6 +144,14 @@ fn strtoul_hex(s: &[u8]) -> u32 {
 }
 
 use crate::bytes::{find, find_byte};
+
+/// strstr on the C string at the start of `s`: the first `key` with no NUL
+/// before it. `s` may run on past its NUL: a found key is checked instead of
+/// measuring the string first, so a present key costs what strstr spent.
+fn cfind(s: &[u8], key: &[u8]) -> Option<usize> {
+    let k = find(s, key)?;
+    find_byte(&s[..k], 0).is_none().then_some(k)
+}
 
 /// UU_DECODE_CHAR.
 fn uu(c: u8) -> u8 {
@@ -252,9 +270,9 @@ impl Decoder {
                 if text.starts_with(b"=ybegin ") || text.starts_with(b"=ypart ") || text.starts_with(b"=yend ") {
                     // the line's C string runs on past its newline (strstr looked there);
                     // read it in place instead of copying the rest of the piece
-                    let cend = self.line_buf.c_str_end(line);
+                    let end = self.line_buf.len.max(line);
                     let line_buf = std::mem::take(&mut self.line_buf);
-                    self.process_yenc(&line_buf.data[line..cend], llen);
+                    self.process_yenc(&line_buf.data[line..end], llen);
                     self.line_buf = line_buf;
                 }
                 if self.body {
@@ -295,10 +313,10 @@ impl Decoder {
     fn parse_ypart(&mut self, line: &[u8]) {
         self.part = true;
         self.body = true;
-        if let Some(k) = find(line, b" begin=") {
+        if let Some(k) = cfind(line, b" begin=") {
             self.begin_pos = atoll(&line[k + 7..]);
         }
-        if let Some(k) = find(line, b" end=") {
+        if let Some(k) = cfind(line, b" end=") {
             self.end_pos = atoll(&line[k + 5..]);
         }
     }
@@ -311,8 +329,7 @@ impl Decoder {
         let mut pe = pb;
         while pe < len && !matches!(full[pe], 0 | b'\n' | b'\r') {
             if pe + 7 <= len && &full[pe..pe + 7] == b"=ypart " {
-                let rest = full[pe..].to_vec();
-                self.parse_ypart(&rest);
+                self.parse_ypart(&full[pe..]);
                 break;
             }
             pe += 1;
@@ -329,16 +346,16 @@ impl Decoder {
         let cs = full;
         if len >= 8 && line.starts_with(b"=ybegin ") {
             self.begin = true;
-            if let Some(k) = find(cs, b" size=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" size=").filter(|&k| k + 6 < len) {
                 self.size = atoll(&cs[k + 6..]);
             }
-            self.part = find(cs, b" part=").is_some_and(|k| k < len);
+            self.part = cfind(cs, b" part=").is_some_and(|k| k < len);
             if !self.part {
                 self.body = true;
                 self.begin_pos = 1;
                 self.end_pos = self.size;
             }
-            if let Some(k) = find(cs, b" name=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" name=").filter(|&k| k + 6 < len) {
                 self.parse_name(full, len, k);
             }
         } else if len >= 7 && line.starts_with(b"=ypart ") {
@@ -346,11 +363,11 @@ impl Decoder {
         } else if len >= 6 && line.starts_with(b"=yend ") {
             self.end = true;
             let (key, offset): (&[u8], usize) = if self.part { (b" pcrc32=", 8) } else { (b" crc32=", 7) };
-            if let Some(k) = find(cs, key).filter(|&k| k + offset < len) {
+            if let Some(k) = cfind(cs, key).filter(|&k| k + offset < len) {
                 self.crc = true;
                 self.expected_crc = strtoul_hex(&cs[k + offset..]);
             }
-            if let Some(k) = find(cs, b" size=").filter(|&k| k + 6 < len) {
+            if let Some(k) = cfind(cs, b" size=").filter(|&k| k + 6 < len) {
                 self.end_size = atoll(&cs[k + 6..]);
             }
         }
@@ -542,6 +559,87 @@ mod tests {
     }
 
     unsafe extern "C" fn crc(_src: *const c_void, _len: usize, init: u32) -> u32 { init }
+
+    #[test]
+    fn control_key_search_matches_strstr() {
+        extern "C" {
+            fn strstr(s: *const c_char, key: *const c_char) -> *const c_char;
+        }
+        for key in [b" size=".as_slice(), b" part=", b" name=", b" begin=", b" end=", b" crc32=", b" pcrc32="] {
+            let key_c = CString::new(key).unwrap();
+            let text = [b"=ybegin x".as_slice(), key, b"1\r\n", key, b"2"].concat();
+            for len in 0..=text.len() {
+                for nul in 0..=len {
+                    let mut s = text[..len].to_vec();
+                    s.push(0);
+                    s[nul] = 0;
+                    let p = unsafe { strstr(s.as_ptr().cast(), key_c.as_ptr()) };
+                    let expected = (!p.is_null()).then(|| p as usize - s.as_ptr() as usize);
+                    assert_eq!(cfind(&s[..len], key), expected, "len={len}, NUL={nul}, key={key:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn append_matches_copy_and_zero_padding() {
+        let mut buf = LineBuf::default();
+        let mut expected = Vec::new();
+        let mut len = 0;
+        for size in [0, 1, 7, 8192, 8193] {
+            for nul in [0, size / 2, size] {
+                let mut src = vec![b'x'; size];
+                if nul < size {
+                    src[nul] = 0;
+                }
+                let end = len + size;
+                expected.resize(expected.len().max(end + 1), 0);
+                expected[len..len + nul].copy_from_slice(&src[..nul]);
+                expected[len + nul..=end].fill(0);
+                buf.append(&src);
+                assert_eq!(buf.data, expected);
+                assert_eq!(buf.len, end);
+                // SetLength preserves stale bytes; the next append must still
+                // replace its terminator and zero-pad only the appended range.
+                len = end / 2;
+                buf.set_len(len);
+            }
+        }
+    }
+
+    #[test]
+    fn control_lines_keep_c_string_and_line_bounds() {
+        let mut d = Decoder::new(decode, crc);
+        let full = b"=ybegin part=1 size=\n42 name=late\0 size=99";
+        let len = full.iter().position(|&c| c == b'\n').unwrap() + 1;
+        d.process_yenc(full, len);
+        assert_eq!(d.size, 42); // atoll can skip the newline
+        assert!(d.part);
+        assert!(d.article_filename.is_empty()); // name key starts after len
+        d.size = 17;
+        d.process_yenc(full, len - 1);
+        assert_eq!(d.size, 17); // k + 6 == len is rejected
+        d.process_yenc(b"=ybegin \n part=1 size=99 name=late", 9);
+        assert!(!d.part); // k == len is rejected
+        d.parse_ypart(b"=ypart begin=12\0 end=99");
+        assert_eq!(d.begin_pos, 12);
+        assert_eq!(d.end_pos, 17); // end after NUL is invisible
+        d.parse_ypart(b"=ypart begin=\0");
+        assert_eq!(d.begin_pos, 0);
+
+        let full = b"=ybegin part=1 name=\r\nrest\0ignored";
+        d.process_yenc(full, 21);
+        assert_eq!(d.article_filename, b"\r\nrest");
+        let full = b"=ybegin name==ypart begin=7\r\n end=9\0 end=99";
+        d.process_yenc(full, 28);
+        assert_eq!(d.begin_pos, 7);
+        assert_eq!(d.end_pos, 9);
+        assert_eq!(d.article_filename, b"=ypart begin=7\r\n end=9");
+        assert_eq!(atoll(b" \t-12\0"), -12);
+        assert_eq!(atoll(b"\0 99"), 0);
+        assert_eq!(strtoul_hex(b"0x\0ff"), 0);
+        assert_eq!(strtoul_hex(b"-0xf\0ff"), 0u32.wrapping_sub(15));
+    }
 
     #[test]
     fn raw_eof_state_zero_is_sticky() {
