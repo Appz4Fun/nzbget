@@ -198,6 +198,6 @@ with tempfile.TemporaryDirectory(prefix="nzbget-releasename-") as temp:
         subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")),
                         *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")), *extra, "-w",
                         *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary), str(rust_lib),
-                        "-lpthread", "-ldl", "-lm"], check=True, cwd=BUILD)
+                        "-lssl", "-lcrypto", "-lpthread", "-ldl", "-lm"], check=True, cwd=BUILD)
         subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", str(binary),
                         str(max(1, int(ROUNDS) // 4)) if "-fsanitize=address,undefined" in extra else ROUNDS], check=True)
