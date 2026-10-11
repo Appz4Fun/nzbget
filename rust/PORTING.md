@@ -98,14 +98,14 @@ normalizer and an independent allocation-free policy. This control is a
 counterfactual implementation, not the old production controller. Parity checks
 cover normalization, signed-time extremes, ownership and active/retired fleets.
 
-Complete caller measurements include normalization, runtime name-cache work,
+Decision-prefix measurements include normalization, runtime name-cache work,
 peer/history snapshots, allocation and the real Rust C ABI. Both callers stop
 before accepted-search stamp writes, edits, saving, packed-media proof and
 transport. Cold/restart and warm eligible/cooldown fixtures are measured under
 the exclusive shared-worker lock. Prebuilt snapshots separately compare the
 best direct C++ policy with Rust; a second opaque C++ translation-unit experiment
 makes the ABI boundary comparable. Generic lower-score peer snapshots are valid
-API stress cases, while the complete production caller normally filters those
+API stress cases, while the production caller normally filters those
 peers before the call. These are synthetic fixtures, not deployment measurements.
 
 Earlier comparisons against the old production controller perform different
@@ -114,6 +114,20 @@ C++ policy prefix and the scalar Rust function also have different boundaries;
 their timings do not establish a language speedup. Wrapper experiments are kept
 separate from the best direct C++ control. Final gates use paired changes for
 each row and retain slower and noisy results.
+
+Later complete `PrepareNative` measurements use the actual native library,
+metadata, collection, logging and isolated state/progress writes. The alternative
+C++ controller changes only watch/normalization boundaries; existing `SameRelease`
+remains shared production behavior. Tiny (2 live/0 history), normal (4/2) and large
+(128/1024) fixtures pass 28 parity cases, including generated-key cold/warm writes.
+Ordinary optimized C++ policy remains machine-outlined; no control is handicapped.
+Five alternating process pairs preserve every sample. A second fixed experiment
+removes backend-specific normalization from untimed fixture resets/assertions and
+uses a new composed archive; differences cannot be attributed to that repair alone.
+Its paired medians still show tiny warm IO +4.97%, generated warm IO +4.44% and
+large warm IO +1.94%. The candidate remains held; no overall faster claim follows.
+Matched IO bytes do not independently prove every atomic write or fsync succeeded.
+Full raw process pairs and compiler/source provenance are retained in PR #80.
 
 Restarted searches bind donor proof to the original title, key and posting
 fingerprint; changed/unbound saved state is searched again. Legacy three-field
