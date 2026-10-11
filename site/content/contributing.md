@@ -38,7 +38,7 @@ Prefer porting a whole module over a single small function.
 
 ## Tests
 
-The inherited build and test workflows are turned off while the test suite is rebuilt for the rewrite. Until then, run the tests locally:
+The inherited build and test workflows are disabled in the repository's Actions tab while the test suite is rebuilt for the rewrite. Until then, run the tests locally:
 
 ```bash
 cmake -B build -DENABLE_TESTS=ON

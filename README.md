@@ -48,7 +48,7 @@ RustyGet is a Usenet downloader that started as a fork of [NZBGet](https://githu
 | API | NZBGet API | NZBGet API, plus `appendfleet`, new fields, POST for risky methods on the JSON-RPC and XML-RPC paths, and access checks in multicalls |
 | Queue and history files | NZBGet formats | NZBGet formats, with RustyGet's data in a trailer that NZBGet ignores |
 | Inherited bugs | | More than 100 fixed: downloads, post-processing, queue edits, state files, scripts, feeds, and the web interface |
-| CI workflows | Builds and tests for every platform | Turned off while the tests are rebuilt; only the documentation deploys |
+| CI workflows | Builds and tests for every platform | Disabled in the Actions tab while the tests are rebuilt; only the documentation workflow runs |
 
 The new options are `DupeArticleFallback`, `DupeStreamDecompress`, `DupeStreamTimeout`, `DupeSearch`, `DupeSearchUrl`, `DupeSearchApiKey`, `DupeSearchDelay`, `DupeSearchDryRun`, `DupeSearchMaxDonors`, `DupeHealthPercent`, `DupeHealthMin`, `DupeHealthMax`, `DupeBodyChecks`, `DupeHealthBudget`, `DupeMinAlive`, and `DupeFastDonors`. The full list of changes is in [Differences from NZBGet](https://appz4fun.github.io/nzbget/differences.html).
 
