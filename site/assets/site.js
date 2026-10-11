@@ -104,10 +104,12 @@ if (searchInput && results) {
     const start = Math.max(0, at - 40);
     return (start > 0 ? '…' : '') + text.slice(start, start + 140);
   };
+  // hidden results are emptied, so no key can follow a link from an old query
+  const hide = () => { results.hidden = true; results.innerHTML = ''; selected = -1; };
   const render = async () => {
     const seq = ++renderSeq;
     const query = searchInput.value.trim().toLowerCase();
-    if (query.length < 2) { results.hidden = true; return; }
+    if (query.length < 2) { hide(); return; }
     const terms = query.split(/\s+/);
     const entries = await load();
     // a newer keystroke started its own render while the index loaded
@@ -140,15 +142,16 @@ if (searchInput && results) {
   searchInput.addEventListener('input', render);
   searchInput.addEventListener('focus', () => { load(); if (searchInput.value.trim().length > 1) render(); });
   searchInput.addEventListener('keydown', (event) => {
+    if (results.hidden && event.key !== 'Escape') return;
     if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
     else if (event.key === 'Enter') {
       const link = results.querySelectorAll('a')[Math.max(0, selected)];
       if (link) { event.preventDefault(); window.location.href = link.href; }
-    } else if (event.key === 'Escape') { renderSeq += 1; results.hidden = true; searchInput.blur(); }
+    } else if (event.key === 'Escape') { renderSeq += 1; hide(); searchInput.blur(); }
   });
   document.addEventListener('click', (event) => {
-    if (!event.target.closest('.search')) { renderSeq += 1; results.hidden = true; }
+    if (!event.target.closest('.search')) { renderSeq += 1; hide(); }
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) {
