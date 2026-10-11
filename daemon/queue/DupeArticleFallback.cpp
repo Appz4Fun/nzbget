@@ -1005,36 +1005,31 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 	}
 	if (!byContent.empty())
 	{
-		// the donor's file of that name, if one alone fits our articles (exact case
-		// first): else the nzb names it otherwise, and the other matching decides
-		FileInfo* exact = nullptr;
-		FileInfo* folded = nullptr;
-		int exactCount = 0;
-		int foldedCount = 0;
+		// the donor's file of that name (exact case first): it holds our bytes, so
+		// if its articles don't fit ours, no other file of the donor is the one.
+		// A name the donor's nzb doesn't have (it names the file otherwise), or
+		// has twice, leaves it to the matching below
+		std::vector<FileInfo*> exact;
+		std::vector<FileInfo*> folded;
 		for (FileInfo* donorFile : donorNzb->GetFileList())
 		{
-			if (IsParFile(donorFile) || !StructureMatches(targetFile, donorFile))
+			if (IsParFile(donorFile))
 			{
 				continue;
 			}
 			if (!strcmp(donorFile->GetFilename(), byContent.c_str()))
 			{
-				exact = donorFile;
-				exactCount++;
+				exact.push_back(donorFile);
 			}
 			else if (!strcasecmp(donorFile->GetFilename(), byContent.c_str()))
 			{
-				folded = donorFile;
-				foldedCount++;
+				folded.push_back(donorFile);
 			}
 		}
-		if (exactCount == 1)
+		FileInfo* named = exact.size() == 1 ? exact[0] : exact.empty() && folded.size() == 1 ? folded[0] : nullptr;
+		if (named)
 		{
-			return exact;
-		}
-		if (exactCount == 0 && foldedCount == 1)
-		{
-			return folded;
+			return StructureMatches(targetFile, named) ? named : nullptr;
 		}
 	}
 

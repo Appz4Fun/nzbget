@@ -27,8 +27,12 @@ NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
 // fingerprint (parameter DupeFiles): a stored list is used only for the
 // fingerprint it was made for.
 void nzbget_rs_twin_open(const char* path);
+// returns "fingerprint\tcomplete" (complete: 1 or 0)
 NzbgetRsBuf nzbget_rs_twin_put_par2(int id, const unsigned char* data, size_t len);
-bool nzbget_rs_twin_has(int id, const char* print);
+// 0: no list stored for this fingerprint, 1: a partial one, 2: a complete one
+int nzbget_rs_twin_has(int id, const char* print);
+// keeps the lists of the postings given as "id\tfingerprint" lines
+void nzbget_rs_twin_prune(const char* lines);
 NzbgetRsBuf nzbget_rs_twin_par2_sigs(const unsigned char* data, size_t len);
 NzbgetRsBuf nzbget_rs_twin_fingerprint(const char* lines);
 unsigned long long nzbget_rs_par2_block_size(const unsigned char* data, size_t len);

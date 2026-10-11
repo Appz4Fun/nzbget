@@ -24,8 +24,8 @@ pub struct FileSig {
 
 /// The files the FileDesc packets in `data` describe (a par2-file, or the part
 /// of one that arrived: lost articles leave gaps, the parser skips to the next
-/// packet). Empty when there's no usable set. Names are made valid file names
-/// the way the queue makes its own (FileSystem::MakeValidFilename).
+/// packet). Empty when there's no usable set. Names are the PAR2's own (twin
+/// par-repair compares them); matching makes them valid file names first.
 pub fn par2_sigs(data: &[u8]) -> Vec<FileSig> {
     par2_set(data).0
 }
@@ -42,7 +42,7 @@ pub fn par2_set(data: &[u8]) -> (Vec<FileSig>, bool) {
             let sigs = set
                 .files
                 .values()
-                .map(|f| FileSig { name: valid_name(&f.filename), length: f.size, md5: hex(&f.hash) })
+                .map(|f| FileSig { name: f.filename.clone(), length: f.size, md5: hex(&f.hash) })
                 .collect();
             (sigs, complete)
         }
@@ -79,7 +79,7 @@ fn scan_file_descs(data: &[u8]) -> Vec<FileSig> {
             let name = &body[56..];
             let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
             files.insert(id, FileSig {
-                name: valid_name(&String::from_utf8_lossy(name)),
+                name: String::from_utf8_lossy(name).into_owned(),
                 length: u64::from_le_bytes(body[48..56].try_into().unwrap()),
                 md5: hex(&body[16..32]),
             });
@@ -170,9 +170,11 @@ pub fn kind(primary: &Listed, dupe: &Listed) -> String {
     }
     let shared = shared_files(&primary.sigs, &dupe.sigs);
     let total = primary.sigs.len();
-    if shared == total && dupe.sigs.len() == total {
+    if primary.complete && dupe.complete && shared == total && dupe.sigs.len() == total {
         "twin".into()
-    } else if shared * 2 > total {
+    } else if primary.complete && shared * 2 > total {
+        // the primary's complete list gives the denominator; the donor's may lack
+        // files it has (more of them only makes it more of a twin)
         format!("twin:{shared}/{total}")
     } else if primary.complete && dupe.complete {
         "alt".into()
@@ -190,7 +192,7 @@ pub fn match_by_content(own: &Listed, target: &str, target_alt: &str, donor: &Li
     let ours = find_sig(&own.sigs, target).or_else(|| find_sig(&own.sigs, target_alt))?;
     let mut found = donor.sigs.iter().filter(|s| s.md5 == ours.md5 && s.length == ours.length);
     match (found.next(), found.next()) {
-        (Some(one), None) => Some(one.name.clone()),
+        (Some(one), None) => Some(valid_name(&one.name)),
         (Some(_), Some(_)) => None,
         (None, _) if donor.complete => Some(String::new()),
         (None, _) => None,
@@ -203,10 +205,11 @@ fn find_sig<'a>(sigs: &'a [FileSig], name: &str) -> Option<&'a FileSig> {
     if name.is_empty() {
         return None;
     }
-    if let Some(exact) = sigs.iter().find(|s| s.name == name) {
+    // the names the queue gives files: PAR2 names made valid file names
+    if let Some(exact) = sigs.iter().find(|s| valid_name(&s.name) == name) {
         return Some(exact);
     }
-    let mut folded = sigs.iter().filter(|s| s.name.eq_ignore_ascii_case(name));
+    let mut folded = sigs.iter().filter(|s| valid_name(&s.name).eq_ignore_ascii_case(name));
     match (folded.next(), folded.next()) {
         (Some(one), None) => Some(one),
         _ => None,
@@ -222,11 +225,13 @@ pub struct Listed {
 }
 
 /// The par2 file lists of the postings fingerprinted so far, by download id,
-/// appended to a file in the queue directory: each list starts with a line
-/// "id\tnew\tfingerprint\tcomplete" and has "id\tlength\tmd5\tname" lines; a
-/// later list of an id replaces the earlier one. A list is only used for the
-/// fingerprint it was made for: download ids start over when the queue and
-/// history are emptied, the file stays.
+/// appended to a file in the queue directory. A record is a line
+/// "id\tnew\tfingerprint\tcomplete", its "id\tlength\tmd5\tname" lines and a
+/// line "id\tend\tcount": a record cut short (a full disk) has no end line with
+/// its count and is ignored. A later record of an id replaces the earlier one.
+/// A list is only used for the fingerprint it was made for: download ids start
+/// over when the queue and history are emptied, the file stays (`prune` keeps
+/// it to the postings still there).
 #[derive(Default)]
 pub struct Store {
     path: std::path::PathBuf,
@@ -235,31 +240,53 @@ pub struct Store {
 
 static EMPTY: Listed = Listed { sigs: Vec::new(), complete: false, print: String::new() };
 
+fn record(id: i32, listed: &Listed) -> String {
+    let mut text = format!("{id}\tnew\t{}\t{}\n", listed.print, u8::from(listed.complete));
+    for s in &listed.sigs {
+        let name = s.name.replace(['\n', '\t', '\r'], "_");
+        text.push_str(&format!("{id}\t{}\t{}\t{name}\n", s.length, s.md5));
+    }
+    text.push_str(&format!("{id}\tend\t{}\n", listed.sigs.len()));
+    text
+}
+
 impl Store {
     pub fn open(path: std::path::PathBuf) -> Store {
         let mut store = Store { path, lists: HashMap::new() };
+        let mut pending: HashMap<i32, Listed> = HashMap::new();
         if let Ok(file) = std::fs::File::open(&store.path) {
             for line in BufReader::new(file).lines().map_while(Result::ok) {
                 let parts: Vec<&str> = line.splitn(4, '\t').collect();
                 let Some(Ok(id)) = parts.first().map(|id| id.parse::<i32>()) else {
                     continue;
                 };
-                if parts.get(1) == Some(&"new") {
-                    store.lists.insert(id, Listed {
-                        sigs: Vec::new(),
-                        print: parts.get(2).unwrap_or(&"").to_string(),
-                        complete: parts.get(3) == Some(&"1"),
-                    });
-                    continue;
-                }
-                let (Some(length), Some(md5), Some(name)) = (parts.get(1), parts.get(2), parts.get(3)) else {
-                    continue;
-                };
-                let Ok(length) = length.parse::<u64>() else {
-                    continue;
-                };
-                if let Some(listed) = store.lists.get_mut(&id) {
-                    listed.sigs.push(FileSig { name: name.to_string(), length, md5: md5.to_string() });
+                match parts.get(1) {
+                    Some(&"new") => {
+                        pending.insert(id, Listed {
+                            sigs: Vec::new(),
+                            print: parts.get(2).unwrap_or(&"").to_string(),
+                            complete: parts.get(3) == Some(&"1"),
+                        });
+                    }
+                    Some(&"end") => {
+                        let count = parts.get(2).and_then(|c| c.parse::<usize>().ok());
+                        if let Some(listed) = pending.remove(&id) {
+                            if count == Some(listed.sigs.len()) {
+                                store.lists.insert(id, listed);
+                            }
+                        }
+                    }
+                    _ => {
+                        let (Some(length), Some(md5), Some(name)) = (parts.get(1), parts.get(2), parts.get(3)) else {
+                            continue;
+                        };
+                        let Ok(length) = length.parse::<u64>() else {
+                            continue;
+                        };
+                        if let Some(listed) = pending.get_mut(&id) {
+                            listed.sigs.push(FileSig { name: name.to_string(), length, md5: md5.to_string() });
+                        }
+                    }
                 }
             }
         }
@@ -268,12 +295,7 @@ impl Store {
 
     pub fn put(&mut self, id: i32, listed: Listed) {
         if let Ok(mut out) = OpenOptions::new().create(true).append(true).open(&self.path) {
-            let mut text = format!("{id}\tnew\t{}\t{}\n", listed.print, u8::from(listed.complete));
-            for s in &listed.sigs {
-                let name = s.name.replace(['\n', '\t', '\r'], "_");
-                text.push_str(&format!("{id}\t{}\t{}\t{name}\n", s.length, s.md5));
-            }
-            let _ = out.write_all(text.as_bytes());
+            let _ = out.write_all(record(id, &listed).as_bytes());
         }
         self.lists.insert(id, listed);
     }
@@ -283,6 +305,23 @@ impl Store {
         match self.lists.get(&id) {
             Some(listed) if !print.is_empty() && listed.print == print => listed,
             _ => &EMPTY,
+        }
+    }
+
+    /// Keeps the lists of the postings still in queue or history (`live`: id and
+    /// fingerprint), the rest dropped, and rewrites the file with them (to a
+    /// temporary file renamed over it: never half written).
+    pub fn prune(&mut self, live: &[(i32, String)]) {
+        let keep: HashMap<i32, &str> = live.iter().map(|(id, print)| (*id, print.as_str())).collect();
+        self.lists.retain(|id, listed| keep.get(id) == Some(&listed.print.as_str()));
+        let mut ids: Vec<&i32> = self.lists.keys().collect();
+        ids.sort();
+        let text: String = ids.iter().map(|id| record(**id, &self.lists[id])).collect();
+        let mut temp = self.path.clone().into_os_string();
+        temp.push(".new");
+        let temp = std::path::PathBuf::from(temp);
+        if std::fs::write(&temp, text).is_ok() {
+            let _ = std::fs::rename(&temp, &self.path);
         }
     }
 }
@@ -458,6 +497,14 @@ mod tests {
         // ... unless a list is incomplete: then it can't tell
         assert_eq!(kind(&primary, &listed(nfo.sigs.clone(), false)), "");
         assert_eq!(kind(&primary, &listed(vec![], true)), "");
+        // two partial lists of the same first files: not a twin, not known
+        let part = listed(vec![sig("a", "1", 1)], false);
+        assert_eq!(kind(&part, &part), "");
+        // a partial primary list gives no ratio
+        assert_eq!(kind(&listed(primary.sigs.clone(), false), &near), "");
+        // a complete primary, the donor's list partial: a near-twin still shows
+        assert_eq!(kind(&primary, &listed(near.sigs.clone(), false)), "twin:2/3");
+        assert_eq!(kind(&primary, &listed(primary.sigs.clone(), false)), "twin:3/3");
     }
 
     #[test]
@@ -496,6 +543,11 @@ mod tests {
         // the names the queue gives files: a PAR2 name with a separator or a colon
         assert_eq!(valid_name("dir/file.rar"), "dir_file.rar");
         assert_eq!(valid_name("a:b.rar"), "a_b.rar");
+        // matched by the valid name, the PAR2 name kept as it is
+        let own = listed(vec![sig("a:b.rar", "1", 1)], true);
+        let donor = listed(vec![sig("x?y.rar", "1", 1)], true);
+        assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), Some("x_y.rar".into()));
+        assert_eq!(own.sigs[0].name, "a:b.rar");
     }
 
     #[test]
@@ -582,12 +634,21 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         store.put(7, second.clone());
         let third = listed(vec![sig("d", "3", 3)], true);
         store.put(8, third.clone());
+        // a record cut short (no end line): ignored, the earlier one stays
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap()
+            .write_all(b"8\tnew\tother\t1\n8\t9\t9\tz\n").unwrap();
         let again = Store::open(path.clone());
         assert_eq!(again.get(7, &second.print), &second);
         assert_eq!(again.get(8, &third.print), &third);
         // another posting under a reused id: its list isn't this one
-        assert!(again.get(8, "other-print").sigs.is_empty());
+        assert!(again.get(8, "other").sigs.is_empty());
         assert!(again.get(9, &third.print).sigs.is_empty());
+        // pruned to the postings still there: the file keeps them alone
+        let mut again = again;
+        again.prune(&[(8, third.print.clone()), (7, "replaced".into())]);
+        let pruned = Store::open(path.clone());
+        assert_eq!(pruned.get(8, &third.print), &third);
+        assert!(pruned.get(7, &second.print).sigs.is_empty());
         let _ = std::fs::remove_file(&path);
     }
 }

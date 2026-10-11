@@ -104,6 +104,13 @@ bool g_stopping = false;
 std::map<int, int> g_failedAttempts;
 constexpr int MaxAttempts = 3;
 
+int Attempts(int nzbId)
+{
+	Guard guard(g_mutex);
+	auto it = g_failedAttempts.find(nzbId);
+	return it != g_failedAttempts.end() ? it->second : 0;
+}
+
 class TwinCheckJob : public Thread
 {
 public:
@@ -187,21 +194,24 @@ void TwinCheckJob::Run()
 		return;
 	}
 	// parsed, kept with its file list and fingerprinted in Rust (twin.rs)
+	// "fingerprint\tcomplete" from Rust (twin.rs), which keeps the file list
 	std::string fingerprint;
+	bool complete = false;
 #ifdef NZBGET_USE_RUST
-	if (readable)
+	if (readable && OpenStore())
 	{
-		if (OpenStore())
-		{
-			fingerprint = RsString(nzbget_rs_twin_put_par2(m_nzbId, (const unsigned char*)data.data(), data.size()));
-		}
+		std::string result = RsString(nzbget_rs_twin_put_par2(m_nzbId, (const unsigned char*)data.data(), data.size()));
+		size_t tab = result.find('\t');
+		fingerprint = result.substr(0, tab);
+		complete = tab != std::string::npos && result.substr(tab + 1) == "1";
 	}
 #endif
 	bool known = !fingerprint.empty();
-	if (!known && fetched)
+	if (fetched && (!known || !complete))
 	{
-		// the par2-file's articles weren't there (gone, or the servers busy): asked
-		// again at a later round, a few times
+		// the par2-file's articles weren't all there (gone, or the servers busy):
+		// asked again at a later round, a few times; a partial list is kept
+		// meanwhile, and stays when the articles don't come
 		Guard guard(g_mutex);
 		if (++g_failedAttempts[m_nzbId] < MaxAttempts)
 		{
@@ -399,9 +409,17 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 	return SigLines(RsString(nzbget_rs_twin_par2_sigs((const unsigned char*)data, size)));
 }
 
-bool TwinCheck::HasSigs(int nzbId, const char* print)
+int TwinCheck::HasSigs(int nzbId, const char* print)
 {
-	return OpenStore() && nzbget_rs_twin_has(nzbId, print);
+	return OpenStore() ? nzbget_rs_twin_has(nzbId, print) : 0;
+}
+
+void TwinCheck::Prune(const std::string& live)
+{
+	if (OpenStore())
+	{
+		nzbget_rs_twin_prune(live.c_str());
+	}
 }
 
 std::string TwinCheck::Kind(int primaryId, const char* primaryPrint, int dupeId, const char* dupePrint)
@@ -623,7 +641,8 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 	return sigs;
 }
 
-bool TwinCheck::HasSigs(int, const char*) { return false; }
+int TwinCheck::HasSigs(int, const char*) { return 0; }
+void TwinCheck::Prune(const std::string&) {}
 std::string TwinCheck::Kind(int, const char*, int, const char*) { return ""; }
 std::string TwinCheck::MatchByContent(int, const char*, const char*, const char*, int, const char*) { return ""; }
 
@@ -699,8 +718,40 @@ void TwinCheck::ServiceWork()
 		int rank = 0;				// of its dupe key: the queue first, then the newest history
 	};
 	std::vector<Job> jobs;
+	// the stored file lists are pruned to the postings still there, hourly
+	std::string live;
+	static time_t lastPrune = 0;
+	bool prune = Util::CurrentTime() - lastPrune >= 60 * 60;
 	{
 		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+		if (prune)
+		{
+			lastPrune = Util::CurrentTime();
+			auto add = [&live](NzbInfo* nzbInfo)
+				{
+					NzbParameter* print = nzbInfo->GetParameters()->Find(FilesParam);
+					if (print && !Util::EmptyStr(print->GetValue()))
+					{
+						live += std::to_string(nzbInfo->GetId()) + "\t" + print->GetValue() + "\n";
+					}
+				};
+			for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+			{
+				add(nzbInfo);
+			}
+			for (std::unique_ptr<HistoryInfo>& historyInfo : *downloadQueue->GetHistory())
+			{
+				if (historyInfo->GetKind() == HistoryInfo::hkNzb)
+				{
+					add(historyInfo->GetNzbInfo());
+				}
+			}
+			// nothing in queue and history: the whole store goes
+			if (live.empty())
+			{
+				live = "\n";
+			}
+		}
 		bool changed = false;
 
 		// every download with a dupe key, by key
@@ -763,7 +814,7 @@ void TwinCheck::ServiceWork()
 				// before the lists were kept, or the store file lost)
 				std::string print = fingerprintOf(nzbInfo);
 				bool listless = print != "none" && print != "lost" && !print.empty() &&
-					!HasSigs(nzbInfo->GetId(), print.c_str());
+					HasSigs(nzbInfo->GetId(), print.c_str()) < 2 && Attempts(nzbInfo->GetId()) < MaxAttempts;
 				if ((print.empty() || listless) && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
 					FileSystem::FileExists(nzbInfo->GetQueuedFilename()))
 				{
@@ -822,7 +873,11 @@ void TwinCheck::ServiceWork()
 				if (nzbInfo != primary && isDupe(item) && byPar2)
 				{
 					std::string byFiles = Kind(primary->GetId(), primaryPrint.c_str(), nzbInfo->GetId(), print.c_str());
-					kindText = !byFiles.empty() ? byFiles : print == primaryPrint ? "twin" : "alt";
+					// no lists at all (fingerprints from before they were kept): the
+					// fingerprints decide; a partial list leaves it unknown
+					bool listed = HasSigs(primary->GetId(), primaryPrint.c_str()) > 0 ||
+						HasSigs(nzbInfo->GetId(), print.c_str()) > 0;
+					kindText = !byFiles.empty() || listed ? byFiles : print == primaryPrint ? "twin" : "alt";
 				}
 				const char* kind = nzbInfo == primary || !isDupe(item) ? "" :
 					byPar2 ? kindText.c_str() :
@@ -857,6 +912,11 @@ void TwinCheck::ServiceWork()
 			downloadQueue->HistoryChanged();
 			downloadQueue->Save();
 		}
+	}
+
+	if (!live.empty())
+	{
+		Prune(live);
 	}
 
 	std::stable_sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b)

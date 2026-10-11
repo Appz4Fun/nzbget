@@ -87,7 +87,8 @@ pub unsafe extern "C" fn nzbget_rs_twin_open(path: *const c_char) {
 }
 
 /// Parses the par2 data, stores its file list for download `id` (bound to its
-/// fingerprint, when it has files) and returns the fingerprint ("" for none).
+/// fingerprint, when it has files) and returns "fingerprint\tcomplete" (an
+/// empty fingerprint for none; complete is 1 or 0).
 ///
 /// # Safety
 /// `data` points to `len` readable bytes (or is null with `len` 0).
@@ -99,17 +100,40 @@ pub unsafe extern "C" fn nzbget_rs_twin_put_par2(id: i32, data: *const u8, len: 
         let listed = crate::twin::Listed { sigs, complete, print: print.clone() };
         with_store(|store| store.put(id, listed));
     }
-    into_buf(print.into_bytes())
+    // "fingerprint\tcomplete": a partial list is fetched again
+    into_buf(format!("{print}\t{}", u8::from(complete)).into_bytes())
 }
 
-/// Whether a file list of download `id` made for fingerprint `print` is stored.
+/// What's stored of download `id` for fingerprint `print`: 0 nothing, 1 a
+/// partial list, 2 a complete one.
 ///
 /// # Safety
 /// `print` is null or a valid NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_twin_has(id: i32, print: *const c_char) -> bool {
+pub unsafe extern "C" fn nzbget_rs_twin_has(id: i32, print: *const c_char) -> i32 {
     let print = str_arg(print);
-    with_store(|store| !store.get(id, &print).sigs.is_empty()).unwrap_or(false)
+    with_store(|store| {
+        let listed = store.get(id, &print);
+        if listed.sigs.is_empty() { 0 } else if listed.complete { 2 } else { 1 }
+    })
+    .unwrap_or(0)
+}
+
+/// Keeps the stored lists of the postings given as "id\tfingerprint" lines
+/// (those in queue and history), drops the rest and rewrites the file.
+///
+/// # Safety
+/// `lines` is null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_twin_prune(lines: *const c_char) {
+    let live: Vec<(i32, String)> = String::from_utf8_lossy(input(lines))
+        .lines()
+        .filter_map(|line| {
+            let (id, print) = line.split_once('\t')?;
+            Some((id.parse().ok()?, print.to_string()))
+        })
+        .collect();
+    with_store(|store| store.prune(&live));
 }
 
 /// The par2 data's file list as "length\tmd5\tname" lines, and nothing stored.
