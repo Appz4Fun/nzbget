@@ -235,6 +235,31 @@ BOOST_AUTO_TEST_CASE(NativeIdentityInvalidIdsTest)
     BOOST_CHECK(donor.heads.empty());
 }
 
+BOOST_AUTO_TEST_CASE(NativeIdentityEmptyDataFileTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "empty.rar", {} } }, "d"), donor));
+    BOOST_CHECK_EQUAL(donor.dataBytes, 0);
+    BOOST_CHECK_EQUAL(donor.dataFiles, 0);
+    BOOST_CHECK(donor.heads.empty());
+    BOOST_CHECK(!DupeIdentity::SameData(pick, donor));
+}
+
+BOOST_AUTO_TEST_CASE(NativeIdentityParityGeometryIndependenceTest)
+{
+    NzbSummary pick, donor;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } } }, "p"), pick));
+    for (int parityBytes : { 0, -10 })
+    {
+        BOOST_REQUIRE(NzbReader::Parse(MakeNzb({ { "ordinary.mkv", { 200 } }, { "extra.PAR2", { parityBytes } } }, "d"), donor));
+        BOOST_CHECK_EQUAL(donor.dataBytes, 200);
+        BOOST_CHECK_EQUAL(donor.dataFiles, 1);
+        BOOST_CHECK_EQUAL(donor.heads.size(), 1);
+        BOOST_CHECK(DupeIdentity::SameData(pick, donor));
+    }
+}
+
 BOOST_AUTO_TEST_CASE(NzbReaderRejectsBadNzbTest)
 {
 	NzbSummary info;

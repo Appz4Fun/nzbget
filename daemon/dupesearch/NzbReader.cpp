@@ -123,7 +123,7 @@ public:
 				{
 					m_fileBytes += m_segmentBytes;
 				}
-				else geometryValid = false;
+				else if (!IsParName(m_name)) geometryValid = false;
 				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
 			}
 			else if (!IsParName(m_name)) geometryValid = false;
@@ -146,6 +146,7 @@ public:
 				else geometryValid = false;
 				if (!m_firstId.empty()) heads.push_back({ m_name, m_firstId, m_fileBytes });
 			}
+			else if (!IsParName(m_name)) geometryValid = false;
 			m_inFile = false;
 		}
 		m_text.clear();
