@@ -23,6 +23,7 @@
 #include <boost/test/unit_test.hpp>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include "DeadPostings.h"
 #include "FileSystem.h"
 
@@ -73,6 +74,45 @@ BOOST_AUTO_TEST_CASE(DeadPostingsExpireTest)
 	// expired entries are dropped when something is added
 	dead.Add(Posting::MakeSketch(Ids("b", 100)), then + DeadPostings::DeadTtlSec + 10);
 	BOOST_CHECK(!dead.IsDead(posting, then + 5));
+}
+
+
+BOOST_AUTO_TEST_CASE(DeadPostingsTimeBoundsTest)
+{
+	const time_t low = std::numeric_limits<time_t>::is_signed ?
+		std::numeric_limits<time_t>::lowest() : 1;
+	const time_t high = std::numeric_limits<time_t>::max();
+	const time_t now = 1000000;
+	for (bool save : {false, true})
+	{
+		DeadPostings expired;
+		expired.Add(Posting::Sketch{1}, low, save);
+		BOOST_CHECK(expired.IsDead(Posting::Sketch{1}, low + DeadPostings::DeadTtlSec - 1));
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, low + DeadPostings::DeadTtlSec));
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, high));
+		expired.Add(Posting::Sketch{2}, high, save);
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, low + 1));
+
+		DeadPostings future;
+		future.Add(Posting::Sketch{3}, high, save);
+		// Future entries retain the existing lookup behavior until pruning.
+		BOOST_CHECK(future.IsDead(Posting::Sketch{3}, low));
+		future.Add(Posting::Sketch{4}, low, save);
+		BOOST_CHECK(!future.IsDead(Posting::Sketch{3}, high));
+
+		DeadPostings exactExpiry;
+		exactExpiry.Add(Posting::Sketch{9}, now, save);
+		exactExpiry.Add(Posting::Sketch{10}, now + DeadPostings::DeadTtlSec, save);
+		BOOST_CHECK(!exactExpiry.IsDead(Posting::Sketch{9}, now));
+
+		DeadPostings boundaries;
+		boundaries.Add(Posting::Sketch{5}, now + 24 * 3600, save);
+		boundaries.Add(Posting::Sketch{6}, now, save);
+		BOOST_CHECK(boundaries.IsDead(Posting::Sketch{5}, now));
+		boundaries.Add(Posting::Sketch{7}, now + 24 * 3600 + 1, save);
+		boundaries.Add(Posting::Sketch{8}, now, save);
+		BOOST_CHECK(!boundaries.IsDead(Posting::Sketch{7}, now + 24 * 3600 + 1));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(DeadPostingsPersistTest)
