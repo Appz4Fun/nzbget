@@ -179,6 +179,27 @@ class PostprocessAdapterTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), ARTICLE)
         self.assertTrue(sentinel.samefile(source))
 
+    def test_dangling_input_symlink_in_output_is_never_unlinked(self):
+        for spelling in ("direct", "dotdot", "output-directory-symlink"):
+            with self.subTest(spelling=spelling):
+                physical = self.root / spelling / "physical"
+                physical.mkdir(parents=True)
+                output = physical
+                if spelling == "output-directory-symlink":
+                    output = self.root / spelling / "out-link"
+                    output.symlink_to(physical, target_is_directory=True)
+                sentinel = physical / "qualification.json"
+                sentinel.symlink_to(self.root / "missing-external-target")
+                source = output / "qualification.json"
+                if spelling == "dotdot":
+                    source = output / ".." / "physical" / "qualification.json"
+                result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                         "--manifest", str(self.manifest), "--source", str(source),
+                                         "--output-dir", str(output)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertTrue(sentinel.is_symlink(), "alias rejection must preserve the input symlink")
+                self.assertEqual(sentinel.readlink(), self.root / "missing-external-target")
+
     def test_repeat_hold_run_replaces_only_generated_outputs(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
         result, _ = self.run_adapter("par-crc", PAR_CRC)
