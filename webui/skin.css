@@ -759,6 +759,8 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 
 .btn.disabled,
 .btn[disabled] {
+	/* neutral text too: a disabled primary keeps --on-accent otherwise */
+	color: var(--label-primary);
 	background: var(--fill-tertiary);
 	box-shadow: inset 0 0 0 1px var(--separator);
 	opacity: var(--opacity-disabled);
@@ -1436,4 +1438,20 @@ tr.checked:nth-child(odd) .progress-block .progress {
 /* phone extension actions: two 38px buttons and the 4px gap per row */
 .phone #ExtensionManagerTable .btn-toolbar {
 	width: 80px;
+}
+
+/* style.css's .btn-toolbar .btn { height: 28px } outranks .btn */
+.btn-toolbar .btn {
+	height: var(--size-control-md);
+}
+
+.btn-toolbar .btn-mini,
+.btn-toolbar .btn-small {
+	height: var(--size-control-sm);
+}
+
+/* phone header: refresh and settings get the touch size too */
+.phone #Navbar #RefreshBlock > .btn-group > .btn {
+	width: var(--size-control-lg);
+	height: var(--size-control-lg);
 }
