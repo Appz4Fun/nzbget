@@ -1,0 +1,157 @@
+# Option names and summaries from NZBGet's nzbget.conf (upstream develop 667ad187).
+# build.py marks options missing here as new, and options whose summary differs as changed.
+MainDir	Root directory for all tasks.
+DestDir	Destination directory for downloaded files.
+InterDir	Directory to store intermediate files.
+NzbDir	Directory for incoming nzb-files.
+QueueDir	Directory to store program state.
+TempDir	Directory to store temporary files.
+WebDir	Directory with web-interface files.
+ScriptDir	Directory with post-processing and other scripts.
+LockFile	Lock-file for daemon-mode, POSIX only.
+LogFile	Where to store log file, if it needs to be created.
+ConfigTemplate	Configuration file template.
+RequiredDir	Required directories.
+CertStore	Certificate store file or directory.
+ServerN.Active	Use this news server (yes, no).
+ServerN.Name	Name of news server.
+ServerN.Level	Level (priority) of news server (0-99).
+ServerN.Optional	This is an optional non-reliable server (yes, no).
+ServerN.Group	Group of news server (0-99).
+ServerN.Host	Host name of news server.
+ServerN.Encryption	Encrypted server connection (TLS/SSL) (yes, no).
+ServerN.Port	News Server port, usually 563 for secure connections, 119 for unsecure connections, rare - 80 or 443 (1-65535).
+ServerN.Username	User name to use for authentication.
+ServerN.Password	Password to use for authentication.
+ServerN.JoinGroup	Server requires "Join Group"-command (yes, no).
+ServerN.Cipher	Cipher to use for encrypted server connection.
+ServerN.Connections	Maximum number of simultaneous connections to this server (0-999).
+ServerN.Retention	Server retention time (days).
+ServerN.CertVerification	Certificate verification level (Strict, Minimal, None).
+ServerN.IpVersion	IP protocol version (auto, ipv4, ipv6).
+ServerN.Notes	User comments on this server.
+ControlIP	IP on which NZBGet server listen and which clients use to contact NZBGet.
+ControlPort	Port which NZBGet server and remote client use (1-65535).
+ControlUsername	User name which NZBGet server and remote client use.
+ControlPassword	Password which NZBGet server and remote client use.
+RestrictedUsername	User name for restricted access.
+RestrictedPassword	Password for restricted access.
+AddUsername	User name to add downloads via RPC-API.
+AddPassword	Password for user with add downloads access.
+FormAuth	Authenticate using web-form (yes, no).
+SecureControl	Secure control of NZBGet server (yes, no).
+SecurePort	Port which NZBGet server and remote client use for encrypted communication (1-65535).
+SecureCert	Full path to certificate file for encrypted communication.
+SecureKey	Full path to key file for encrypted communication.
+AuthorizedIP	IP-addresses allowed to connect without authorization.
+CertCheck	TLS certificate verification (yes, no).
+UpdateCheck	Automatically check for new releases (none, stable, testing).
+DaemonUsername	User name for daemon-mode, POSIX only.
+UMask	Specify default umask, POSIX only (000-1000).
+CategoryN.Name	Category name.
+CategoryN.DestDir	Destination directory for this category.
+CategoryN.Unpack	Unpack downloaded nzb-files (yes, no).
+CategoryN.Extensions	List of extension scripts for this category.
+CategoryN.Aliases	List of aliases.
+FeedN.Name	Name of RSS Feed.
+FeedN.URL	Address (URL) of RSS Feed.
+FeedN.Filter	Filter rules for items.
+FeedN.Interval	How often to check for new items (minutes).
+FeedN.Backlog	Treat all items on first fetch as backlog (yes, no).
+FeedN.PauseNzb	Add nzb-files as paused (yes, no).
+FeedN.Category	Category for added nzb-files.
+FeedN.CategorySource	Where to retrieve the category information for a download (auto, NZBFile, FeedFile).
+FeedN.CertVerification	Certificate verification level (Strict, Minimal, None).
+FeedN.Priority	Priority for added nzb-files (number).
+FeedN.Extensions	List of rss feed extension scripts to execute for rss content.
+AppendCategoryDir	Create subdirectory with category-name in destination-directory (yes, no).
+NzbDirInterval	How often incoming-directory (option <NzbDir>) must be checked for new nzb-files (seconds).
+NzbDirFileAge	How old nzb-file should at least be for it to be loaded to queue (seconds).
+NzbDirArchiveScan	Scan archives (zip, rar, 7z, etc.) in <NzbDir> for .nzb files (yes, no).
+NzbDirArchiveAction	Action for processed archives in NzbDir (move, delete).
+DupeCheck	Check for duplicate titles (yes, no).
+FlushQueue	Flush download queue to disk (yes, no).
+ContinuePartial	Continue download of partially downloaded files (yes, no).
+PropagationDelay	Propagation delay to your news servers (minutes).
+ArticleCache	Memory limit for article cache (megabytes).
+DirectWrite	Write decoded articles directly into destination output file (yes, no).
+WriteBuffer	Memory limit for per connection write buffer (kilobytes).
+FileNaming	How to name downloaded files (auto, article, nzb).
+PostDownloadRename	Rename downloaded non-archive files if obfuscated (yes, no).
+RenameAfterUnpack	Rename downloaded files after unpack (yes, no).
+RenameIgnoreExt	File extensions to ignore during post-download or post-unpack renaming.
+ReorderFiles	Reorder files within nzbs for optimal download order (yes, no).
+PostStrategy	Post-processing strategy (sequential, balanced, aggressive, rocket).
+DiskSpace	Pause if disk space gets below this value (megabytes).
+NzbCleanupDisk	Delete source nzb-file when it is not needed anymore (yes, no).
+KeepHistory	Keep the history of downloaded nzb-files (days).
+FeedHistory	Keep the history of outdated feed items (days).
+SkipWrite	Discard downloaded data (do not write into disk) (yes, no).
+RawArticle	Write article raw data (yes, no).
+ArticleRetries	How many retries should be attempted if a download error occurs (0-99).
+ArticleInterval	Article retry interval (seconds).
+ArticleTimeout	Connection timeout for article downloading (seconds).
+ArticleReadChunkSize	Chunk size when reading data from the news server (kilobytes).
+UrlRetries	Number of download attempts for URL fetching (0-99).
+UrlInterval	URL fetching retry interval (seconds).
+UrlTimeout	Connection timeout for URL fetching (seconds).
+RemoteTimeout	Timeout for incoming connections (seconds).
+DownloadRate	Set the maximum download rate on program start (kilobytes/sec).
+UrlConnections	Maximum number of simultaneous connections for nzb URL downloads (0-999).
+UrlForce	Force URL-downloads even if download queue is paused (yes, no).
+MonthlyQuota	Monthly download volume quota (megabytes).
+QuotaStartDay	Day of month when the monthly quota starts (1-31).
+DailyQuota	Daily download volume quota (megabytes).
+SystemHealthCheck	Activate system health monitoring (yes, no).
+WriteLog	How to use log file (none, append, reset, rotate).
+RotateLog	Log file rotation period (days).
+ErrorTarget	How error messages must be printed (screen, log, both, none).
+WarningTarget	How warning messages must be printed (screen, log, both, none).
+InfoTarget	How info messages must be printed (screen, log, both, none).
+DetailTarget	How detail messages must be printed (screen, log, both, none).
+DebugTarget	How debug messages must be printed (screen, log, both, none).
+LogBuffer	Number of messages stored in screen buffer (messages).
+NzbLog	Create log for each downloaded nzb-file (yes, no).
+CrashTrace	Print call stack trace into log on program crash (Linux and Windows) (yes, no).
+CrashDump	Save memory dump into disk on program crash (Linux only) (yes, no).
+TimeCorrection	Local time correction (hours or minutes).
+OutputMode	Set screen-outputmode (loggable, colored, curses).
+CursesNzbName	Shows NZB-Filename in file list in curses-outputmode (yes, no).
+CursesGroup	Show files in groups (NZB-files) in queue list in curses-outputmode (yes, no).
+CursesTime	Show timestamps in message list in curses-outputmode (yes, no).
+UpdateInterval	Update interval for Frontend-output in console mode or remote client mode (milliseconds).
+TaskN.Time	Time to execute the command (HH:MM).
+TaskN.WeekDays	Week days to execute the command (1-7).
+TaskN.Command	Command to be executed (PauseDownload, UnpauseDownload, PausePostProcess, UnpausePostProcess, PauseScan, UnpauseScan, DownloadRate, Script, Process, ActivateServer, DeactivateServer, FetchFeed).
+TaskN.Param	Parameters for the command if needed.
+CrcCheck	Check CRC of downloaded and decoded articles (yes, no).
+ParCheck	Whether and how par-verification must be performed (auto, always, force, manual).
+ParRepair	Automatic par-repair after par-verification (yes, no).
+ParScan	What files should be scanned during par-verification (limited, extended, full, dupe).
+ParQuick	Quick file verification during par-check (yes, no).
+ParBuffer	Memory limit for par-repair buffer (megabytes).
+ParThreads	Number of threads to use during par-repair (0-99).
+ParIgnoreExt	Files to ignore during par-check.
+ParRename	Check for renamed and missing files using par-files (yes, no).
+RarRename	Check for renamed rar-files (yes, no).
+DirectRename	Directly rename files during downloading (yes, no).
+HardLinking	Hardlink files during downloading (yes, no).
+HardLinkingIgnoreExt	File extensions to ignore during hardlinking.
+HealthCheck	What to do if download health drops below critical health (delete, park, pause, none).
+ParTimeLimit	Maximum allowed time for par-repair (minutes).
+ParPauseQueue	Pause download queue during check/repair (yes, no).
+Unpack	Unpack rar and 7-zip archives (yes, no).
+DirectUnpack	Directly unpack files during downloading (yes, no).
+UseTempUnpackDir	Use a temporary _unpack directory during unpacking (yes, no).
+UnpackPauseQueue	Pause download queue during unpack (yes, no).
+UnpackCleanupDisk	Delete archive files after successful unpacking (yes, no).
+UnrarCmd	Full path to unrar executable.
+SevenZipCmd	Full path to 7-Zip executable.
+ExtCleanupDisk	Files to delete after successful download.
+UnpackIgnoreExt	Files to ignore during unpack.
+UnpackPassFile	Path to file containing unpack passwords.
+Extensions	List of active extension scripts for new downloads.
+ScriptOrder	Execution order for extension scripts.
+ScriptPauseQueue	Pause download queue during executing of postprocess-script (yes, no).
+ShellOverride	Shell overrides for script interpreters.
+EventInterval	Minimum interval between queue events (seconds).
