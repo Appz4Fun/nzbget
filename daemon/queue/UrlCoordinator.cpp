@@ -40,21 +40,27 @@ void UrlDownloader::ProcessHeader(const char* line)
 {
 	WebDownloader::ProcessHeader(line);
 
-	// rust/src/urlcoord.rs
-	NzbgetRsBuf first{}, value{};
-	switch (nzbget_rs_url_dnzb_header(line, &first, &value))
+	// rust/src/urlcoord.rs; most headers aren't X-DNZB ones
+	if (strncmp(line, "X-DNZB-", 7))
+	{
+		return;
+	}
+
+	size_t start, length;
+	NzbgetRsBuf name{}, value{};
+	switch (nzbget_rs_url_dnzb_header(line, &start, &length, &name, &value))
 	{
 		case 1:
-			m_category = CString(first.data, (int)first.len);
+			// a length of 0 would take the rest of the line
+			m_category = length > 0 ? CString(line + start, (int)length) : CString("");
 			debug("Category: %s", *m_category);
-			nzbget_rs_free(first);
 			break;
 
 		case 2:
-			debug("X-DNZB: %s", first.data);
+			debug("X-DNZB: %s", name.data);
 			debug("Value: %s", value.data);
-			m_nzbInfo->GetParameters()->SetParameter(first.data, value.data);
-			nzbget_rs_free(first);
+			m_nzbInfo->GetParameters()->SetParameter(name.data, value.data);
+			nzbget_rs_free(name);
 			nzbget_rs_free(value);
 			break;
 	}
