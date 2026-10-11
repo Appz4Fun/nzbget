@@ -917,7 +917,8 @@ input[type="submit"].btn-large {
 }
 
 .btn-group > .btn:last-child,
-.btn-group > .dropdown-toggle:last-child {
+.btn-group > .dropdown-toggle:last-child,
+.btn-group > .dropdown-toggle:nth-last-child(2) {
 	border-top-right-radius: var(--radius-sm);
 	border-bottom-right-radius: var(--radius-sm);
 }
