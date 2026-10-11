@@ -110,4 +110,4 @@ RustyGet fixes more than 100 inherited bugs, most of them reported to the NZBGet
 
 - `rust/rust-toolchain.toml` pins Rust 1.99.0. CMake finds Cargo and builds the crate into the binary; without Rust, the C++ fallbacks build instead.
 - The par2 parsing for twins uses the `rust-par2` crate.
-- The inherited GitHub workflows for builds, packages, and tests are turned off while the tests are rebuilt. Only the documentation workflow runs.
+- The inherited GitHub workflows for builds, packages, and tests are turned off in the Actions tab while the tests are rebuilt. Only the documentation workflow runs.
