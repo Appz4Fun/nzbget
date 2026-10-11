@@ -153,7 +153,9 @@ static std::string Snapshot(const stdfs::path& dir)
 	for (auto it = stdfs::recursive_directory_iterator(dir, stdfs::directory_options::skip_permission_denied, ec);
 		it != stdfs::recursive_directory_iterator(); it.increment(ec))
 	{
-		std::string rel = stdfs::relative(it->path(), dir).string();
+		// relative() resolves links, merging distinct entries with the same
+		// target in this map and potentially hiding a deletion mismatch.
+		std::string rel = it->path().lexically_relative(dir).string();
 		struct stat st;
 		lstat(it->path().c_str(), &st);
 		std::string what = S_ISLNK(st.st_mode) ? "link->" + stdfs::read_symlink(it->path()).string() : S_ISDIR(st.st_mode) ? "dir" : "file";
@@ -179,6 +181,7 @@ template <class FS> static std::string Run(const stdfs::path& work, const stdfs:
 	stdfs::create_directories(outside / "inner");
 	std::ofstream(outside / "file") << "keep";
 	std::ofstream(outside / "inner" / ".hidden") << "keep";
+	const std::string outsideBefore = Snapshot(outside);
 	state = seed;
 	g_paths.clear();
 	std::vector<stdfs::path> locked;
@@ -203,32 +206,44 @@ template <class FS> static std::string Run(const stdfs::path& work, const stdfs:
 
 	std::string result;
 	errno = 1000 + below(5);
+	int savedErrno;
 	try
 	{
 		if (op.kind < 4)
 		{
-			result = "DeleteDirectory " + std::to_string(FS::DeleteDirectory(op.path.c_str()));
+			bool ok = FS::DeleteDirectory(op.path.c_str());
+			savedErrno = errno;
+			result = "DeleteDirectory " + std::to_string(ok);
 		}
 		else if (op.kind < 8)
 		{
 			CString errmsg = "previous";
 			bool ok = FS::DeleteDirectoryWithContent(op.path.c_str(), errmsg);
+			savedErrno = errno;
 			result = "DeleteDirectoryWithContent " + std::to_string(ok) + " [" + (errmsg ? *errmsg : "(null)") + "]";
 		}
 		else
 		{
 			CString newName;
 			bool ok = FS::RenameBak(op.path.c_str(), below(4) ? "bak" : "", op.removeExt, newName);
+			savedErrno = errno;
 			result = "RenameBak " + std::to_string(ok) + " [" + (newName ? *newName : "(null)") + "]";
 		}
 	}
 	catch (const std::exception& e)
 	{
+		savedErrno = errno;
 		result = std::string("exception ") + e.what();
 	}
-	result += " errno " + std::to_string(errno) + "\n";
+	result += " errno " + std::to_string(savedErrno) + "\n";
 	Unlock(work.parent_path());
-	return result + Snapshot(work.parent_path()) + "outside:\n" + Snapshot(outside);
+	const std::string outsideAfter = Snapshot(outside);
+	if (outsideAfter != outsideBefore)
+	{
+		fprintf(stderr, "outside tree changed for %s\n", op.path.c_str());
+		exit(1);
+	}
+	return result + Snapshot(work.parent_path()) + "outside:\n" + outsideAfter;
 }
 
 // a failing entry next to a folder deleted fine (the inner call clears the
@@ -247,9 +262,55 @@ template <class FS> static std::string Fixed(const stdfs::path& work, int varian
 	errno = 1234;
 	CString errmsg = "previous";
 	bool ok = FS::DeleteDirectoryWithContent(work.c_str(), errmsg);
-	std::string result = std::to_string(ok) + " [" + (errmsg ? *errmsg : "(null)") + "] errno " + std::to_string(errno) + "\n";
+	int savedErrno = errno;
+	std::string result = std::to_string(ok) + " [" + (errmsg ? *errmsg : "(null)") + "] errno " + std::to_string(savedErrno) + "\n";
 	Unlock(work.parent_path());
 	return result + Snapshot(work.parent_path());
+}
+
+// Real paths around BString<1024>'s byte cut, with collisions and dots on
+// either side of the cut. No directory is itself truncated into an ancestor.
+template <class FS> static std::string Boundaries(const stdfs::path& box, int variant)
+{
+	Clean(box);
+	stdfs::path dir = box;
+	while (dir.string().size() < 1000)
+	{
+		size_t left = 1000 - dir.string().size() - 1;
+		dir /= std::string(std::min(left, size_t(180)), 'd');
+	}
+	stdfs::create_directories(dir);
+	std::string result;
+	CString output = "previous";
+	errno = 1234;
+	if (variant < 2)
+	{
+		std::string prefix = "." + std::string(21, 'h');
+		std::ofstream(dir / prefix) << "short";
+		std::ofstream(dir / (prefix + "suffix")) << "long";
+		errno = 1234;
+		bool ok = variant ? FS::DeleteDirectory(dir.c_str()) : FS::DeleteDirectoryWithContent(dir.c_str(), output);
+		int saved = errno;
+		result = std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n";
+	}
+	else
+	{
+		std::string leaf(45, 'a');
+		leaf[variant == 2 ? 21 : 22] = '.';
+		leaf[30] = static_cast<char>(0xff);
+		std::string filename = (dir / leaf).string();
+		std::ofstream(filename) << "source";
+		bool removeExt = variant != 4;
+		std::string base = removeExt ? filename.substr(0, 1023) : filename;
+		if (removeExt && base.rfind('.') != std::string::npos) base.resize(base.rfind('.'));
+		std::ofstream(base + ".bak") << "taken";
+		for (int i = 2; i < 12; i++) stdfs::create_directory(base + "." + std::to_string(i) + ".bak");
+		errno = 1234;
+		bool ok = FS::RenameBak(filename.c_str(), "bak", removeExt, output);
+		int saved = errno;
+		result = std::to_string(ok) + " [" + (output ? *output : "(null)") + "] errno " + std::to_string(saved) + "\n";
+	}
+	return result + Snapshot(box);
 }
 
 int main(int argc, char** argv)
@@ -267,6 +328,24 @@ int main(int argc, char** argv)
 			c = fallbackimpl::FileSystem::GetFileExtension(s);
 		if (a != b || a != c) { fprintf(stderr, "GetFileExtension mismatch on [%s]\n", s); return 1; }
 	}
+	for (std::string_view s : {std::string_view{}, std::string_view("a.\0b.c", 6), std::string_view("\xff.\xfe", 3)})
+	{
+		auto a = oldimpl::FileSystem::GetFileExtension(s), b = newimpl::FileSystem::GetFileExtension(s),
+			c = fallbackimpl::FileSystem::GetFileExtension(s);
+		if (a != b || a != c) { fprintf(stderr, "GetFileExtension byte-view mismatch\n"); return 1; }
+	}
+	for (int variant = 0; variant < 5; variant++)
+	{
+		std::string a = Boundaries<oldimpl::FileSystem>(temp / "long", variant);
+		std::string b = Boundaries<newimpl::FileSystem>(temp / "long", variant);
+		std::string c = Boundaries<fallbackimpl::FileSystem>(temp / "long", variant);
+		if (a != b || a != c)
+		{
+			fprintf(stderr, "boundary %d mismatch\n--- old:\n%s\n--- rust:\n%s\n--- fallback:\n%s\n", variant, a.c_str(), b.c_str(), c.c_str());
+			return 1;
+		}
+	}
+	Clean(temp / "long");
 
 	for (int variant = 0; variant < 4; variant++)
 	{

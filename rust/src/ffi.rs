@@ -3542,9 +3542,11 @@ pub unsafe extern "C" fn nzbget_rs_delete_directory(ops: *const FsOps, dir: *con
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_delete_directory_with_content(ops: *const FsOps, dir: *const c_char, separator: c_char,
     errmsg: *mut RsBuf) -> c_int {
-    let Some(ops) = ops.as_ref() else { return 0 };
     let mut text = Vec::new();
-    let result = crate::fsdelete::delete_directory_with_content(&mut FsOpsFfi(ops), input(dir), separator as u8, &mut text);
+    let result = match ops.as_ref() {
+        Some(ops) => crate::fsdelete::delete_directory_with_content(&mut FsOpsFfi(ops), input(dir), separator as u8, &mut text),
+        None => Ok(false),
+    };
     if !errmsg.is_null() {
         errmsg.write(into_buf(text));
     }
@@ -3564,9 +3566,11 @@ pub unsafe extern "C" fn nzbget_rs_delete_directory_with_content(ops: *const FsO
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_rename_bak(ops: *const FsOps, filename: *const c_char, bak_part: *const c_char,
     remove_old_extension: c_int, new_name: *mut RsBuf) -> c_int {
-    let Some(ops) = ops.as_ref() else { return 0 };
     let mut name = Vec::new();
-    let result = crate::fsdelete::rename_bak(&mut FsOpsFfi(ops), input(filename), input(bak_part), remove_old_extension != 0, &mut name);
+    let result = match ops.as_ref() {
+        Some(ops) => crate::fsdelete::rename_bak(&mut FsOpsFfi(ops), input(filename), input(bak_part), remove_old_extension != 0, &mut name),
+        None => Ok(false),
+    };
     if !new_name.is_null() {
         new_name.write(into_buf(name));
     }
@@ -3589,6 +3593,91 @@ pub unsafe extern "C" fn nzbget_rs_file_extension(name: *const c_char, len: usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fsdelete_null_ops_initialize_outputs() {
+        use std::ptr::{null, null_mut};
+        // Poison rather than zero the output: a caller need not initialize
+        // an out parameter, even when the operation fails.
+        let poison = || RsBuf { data: null_mut(), len: usize::MAX, cap: usize::MAX };
+        unsafe {
+            let mut error = poison();
+            assert_eq!(nzbget_rs_delete_directory_with_content(null(), null(), b'/' as c_char, &mut error), 0);
+            assert_eq!(error.len, 0);
+            assert_eq!(input(error.data), b"");
+            nzbget_rs_free(error);
+            let mut name = poison();
+            assert_eq!(nzbget_rs_rename_bak(null(), null(), null(), 0, &mut name), 0);
+            assert_eq!(name.len, 0);
+            assert_eq!(input(name.data), b"");
+            nzbget_rs_free(name);
+            assert_eq!(nzbget_rs_delete_directory(null(), null(), b'/' as c_char), 0);
+            assert_eq!(nzbget_rs_delete_directory_with_content(null(), null(), 0, null_mut()), 0);
+            assert_eq!(nzbget_rs_rename_bak(null(), null(), null(), 0, null_mut()), 0);
+            assert_eq!(nzbget_rs_file_extension(null(), 0), -1);
+            assert_eq!(nzbget_rs_file_extension(b"a.\0b.c".as_ptr().cast(), 6), 4);
+        }
+    }
+
+    #[test]
+    fn fsdelete_borrowed_buffers_and_callback_abort() {
+        use std::ptr::{null, null_mut};
+        struct State { calls: Vec<Vec<u8>>, abort: bool }
+        unsafe extern "C" fn kind(ctx: *mut std::ffi::c_void, path: *const c_char) -> c_int {
+            let st = &mut *ctx.cast::<State>();
+            st.calls.push(input(path).to_vec());
+            if input(path) == b"root" { 2 } else if st.abort { -1 } else { 1 }
+        }
+        unsafe extern "C" fn list(_: *mut std::ffi::c_void, _: *const c_char,
+            sink: *mut std::ffi::c_void, add: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int {
+            let mut name = b"file\0".to_vec();
+            add(sink, name.as_ptr().cast());
+            name.fill(b'x'); // the callback's buffer may immediately be reused
+            0
+        }
+        unsafe extern "C" fn last_error(_: *mut std::ffi::c_void, sink: *mut std::ffi::c_void,
+            set: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int {
+            let mut text = b"failure\0".to_vec();
+            set(sink, text.as_ptr().cast());
+            text.fill(b'x');
+            0
+        }
+        unsafe extern "C" fn fail(ctx: *mut std::ffi::c_void, path: *const c_char) -> c_int {
+            (*ctx.cast::<State>()).calls.push(input(path).to_vec());
+            0
+        }
+        let mut st = State { calls: Vec::new(), abort: false };
+        let mut ops = FsOps {
+            ctx: (&mut st as *mut State).cast(), path_type: Some(kind), remove_dir: Some(fail),
+            delete_file: Some(fail), delete_link: None, list: Some(list),
+            file_exists: None, dir_exists: None, move_file: None, last_error: Some(last_error),
+        };
+        unsafe {
+            let mut error = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, c"root".as_ptr(), b'/' as c_char, error.as_mut_ptr()), 0);
+            let error = error.assume_init();
+            assert_eq!(input(error.data), b"could not delete root/file: failure");
+            assert_eq!(st.calls, [b"root".to_vec(), b"root/file".to_vec(), b"root/file".to_vec(), b"root".to_vec()]);
+            st.calls.clear();
+            st.abort = true;
+            let mut aborted = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, c"root".as_ptr(), b'/' as c_char, aborted.as_mut_ptr()), -1);
+            let aborted = aborted.assume_init();
+            assert_eq!(aborted.len, 0);
+            assert_eq!(st.calls, [b"root".to_vec(), b"root/file".to_vec()]);
+            // An independent call cannot invalidate a previously returned buffer.
+            assert_eq!(input(error.data), b"could not delete root/file: failure");
+            nzbget_rs_free(error);
+            nzbget_rs_free(aborted);
+            ops.path_type = None;
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, null(), 0, null_mut()), 0);
+            let mut name = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_rename_bak(&ops, null(), null(), 0, name.as_mut_ptr()), 0);
+            let name = name.assume_init();
+            assert_eq!(input(name.data), b".");
+            nzbget_rs_free(name);
+        }
+    }
 
     #[test]
     fn parrenamer_nulls_borrowed_names_and_exception_state() {

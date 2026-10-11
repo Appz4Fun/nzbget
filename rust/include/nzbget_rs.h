@@ -900,6 +900,10 @@ int nzbget_rs_par_renamer_execute(const NzbgetRsParRenamerEnv* env, NzbgetRsParR
 // GetLastErrorMessage for the call that failed last. NULL callbacks mean
 // errors, empty lists, nothing done. errmsg / newName (NULL: not written)
 // get a buffer to free with nzbget_rs_free; an empty errmsg was cleared.
+// A NULL ops table returns 0 and writes empty output buffers. Output slots
+// must not hold an allocation needing release. Callbacks must not unwind;
+// sink and add/set are valid only during their list/lastError call. Strings
+// passed to add/set are copied before that function returns.
 typedef struct NzbgetRsFsOps
 {
 	void* ctx;
