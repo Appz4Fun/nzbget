@@ -230,8 +230,8 @@ does not complete. These GitHub statuses require the dedicated verified identity
 independently of Bencher configuration. Publication and archival serialize their
 writes by canonical PR number; fork heads are ineligible for publication.
 
-The frozen Rust-source validation passed 219 unit tests (one ignored) and the
-allocation test. Clippy for the library and new Criterion benchmark passed with
+At the `a3bb32e1` Rust-source validation snapshot, 219 unit tests (one ignored) and
+the allocation test passed. Clippy for the library and new Criterion benchmark passed with
 warnings denied. Strict Clippy across all targets failed on 30 existing test-code
 lints; this is retained as a failed check rather than reported as a full pass.
 
