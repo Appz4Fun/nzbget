@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -243,8 +244,18 @@ def shared_validator():
 
 
 def bounded_read(path, maximum):
-    with path.open("rb") as stream:
-        data = stream.read(maximum + 1)
+    # O_NONBLOCK prevents a FIFO open from waiting for a writer. Check the
+    # opened descriptor, so symlinks to regular files work without a separate
+    # pathname type check that could race the open.
+    flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOCTTY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("input must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read(maximum + 1)
+    finally:
+        os.close(descriptor)
     if len(data) > maximum:
         raise ValueError("input exceeds byte limit")
     return data
