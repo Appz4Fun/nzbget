@@ -48,6 +48,7 @@ in `rust/include/nzbget_rs.h`.
 | `ParRenamer::Execute` (par-rename: par2 files by header and set id, regular files by the MD5 of their first 16 KiB, .bad par2 files, missing files; par2 loading, file IO and moves stay C++) | `parrenamer` | port only |
 | `FileSystem::DeleteDirectory`, `DeleteDirectoryWithContent`, `RenameBak`, `GetFileExtension` (links never followed, first error kept, errno as before; the file system calls stay C++) | `fsdelete` | port only |
 | BinRpc's frame (`BinRpcProcessor::Execute` credential check, request names, `Dispatch` size check, `SendBoolResponse`, `ReceiveTrailing` length check), list responses (List, Log, PostQueue, History entries), EditQueue's trailing data (size check, ids, names) and Download's URL test | `binrpc` | port; entry fields a kind doesn't set are 0, a negative Log line count asks for no entries |
+| `DonorScore::Base`, `Target`, `Rerank` (duplicate scores under a pick; `Ranks` stays C++ and calls `Target`) | `donorscore` | 1.2x |
 
 Each port has a differential test in `rust/tests/` that compares it with the
 pre-port C++ under ASan and UBSan.
