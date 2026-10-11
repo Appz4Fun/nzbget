@@ -16,7 +16,7 @@ Add each Usenet provider as a server in the **NEWS-SERVERS** section. Servers ha
 | Fill server | `1` | Only for articles that the main servers don't have. |
 | More fill servers | `2` and up | In order, for articles that the lower levels don't have. |
 
-A fill server is usually a block account, which sells a fixed volume of data rather than a monthly plan. Fill servers carry little traffic, because they only see articles that every lower level missed. Mark a server as `ServerN.Optional=yes` when it's unreliable, so a failure there doesn't count against the download.
+A fill server is usually a block account, which sells a fixed volume of data rather than a monthly plan. Fill servers carry little traffic, because they only see articles that every lower level missed. Normally, when a server on one level can't be reached, RustyGet waits for it rather than spend a higher level's paid data. Mark an unreliable server `ServerN.Optional=yes` to have RustyGet skip it while it's down and go on to the next level.
 
 Use encryption (`ServerN.Encryption=yes`, usually on port 563 or 443) and keep `ServerN.CertVerification=strict`. Set `ServerN.Connections` to what your plan allows; see [Performance tuning](performance.md) for picking a number.
 

@@ -77,7 +77,7 @@ appendfleet(DupeKey, Category, Priority, Timeout, Name1, Content1, Name2, Conten
 | `NameN` | string | The member's filename, such as `Release.Name.nzb`. |
 | `ContentN` | string | The NZB file in base64, or an `http://` or `https://` URL to fetch it from. |
 
-Up to 50 members. JSON-RPC only; XML-RPC callers get an error.
+Up to 50 members. It works over JSON-RPC and JSON-P; XML-RPC callers get an error.
 
 The result:
 
