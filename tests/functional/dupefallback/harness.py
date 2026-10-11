@@ -326,6 +326,34 @@ class LocalTarget:
             shutil.rmtree(self.work, ignore_errors=True)
 
 
+class AdbProcess:
+    """Wait for a foreground process launched through adb to exit."""
+    def __init__(self, target, pid):
+        self.target = target
+        self.pid = pid
+
+    def wait(self, timeout=60):
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout)
+            try:
+                result = self.target._adb('shell',
+                    'if kill -0 %d 2>/dev/null; then echo running; else echo exited; fi' % self.pid,
+                    timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout) from None
+            status = result.stdout.strip()
+            if result.returncode != 0 or status not in ('running', 'exited'):
+                raise RuntimeError('could not check adb process %d: %s' % (self.pid, result.stderr))
+            if status == 'exited':
+                return
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout)
+            time.sleep(0.3)
+
+
 class AdbTarget:
     """Run nserv + daemon inside an Android emulator/device over adb.
 
@@ -346,12 +374,12 @@ class AdbTarget:
         self._adb('shell', 'rm', '-rf', self.work)
         self._adb('shell', 'mkdir', '-p', self.work)
 
-    def _adb(self, *args):
+    def _adb(self, *args, timeout=None):
         cmd = ['adb']
         if self.serial:
             cmd += ['-s', self.serial]
         cmd += list(args)
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
     def path(self, *parts):
         return '/'.join([self.work] + list(parts))
@@ -392,9 +420,12 @@ class AdbTarget:
     def spawn(self, args, output_rel=None):
         # launch detached on device; ports are device-local
         output = self._q(self.path(output_rel)) if output_rel else '/dev/null'
-        remote = ' '.join(self._q(a) for a in args) + ' >' + output + ' 2>&1 &'
-        self._adb('shell', remote)
-        return None
+        remote = ' '.join(self._q(a) for a in args) + ' >' + output + ' 2>&1 & echo $!'
+        result = self._adb('shell', remote)
+        pid = result.stdout.strip()
+        if result.returncode != 0 or not pid.isdigit() or int(pid) <= 0:
+            raise RuntimeError('could not launch adb process: %s' % result.stderr)
+        return AdbProcess(self, int(pid))
 
     @staticmethod
     def _q(a):
@@ -477,7 +508,7 @@ class Daemon:
                      output_rel='nserv.log' if capture_requests else None)
 
     def start(self):
-        self.t.spawn([self.t.nzbget, '-c', self.t.path(self.conf_rel), '-s'])
+        self.process = self.t.spawn([self.t.nzbget, '-c', self.t.path(self.conf_rel), '-s'])
 
     def api(self):
         host = self.t.rpc_host()
@@ -5540,8 +5571,11 @@ def scenario_idsafteremptyqueue(daemon, t):
         return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
     gone = [add('Gone.%d' % i) for i in range(3)]
     old_files = [f['ID'] for f in api.listfiles()]
-    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
-    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['GroupDelete', '', gone])
+    deadline = time.monotonic() + 30
+    while not set(gone).issubset({h['NZBID'] for h in api.history(False)}):
+        assert time.monotonic() < deadline, "deleted downloads must reach history"
+        time.sleep(0.3)
     _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
     time.sleep(2)
     empty = not api.listgroups() and not api.history()
@@ -5549,7 +5583,7 @@ def scenario_idsafteremptyqueue(daemon, t):
         api.shutdown()
     except Exception:
         pass
-    t.procs[-1].wait(timeout=60)
+    daemon.process.wait(timeout=60)
     daemon.start()
     api = daemon.wait_ready()
     new_id = add('New')
@@ -5557,6 +5591,37 @@ def scenario_idsafteremptyqueue(daemon, t):
     ok = empty and new_id > max(gone) and bool(old_files) and bool(new_files) and min(new_files) > max(old_files)
     return ('idsafteremptyqueue', ok, 'empty=%s gone=%s new=%s old_files=%s new_files=%s' %
             (empty, gone, new_id, old_files, new_files))
+
+
+def scenario_idsafteremptyfinaldelete(daemon, t):
+    """Deleting every queue and history item must preserve IDs at restart."""
+    api = daemon.wait_ready()
+    def add(name):
+        nzb = base64.standard_b64encode(_fake_nzb_ids(['%s@id' % uuid.uuid4().hex for _ in range(3)], 30_000)).decode()
+        return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
+    gone = [add('Gone.%d' % i) for i in range(3)]
+    _rpc(daemon, 'editqueue', ['GroupDelete', '', gone])
+    deadline = time.monotonic() + 30
+    while not set(gone).issubset({h['NZBID'] for h in api.history(False)}):
+        assert time.monotonic() < deadline, "deleted downloads must reach history"
+        time.sleep(0.3)
+    _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
+    time.sleep(2)
+    assert not api.listgroups(), "queue must be empty before restart"
+    assert not api.history(False), "history must be empty before restart"
+    try:
+        api.shutdown()
+    except Exception:
+        pass
+    daemon.process.wait(timeout=60)
+    assert not t.exists('main/queue/queue'), "queue state must be absent"
+    assert not t.exists('main/queue/history'), "history state must be absent"
+    assert t.exists('main/queue/ids'), "ID floor must exist"
+    daemon.start()
+    api = daemon.wait_ready()
+    new_id = add('New')
+    ok = new_id > max(gone)
+    return ('idsafteremptyfinaldelete', ok, 'gone=%s new=%s' % (gone, new_id))
 
 
 def scenario_fleetscoremax(daemon, t):
@@ -10359,6 +10424,7 @@ SCENARIOS = {
     'idsafterunreadable': scenario_idsafterunreadable,
     'idsafterfinaldelete': scenario_idsafterfinaldelete,
     'idsafteremptyqueue': scenario_idsafteremptyqueue,
+    'idsafteremptyfinaldelete': scenario_idsafteremptyfinaldelete,
     'fleetduringpost': scenario_fleetduringpost,
     'fleetslowurl': scenario_fleetslowurl,
     'dupesearchpickdeleted': scenario_dupesearchpickdeleted,
