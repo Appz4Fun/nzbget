@@ -56,6 +56,30 @@ class StatusAPI:
         return {}
 
 
+class EvidenceAPI(StatusAPI):
+    """Immutable synthetic signed-transport fixture; no real network."""
+    def __init__(self, contents):
+        super().__init__()
+        self.entries = []
+        self.blobs = {}
+        for name, raw in contents.items():
+            sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            self.entries.append({"path": "benchmark-results/" + name, "sha": sha, "mode": "100644", "type": "blob", "size": len(raw)})
+            self.blobs[sha] = {"sha": sha, "encoding": "base64", "content": __import__("base64").b64encode(raw).decode()}
+
+    def get(self, endpoint):
+        if "/commits/" in endpoint:
+            return {"sha": EVIDENCE, "author": {"login": "xbmc4lyfe"}, "committer": {"login": "xbmc4lyfe"},
+                    "commit": {"author": {"name": "xbmc4lyfe"}, "committer": {"name": "xbmc4lyfe"},
+                               "verification": {"verified": True, "reason": "valid"}, "tree": {"sha": "4" * 40}},
+                    "files": [{"filename": item["path"], "status": "added"} for item in self.entries]}
+        if "/git/trees/" in endpoint:
+            return {"truncated": False, "tree": self.entries}
+        if "/git/blobs/" in endpoint:
+            return self.blobs[endpoint.rsplit("/", 1)[1]]
+        return super().get(endpoint)
+
+
 class PublisherTests(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(publish, "trusted data-only publisher has not been implemented")
@@ -308,6 +332,88 @@ class PublisherTests(unittest.TestCase):
                            "lock_scope": "worker_default",
                            "build_locks": ["i7-heavy.lock:exclusive", "nzbget-rust-benchmark.lock:shared"],
                            "time_locks": ["nzbget-rust-benchmark.lock:exclusive"], "time_prebuilt": True}}
+
+    def proof_contents(self):
+        manifest = self.manifest()
+        manifest["toolchain"] = {"fixture": "synthetic controlled clock test"}
+        manifest_raw = json.dumps(manifest).encode()
+        rows = []
+        for process in range(8):
+            for round_number in range(10):
+                variants = ["cpp_current", "rust_candidate"] if round_number % 2 == 0 else ["rust_candidate", "cpp_current"]
+                for order, variant in enumerate(variants):
+                    rows.append({"case": "caller", "variant": variant, "process": process, "round": round_number,
+                                 "order": order, "elapsed_ns": 1000 if variant == "cpp_current" else 800,
+                                 "iterations": 1, "observable_digest": "a" * 64})
+        samples_raw = b"\n".join(json.dumps(row).encode() for row in rows) + b"\n"
+        return {"manifest.json": manifest_raw, "samples.jsonl": samples_raw,
+                "collection-receipt.json": json.dumps(self.receipt(manifest_raw, samples_raw)).encode()}
+
+    def publication_arguments(self, output):
+        return ["--mode", "pr", "--publish", "--repository", "Appz4Fun/nzbget", "--evidence-sha", EVIDENCE,
+                "--expected-base-sha", BASE, "--expected-head-sha", HEAD, "--controller-sha", BASE,
+                "--pr", "7", "--testbed", "i7-existing", "--output-dir", str(output)]
+
+    def test_failed_bencher_preserves_acquired_raw_proof_and_clears_stale_pass(self):
+        contents = self.proof_contents()
+        api = EvidenceAPI(contents)
+        original_run = publish.subprocess.run
+        bencher_calls = []
+        def run(command, **kwargs):
+            if command[0] == "bencher":
+                bencher_calls.append(command)
+                return argparse.Namespace(returncode=1)
+            return original_run(command, **kwargs)
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            (output / "qualification.json").write_text('{"status":"PASS"}')
+            with patch.object(publish, "GitHub", return_value=api), patch.dict("os.environ", {"BENCHER_KEY": "fake-key", "BENCHER_PROJECT": "existing-project"}), patch.object(publish.subprocess, "run", side_effect=run), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = publish.main(self.publication_arguments(output))
+            self.assertEqual(result, 2)
+            self.assertEqual(len(bencher_calls), 1)
+            for name, raw in contents.items():
+                self.assertTrue((output / name).is_file(), "raw proof was deleted: " + name)
+                self.assertEqual((output / name).read_bytes(), raw)
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+            self.assertFalse((output / "selected-bencher.json").exists())
+            self.assertEqual(api.statuses[0]["state"], "failure")
+
+    def test_malformed_manifest_preserves_acquired_raw_bytes_before_json_validation(self):
+        contents = {"manifest.json": b'{"truncated":', "samples.jsonl": b"raw samples\n", "collection-receipt.json": b"raw receipt\n"}
+        api = EvidenceAPI(contents)
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(publish, "GitHub", return_value=api), patch.object(publish.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = publish.main(self.publication_arguments(temp))
+                run.assert_not_called()
+            self.assertEqual(result, 2)
+            for name, raw in contents.items():
+                self.assertTrue((Path(temp) / name).is_file(), "acquired raw proof was not retained: " + name)
+                self.assertEqual((Path(temp) / name).read_bytes(), raw)
+            self.assertEqual(json.loads((Path(temp) / "qualification.json").read_text())["status"], "HOLD")
+
+    def test_reused_output_preserves_first_proof_rejects_new_download_and_invalidates_pass(self):
+        first = {"manifest.json": b"first manifest", "samples.jsonl": b"first samples", "collection-receipt.json": b"first receipt"}
+        class NoEvidence(EvidenceAPI):
+            def get(self, endpoint):
+                if "/commits/" in endpoint or "/git/" in endpoint:
+                    raise AssertionError("reused output must be rejected before another evidence download")
+                return super().get(endpoint)
+        api = NoEvidence(self.proof_contents())
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            for name, raw in first.items():
+                (output / name).write_bytes(raw)
+            (output / "qualification.json").write_text('{"status":"PASS"}')
+            (output / "selected-bencher.json").write_text('{"old":"metric"}')
+            with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = publish.main(self.publication_arguments(output))
+            self.assertEqual(result, 2)
+            for name, raw in first.items():
+                self.assertEqual((output / name).read_bytes(), raw)
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+            self.assertFalse((output / "selected-bencher.json").exists())
+            self.assertEqual([payload["state"] for _, payload in api.writes], ["pending", "failure"])
 
     def test_missing_mismatched_and_unreviewed_receipt_hold_publication(self):
         self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])

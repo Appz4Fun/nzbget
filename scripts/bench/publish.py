@@ -27,8 +27,9 @@ SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 FILES = {"benchmark-results/manifest.json": 1024 * 1024,
          "benchmark-results/samples.jsonl": 32 * 1024 * 1024,
          "benchmark-results/collection-receipt.json": 1024 * 1024}
-OUTPUT_FILES = ("manifest.json", "samples.jsonl", "collection-receipt.json", "summary.json", "bencher.json",
-                "qualification.json", "report.md", "selected-bencher.json")
+RAW_OUTPUT_FILES = ("manifest.json", "samples.jsonl", "collection-receipt.json")
+DERIVED_OUTPUT_FILES = ("summary.json", "bencher.json", "qualification.json", "report.md", "selected-bencher.json")
+OUTPUT_FILES = RAW_OUTPUT_FILES + DERIVED_OUTPUT_FILES
 
 
 class PublicationError(ValueError):
@@ -428,11 +429,28 @@ def clear_owned_outputs(output_dir):
     require(resolved != root and resolved not in Path(__file__).resolve().parents and
             not output_dir.is_symlink(), "output directory collides with trusted controller inputs")
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name in OUTPUT_FILES:
+    for name in DERIVED_OUTPUT_FILES:
         path = output_dir / name
         if path.exists() or path.is_symlink():
             require(not path.is_dir(), "owned output path is a directory")
             path.unlink()
+
+
+def require_fresh_raw_outputs(output_dir):
+    for name in RAW_OUTPUT_FILES:
+        path = output_dir / name
+        require(not path.exists() and not path.is_symlink(), "output directory retains prior raw proof; choose a fresh output directory")
+
+
+def retain_evidence(contents, output_dir):
+    # Transport validation has completed. Preserve these bytes even if JSON,
+    # identity, qualification or publication subsequently fails. Exclusive
+    # creation also protects a prior proof created after the reuse check.
+    for name, raw in contents.items():
+        require(name in RAW_OUTPUT_FILES and isinstance(raw, bytes) and len(raw) <= FILES["benchmark-results/" + name],
+                "invalid bounded raw evidence output")
+        with (output_dir / name).open("xb") as retained:
+            retained.write(raw)
 
 
 def controlled_summary(contents, manifest, output_dir):
@@ -550,16 +568,15 @@ def main(argv=None):
         if args.mode == "pr":
             require(type(args.pr) is int and args.pr > 0 and isinstance(args.expected_head_sha, str) and SHA.fullmatch(args.expected_head_sha), "PR number and full head SHA are required")
         require(0 < len(args.testbed) <= 200 and not any(ord(c) < 32 for c in args.testbed) and args.testbed not in ("ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04"), "stable existing testbed is required")
+        require_fresh_raw_outputs(args.output_dir)
         contents = acquire_evidence(api, args.repository, args.evidence_sha)
+        retain_evidence(contents, args.output_dir)
         manifest = json_object(contents["manifest.json"])
         require(manifest.get("base_sha") == args.expected_base_sha and manifest.get("testbed") == args.testbed, "evidence baseline or testbed mismatch")
         require(isinstance(manifest.get("candidate_sha"), str) and SHA.fullmatch(manifest["candidate_sha"]), "missing full candidate SHA")
         if args.expected_head_sha:
             require(manifest["candidate_sha"] == args.expected_head_sha, "evidence candidate SHA mismatch")
         protected = validate_current(api, args.repository, args.mode, args.expected_base_sha, manifest["candidate_sha"], args.pr, args.controller_sha)
-        args.output_dir.mkdir(parents=True, exist_ok=True)
-        for name, raw in contents.items():
-            (args.output_dir / name).write_bytes(raw)
         _, bmf, qualification = controlled_summary(contents, manifest, args.output_dir)
         receipt = json_object(contents["collection-receipt.json"]) if "collection-receipt.json" in contents else None
         reasons = receipt_reasons(receipt, manifest, contents["manifest.json"], contents["samples.jsonl"])
@@ -595,7 +612,7 @@ def main(argv=None):
                 print("HOLD: live qualification status could not be invalidated safely", file=sys.stderr)
         if outputs_cleared:
             # Never leave yesterday's PASS behind after invalid/stale proof.
-            for name in OUTPUT_FILES:
+            for name in DERIVED_OUTPUT_FILES:
                 path = args.output_dir / name
                 if path.exists() or path.is_symlink():
                     path.unlink()
