@@ -55,18 +55,24 @@ def capture_alarm(deadline, cancelled):
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
             raise
 
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+    # Query without mutation before activating cleanup. A queued caller handler
+    # may raise after the blocking syscall succeeds but before it returns.
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     previous_handler = None
     previous_timer = None
     installed = False
     entered = time.monotonic()
     try:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
         check()
         previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        previous_pending = signal.sigpending()
+        signal.setitimer(signal.ITIMER_REAL, 0)
         # An already blocked/pending alarm belongs to the caller. Preserve it
         # and fail closed rather than claim an interruptible capture.
-        if signal.SIGALRM in previous_mask or signal.SIGALRM in signal.sigpending():
+        if (signal.SIGALRM in previous_mask or signal.SIGALRM in previous_pending
+                or signal.SIGALRM in signal.sigpending()):
             raise CaptureFailure("unavailable")
         signal.signal(signal.SIGALRM, interrupt)
         installed = True

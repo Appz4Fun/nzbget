@@ -1,5 +1,6 @@
 """Lightweight runner tests; Linux process/lock tests use private fake locks."""
 import fcntl
+import ctypes
 import hashlib
 import importlib.util
 import json
@@ -940,6 +941,61 @@ raise SystemExit(runner.main())
         finally:
             module.signal.pthread_sigmask = real_mask
             module.time.monotonic = real_clock
+            real_mask(signal.SIG_BLOCK, {signal.SIGALRM})
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            real_mask(signal.SIG_SETMASK, previous_mask)
+
+    @unittest.skipUnless(LINUX, "queued caller signal probe uses Linux pselect")
+    def test_queued_caller_alarm_after_entry_mask_restores_original_mask(self):
+        spec = importlib.util.spec_from_file_location("runner_entry_mask", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_mask = signal.pthread_sigmask
+        previous_mask = real_mask(signal.SIG_BLOCK, set())
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        fired, observed = [False], []
+        class CallerAlarm(RuntimeError): pass
+        def handler(number, frame):
+            observed.append(real_mask(signal.SIG_BLOCK, set()))
+            raise CallerAlarm("queued caller alarm")
+        # pselect temporarily unmasks the real pending OS signal, then restores
+        # the blocked mask before Python dispatches its queued raising handler.
+        libc = ctypes.CDLL(None, use_errno=True)
+        empty = ctypes.create_string_buffer(128)  # Linux sigset_t
+        libc.sigemptyset.argtypes = [ctypes.c_void_p]
+        libc.sigemptyset(ctypes.byref(empty))
+        class Timespec(ctypes.Structure):
+            _fields_ = [("seconds", ctypes.c_long), ("nanoseconds", ctypes.c_long)]
+        timeout = Timespec(0, 1000000)
+        libc.pselect.argtypes = [ctypes.c_int] + [ctypes.c_void_p] * 5
+        def mask(how, values):
+            result = real_mask(how, values)
+            if how == signal.SIG_BLOCK and signal.SIGALRM in values and not fired[0]:
+                fired[0] = True
+                os.kill(os.getpid(), signal.SIGALRM)
+                libc.pselect(0, None, None, None, ctypes.byref(timeout), ctypes.byref(empty))
+                self.fail("queued OS alarm was not dispatched")
+            return result
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 30, .5)
+            module.signal.pthread_sigmask = mask
+            with self.assertRaises(CallerAlarm):
+                with module.capture_alarm(time.monotonic() + 10, None):
+                    self.fail("entry exception reached capture body")
+            self.assertEqual(len(observed), 1)
+            self.assertIn(signal.SIGALRM, observed[0])
+            self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            self.assertGreater(remaining, 0)
+            self.assertEqual(interval, .5)
+        finally:
+            module.signal.pthread_sigmask = real_mask
             real_mask(signal.SIG_BLOCK, {signal.SIGALRM})
             signal.setitimer(signal.ITIMER_REAL, 0)
             if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
