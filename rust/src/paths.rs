@@ -20,9 +20,9 @@ pub const PATH_SEPARATOR: u8 = b'/';
 #[cfg(not(windows))]
 pub const ALT_PATH_SEPARATOR: u8 = b'\\';
 
-const RESERVED_DEVICE_NAMES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
-    "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+const RESERVED_DEVICE_NAMES: [&std::ffi::CStr; 22] = [
+    c"CON", c"PRN", c"AUX", c"NUL", c"COM1", c"COM2", c"COM3", c"COM4", c"COM5", c"COM6", c"COM7", c"COM8", c"COM9",
+    c"LPT1", c"LPT2", c"LPT3", c"LPT4", c"LPT5", c"LPT6", c"LPT7", c"LPT8", c"LPT9",
 ];
 
 /// FileSystem::NormalizePathSeparators, in place.
@@ -80,18 +80,17 @@ pub fn make_valid_filename(name: &[u8], allow_slashes: bool) -> Vec<u8> {
     while matches!(r.last(), Some(b'.' | b' ')) {
         r.pop();
     }
-    for reserved in RESERVED_DEVICE_NAMES {
-        let len = reserved.len();
-        let mut c_r = r.clone();
-        c_r.push(0);
-        let mut c_res = reserved.as_bytes().to_vec();
-        c_res.push(0);
-        let equal = unsafe { strncasecmp(c_r.as_ptr().cast(), c_res.as_ptr().cast(), len) } == 0;
+    // compared as C strings: the name NUL-terminated once, the reserved names static
+    r.push(0);
+    let reserved = RESERVED_DEVICE_NAMES.iter().any(|reserved| {
+        let len = reserved.to_bytes().len();
+        let equal = unsafe { strncasecmp(r.as_ptr().cast(), reserved.as_ptr(), len) } == 0;
         // result[len]: the NUL at the end counts
-        if equal && matches!(c_r.get(len), Some(b'.' | 0)) {
-            r.insert(0, b'_');
-            break;
-        }
+        equal && matches!(r.get(len), Some(b'.' | 0))
+    });
+    r.pop();
+    if reserved {
+        r.insert(0, b'_');
     }
     r
 }
