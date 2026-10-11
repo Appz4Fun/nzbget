@@ -317,13 +317,19 @@ class PublisherTests(unittest.TestCase):
     def manifest(self):
         return {"schema_version": 1, "base_sha": BASE, "candidate_sha": HEAD, "testbed": "i7-existing",
                 "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
-                "fixtures": [{"id": "caller", "sha256": "a" * 64, "scope": "complete_caller"}]}
+                "fixtures": [{"id": "caller", "sha256": "a" * 64, "scope": "complete_caller",
+                              "rust_preservation_applicability": "not_applicable",
+                              "provenance": {"rust_preservation_rationale": "Synthetic fixture has no existing Rust caller"}}]}
 
     def receipt(self, manifest_raw=b"manifest", samples_raw=b"samples"):
-        return {"schema_version": 1, "review": {"actor": "xbmc4lyfe", "status": "reviewed"},
+        content_hashes = {"cpp_current": "1" * 64, "rust_candidate": "2" * 64}
+        return {"schema_version": 1, "review": {"actor": "xbmc4lyfe", "status": "reviewed",
+                                              "source_content_hashes": dict(content_hashes),
+                                              "rust_preservation_applicability": {"caller": "not_applicable"}},
                 "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(), "samples_sha256": hashlib.sha256(samples_raw).hexdigest(),
                 "base_sha": BASE, "candidate_sha": HEAD, "testbed": "i7-existing",
                 "source_hashes": {"cpp_current": BASE, "rust_candidate": HEAD},
+                "source_content_hashes": content_hashes,
                 "compiler_hashes": {"c++": "b" * 64}, "binary_hashes": {"cpp_current": "c" * 64, "rust_candidate": "d" * 64},
                 "input_hashes": {"caller": "a" * 64}, "commands": {
                     "build": [{"name": "cmake", "sha256": "6" * 64, "argv_sha256": "8" * 64}],
@@ -425,6 +431,83 @@ class PublisherTests(unittest.TestCase):
             mutate(receipt)
             self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
 
+    def test_legacy_receipt_without_reviewed_content_hashes_and_decisions_holds(self):
+        legacy = self.receipt()
+        legacy.pop("source_content_hashes")
+        legacy["review"] = {"actor": "xbmc4lyfe", "status": "reviewed"}
+        self.assertTrue(publish.receipt_reasons(legacy, self.manifest(), b"manifest", b"samples"))
+
+    def test_source_content_capture_and_review_must_match_exact_required_digest_keys(self):
+        self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])
+        for value in (None, {}, {"cpp_current": "1" * 64}, {"cpp_current": "1" * 64, "rust_candidate": int("2" * 64)},
+                      {"cpp_current": "1" * 64, "rust_candidate": "2" * 64, "rust_current": "3" * 64}):
+            receipt = self.receipt()
+            receipt["source_content_hashes"] = value
+            self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        receipt = self.receipt()
+        receipt["source_content_hashes"]["rust_candidate"] = "9" * 64
+        self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        for field in ("source_content_hashes", "rust_preservation_applicability"):
+            for value in (None, []):
+                receipt = self.receipt()
+                receipt["review"][field] = value
+                self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        receipt = self.receipt()
+        receipt["review"]["extra"] = "approval"
+        self.assertTrue(publish.receipt_reasons(receipt, self.manifest(), b"manifest", b"samples"))
+        for value in (None, {"cpp_current": "9" * 64, "rust_candidate": "2" * 64}):
+            manifest = self.manifest()
+            manifest["provenance"] = {"source_content_hashes": value}
+            self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+
+    def test_explicit_reviewed_rust_applicability_and_required_rows(self):
+        manifest = self.manifest()
+        receipt = self.receipt()
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"), [])
+        for decision in (None, "required", "invalid"):
+            changed = copy.deepcopy(manifest)
+            if decision is None:
+                changed["fixtures"][0].pop("rust_preservation_applicability")
+            else:
+                changed["fixtures"][0]["rust_preservation_applicability"] = decision
+            self.assertTrue(publish.receipt_reasons(receipt, changed, b"manifest", b"samples"))
+        for decisions in ({}, {"caller": "required"}, {"caller": "not_applicable", "extra": "required"}):
+            changed = self.receipt()
+            changed["review"]["rust_preservation_applicability"] = decisions
+            self.assertTrue(publish.receipt_reasons(changed, manifest, b"manifest", b"samples"))
+        manifest["fixtures"][0].update(rust_preservation_applicability="required", required_variants=["cpp_current", "rust_current", "rust_candidate"])
+        receipt["source_hashes"]["rust_current"] = BASE
+        receipt["binary_hashes"]["rust_current"] = "3" * 64
+        receipt["source_content_hashes"]["rust_current"] = "4" * 64
+        receipt["review"]["source_content_hashes"] = dict(receipt["source_content_hashes"])
+        receipt["review"]["rust_preservation_applicability"] = {"caller": "required"}
+        rows = json.dumps({"case": "caller", "variant": "rust_current", "process": 0, "round": 0, "order": 0,
+                           "elapsed_ns": 1000, "iterations": 1, "observable_digest": "a" * 64}).encode() + b"\n"
+        receipt["samples_sha256"] = hashlib.sha256(rows).hexdigest()
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", rows), [])
+        missing_rows = b""
+        receipt["samples_sha256"] = hashlib.sha256(missing_rows).hexdigest()
+        self.assertTrue(publish.receipt_reasons(receipt, manifest, b"manifest", missing_rows))
+
+    def test_not_applicable_requires_rationale_and_cannot_declare_current_rust(self):
+        for rationale in (None, "", " ", []):
+            manifest = self.manifest()
+            manifest["fixtures"][0]["provenance"]["rust_preservation_rationale"] = rationale
+            self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+        manifest = self.manifest()
+        manifest["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+        self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
+
+    def test_kernel_receipts_have_explicit_empty_applicability_review(self):
+        manifest = self.manifest()
+        manifest["fixtures"][0]["scope"] = "kernel"
+        manifest["fixtures"][0].pop("rust_preservation_applicability")
+        receipt = self.receipt()
+        receipt["review"]["rust_preservation_applicability"] = {}
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"), [])
+        receipt["review"]["rust_preservation_applicability"] = {"caller": "not_applicable"}
+        self.assertTrue(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"))
+
     def test_lock_namespace_provenance_requires_canonical_worker_scope(self):
         self.assertEqual(publish.receipt_reasons(self.receipt(), self.manifest(), b"manifest", b"samples"), [])
         for scope in (None, "test_override", "custom", []):
@@ -461,7 +544,14 @@ class PublisherTests(unittest.TestCase):
         receipt["binary_hashes"].update(cpp_optimized="6" * 64, rust_current="7" * 64)
         self.assertTrue(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"))
         receipt["variant_source_attribution"] = {"cpp_optimized": {"source_sha": "5" * 40, "reason": "Reviewed optimized implementation commit"}}
-        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", b"samples"), [])
+        manifest["fixtures"][0]["rust_preservation_applicability"] = "required"
+        receipt["source_content_hashes"].update(cpp_optimized="6" * 64, rust_current="7" * 64)
+        receipt["review"]["source_content_hashes"] = dict(receipt["source_content_hashes"])
+        receipt["review"]["rust_preservation_applicability"] = {"caller": "required"}
+        rows = json.dumps({"case": "caller", "variant": "rust_current", "process": 0, "round": 0, "order": 0,
+                           "elapsed_ns": 1000, "iterations": 1, "observable_digest": "a" * 64}).encode() + b"\n"
+        receipt["samples_sha256"] = hashlib.sha256(rows).hexdigest()
+        self.assertEqual(publish.receipt_reasons(receipt, manifest, b"manifest", rows), [])
 
     def test_command_provenance_rejects_raw_argv_unhashed_executables_and_manifest_mismatch(self):
         for records in ([["cmake", "private-token"]], [{"name": "cmake", "argv_sha256": "8" * 64}],
@@ -476,7 +566,8 @@ class PublisherTests(unittest.TestCase):
 
     def test_controls_need_independent_receipt_attribution(self):
         manifest = self.manifest()
-        manifest["fixtures"][0].update(role="unchanged_control", provenance={"label": "unchanged"})
+        manifest["fixtures"][0]["role"] = "unchanged_control"
+        manifest["fixtures"][0]["provenance"]["label"] = "unchanged"
         self.assertTrue(publish.receipt_reasons(self.receipt(), manifest, b"manifest", b"samples"))
         receipt = self.receipt()
         receipt["control_attribution"] = {"caller": {"source_sha256": "a" * 64, "reason": "Identical caller fixture implementation reviewed"}}

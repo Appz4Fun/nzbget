@@ -302,7 +302,10 @@ def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
             reasons.append(message)
     if not isinstance(receipt, dict) or not isinstance(manifest, dict):
         return ["invalid collection receipt or manifest shape"]
-    check(type(receipt.get("schema_version")) is int and receipt.get("schema_version") == 1 and receipt.get("review") == {"actor": ACTOR, "status": "reviewed"}, "collection receipt is not operator-reviewed v1")
+    review = receipt.get("review")
+    check(type(receipt.get("schema_version")) is int and receipt.get("schema_version") == 1 and isinstance(review, dict) and
+          set(review) == {"actor", "status", "source_content_hashes", "rust_preservation_applicability"} and
+          review.get("actor") == ACTOR and review.get("status") == "reviewed", "collection receipt is not operator-reviewed v1")
     check(receipt.get("manifest_sha256") == hashlib.sha256(manifest_raw).hexdigest() and receipt.get("samples_sha256") == hashlib.sha256(samples_raw).hexdigest(), "collection receipt input hashes differ")
     for key in ("base_sha", "candidate_sha", "testbed"):
         check(receipt.get(key) == manifest.get(key), "collection receipt " + key + " differs")
@@ -321,13 +324,31 @@ def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
     input_hashes = receipt.get("input_hashes", {})
     check(isinstance(input_hashes, dict), "missing fixture input hashes")
     fixtures = manifest.get("fixtures", [])
-    if not isinstance(fixtures, list) or any(not isinstance(f, dict) or "id" not in f or "sha256" not in f for f in fixtures):
+    if not isinstance(fixtures, list) or any(not isinstance(f, dict) or not isinstance(f.get("id"), str) or
+                                           "sha256" not in f or f.get("scope") not in ("complete_caller", "kernel") for f in fixtures):
         return ["invalid collection fixture shape"]
+    required_variants = set()
+    applicability = {}
+    required_rust_cases = set()
     controls = receipt.get("control_attribution", {})
     for fixture in fixtures:
         check(isinstance(input_hashes, dict) and input_hashes.get(fixture["id"]) == fixture["sha256"], "collection receipt fixture hash differs")
         required = fixture.get("required_variants", [comparison.get("baseline"), comparison.get("candidate")])
         check(isinstance(required, list) and all(isinstance(v, str) for v in required), "invalid required variant provenance")
+        if isinstance(required, list) and all(isinstance(v, str) for v in required):
+            required_variants.update(required)
+        if fixture["scope"] == "complete_caller":
+            decision = fixture.get("rust_preservation_applicability")
+            check(decision in ("required", "not_applicable"), "missing or invalid complete-caller Rust preservation applicability")
+            applicability[fixture["id"]] = decision
+            if decision == "required":
+                check(isinstance(required, list) and "rust_current" in required, "required Rust preservation is missing the declared current Rust baseline")
+                required_rust_cases.add(fixture["id"])
+            elif decision == "not_applicable":
+                check(isinstance(required, list) and "rust_current" not in required, "not-applicable Rust preservation contradicts a declared current Rust baseline")
+                fixture_provenance = fixture.get("provenance")
+                rationale = fixture_provenance.get("rust_preservation_rationale") if isinstance(fixture_provenance, dict) else None
+                check(isinstance(rationale, str) and bool(rationale.strip()), "not-applicable Rust preservation needs an explicit rationale")
         if isinstance(required, list) and isinstance(sources, dict) and isinstance(binaries, dict):
             for variant in required:
                 if not isinstance(variant, str):
@@ -346,6 +367,31 @@ def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
         if fixture.get("role") == "unchanged_control":
             attribution = controls.get(fixture["id"], {}) if isinstance(controls, dict) else {}
             check(isinstance(attribution, dict) and digest(attribution.get("source_sha256")) and isinstance(attribution.get("reason"), str) and 0 < len(attribution["reason"]) <= 1000, "unchanged control lacks reviewed source attribution")
+    content_hashes = receipt.get("source_content_hashes")
+    check(isinstance(content_hashes, dict) and set(content_hashes) == required_variants and all(digest(value) for value in content_hashes.values()),
+          "missing or invalid exact required-variant source content hashes")
+    check(isinstance(review, dict) and isinstance(review.get("source_content_hashes"), dict) and
+          review["source_content_hashes"] == content_hashes, "source content hashes lack matching explicit reviewer approval")
+    check(isinstance(review, dict) and isinstance(review.get("rust_preservation_applicability"), dict) and
+          review["rust_preservation_applicability"] == applicability, "Rust preservation applicability lacks matching explicit reviewer approval")
+    if required_rust_cases:
+        found = set()
+        valid_rows = isinstance(samples_raw, bytes) and len(samples_raw) <= FILES["benchmark-results/samples.jsonl"]
+        if valid_rows:
+            for number, line in enumerate(samples_raw.splitlines(), 1):
+                if number > 100000:
+                    valid_rows = False
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    row = json_object(line)
+                except PublicationError:
+                    valid_rows = False
+                    break
+                if row.get("variant") == "rust_current" and isinstance(row.get("case"), str):
+                    found.add(row["case"])
+        check(valid_rows and required_rust_cases <= found, "required Rust preservation is missing current Rust samples")
     commands = receipt.get("commands", {})
     for phase in ("build", "time"):
         records = commands.get(phase) if isinstance(commands, dict) else None
@@ -364,9 +410,11 @@ def receipt_reasons(receipt, manifest, manifest_raw, samples_raw):
     # If the manifest independently records a receipt-controlled digest, bind it.
     provenance = manifest.get("provenance", {})
     check(isinstance(provenance, dict), "invalid manifest provenance shape")
-    for key in ("source_hashes", "compiler_hashes", "binary_hashes", "input_hashes", "runner", "commands", "control_attribution", "variant_source_attribution"):
+    for key in ("source_hashes", "source_content_hashes", "compiler_hashes", "binary_hashes", "input_hashes", "runner", "commands", "control_attribution", "variant_source_attribution"):
         recorded = provenance.get(key) if isinstance(provenance, dict) else None
-        if recorded is not None:
+        if key == "source_content_hashes" and isinstance(provenance, dict) and key in provenance:
+            check(isinstance(recorded, dict) and recorded == content_hashes, "manifest and receipt source_content_hashes differ")
+        elif recorded is not None:
             check(recorded == receipt.get(key), "manifest and receipt " + key + " differ")
     return sorted(set(reasons))
 
