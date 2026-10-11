@@ -23,6 +23,7 @@ pub mod nntp;
 pub mod nzbfile;
 pub mod options;
 pub mod parparser;
+pub mod parcrc_batch;
 pub mod parrenamer;
 pub mod paths;
 pub mod rarreader;

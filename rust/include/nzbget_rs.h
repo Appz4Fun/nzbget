@@ -1133,6 +1133,13 @@ int nzbget_rs_dupe_candidate(const char* title, size_t titleLen, uint64_t bytes,
 int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* mainName, size_t mainLen,
     const NzbgetRsDupeIdentityInput* mine, const NzbgetRsDupeIdentityInput* theirs);
 
+// CRC bytes are LE, stride bytes apart, in one caller-owned allocation.
+// Count zero produces zero and accepts NULL bytes. Nonempty CRC spans must
+// fit len and ptrdiff_t; stride >= 4. Returns 1 on success, otherwise 0 with
+// out unchanged. out is writable/aligned uint32_t, disjoint from the input.
+int nzbget_rs_parcrc_batch(const uint8_t* bytes, size_t len, size_t stride,
+    size_t count, uint32_t blocksize, uint32_t* out);
+
 #ifdef __cplusplus
 }
 #endif

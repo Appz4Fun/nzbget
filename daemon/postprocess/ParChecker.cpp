@@ -37,6 +37,12 @@
 #include "Util.h"
 #include "FileSystem.h"
 
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#include <cstddef>
+#include <limits>
+#endif
+
 static const char* Par2CmdLineErrStr[] = { 
 	"OK",
 	"data files are damaged and there is enough recovery data available to repair them",
@@ -1409,11 +1415,37 @@ bool ParChecker::VerifySuccessDataFile(Par2::DiskFile&, Par2::Par2RepairerSource
 
 	// compute file CRC using CRCs of blocks
 	uint32 parCrc = 0;
-	for (uint32 i = 0; i < packet->BlockCount(); i++)
+#ifdef NZBGET_USE_RUST
+	const size_t count = packet->BlockCount();
+	bool batched = false;
+	// Tiny packets keep the exact loop and never construct an ABI descriptor.
+	if (count > 2)
 	{
-		const Par2::FILEVERIFICATIONENTRY* entry = packet->VerificationEntry(i);
-		Par2::u32 blockCrc = entry->crc;
-		parCrc = i == 0 ? blockCrc : Crc32::Combine(parCrc, blockCrc, (uint32)blocksize);
+		// VerificationPacket stores contiguous packed entries with LE CRC bytes.
+		// Read bytes so Par2::leu32 conversion agrees on either endian.
+		static_assert(sizeof(Par2::leu32) == 4, "PAR2 CRC must contain four LE bytes");
+		const size_t stride = sizeof(Par2::FILEVERIFICATIONENTRY);
+		const size_t crcOffset = offsetof(Par2::FILEVERIFICATIONENTRY, crc);
+		const bool spanFits = count <= std::numeric_limits<size_t>::max() / stride;
+		const uint8_t* crcBytes =
+			reinterpret_cast<const uint8_t*>(packet->VerificationEntry(0)) + crcOffset;
+		uint32 batchCrc = 0;
+		if (spanFits && nzbget_rs_parcrc_batch(crcBytes, count * stride - crcOffset,
+			stride, count, (uint32)blocksize, &batchCrc))
+		{
+			parCrc = batchCrc;
+			batched = true;
+		}
+	}
+	if (!batched)
+#endif
+	{
+		for (uint32 i = 0; i < packet->BlockCount(); i++)
+		{
+			const Par2::FILEVERIFICATIONENTRY* entry = packet->VerificationEntry(i);
+			Par2::u32 blockCrc = entry->crc;
+			parCrc = i == 0 ? blockCrc : Crc32::Combine(parCrc, blockCrc, (uint32)blocksize);
+		}
 	}
 	std::string fileName = sourceFile.GetTargetFile()->FileName();
 	debug("Block-CRC: %x, filename: %s", parCrc, FileSystem::BaseFileName(fileName.c_str()));

@@ -220,6 +220,24 @@ fn main() {
         black_box(c);
     });
 
+    // Include descriptor creation, C ABI validation and result materialization.
+    let mut parcrc_rng = Rng(0x5041_5243_4352_4342);
+    for count in [0usize, 1, 3, 4, 8, 16, 1024, 32768] {
+        let mut entries = vec![0u8; count * 20];
+        for i in 0..count {
+            entries[i * 20 + 16..i * 20 + 20].copy_from_slice(&(parcrc_rng.next() as u32).to_le_bytes());
+        }
+        bench(&format!("parcrc_batch/packet fold {count} blocks"), &mut || {
+            let mut result = 0u32;
+            let (ptr, len) = if count == 0 { (std::ptr::null(), 0) }
+                else { (unsafe { entries.as_ptr().add(16) }, entries.len() - 16) };
+            let ok = unsafe { nzbget_rs::parcrc_batch::nzbget_rs_parcrc_batch(
+                black_box(ptr), black_box(len), black_box(20), black_box(count),
+                black_box(716800), &mut result) };
+            black_box((ok, result == 0x1234_5678));
+        });
+    }
+
     // JSON
     let doc = json_document(2000);
     let limits = json::Limits { string: 0x7ffffffe, array: 0x7ffffffe, object: 0x7ffffffe };
