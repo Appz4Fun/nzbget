@@ -70,7 +70,7 @@ public:
 		std::vector<CString> groups;
 		std::vector<std::pair<int64, std::string>> segments;	// bytes, message-id with brackets
 		int64 size = 0;
-		bool IsPar2() const;
+		bool par2 = false;		// its name says .par2
 	};
 	/* the <file> entries of an nzb-file, read without the queue's parser (that one
 	 * writes the article lists to the queue directory in server mode) */
@@ -89,6 +89,38 @@ public:
 	/* the posting's fingerprint: equal for postings of byte-identical files, whatever
 	 * their names; "" for none */
 	static std::string Fingerprint(const std::vector<FileSig>& sigs);
+
+	/* is the par2 file list of the posting with fingerprint <print> stored (in the
+	 * queue directory, file "twincheck"; bound to the fingerprint: download ids
+	 * start over when queue and history are emptied) */
+	/* a posting's own id: a hash of its message-ids (differently named twins
+	 * share a fingerprint, not this) */
+	static std::string Posting(NzbInfo* nzbInfo);
+	/* what a stored file list is bound to: "fingerprint#posting", "" without a
+	 * usable fingerprint */
+	static std::string Identity(NzbInfo* nzbInfo);
+	static int HasSigs(int nzbId, const char* identity);	// 0 none, 1 partial, 2 complete
+	/* keeps the stored lists of the postings in <live> ("id\tfingerprint" lines) */
+	static void Prune(const std::string& live);
+	/* the label of download <dupeId> against <primaryId> by their par2 file lists:
+	 * "twin" (every file), "twin:N/M" (N of the primary's M files, more than half:
+	 * a near-twin, a re-packed archive header), "alt" (fewer), "" when it can't be told */
+	static std::string Kind(int primaryId, const char* primaryPrint, int dupeId, const char* dupePrint);
+	/* the file of download <donorId> holding the bytes of our file <target> (or
+	 * <targetAlt>) of download <ownId>: its name; "-" when the donor's complete
+	 * list has no file with these bytes; "" when not known (incomplete or missing
+	 * lists, several candidates): then the other matching decides */
+	static std::string MatchByContent(int ownId, const char* ownPrint, const char* target, const char* targetAlt,
+		int donorId, const char* donorPrint);
+	/* the twin check runs on the Rust parts (rust/src/twin.rs) */
+	static bool Available()
+	{
+#ifdef NZBGET_USE_RUST
+		return true;
+#else
+		return false;
+#endif
+	}
 
 	/* shutdown: cancels running checks and refuses new ones; WaitAll() returns when they ended */
 	static void StopAll();

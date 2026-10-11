@@ -2,6 +2,7 @@
 #ifndef NZBGET_RS_H
 #define NZBGET_RS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,6 +22,26 @@ typedef struct
 // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.
 NzbgetRsBuf nzbget_rs_json_encode(const char* raw);
 NzbgetRsBuf nzbget_rs_xml_encode(const char* raw);
+// Twins and alts (rust/src/twin.rs). Lists are text lines: a file list is
+// "length\tmd5\tname" per file. A download is given by its id and its
+// identity "fingerprint#posting" (DupeFiles and the posting's message-id
+// hash): a stored list is used only for the posting it was made for.
+void nzbget_rs_twin_open(const char* path);
+// returns "fingerprint\tcomplete" (complete: 1 or 0)
+NzbgetRsBuf nzbget_rs_twin_put_par2(int id, const char* posting, const unsigned char* data, size_t len);
+// 0: no list stored for this fingerprint, 1: a partial one, 2: a complete one
+int nzbget_rs_twin_has(int id, const char* print);
+// keeps the lists of the postings given as "id\tfingerprint" lines
+void nzbget_rs_twin_prune(const char* lines);
+NzbgetRsBuf nzbget_rs_twin_par2_sigs(const unsigned char* data, size_t len);
+NzbgetRsBuf nzbget_rs_twin_fingerprint(const char* lines);
+unsigned long long nzbget_rs_par2_block_size(const unsigned char* data, size_t len);
+int nzbget_rs_par2_volume_blocks(const char* filename);
+NzbgetRsBuf nzbget_rs_twin_kind(int primary, const char* primaryPrint, int dupe, const char* dupePrint);
+NzbgetRsBuf nzbget_rs_twin_match(int own, const char* ownPrint, const char* target, const char* targetAlt,
+	int donor, const char* donorPrint);
+// "F\tsize\tpar2\tfilename\tsubject" per <file>, then "G\tgroup" and "S\tbytes\tmessage-id"
+NzbgetRsBuf nzbget_rs_nzb_entries(const char* path);
 // Release each result exactly once, with all fields unchanged. A zero buffer
 // is also accepted. Copy the bytes before freeing if they must outlive the result.
 void nzbget_rs_free(NzbgetRsBuf buf);

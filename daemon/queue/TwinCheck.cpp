@@ -31,31 +31,66 @@
 #include "Thread.h"
 #include "Util.h"
 #include "FileSystem.h"
+#include <sstream>
+#include <mutex>
+#include <atomic>
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 namespace
 {
 
-uint64 ReadLe64(const uchar* p)
+#ifdef NZBGET_USE_RUST
+// the result of a Rust call, copied and released
+std::string RsString(NzbgetRsBuf buf)
 {
-	uint64 value = 0;
-	for (int i = 7; i >= 0; i--)
-	{
-		value = (value << 8) | p[i];
-	}
-	return value;
+	std::string text(buf.data ? buf.data : "", buf.len);
+	nzbget_rs_free(buf);
+	return text;
 }
 
-std::string Hex(const uchar* p, int len)
+// the store of par2 file lists (queue directory, file "twincheck"), opened on
+// first use: the constructors run before the options are read
+bool OpenStore()
 {
-	static const char* digits = "0123456789abcdef";
-	std::string hex;
-	for (int i = 0; i < len; i++)
+	// no options (unit tests): no store, and every list unknown
+	static std::atomic<bool> opened{false};
+	static std::mutex mutex;
+	if (opened)
 	{
-		hex += digits[p[i] >> 4];
-		hex += digits[p[i] & 15];
+		return true;
 	}
-	return hex;
+	std::lock_guard<std::mutex> guard(mutex);
+	if (!opened && g_Options && !Util::EmptyStr(g_Options->GetQueueDir()))
+	{
+		nzbget_rs_twin_open((std::string(g_Options->GetQueueDir()) + PATH_SEPARATOR + "twincheck").c_str());
+		opened = true;
+	}
+	return opened;
 }
+
+std::vector<TwinCheck::FileSig> SigLines(const std::string& text)
+{
+	std::vector<TwinCheck::FileSig> sigs;
+	std::istringstream lines(text);
+	std::string line;
+	while (std::getline(lines, line))
+	{
+		size_t a = line.find('\t'), b = line.find('\t', a + 1);
+		if (a == std::string::npos || b == std::string::npos)
+		{
+			continue;
+		}
+		TwinCheck::FileSig sig;
+		sig.length = strtoull(line.c_str(), nullptr, 10);
+		sig.md5 = line.substr(a + 1, b - a - 1);
+		sig.name = line.substr(b + 1);
+		sigs.push_back(std::move(sig));
+	}
+	return sigs;
+}
+#endif
 
 class TwinCheckJob;
 
@@ -69,11 +104,18 @@ bool g_stopping = false;
 std::map<int, int> g_failedAttempts;
 constexpr int MaxAttempts = 3;
 
+int Attempts(int nzbId)
+{
+	Guard guard(g_mutex);
+	auto it = g_failedAttempts.find(nzbId);
+	return it != g_failedAttempts.end() ? it->second : 0;
+}
+
 class TwinCheckJob : public Thread
 {
 public:
-	TwinCheckJob(int nzbId, std::string nzbFilename) :
-		m_nzbId(nzbId), m_nzbFilename(std::move(nzbFilename)) {}
+	TwinCheckJob(int nzbId, std::string nzbFilename, std::string posting) :
+		m_nzbId(nzbId), m_nzbFilename(std::move(nzbFilename)), m_posting(std::move(posting)) {}
 	/* sampling mode: the posting against the primary's */
 	TwinCheckJob(int nzbId, std::string nzbFilename, int primaryId, std::string primaryNzbFilename) :
 		m_nzbId(nzbId), m_nzbFilename(std::move(nzbFilename)), m_primaryId(primaryId),
@@ -88,6 +130,7 @@ protected:
 private:
 	int m_nzbId;
 	std::string m_nzbFilename;
+	std::string m_posting;	// the posting's own id (TwinCheck::Posting)
 	int m_primaryId = 0;
 	std::string m_primaryNzbFilename;
 	ArticleFetcher m_fetcher;
@@ -95,12 +138,12 @@ private:
 	void Sample();
 	void Store(const char* name, const char* value, const char* name2 = nullptr, const char* value2 = nullptr);
 
-	/* the files of the posting's smallest par2-file; false: it has none, or
+	/* the bytes of the posting's smallest par2-file; false: it has none, or
 	 * none could be read (<fetched>: its articles were asked for) */
-	bool IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetched);
+	bool IndexData(std::vector<char>& data, bool& fetched);
 };
 
-bool TwinCheckJob::IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetched)
+bool TwinCheckJob::IndexData(std::vector<char>& data, bool& fetched)
 {
 	fetched = false;
 	std::vector<TwinCheck::NzbEntry> entries = TwinCheck::ReadNzbEntries(m_nzbFilename.c_str());
@@ -109,7 +152,7 @@ bool TwinCheckJob::IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetche
 	const TwinCheck::NzbEntry* index = nullptr;
 	for (const TwinCheck::NzbEntry& entry : entries)
 	{
-		if (entry.IsPar2() && (!index || entry.size < index->size))
+		if (entry.par2 && (!index || entry.size < index->size))
 		{
 			index = &entry;
 		}
@@ -120,13 +163,7 @@ bool TwinCheckJob::IndexSigs(std::vector<TwinCheck::FileSig>& sigs, bool& fetche
 	}
 
 	fetched = true;
-	std::vector<char> data;
-	if (!TwinCheck::FetchEntry(m_fetcher, *index, TwinCheck::MaxIndexSize, [this]() { return IsStopped(); }, data))
-	{
-		return false;
-	}
-	sigs = TwinCheck::ParsePar2(data.data(), data.size());
-	return !sigs.empty();
+	return TwinCheck::FetchEntry(m_fetcher, *index, TwinCheck::MaxIndexSize, [this]() { return IsStopped(); }, data);
 }
 
 void TwinCheckJob::Run()
@@ -150,25 +187,44 @@ void TwinCheckJob::Run()
 		return;
 	}
 
-	std::vector<TwinCheck::FileSig> sigs;
+	std::vector<char> data;
 	bool fetched = false;
-	bool known = IndexSigs(sigs, fetched);
+	bool readable = IndexData(data, fetched);
 	if (IsStopped())
 	{
 		return;
 	}
-	if (!known && fetched)
+	// parsed, kept with its file list and fingerprinted in Rust (twin.rs)
+	// "fingerprint\tcomplete" from Rust (twin.rs), which keeps the file list
+	std::string fingerprint;
+	bool complete = false;
+#ifdef NZBGET_USE_RUST
+	if (readable && OpenStore())
 	{
-		// the par2-file's articles weren't there (gone, or the servers busy): asked
-		// again at a later round, a few times
+		std::string result = RsString(nzbget_rs_twin_put_par2(m_nzbId, m_posting.c_str(), (const unsigned char*)data.data(), data.size()));
+		size_t tab = result.find('\t');
+		fingerprint = result.substr(0, tab);
+		complete = tab != std::string::npos && result.substr(tab + 1) == "1";
+	}
+#endif
+	bool known = !fingerprint.empty();
+	if (fetched && (!known || !complete))
+	{
+		// the par2-file's articles weren't all there (gone, or the servers busy):
+		// asked again at a later round, a few times; a partial list is kept
+		// meanwhile, and stays when the articles don't come
 		Guard guard(g_mutex);
 		if (++g_failedAttempts[m_nzbId] < MaxAttempts)
 		{
 			return;
 		}
 	}
+	if (!known)
+	{
+		fingerprint = fetched ? "lost" : "none";
+	}
+	int files = known ? atoi(fingerprint.c_str() + fingerprint.rfind('-') + 1) : 0;
 
-	std::string fingerprint = known ? TwinCheck::Fingerprint(sigs) : fetched ? "lost" : "none";
 	GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 	NzbInfo* nzbInfo = nullptr;
 	for (NzbInfo* queued : downloadQueue->GetQueue())
@@ -189,7 +245,7 @@ void TwinCheckJob::Run()
 	{
 		nzbInfo->GetParameters()->SetParameter(TwinCheck::FilesParam, fingerprint.c_str());
 		nzbInfo->PrintMessage(Message::mkDetail, "Fingerprint of %s: %s (%i file(s) in its par2 set)",
-			nzbInfo->GetName(), fingerprint.c_str(), (int)sigs.size());
+			nzbInfo->GetName(), fingerprint.c_str(), files);
 		downloadQueue->HistoryChanged();
 		downloadQueue->Save();
 	}
@@ -234,7 +290,7 @@ void TwinCheckJob::Sample()
 			std::vector<TwinCheck::NzbEntry> files;
 			for (TwinCheck::NzbEntry& entry : TwinCheck::ReadNzbEntries(nzbFilename.c_str()))
 			{
-				if (!entry.IsPar2())
+				if (!entry.par2)
 				{
 					files.push_back(std::move(entry));
 				}
@@ -295,8 +351,150 @@ struct Item
 
 }
 
+#ifdef NZBGET_USE_RUST
+std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char* filename)
+{
+	// "F\tsize\tpar2\tfilename\tsubject", then its "G\tgroup" and "S\tbytes\tmessage-id" lines
+	std::vector<NzbEntry> entries;
+	std::istringstream lines(RsString(nzbget_rs_nzb_entries(filename)));
+	std::string line;
+	while (std::getline(lines, line))
+	{
+		if (line.size() < 2 || line[1] != '\t')
+		{
+			continue;
+		}
+		std::string rest = line.substr(2);
+		if (line[0] == 'F')
+		{
+			NzbEntry entry;
+			size_t a = rest.find('\t'), b = rest.find('\t', a + 1), c = rest.find('\t', b + 1);
+			if (c == std::string::npos)
+			{
+				continue;
+			}
+			entry.size = atoll(rest.c_str());
+			entry.par2 = rest[a + 1] == '1';
+			entry.filename = rest.substr(b + 1, c - b - 1);
+			entry.subject = rest.substr(c + 1);
+			entries.push_back(std::move(entry));
+		}
+		else if (line[0] == 'G' && !entries.empty())
+		{
+			entries.back().groups.emplace_back(rest.c_str());
+		}
+		else if (line[0] == 'S' && !entries.empty())
+		{
+			size_t a = rest.find('\t');
+			if (a != std::string::npos)
+			{
+				entries.back().segments.emplace_back(atoll(rest.c_str()), rest.substr(a + 1));
+			}
+		}
+	}
+	return entries;
+}
+
+uint64 TwinCheck::BlockSize(const char* data, size_t size)
+{
+	return nzbget_rs_par2_block_size((const unsigned char*)data, size);
+}
+
+int TwinCheck::VolumeBlocks(const std::string& filename)
+{
+	return nzbget_rs_par2_volume_blocks(filename.c_str());
+}
+
+std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t size)
+{
+	return SigLines(RsString(nzbget_rs_twin_par2_sigs((const unsigned char*)data, size)));
+}
+
+std::string TwinCheck::Posting(NzbInfo* nzbInfo)
+{
+	return std::to_string(nzbInfo->GetFullContentHash());
+}
+
+std::string TwinCheck::Identity(NzbInfo* nzbInfo)
+{
+	NzbParameter* print = nzbInfo->GetParameters()->Find(FilesParam);
+	if (!print || Util::EmptyStr(print->GetValue()) || !strcmp(print->GetValue(), "none") ||
+		!strcmp(print->GetValue(), "lost"))
+	{
+		return "";
+	}
+	return std::string(print->GetValue()) + "#" + Posting(nzbInfo);
+}
+
+int TwinCheck::HasSigs(int nzbId, const char* print)
+{
+	return OpenStore() ? nzbget_rs_twin_has(nzbId, print) : 0;
+}
+
+void TwinCheck::Prune(const std::string& live)
+{
+	if (OpenStore())
+	{
+		nzbget_rs_twin_prune(live.c_str());
+	}
+}
+
+std::string TwinCheck::Kind(int primaryId, const char* primaryPrint, int dupeId, const char* dupePrint)
+{
+	if (!OpenStore())
+	{
+		return "";
+	}
+	return RsString(nzbget_rs_twin_kind(primaryId, primaryPrint, dupeId, dupePrint));
+}
+
+std::string TwinCheck::MatchByContent(int ownId, const char* ownPrint, const char* target, const char* targetAlt,
+	int donorId, const char* donorPrint)
+{
+	if (!OpenStore())
+	{
+		return "";
+	}
+	return RsString(nzbget_rs_twin_match(ownId, ownPrint, target, targetAlt, donorId, donorPrint));
+}
+
+std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
+{
+	std::string lines;
+	for (const FileSig& sig : sigs)
+	{
+		lines += std::to_string(sig.length) + "\t" + sig.md5 + "\t" + sig.name + "\n";
+	}
+	return RsString(nzbget_rs_twin_fingerprint(lines.c_str()));
+}
+#else
+// Without the Rust parts the twin check (labels, content matching) doesn't run,
+// but par-repair with a twin's par2 set (Repair.cpp) works as before: these
+// are the C++ helpers it had, kept for builds without cargo.
 namespace
 {
+
+uint64 ReadLe64(const uchar* p)
+{
+	uint64 value = 0;
+	for (int i = 7; i >= 0; i--)
+	{
+		value = (value << 8) | p[i];
+	}
+	return value;
+}
+
+std::string Hex(const uchar* p, int len)
+{
+	static const char* digits = "0123456789abcdef";
+	std::string hex;
+	for (int i = 0; i < len; i++)
+	{
+		hex += digits[p[i] >> 4];
+		hex += digits[p[i] & 15];
+	}
+	return hex;
+}
 
 std::string XmlText(std::string text)
 {
@@ -312,13 +510,6 @@ std::string XmlText(std::string text)
 	return text;
 }
 
-}
-
-bool TwinCheck::NzbEntry::IsPar2() const
-{
-	std::string name = filename.empty() ? subject : filename;
-	std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-	return name.find(".par2") != std::string::npos;
 }
 
 std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char* filename)
@@ -387,35 +578,13 @@ std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char* filename)
 		}
 		if (!entry.segments.empty())
 		{
+			std::string name = entry.filename.empty() ? entry.subject : entry.filename;
+			std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+			entry.par2 = name.find(".par2") != std::string::npos;
 			entries.push_back(std::move(entry));
 		}
 	}
 	return entries;
-}
-
-bool TwinCheck::FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64 maxSize,
-	const std::function<bool()>& stopped, std::vector<char>& data)
-{
-	data.clear();
-	for (const auto& segment : entry.segments)
-	{
-		if (stopped())
-		{
-			return false;
-		}
-		ArticleFetcher::FetchedArticle part = fetcher.Fetch(segment.second.c_str(), entry.groups);
-		if (!part.Success || part.Offset < 0 || part.Offset + (int64)part.Data.size() > maxSize)
-		{
-			// a lost article: what the others hold may still do
-			continue;
-		}
-		if ((size_t)(part.Offset + part.Data.size()) > data.size())
-		{
-			data.resize((size_t)(part.Offset + part.Data.size()));
-		}
-		std::copy(part.Data.begin(), part.Data.end(), data.begin() + (size_t)part.Offset);
-	}
-	return !data.empty();
 }
 
 uint64 TwinCheck::BlockSize(const char* data, size_t size)
@@ -489,6 +658,13 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 	return sigs;
 }
 
+std::string TwinCheck::Posting(NzbInfo*) { return ""; }
+std::string TwinCheck::Identity(NzbInfo*) { return ""; }
+int TwinCheck::HasSigs(int, const char*) { return 0; }
+void TwinCheck::Prune(const std::string&) {}
+std::string TwinCheck::Kind(int, const char*, int, const char*) { return ""; }
+std::string TwinCheck::MatchByContent(int, const char*, const char*, const char*, int, const char*) { return ""; }
+
 std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
 {
 	// by content only: names may differ between postings
@@ -517,10 +693,36 @@ std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
 	BString<1024> hex("%016llx-%i", (unsigned long long)hash, (int)files.size());
 	return *hex;
 }
+#endif
+
+bool TwinCheck::FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64 maxSize,
+	const std::function<bool()>& stopped, std::vector<char>& data)
+{
+	data.clear();
+	for (const auto& segment : entry.segments)
+	{
+		if (stopped())
+		{
+			return false;
+		}
+		ArticleFetcher::FetchedArticle part = fetcher.Fetch(segment.second.c_str(), entry.groups);
+		if (!part.Success || part.Offset < 0 || part.Offset + (int64)part.Data.size() > maxSize)
+		{
+			// a lost article: what the others hold may still do
+			continue;
+		}
+		if ((size_t)(part.Offset + part.Data.size()) > data.size())
+		{
+			data.resize((size_t)(part.Offset + part.Data.size()));
+		}
+		std::copy(part.Data.begin(), part.Data.end(), data.begin() + (size_t)part.Offset);
+	}
+	return !data.empty();
+}
 
 void TwinCheck::ServiceWork()
 {
-	if (!g_Options->GetDupeCheck())
+	if (!Available() || !g_Options->GetDupeCheck())
 	{
 		return;
 	}
@@ -532,11 +734,46 @@ void TwinCheck::ServiceWork()
 		bool hinted;
 		int primaryId = 0;			// sampling against this one
 		std::string primaryNzbFilename;
+		std::string posting;		// the posting's own id (fingerprint jobs)
 		int rank = 0;				// of its dupe key: the queue first, then the newest history
 	};
 	std::vector<Job> jobs;
+	// the stored file lists are pruned to the postings still there, hourly
+	std::string live;
+	// (not while a fingerprint job runs: it may store a list its posting doesn't
+	// carry the fingerprint of yet)
+	static time_t lastPrune = 0;
+	bool prune = Util::CurrentTime() - lastPrune >= 60 * 60 && g_jobCount == 0;
 	{
 		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+		if (prune)
+		{
+			lastPrune = Util::CurrentTime();
+			auto add = [&live](NzbInfo* nzbInfo)
+				{
+					std::string identity = Identity(nzbInfo);
+					if (!identity.empty())
+					{
+						live += std::to_string(nzbInfo->GetId()) + "\t" + identity + "\n";
+					}
+				};
+			for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+			{
+				add(nzbInfo);
+			}
+			for (std::unique_ptr<HistoryInfo>& historyInfo : *downloadQueue->GetHistory())
+			{
+				if (historyInfo->GetKind() == HistoryInfo::hkNzb)
+				{
+					add(historyInfo->GetNzbInfo());
+				}
+			}
+			// nothing in queue and history: the whole store goes
+			if (live.empty())
+			{
+				live = "\n";
+			}
+		}
 		bool changed = false;
 
 		// every download with a dupe key, by key
@@ -580,6 +817,11 @@ void TwinCheck::ServiceWork()
 		for (auto& entry : keys)
 		{
 			std::vector<Item>& items = entry.second;
+			// merged downloads (their nzb-file is two) aren't compared: no fingerprint
+			// stands for them
+			items.erase(std::remove_if(items.begin(), items.end(),
+				[](const Item& item) { return strchr(item.nzbInfo->GetQueuedFilename(), '|') != nullptr; }),
+				items.end());
 			if (items.size() < 2)
 			{
 				continue;
@@ -595,13 +837,20 @@ void TwinCheck::ServiceWork()
 			for (Item& item : items)
 			{
 				NzbInfo* nzbInfo = item.nzbInfo;
-				if (fingerprintOf(nzbInfo).empty() && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
+				// and so do those whose file list isn't stored (a fingerprint from
+				// before the lists were kept, or the store file lost)
+				std::string print = fingerprintOf(nzbInfo);
+				bool listless = print != "none" && print != "lost" && !print.empty() &&
+					HasSigs(nzbInfo->GetId(), Identity(nzbInfo).c_str()) < 2 && Attempts(nzbInfo->GetId()) < MaxAttempts;
+				if ((print.empty() || listless) && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
 					FileSystem::FileExists(nzbInfo->GetQueuedFilename()))
 				{
 					// the dupe tool's hints of a twin go first; they prove nothing
 					bool hinted = nzbInfo->GetParameters()->Find("DupeSameSize") ||
 						nzbInfo->GetParameters()->Find("DupeSameInner");
-					jobs.push_back({nzbInfo->GetId(), nzbInfo->GetQueuedFilename(), hinted});
+					Job job{nzbInfo->GetId(), nzbInfo->GetQueuedFilename(), hinted};
+					job.posting = Posting(nzbInfo);
+					jobs.push_back(std::move(job));
 				}
 			}
 
@@ -647,8 +896,21 @@ void TwinCheck::ServiceWork()
 					jobs.push_back({nzbInfo->GetId(), nzbInfo->GetQueuedFilename(), false,
 						primary->GetId(), primary->GetQueuedFilename()});
 				}
+				// by the files of both par2 sets: a re-packed archive header (7z, rar) makes a
+				// near-twin, most files the same; else by their fingerprints
+				std::string kindText;
+				if (nzbInfo != primary && isDupe(item) && byPar2)
+				{
+					std::string byFiles = Kind(primary->GetId(), Identity(primary).c_str(), nzbInfo->GetId(),
+						Identity(nzbInfo).c_str());
+					// no lists at all (fingerprints from before they were kept): the
+					// fingerprints decide; a partial list leaves it unknown
+					bool listed = HasSigs(primary->GetId(), Identity(primary).c_str()) > 0 ||
+						HasSigs(nzbInfo->GetId(), Identity(nzbInfo).c_str()) > 0;
+					kindText = !byFiles.empty() || listed ? byFiles : print == primaryPrint ? "twin" : "alt";
+				}
 				const char* kind = nzbInfo == primary || !isDupe(item) ? "" :
-					byPar2 ? (print == primaryPrint ? "twin" : "alt") :
+					byPar2 ? kindText.c_str() :
 					sampleable && sampledNow && !strcmp(sampled->GetValue(), "twin") ? "twin" :
 					sampleable && sampledNow && !strcmp(sampled->GetValue(), "alt") ? "alt" : "";
 				NzbParameter* old = nzbInfo->GetParameters()->Find(KindParam);
@@ -658,8 +920,9 @@ void TwinCheck::ServiceWork()
 					changed = true;
 					if (*kind)
 					{
-						nzbInfo->PrintMessage(Message::mkInfo, "%s is %s of %s (%s)", nzbInfo->GetName(),
-							*kind == 't' ? "a twin" : "an alt", primary->GetName(),
+						nzbInfo->PrintMessage(Message::mkInfo, "%s is %s%s of %s (%s)", nzbInfo->GetName(),
+							*kind == 't' ? (strchr(kind, ':') ? "a near-twin (files the same: " : "a twin") : "an alt",
+							strchr(kind, ':') ? (std::string(strchr(kind, ':') + 1) + ")").c_str() : "", primary->GetName(),
 							!byPar2 ? (*kind == 't' ? "the articles sampled are identical" :
 								"another encode: the articles sampled differ") :
 							*kind == 't' ? "byte-identical files by their par2 checksums" :
@@ -681,6 +944,21 @@ void TwinCheck::ServiceWork()
 		}
 	}
 
+	if (!live.empty())
+	{
+		Guard guard(g_mutex);
+		// a job started since the snapshot: next time (Prune runs under g_mutex,
+		// which a new job registers under)
+		if (g_jobs.empty())
+		{
+			Prune(live);
+		}
+		else
+		{
+			lastPrune = 0;
+		}
+	}
+
 	std::stable_sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b)
 		{ return a.rank != b.rank ? a.rank < b.rank : a.hinted > b.hinted; });
 
@@ -697,7 +975,7 @@ void TwinCheck::ServiceWork()
 		}
 		TwinCheckJob* thread = job.primaryId ?
 			new TwinCheckJob(job.nzbId, job.nzbFilename, job.primaryId, job.primaryNzbFilename) :
-			new TwinCheckJob(job.nzbId, job.nzbFilename);
+			new TwinCheckJob(job.nzbId, job.nzbFilename, job.posting);
 		g_jobs.insert(thread);
 		g_checking.insert(job.nzbId);
 		g_jobCount++;

@@ -2366,6 +2366,13 @@ bool QueueCoordinator::MergeQueueEntries(DownloadQueue* downloadQueue, NzbInfo* 
 	CString queuedFilename;
 	queuedFilename.Format("%s|%s", destNzbInfo->GetQueuedFilename(), srcNzbInfo->GetQueuedFilename());
 	destNzbInfo->SetQueuedFilename(queuedFilename);
+	// the merged download is other content: its twin fingerprint and labels go
+	// (TwinCheck leaves merged downloads alone: their nzb-file is two)
+	for (const char* name : { TwinCheck::FilesParam, TwinCheck::KindParam, TwinCheck::SampledParam,
+		TwinCheck::SampledOfParam })
+	{
+		destNzbInfo->GetParameters()->SetParameter(name, nullptr);
+	}
 
 	g_DiskState->DiscardFiles(srcNzbInfo);
 	ParDamage::Forget(srcNzbInfo->GetId());

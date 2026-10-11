@@ -118,7 +118,7 @@ public:
 	 * data file: preferably by filename, otherwise by unambiguous structural identity
 	 * (article count and sizes). Returns nullptr if no or multiple candidates. */
 	static FileInfo* MatchDonorFile(FileInfo* targetFile, NzbInfo* donorNzb,
-		const char* targetNzbFilename = nullptr);
+		const char* targetNzbFilename = nullptr, int donorNzbId = 0, const char* donorPrint = nullptr);
 	/* Exact identity fingerprint used to pick among several structural
 	 * matches: equal steps between consecutive NZB article sizes. */
 	static bool ArticleSizeStepsMatch(FileInfo* targetFile, FileInfo* donorFile);
@@ -262,7 +262,7 @@ private:
 	static void AppendDonorCandidate(std::vector<CString>& candidates,
 		std::vector<int>& contributors, int donorNzbId,
 		NzbInfo* parsedDonor, FileInfo* targetFile, int partNumber,
-		const char* targetNzbFilename = nullptr);
+		const char* targetNzbFilename = nullptr, const char* donorPrint = nullptr);
 	static RawNzbList CollectDonors(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 	// the subject filename of fileInfo in its own collection's nzb-file
 	CString NzbFilenameOf(FileInfo* fileInfo);
