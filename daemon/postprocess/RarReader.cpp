@@ -23,6 +23,10 @@
 
 #include <algorithm>
 #include "RarReader.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include "nzbget_rs.h"
+#endif
 #include "StreamCrypto.h"
 #include "Log.h"
 #include "Util.h"
@@ -77,7 +81,7 @@ static const uint8 RAR5_ENDARC_NEXTVOL = 0x01;
 
 int64 RarSourceCursor::Read(void* buffer, int64 size)
 {
-	int64 available = std::min(size, std::max<int64>(0, m_source.Size() - m_position));
+	int64 available = std::min(size, std::max<int64>(0, (int64)((uint64)m_source.Size() - (uint64)m_position)));
 	if (available < size)
 	{
 		m_eof = true;	// mimic feof: only a read past the end raises it
@@ -90,14 +94,16 @@ int64 RarSourceCursor::Read(void* buffer, int64 size)
 	{
 		return 0;	// source refused (donor article missing / target hole)
 	}
-	m_position += available;
+	m_position = (int64)((uint64)m_position + (uint64)available);
 	return available;
 }
 
 bool RarSourceCursor::Seek(int64 position, DiskFile::ESeekOrigin origin)
 {
-	int64 target = origin == DiskFile::soCur ? m_position + position :
-		origin == DiskFile::soEnd ? m_source.Size() + position : position;
+	// Header sizes can wrap the cursor. Use unsigned arithmetic explicitly:
+	// signed overflow here is undefined even though the parser needs wrapping.
+	int64 target = origin == DiskFile::soCur ? (int64)((uint64)m_position + (uint64)position) :
+		origin == DiskFile::soEnd ? (int64)((uint64)m_source.Size() + (uint64)position) : position;
 	if (target < 0)
 	{
 		return false;
@@ -132,6 +138,168 @@ bool RarVolume::Read()
 	return ok;
 }
 
+#ifdef NZBGET_USE_RUST
+namespace
+{
+	// the parse's C++ side (rust/src/rarreader.rs calls back into it)
+	struct RarContext
+	{
+		RarVolume* volume;
+		ContentSource* source;
+		std::exception_ptr error;
+		bool signatureRead = false;
+	};
+
+	// a callback that throws makes the parse fail; the exception is kept and
+	// rethrown once Rust has returned
+	template <typename R, typename F>
+	R RarCall(void* ctx, R failed, F f) noexcept
+	{
+		RarContext* c = static_cast<RarContext*>(ctx);
+		if (c->error) return failed;
+		try
+		{
+			return f(c);
+		}
+		catch (...)
+		{
+			c->error = std::current_exception();
+			return failed;
+		}
+	}
+}
+#endif
+
+#ifdef NZBGET_USE_RUST
+bool RarVolume::ReadFrom(ContentSource& source)
+{
+	// rust/src/rarreader.rs parses the headers; the content source and the
+	// cipher (OpenSSL) stay here. A callback that throws makes the parse fail;
+	// the exception is rethrown once Rust has returned.
+	RarContext context{this, &source, nullptr};
+
+	NzbgetRsRarIo io{};
+	io.ctx = &context;
+	io.size = [](void* ctx) -> int64_t
+	{
+		return RarCall(ctx, (int64_t)-1, [](RarContext* c) { return (int64_t)c->source->Size(); });
+	};
+	io.read = [](void* ctx, int64_t offset, uint8_t* buffer, int64_t len) -> int
+	{
+		return RarCall(ctx, 0, [=](RarContext* c)
+		{
+			bool ok = c->source->Read(offset, buffer, len);
+			c->signatureRead = true;
+			return ok ? 1 : 0;
+		});
+	};
+	io.rar3Prepare = [](void* ctx, const uint8_t* salt) -> int
+	{
+		return RarCall(ctx, 0, [=](RarContext* c) { return c->volume->DecryptRar3Prepare(salt) ? 1 : 0; });
+	};
+	io.rar5Prepare = [](void* ctx, uint8_t kdfCount, const uint8_t* salt) -> int
+	{
+		return RarCall(ctx, 0, [=](RarContext* c) { return c->volume->DecryptRar5Prepare(kdfCount, salt) ? 1 : 0; });
+	};
+	io.init = [](void* ctx, int keyBits, const uint8_t* iv) -> int
+	{
+		return RarCall(ctx, 0, [=](RarContext* c)
+		{
+			if (iv)
+			{
+				memcpy(c->volume->m_decryptIV, iv, sizeof(c->volume->m_decryptIV));
+			}
+			return c->volume->DecryptInit(keyBits) ? 1 : 0;
+		});
+	};
+	io.decrypt = [](void* ctx, const uint8_t* in, uint8_t* out) -> int
+	{
+		return RarCall(ctx, 0, [=](RarContext* c) { return c->volume->DecryptBuf(in, out) ? 1 : 0; });
+	};
+	io.free = [](void* ctx)
+	{
+		RarCall(ctx, 0, [](RarContext* c) { c->volume->DecryptFree(); return 0; });
+	};
+	io.addFile = [](void* ctx, const NzbgetRsRarFile* f) -> int
+	{
+		return RarCall(ctx, 0, [f](RarContext* c)
+		{
+			RarFile file;
+			file.m_filename.assign(f->filename, f->filenameLen);
+			file.m_time = f->time;
+			file.m_attr = f->attr;
+			file.m_size = f->size;
+			file.m_splitBefore = f->splitBefore;
+			file.m_splitAfter = f->splitAfter;
+			file.m_method = f->method;
+			file.m_stored = f->stored;
+			file.m_packedSize = f->packedSize;
+			file.m_dataOffset = f->dataOffset;
+			file.m_encryptedData = f->encryptedData;
+			file.m_hasSalt = f->hasSalt;
+			memcpy(file.m_salt, f->salt, sizeof(file.m_salt));
+			file.m_hasCrypt = f->hasCrypt;
+			if (f->hasCrypt)
+			{
+				file.m_crypt.Version = f->cryptVersion;
+				file.m_crypt.Flags = f->cryptFlags;
+				file.m_crypt.KdfCount = f->cryptKdfCount;
+				memcpy(file.m_crypt.Salt, f->cryptSalt, sizeof(file.m_crypt.Salt));
+				memcpy(file.m_crypt.Iv, f->cryptIv, sizeof(file.m_crypt.Iv));
+				memcpy(file.m_crypt.CheckValue, f->cryptCheckValue, sizeof(file.m_crypt.CheckValue));
+				file.m_crypt.HasCheck = f->cryptHasCheck;
+			}
+			c->volume->m_files.push_back(std::move(file));
+			return 1;
+		});
+	};
+
+	io.setDataOffset = [](void* ctx, int64_t position)
+	{
+		RarCall(ctx, 0, [=](RarContext* c)
+		{
+			RarFile& file = c->volume->m_files.back();
+			// Preserve the two's-complement result without signed overflow.
+			file.m_dataOffset = (int64)((uint64)position - (uint64)file.m_packedSize);
+			return 0;
+		});
+	};
+
+	NzbgetRsRarVolume state{};
+	state.version = m_version;
+	state.volumeNo = m_volumeNo;
+	state.newNaming = m_newNaming;
+	state.hasNextVolume = m_hasNextVolume;
+	state.multiVolume = m_multiVolume;
+	state.encrypted = m_encrypted;
+	state.hasPassword = !m_password.empty();
+	memcpy(state.decryptBuf, m_decryptBuf, sizeof(m_decryptBuf));
+	state.decryptPos = m_decryptPos;
+
+	bool ok = nzbget_rs_rar_read(&io, &state) != 0;
+
+	// DetectRarVersion never assigned m_version if Size/Read threw while
+	// reading the signature. Preserve it when this is a repeated ReadFrom.
+	if (!context.error || context.signatureRead) m_version = state.version;
+	m_volumeNo = state.volumeNo;
+	m_newNaming = state.newNaming;
+	m_hasNextVolume = state.hasNextVolume;
+	m_multiVolume = state.multiVolume;
+	m_encrypted = state.encrypted;
+	memcpy(m_decryptBuf, state.decryptBuf, sizeof(m_decryptBuf));
+	m_decryptPos = state.decryptPos;
+
+	if (context.error)
+	{
+		DecryptFree();
+		std::rethrow_exception(context.error);
+	}
+
+	LogDebugInfo();
+
+	return ok;
+}
+#else
 bool RarVolume::ReadFrom(ContentSource& source)
 {
 	RarSourceCursor file(source);
@@ -158,6 +326,7 @@ bool RarVolume::ReadFrom(ContentSource& source)
 
 	return ok;
 }
+#endif
 
 int RarVolume::DetectRarVersion(RarSourceCursor& file)
 {
@@ -311,7 +480,7 @@ bool RarVolume::ReadRar3Volume(RarSourceCursor& file)
 			// last packedSize bytes before it (works for encrypted
 			// volumes too, where it names the ciphertext region)
 			RarFile& lastFile = m_files.back();
-			lastFile.m_dataOffset = file.Position() - lastFile.m_packedSize;
+			lastFile.m_dataOffset = (int64)((uint64)file.Position() - (uint64)lastFile.m_packedSize);
 		}
 	}
 
@@ -516,7 +685,7 @@ bool RarVolume::ReadRar5Volume(RarSourceCursor& file)
 			// last packedSize bytes before it (works for encrypted
 			// volumes too, where it names the ciphertext region)
 			RarFile& lastFile = m_files.back();
-			lastFile.m_dataOffset = file.Position() - lastFile.m_packedSize;
+			lastFile.m_dataOffset = (int64)((uint64)file.Position() - (uint64)lastFile.m_packedSize);
 		}
 	}
 

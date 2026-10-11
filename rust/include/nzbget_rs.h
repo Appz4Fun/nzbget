@@ -590,6 +590,73 @@ int nzbget_rs_parse_par_filename(const char* name, int confirmed, int* baseLen, 
 int nzbget_rs_same_par_collection(const char* name1, const char* name2, int confirmed,
 	int (*fold)(int));
 
+// RarVolume's header parsing (rust/src/rarreader.rs). rar_read parses the
+// content source into *state (read and written back) and calls addFile for each
+// file read, in order, also when the parse fails; 1 when the volume was read
+// to its end. size/read are the ContentSource; rar3Prepare, rar5Prepare, init
+// (iv NULL: rar3's derived IV), decrypt (one 16-byte block) and free are the
+// header cipher. addFile commits a completed header before the trailing seek;
+// setDataOffset updates the last file to position minus its packed size after
+// that seek succeeds. File/name pointers are borrowed only for addFile: copy
+// their contents there; never retain or free them. read/decrypt buffers are
+// borrowed writable storage of len/16 bytes. Callbacks must not throw; int
+// callbacks return nonzero for success; a rejected addFile stops parsing. NULL io/state
+// fails without callbacks; NULL callbacks are allowed (missing addFile drops
+// files and suppresses setDataOffset). ctx is opaque and may be NULL if the
+// callbacks support it. io must remain immutable and state exclusively borrowed
+// until rar_read returns, including during callbacks.
+typedef struct NzbgetRsRarFile
+{
+	const char* filename;
+	size_t filenameLen;
+	uint32_t time;
+	uint32_t attr;
+	int64_t size;
+	int splitBefore;
+	int splitAfter;
+	uint32_t method;
+	int stored;
+	int64_t packedSize;
+	int64_t dataOffset;
+	int encryptedData;
+	int hasSalt;
+	uint8_t salt[8];
+	int hasCrypt;
+	uint64_t cryptVersion;
+	uint64_t cryptFlags;
+	uint8_t cryptKdfCount;
+	uint8_t cryptSalt[16];
+	uint8_t cryptIv[16];
+	uint8_t cryptCheckValue[12];
+	int cryptHasCheck;
+} NzbgetRsRarFile;
+typedef struct NzbgetRsRarIo
+{
+	void* ctx;
+	int64_t (*size)(void* ctx);
+	int (*read)(void* ctx, int64_t offset, uint8_t* buffer, int64_t len);
+	int (*rar3Prepare)(void* ctx, const uint8_t* salt);
+	int (*rar5Prepare)(void* ctx, uint8_t kdfCount, const uint8_t* salt);
+	int (*init)(void* ctx, int keyBits, const uint8_t* iv);
+	int (*decrypt)(void* ctx, const uint8_t* in, uint8_t* out);
+	void (*free)(void* ctx);
+	int (*addFile)(void* ctx, const NzbgetRsRarFile* file);
+	void (*setDataOffset)(void* ctx, int64_t position);
+} NzbgetRsRarIo;
+typedef struct NzbgetRsRarVolume
+{
+	int version;
+	uint32_t volumeNo;
+	int newNaming;
+	int hasNextVolume;
+	int multiVolume;
+	int encrypted;
+	int hasPassword;
+	uint8_t decryptBuf[16];
+	uint8_t decryptPos;
+} NzbgetRsRarVolume;
+int nzbget_rs_rar_read(const NzbgetRsRarIo* io, NzbgetRsRarVolume* state);
+
 #ifdef __cplusplus
 }
 #endif

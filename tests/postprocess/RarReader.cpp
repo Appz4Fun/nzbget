@@ -24,6 +24,7 @@
 #include <fstream>
 #include <vector>
 #include <cstring>
+#include <stdexcept>
 #include <boost/test/unit_test.hpp>
 #include "RarReader.h"
 #include "FileSystem.h"
@@ -382,6 +383,83 @@ BOOST_AUTO_TEST_CASE(RarReadFromMemorySourceTest)
 	RarVolume volume5("memory");
 	BOOST_REQUIRE(volume5.ReadFrom(source5));
 	BOOST_CHECK_EQUAL(volume5.GetVersion(), 5);
+}
+
+// A callback failure must retain files already committed, and a signature
+// read throwing on a reused volume must not overwrite its previous version.
+BOOST_AUTO_TEST_CASE(RarSourceExceptionStateTest)
+{
+	class ThrowingSource : public MemoryRarSource
+	{
+	public:
+		ThrowingSource(const std::vector<char>& data, int failAt, bool sizeThrows = false)
+			: MemoryRarSource(data), m_failAt(failAt), m_sizeThrows(sizeThrows) {}
+		int64 Size() override
+		{
+			if (m_sizeThrows) throw std::runtime_error("size failure");
+			return MemoryRarSource::Size();
+		}
+		bool Read(int64 offset, void* buffer, int64 size) override
+		{
+			if (m_reads++ == m_failAt) throw std::runtime_error("read failure");
+			return MemoryRarSource::Read(offset, buffer, size);
+		}
+	private:
+		int m_failAt;
+		bool m_sizeThrows;
+		int m_reads = 0;
+	};
+	std::vector<char> data = {'R','a','r','!',0x1a,7,1,0};
+	const char file[] = {0,0,0,0,9,2,0,0,0,0,0,0,1,'a'};
+	data.insert(data.end(), file, file + sizeof(file));
+	data.insert(data.end(), file, file + sizeof(file));
+	ThrowingSource source(data, 12);
+	RarVolume volume("memory");
+	BOOST_CHECK_THROW(volume.ReadFrom(source), std::runtime_error);
+	BOOST_CHECK_EQUAL(volume.GetVersion(), 5);
+	BOOST_REQUIRE_EQUAL(volume.GetFiles()->size(), 1);
+	BOOST_CHECK_EQUAL(volume.GetFiles()->front().GetFilename(), "a");
+	BOOST_CHECK_EQUAL(volume.GetFiles()->front().GetDataOffset(), 22);
+	ThrowingSource signatureFailure(data, 0);
+	BOOST_CHECK_THROW(volume.ReadFrom(signatureFailure), std::runtime_error);
+	BOOST_CHECK_EQUAL(volume.GetVersion(), 5);
+	BOOST_CHECK_EQUAL(volume.GetFiles()->size(), 1);
+	ThrowingSource sizeFailure(data, -1, true);
+	BOOST_CHECK_THROW(volume.ReadFrom(sizeFailure), std::runtime_error);
+	BOOST_CHECK_EQUAL(volume.GetVersion(), 5);
+	BOOST_CHECK_EQUAL(volume.GetFiles()->size(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(RarCursorWrappingSeekTest)
+{
+	MemoryRarSource source(std::vector<char>(8, 0));
+	RarSourceCursor cursor(source);
+	BOOST_REQUIRE(cursor.Seek(INT64_MAX));
+	BOOST_CHECK(!cursor.Seek(1, DiskFile::soCur));
+	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MAX);
+	BOOST_CHECK(!cursor.Seek(INT64_MAX, DiskFile::soEnd));
+	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MAX);
+}
+
+BOOST_AUTO_TEST_CASE(RarCursorWrappingReadTest)
+{
+	class WrappingSource : public ContentSource
+	{
+	public:
+		int64 Size() override { return INT64_MIN; }
+		bool Read(int64 offset, void* buffer, int64 size) override
+		{
+			if (offset != INT64_MAX || size != 1) return false;
+			*(char*)buffer = 'x';
+			return true;
+		}
+	} source;
+	RarSourceCursor cursor(source);
+	BOOST_REQUIRE(cursor.Seek(INT64_MAX));
+	char byte = 0;
+	BOOST_CHECK_EQUAL(cursor.Read(&byte, 1), 1);
+	BOOST_CHECK_EQUAL(byte, 'x');
+	BOOST_CHECK_EQUAL(cursor.Position(), INT64_MIN);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
