@@ -16,12 +16,12 @@ In July 2026, [NZBGet pull request 850](https://github.com/nzbgetcom/nzbget/pull
 Over three months the pull request grew to cover the whole duplicate fleet:
 
 - **July:** article fallback with cutover and lead rotation, then byte-level stream repair across packaging and encryption, live repair during the download, and a functional test harness with dozens of scenarios.
-- **September:** par2 first, so a download's own recovery data is always tried before any donor, and a fix for repairs that stalled on unavailable duplicates.
+- **September:** par2 first in the `stream` and `live` modes, so a download's own recovery data repairs what it can before donors are used, and a fix for repairs that stalled on unavailable duplicates.
 - **October:** `HealthCheck=dupe` with early failover and a dead-copy probe, `DupeStreamTimeout`, donor search through NZBHydra2, whole-file rebuilds from proven twins, `appendfleet`, a queue format that NZBGet can still read, and more than 100 fixes to bugs found along the way, most of them reported upstream.
 
 By October it held 385 commits and about 45,000 added lines, much of it tests, and it had run in daily use since July.
 
-On 2026-10-09 the NZBGet maintainers closed the pull request without merging it, together with the related bug reports. No code review took place, and no reason was given. Earlier, a maintainer had asked to wait for a stable build before testing, and on another pull request a maintainer had said that changes made with AI are hard to review. A change this size is a lot to ask of a volunteer team, and the work went on without them.
+On 2026-10-09 the NZBGet maintainers closed the pull request without merging it, together with the related bug reports. No formal review was submitted, and no reason was given. Early on, a maintainer asked how the direct-write path was tested; the question led to a test that found and fixed a bug. The same maintainer later asked to wait for a stable build before testing. On another pull request, a maintainer said that changes made with AI are hard to review. A change this size is a lot to ask of a volunteer team, and the work went on without them.
 
 ## Leaving the fork network
 

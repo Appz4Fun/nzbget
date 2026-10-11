@@ -83,7 +83,7 @@ Other programs often download the same title several times, because several post
 This is where RustyGet goes beyond NZBGet. NZBGet uses duplicates one at a time: when a download fails, the next copy starts from scratch. RustyGet uses them together:
 
 - **Article fallback.** RustyGet fetches an article that no server has from another posting of the same release.
-- **Twins and alts.** A *twin* is a copy whose files are byte-identical, proven by par2 checksums; RustyGet can borrow its articles and par2 volumes. An *alt* is the same release in another encode; it's a failover backup only.
+- **Twins and alts.** A *twin* is a copy whose files are byte-identical, proven by par2 checksums; RustyGet can borrow its articles and par2 volumes. An *alt* is the same release in another encode; it's mainly a failover backup.
 - **Stream repair.** RustyGet patches holes that article fallback can't fill with bytes from duplicates, even from a duplicate that's packed differently.
 - **Early failover.** With `HealthCheck=dupe`, a download that can't complete switches to the best backup within seconds, and a probe catches copies that are dead before they start.
 - **Donor search.** RustyGet can search NZBHydra2 for more copies of a new download, check them on your servers, and queue the live ones as backups.

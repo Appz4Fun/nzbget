@@ -7,8 +7,8 @@ description = "RustyGet is a Usenet downloader rewritten from NZBGet in Rust. It
 eyebrow = "Usenet downloader · rewrite in progress"
 headline = "Every copy of a release,"
 headline_accent = "working as one download."
-lede = "RustyGet is a rewrite of NZBGet in Rust. It keeps NZBGet's speed and API, and adds duplicate fleets: when an article is missing on every server, it comes from another copy of the release, verified by par2, instead of failing the download."
-facts = ["NZBGet API today", "Rust, one module at a time", "Every borrowed byte verified", "GPL v2 or later"]
+lede = "RustyGet is a rewrite of NZBGet in Rust. It keeps NZBGet's speed and API, and adds duplicate fleets: when an article is missing on every server, it comes from another copy of the release, checked before it counts, instead of failing the download."
+facts = ["NZBGet API today", "Rust, one module at a time", "Borrowed articles checked", "GPL v2 or later"]
 +++
 
 ## Start here
@@ -28,8 +28,8 @@ RustyGet downloads files from Usenet using NZB files, the way NZBGet does: it fe
 
 What's new is how it treats duplicates. The same release usually exists as several postings: reposts, listings on other indexers, and other encodes. NZBGet keeps them as spares and starts the next one from scratch when a download fails. RustyGet uses them together:
 
-- An article missing on every server is fetched from a matching file in another copy, then checked against the download's own par2 data.
-- Copies with byte-identical files, called **twins**, are proven by par2 checksums and can lend articles and recovery volumes. Other encodes, called **alts**, serve only as backups.
+- An article missing on every server is fetched from a matching file in another copy. A yEnc article must fit its place in the file, and, where they're available, it's checked against its checksum (with the default `CrcCheck=yes`) and the download's par2 data.
+- Copies with byte-identical files, called **twins**, are proven by par2 checksums and can lend articles and recovery volumes. Other encodes, called **alts**, mostly serve as failover backups.
 - Holes that articles can't fill are patched with verified bytes, even from copies that are split, packed, or encrypted differently.
 - A copy that can't complete hands over to the best backup within seconds.
 - RustyGet can search NZBHydra2 for more copies and check each one on your servers before it counts on it.

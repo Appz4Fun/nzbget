@@ -111,9 +111,9 @@ If the release is already on disk, nothing downloads. If another fleet for the s
 
 From here the fleet features take over:
 
-- An article that no server has is borrowed from a **twin**, a backup whose files are byte-identical, proven by par2 checksums.
+- An article that no server has is borrowed from a matching file in a backup. Backups are tried in score order at first; after three misses in a row, the next backup takes the lead for that file. Within each backup, a file matches by content first (the same MD5 and length in both postings' par2 data), then by name or structure. A **twin**, whose every file is byte-identical, matches by content throughout.
 - A copy that's dying fails over early to the best backup with `HealthCheck=dupe`.
-- An **alt**, the same release in another encode, serves as a failover backup only. Nothing is borrowed from it.
+- An **alt**, the same release in another encode, serves as a failover backup. Its files differ from the primary's, so article fallback rarely finds anything to borrow in it.
 
 The add-on follows the duplicate key: if RustyGet fails over, the add-on tracks the promoted backup. When a copy completes with `SUCCESS`, the add-on plays it from your completed folder.
 
