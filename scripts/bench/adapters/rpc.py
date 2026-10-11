@@ -262,9 +262,16 @@ def bounded_read(path, maximum):
     return data
 
 
+def canonical_root_identity(path):
+    """Unify equivalent POSIX roots without changing a Windows UNC anchor."""
+    if os.name == "posix" and path.anchor == "//" and os.path.samefile("/", "//"):
+        return Path("/").joinpath(*path.parts[1:])
+    return path
+
+
 def bounded_path_traversal(path, budget):
     """Resolve once within the guard budget, retaining traversed link entries."""
-    absolute = path.absolute()
+    absolute = canonical_root_identity(path.absolute())
     pending = deque(absolute.parts[1:])
     current = Path(absolute.anchor)
     entries = []
@@ -284,7 +291,7 @@ def bounded_path_traversal(path, budget):
             budget["links"] += 1
             if budget["links"] > 40:
                 raise ValueError("input path traversal exceeds symlink limit")
-            target = Path(os.readlink(entry))
+            target = canonical_root_identity(Path(os.readlink(entry)))
             parts = target.parts
             if target.is_absolute():
                 current = Path(target.anchor)
@@ -309,8 +316,8 @@ def check_paths(manifest, source, output):
     if inputs[0] == inputs[1] or (manifest.exists() and source.exists() and manifest.samefile(source)):
         raise ValueError("manifest and source must be separate files")
     for original, (path, entries) in zip((manifest, source), traversals):
-        lexical = Path(os.path.abspath(original))
-        lexical_output = Path(os.path.abspath(output))
+        lexical = canonical_root_identity(Path(os.path.abspath(original)))
+        lexical_output = canonical_root_identity(Path(os.path.abspath(output)))
         if (path == destination or destination in path.parents or
                 lexical == destination or destination in lexical.parents or
                 lexical == lexical_output or lexical_output in lexical.parents):
