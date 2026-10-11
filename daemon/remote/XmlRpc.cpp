@@ -691,11 +691,23 @@ void XmlRpcProcessor::Dispatch()
 		command->SetUserAccess(m_userAccess);
 		command->PrepareParams();
 		m_safeMethod = command->IsSafeMethod();
-		bool safeToExecute = m_safeMethod || m_httpMethod == XmlRpcProcessor::hmPost || m_protocol == XmlRpcProcessor::rpJsonPRpc;
+		// JSON-P is a GET that any web page can make the browser send (a <script> tag),
+		// with the login the browser keeps for nzbget: like a plain GET it runs only the
+		// reading methods. It ran every method, so a page could edit the queue, change
+		// the settings or shut nzbget down.
+		bool safeToExecute = m_safeMethod || m_httpMethod == XmlRpcProcessor::hmPost;
 		if (safeToExecute || command->IsError())
 		{
 			command->Execute();
 			BuildResponse(command->GetResponse(), command->GetCallbackFunc(), command->GetFault(), requestId);
+		}
+		else if (m_protocol == rpJsonPRpc)
+		{
+			// through the caller's callback, so the page that loaded it sees the refusal
+			ErrorXmlCommand refusal(4, "Not safe procedure for JSON-P. Use JSON-RPC or XML-RPC with HTTP-Method POST instead");
+			refusal.SetProtocol(m_protocol);
+			refusal.Execute();
+			BuildResponse(refusal.GetResponse(), command->GetCallbackFunc(), refusal.GetFault(), requestId);
 		}
 		else
 		{
