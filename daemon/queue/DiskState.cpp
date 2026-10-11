@@ -363,6 +363,8 @@ bool DiskState::SaveDownloadQueue(DownloadQueue* downloadQueue, bool saveHistory
 	StateFile progressStateFile("progress", DISKSTATE_QUEUE_VERSION, true);
 	progressStateFile.Discard();
 
+	SaveIdFloor();
+
 
 
 	return ok;
@@ -509,6 +511,22 @@ error:
  */
 void DiskState::RaiseIdsPastQueueDir()
 {
+	// the last ids handed out: a download deleted for good leaves no file behind,
+	// and without them its id went to the next download after a restart (a client
+	// that still knew the old id then edited or deleted the new download)
+	CharBuffer ids;
+	BString<1024> idsFilename("%s%cids", g_Options->GetQueueDir(), PATH_SEPARATOR);
+	if (FileSystem::FileExists(idsFilename) && FileSystem::LoadFileIntoBuffer(idsFilename, ids, true))
+	{
+		int nzbId = 0;
+		int fileId = 0;
+		if (sscanf(ids, "nzb %i file %i", &nzbId, &fileId) == 2 && nzbId >= 0 && fileId >= 0)
+		{
+			NzbInfo::RaiseIdFloor(nzbId);
+			FileInfo::RaiseIdFloor(fileId);
+		}
+	}
+
 	DirBrowser dir(g_Options->GetQueueDir());
 	while (const char* filename = dir.Next())
 	{
@@ -533,6 +551,22 @@ void DiskState::RaiseIdsPastQueueDir()
 		{
 			FileInfo::RaiseIdFloor((int)id);
 		}
+	}
+}
+
+/*
+ * Keeps the last ids handed out in the queue dir (file "ids", which older
+ * versions ignore), for RaiseIdsPastQueueDir.
+ */
+void DiskState::SaveIdFloor()
+{
+	BString<1024> idsFilename("%s%cids", g_Options->GetQueueDir(), PATH_SEPARATOR);
+	BString<1024> tempFilename("%s.new", *idsFilename);
+	BString<100> text("nzb %i file %i\n", NzbInfo::LastGenId(), FileInfo::LastGenId());
+	if (!FileSystem::SaveBufferIntoFile(tempFilename, text, text.Length()) ||
+		!FileSystem::MoveFile(tempFilename, idsFilename))
+	{
+		FileSystem::DeleteFile(tempFilename);
 	}
 }
 

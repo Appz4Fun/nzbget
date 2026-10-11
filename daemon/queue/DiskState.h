@@ -77,6 +77,7 @@ private:
 	 * "<name>.unreadable-<time>": the next save would overwrite it */
 	void SetAsideQueueFiles();
 	void RaiseIdsPastQueueDir();
+	void SaveIdFloor();
 	void ConvertLegacyFileStates(Servers* servers);
 	bool m_legacyQueueRead = false;
 	void SaveNzbInfo(NzbInfo* nzbInfo, StateDiskFile& outfile);
