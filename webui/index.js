@@ -235,8 +235,13 @@ $(document).ready(function()
 	function turnOnLightTheme() { themeStyleSheet.attr('href', lightThemeStyleSheet); setThemeAttribute('light'); }
 	function turnOnDarkTheme() { themeStyleSheet.attr('href', darkThemeStyleSheet); setThemeAttribute('dark'); }
 
-	// The design system tokens (tokens.css) switch on this attribute
-	function setThemeAttribute(theme) { document.documentElement.setAttribute('data-theme', theme); }
+	// The design system tokens (tokens.css) switch on this attribute; the
+	// browser's chrome takes the theme's window background (--bg-window)
+	function setThemeAttribute(theme)
+	{
+		document.documentElement.setAttribute('data-theme', theme);
+		$('meta[name="theme-color"]').attr('content', theme === 'light' ? '#f7f7fa' : '#0a0a0e');
+	}
 
 	function isSystemThemeDark()
 	{
