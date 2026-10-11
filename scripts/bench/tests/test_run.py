@@ -568,6 +568,146 @@ raise SystemExit(runner.main())
         self.assertEqual(proof["qualification"], "HOLD")
         self.assertEqual(proof["child_exit_code"], 0)
 
+    @unittest.skipUnless(LINUX, "capture/lock tests are Linux-only")
+    def test_failed_child_keeps_primary_status_when_after_capture_drifts(self):
+        for exit_code, child_code, ending in ((7, 7, "raise SystemExit(7)"),
+                                             (143, -signal.SIGTERM, "os.kill(os.getpid(), signal.SIGTERM)")):
+            with self.subTest(exit_code=exit_code):
+                fixture, metadata = self.root / "fixture", self.root / "proof.json"
+                fixture.write_bytes(b"before")
+                argv = self.script(f"from pathlib import Path\nimport os,signal\nPath({str(fixture)!r}).write_bytes(b'after')\n{ending}\n")
+                status, _, error = self.run_cli("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker",
+                                                             "--fixture", str(fixture)))
+                self.assertEqual(status, exit_code, error)
+                proof = json.loads(metadata.read_text())
+                self.assertEqual(proof["exit_code"], exit_code)
+                self.assertEqual(proof["child_exit_code"], child_code)
+                self.assertEqual(proof["outcome"], "completed")
+                self.assertEqual(proof["qualification"], "HOLD")
+                self.assertEqual(proof["stability"]["status"], "changed")
+                self.assertIn("fixture-0", proof["stability"]["changed_ids"])
+
+    @unittest.skipUnless(LINUX, "native validation/lock tests are Linux-only")
+    def test_timing_header_rejects_fifo_replacement_without_blocking(self):
+        for phase in (1, 2):
+            with self.subTest(phase=phase):
+                executable, events = self.root / f"native-{phase}", self.root / f"race-{phase}"
+                shutil.copyfile(shutil.which("true"), executable)
+                executable.chmod(0o755)
+                wrapper = self.script(f"""import importlib.util,os
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=Path.is_file
+calls=0
+def raced(path):
+    global calls
+    result=original(path)
+    if path==Path({str(executable)!r}):
+        calls+=1
+        if calls=={phase}:
+            path.unlink()
+            os.mkfifo(path,0o755)
+            Path({str(events)!r}).touch()
+    return result
+Path.is_file=raced
+raise SystemExit(runner.main())
+""", f"fifo-header-{phase}.py")
+                command = self.command("time", [str(executable)], ("--timeout-seconds", ".15"))
+                command[0:2] = wrapper
+                child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.children.append(child)
+                self.wait_file(events)
+                try:
+                    _, error = child.communicate(timeout=.4)
+                except subprocess.TimeoutExpired:
+                    # Release the old FIFO header open before reporting RED.
+                    writer = os.open(executable, os.O_WRONLY | os.O_NONBLOCK)
+                    try:
+                        os.write(writer, b"NOPE")
+                        child.communicate(timeout=3)
+                    finally:
+                        os.close(writer)
+                    self.fail("timing header blocked on the replaced FIFO")
+                self.assertIn(child.returncode, (2, 76), error)
+                self.assertTrue(self.available("i7-heavy.lock"))
+                self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
+    def test_timing_header_read_deadline_and_cancellation_close_descriptor(self):
+        executable = self.root / "native"
+        executable.write_bytes(b"\x7fELF")
+        executable.chmod(0o755)
+        for action in ("deadline", "cancel"):
+            with self.subTest(action=action):
+                spec = importlib.util.spec_from_file_location("runner_header_bound", RUNNER)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                args = module.arguments(["--mode", "time", "--", str(executable)])
+                real_read = os.read
+                cancelled, completed, descriptors = [False], [], []
+                previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                def slow_read(descriptor, count):
+                    descriptors.append(descriptor)
+                    if action == "cancel": cancelled[0] = True
+                    time.sleep(1)
+                    completed.append(True)
+                    return real_read(descriptor, count)
+                started = time.monotonic()
+                try:
+                    module.os.read = slow_read
+                    with self.assertRaises(module.CaptureFailure) as error:
+                        module.prepare_command(args, deadline=started + .08,
+                                               cancelled=lambda: cancelled[0])
+                    self.assertEqual(error.exception.code, "deadline" if action == "deadline" else "cancelled")
+                    self.assertLess(time.monotonic() - started, .5)
+                    self.assertFalse(completed)
+                    self.assertEqual(len(descriptors), 1)
+                    with self.assertRaises(OSError): os.fstat(descriptors[0])
+                    self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
+                finally:
+                    module.os.read = real_read
+
+    @unittest.skipUnless(LINUX, "native validation/cancellation tests are Linux-only")
+    def test_cli_header_cancellation_preserves_signal_status_and_releases_locks(self):
+        for phase in (1, 2):
+            with self.subTest(phase=phase):
+                executable, ready, completed = [self.root / f"header-{phase}-{name}" for name in ("native", "ready", "completed")]
+                shutil.copyfile(shutil.which("true"), executable)
+                executable.chmod(0o755)
+                wrapper = self.script(f"""import importlib.util,os,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=runner.os.read
+identity=Path({str(executable)!r}).stat()
+calls=0
+def read(fd,count):
+    global calls
+    observed=os.fstat(fd)
+    if count==4 and (observed.st_dev,observed.st_ino)==(identity.st_dev,identity.st_ino):
+        calls+=1
+        if calls=={phase}:
+            Path({str(ready)!r}).touch()
+            time.sleep(1)
+            Path({str(completed)!r}).touch()
+    return original(fd,count)
+runner.os.read=read
+raise SystemExit(runner.main())
+""", f"header-cancel-{phase}.py")
+                command = self.command("time", [str(executable)])
+                command[0:2] = wrapper
+                child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.children.append(child)
+                self.wait_file(ready)
+                child.terminate()
+                _, error = child.communicate(timeout=.5)
+                self.assertEqual(child.returncode, 143, error)
+                self.assertFalse(completed.exists())
+                self.assertTrue(self.available("i7-heavy.lock"))
+                self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
     @unittest.skipUnless(LINUX, "FIFO capture tests are Linux-only")
     def test_fifo_inputs_are_hold_without_launch_or_retained_locks(self):
         for flag in ("--fixture", "--toolchain-binary"):
@@ -740,6 +880,35 @@ raise SystemExit(runner.main())
             self.assertGreater(remaining, 0)
             self.assertLessEqual(remaining, 1)
             self.assertEqual(interval, .5)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+    def test_prior_timer_compensation_starts_at_remaining_time_sample(self):
+        spec = importlib.util.spec_from_file_location("runner_timer_sample", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        handler = lambda number, frame: None
+        checked = [False]
+        def delayed_check():
+            if not checked[0]:
+                checked[0] = True
+                time.sleep(.15)
+            return False
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 30, .5)
+            started = time.monotonic()
+            with module.capture_alarm(started + 5, delayed_check):
+                time.sleep(.05)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            expected = 30 - (time.monotonic() - started)
+            self.assertAlmostEqual(remaining, expected, delta=.03)
+            self.assertEqual(interval, .5)
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous_handler)

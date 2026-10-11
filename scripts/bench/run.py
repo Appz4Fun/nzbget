@@ -66,6 +66,7 @@ def capture_alarm(deadline, cancelled):
         signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
         check()
         previous_handler = signal.getsignal(signal.SIGALRM)
+        timer_sampled = time.monotonic()
         previous_timer = signal.getitimer(signal.ITIMER_REAL)
         previous_pending = signal.sigpending()
         signal.setitimer(signal.ITIMER_REAL, 0)
@@ -97,7 +98,7 @@ def capture_alarm(deadline, cancelled):
                 if previous_handler is not None:
                     signal.signal(signal.SIGALRM, previous_handler)
                 if previous_timer is not None and previous_timer[0] > 0:
-                    remaining = max(0.000001, previous_timer[0] - (time.monotonic() - entered))
+                    remaining = max(0.000001, previous_timer[0] - (time.monotonic() - timer_sampled))
                     signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
             finally:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
@@ -248,7 +249,7 @@ def cargo_build_argument_end(command):
     return len(command)
 
 
-def prepare_command(args):
+def prepare_command(args, *, deadline=None, cancelled=None):
     name = tool_name(args.command[0])
     if name in SHELLS:
         raise ValueError("shell/eval commands are not accepted; pass an argument vector")
@@ -292,9 +293,33 @@ def prepare_command(args):
     if args.mode == "time":
         if timing_forbidden(resolved_name):
             raise ValueError("timing requires a prebuilt native measurement program")
-        with executable.open("rb") as stream:
-            if stream.read(4) != b"\x7fELF":
-                raise ValueError("timing requires a prebuilt native ELF executable")
+        deadline = time.monotonic() + args.timeout_seconds if deadline is None else deadline
+        with capture_alarm(deadline, cancelled) as check:
+            descriptor = None
+            try:
+                acquisition_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+                try:
+                    descriptor = os.open(executable, os.O_RDONLY | os.O_NONBLOCK)
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, acquisition_mask)
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise ValueError("timing requires an executable regular file")
+                check()
+                header = os.read(descriptor, 4)
+                check()
+                if header != b"\x7fELF":
+                    raise ValueError("timing requires a prebuilt native ELF executable")
+            finally:
+                close_mask = None
+                try:
+                    close_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+                finally:
+                    try:
+                        if descriptor is not None:
+                            os.close(descriptor)
+                    finally:
+                        if close_mask is not None:
+                            signal.pthread_sigmask(signal.SIG_SETMASK, close_mask)
     # argv[0] selects cargo/rustc inside the rustup multicall binary. Hash the
     # resolved binary, but preserve the original executable alias for exec.
     command[0] = str(invocation)
@@ -576,7 +601,7 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
         raise OSError("cannot enable Linux descendant supervision")
     original_argv = argv_digest(command)
     try:
-        command, executable = prepare_command(args)
+        command, executable = prepare_command(args, deadline=deadline, cancelled=cancelled)
     except (OSError, ValueError):
         send_result(result_pipe, mark_drift({"command_started": False, "duration_ns": 0,
             "captures": {"before": [], "after": []}, "stability": {"status": "changed",
@@ -650,7 +675,7 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe):
         result["stability"]["changed_ids"].append("checkout")
         result["stability"]["reason_codes"].append("checkout_changed" if checkout_before and checkout_after else "checkout_unavailable")
     if result["stability"]["status"] != "stable":
-        if outcome == "completed":
+        if outcome == "completed" and exit_code == 0:
             mark_drift(result)
         else:
             result["qualification"] = "HOLD"
@@ -772,7 +797,7 @@ def main(argv=None):
         signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
     proof = None
     try:
-        command, executable = prepare_command(args)
+        command, executable = prepare_command(args, cancelled=lambda: bool(interrupted[0]))
         if not sys.platform.startswith("linux"):
             raise ValueError("command execution requires the existing Linux worker")
         metadata_destination_safe(args, command)
@@ -791,9 +816,13 @@ def main(argv=None):
         result = {"exit_code": 75, "outcome": "lock_timeout", "duration_ns": 0, "command_started": False}
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         # Do not echo exception paths/arguments, which may carry private values.
-        message = str(error) if isinstance(error, ValueError) else type(error).__name__
-        print(f"runner: {message}", file=sys.stderr)
-        result = {"exit_code": 2, "outcome": "runner_error", "duration_ns": 0, "command_started": None}
+        if isinstance(error, CaptureFailure) and error.code == "cancelled" and interrupted[0]:
+            result = {"exit_code": 128 + interrupted[0], "outcome": "interrupted",
+                      "duration_ns": 0, "command_started": False}
+        else:
+            message = str(error) if isinstance(error, ValueError) else type(error).__name__
+            print(f"runner: {message}", file=sys.stderr)
+            result = {"exit_code": 2, "outcome": "runner_error", "duration_ns": 0, "command_started": None}
     if proof is not None:
         proof.update(result, finished_at=utc_now())
         try:
