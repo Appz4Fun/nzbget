@@ -3695,6 +3695,50 @@ pub extern "C" fn nzbget_rs_binrpc_trailing_ok(len: i64, max: i64) -> c_int {
     crate::binrpc::trailing_ok(len, max) as c_int
 }
 
+/// EditQueue's size check: 1 when the client's counts and lengths fit
+/// each other and the data length.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_binrpc_edit_sizes(ids: i32, names: i32, names_len: i32, text_len: i32, data_len: u32) -> c_int {
+    crate::binrpc::edit_sizes_ok(ids, names, names_len, text_len, data_len) as c_int
+}
+
+/// EditQueue's trailing data: `nr_ids` ids after the text into `ids` (host
+/// order), `nr_names` names' offsets into `name_at`; 1 when all fit.
+///
+/// # Safety
+/// `data` is readable for `len` bytes (or null with `len` 0); `ids` and
+/// `name_at` are writable, aligned arrays of their counts (or null for 0).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_edit_split(data: *const c_char, len: usize, text_len: usize, nr_ids: usize,
+    nr_names: usize, ids: *mut u32, name_at: *mut usize) -> c_int {
+    if (nr_ids > 0 && ids.is_null()) || (nr_names > 0 && name_at.is_null()) {
+        return 0;
+    }
+    let data = bytes_arg(data.cast(), len);
+    let mut id_vec = vec![0u32; nr_ids];
+    let mut name_vec = vec![0usize; nr_names];
+    if !crate::binrpc::edit_split(data, text_len, &mut id_vec, &mut name_vec) {
+        return 0;
+    }
+    if nr_ids > 0 {
+        std::slice::from_raw_parts_mut(ids, nr_ids).copy_from_slice(&id_vec);
+    }
+    if nr_names > 0 {
+        std::slice::from_raw_parts_mut(name_at, nr_names).copy_from_slice(&name_vec);
+    }
+    1
+}
+
+/// Download's URL test: 1 when `content` starts with "http:/" or "https:/"
+/// in any case.
+///
+/// # Safety
+/// `content` is null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_is_url(content: *const c_char) -> c_int {
+    crate::binrpc::is_url(input(content)) as c_int
+}
+
 #[cfg(test)]
 mod binrpc_tests {
     use super::*;

@@ -555,7 +555,11 @@ void DownloadBinCommand::Execute()
 
 	bool ok = false;
 
+#ifdef NZBGET_USE_RUST
+	if (nzbget_rs_binrpc_is_url(nzbContent))
+#else
 	if (!strncasecmp(nzbContent, "http://", 6) || !strncasecmp(nzbContent, "https://", 7))
+#endif
 	{
 		// add url
 		std::unique_ptr<NzbInfo> nzbInfo = std::make_unique<NzbInfo>();
@@ -1102,6 +1106,11 @@ void LogBinCommand::Execute()
 		GuardedMessageList messages = g_Log->GuardMessages();
 
 		nrEntries = ntohl(LogRequest.m_lines);
+		// a negative count asks for no entries
+		if (nrEntries < 0)
+		{
+			nrEntries = 0;
+		}
 		uint32 idFrom = ntohl(LogRequest.m_idFrom);
 		int start = messages->size();
 		if (nrEntries > 0)
@@ -1197,9 +1206,13 @@ void EditQueueBinCommand::Execute()
 
 	// the parts' sizes from the client, checked against each other in 64 bits
 	// (the unsigned sum wrapped for negative counts) and against the data
+#ifdef NZBGET_USE_RUST
+	if (!nzbget_rs_binrpc_edit_sizes(nrIdEntries, nrNameEntries, nameEntriesLen, textLen, bufLength))
+#else
 	if (nrIdEntries < 0 || nrNameEntries < 0 || textLen < 0 || nameEntriesLen < 0 ||
 		nrIdEntries > 10000000 || nrNameEntries > nameEntriesLen ||
 		(int64)nrIdEntries * (int64)sizeof(int32) + textLen + nameEntriesLen != (int64)bufLength)
+#endif
 	{
 		error("Invalid struct size");
 		return;
@@ -1223,11 +1236,28 @@ void EditQueueBinCommand::Execute()
 
 	// no text is an empty one: the edits read it as a string (a priority, a name)
 	const char* text = textLen > 0 ? *buf : "";
-	int32* ids = (int32*)(buf + textLen);
-	char* names = (buf + textLen + nrIdEntries * sizeof(int32));
 
 	IdList cIdList;
 	NameList cNameList;
+
+#ifdef NZBGET_USE_RUST
+	static_assert(sizeof(IdList::value_type) == sizeof(uint32_t), "ids are 32 bits");
+	cIdList.resize(nrIdEntries);
+	std::vector<size_t> nameAt(nrNameEntries);
+	if (!nzbget_rs_binrpc_edit_split(buf, bufLength, textLen, nrIdEntries, nrNameEntries,
+		(uint32_t*)cIdList.data(), nameAt.data()))
+	{
+		error("Invalid struct size");
+		return;
+	}
+	cNameList.reserve(nrNameEntries);
+	for (size_t at : nameAt)
+	{
+		cNameList.push_back(buf + at);
+	}
+#else
+	int32* ids = (int32*)(buf + textLen);
+	char* names = (buf + textLen + nrIdEntries * sizeof(int32));
 
 	if (nrIdEntries > 0)
 	{
@@ -1255,6 +1285,7 @@ void EditQueueBinCommand::Execute()
 			names = end + 1;
 		}
 	}
+#endif
 
 	bool ok = DownloadQueue::Guard()->EditList(
 		nrIdEntries > 0 ? &cIdList : nullptr,
