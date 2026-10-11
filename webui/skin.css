@@ -1408,3 +1408,18 @@ tr.checked:nth-child(odd) .progress-block .progress {
 	font-size: 10.5px;
 	line-height: 20px;
 }
+
+/* status labels inside form controls (History edit dialog): style.css's
+   .controls .label-status line heights would clip in the 20px capsule */
+.controls .label-status,
+.phone .controls .label-status {
+	line-height: 20px;
+}
+
+/* extension manager actions: an ID rule in style.css keeps them small on phones */
+.phone #ExtensionManagerTable .btn-toolbar .btn {
+	flex-basis: var(--size-control-lg);
+	width: var(--size-control-lg);
+	min-width: var(--size-control-lg);
+	height: var(--size-control-lg);
+}
