@@ -17,6 +17,7 @@ No process IDs, elapsed durations, output hashes or cross-process pairs are
 retroactively manufactured. Historical proof does not qualify a repaired head.
 """
 import argparse
+from collections import deque
 import copy
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -261,6 +262,38 @@ def bounded_read(path, maximum):
     return data
 
 
+def input_traversal_entries(path):
+    """Keep entries reached through symlink targets, including before '..'."""
+    absolute = path.absolute()
+    pending = deque(absolute.parts[1:])
+    current = Path(absolute.anchor)
+    links = steps = 0
+    while pending:
+        steps += 1
+        if steps > 4096:
+            raise ValueError("input path traversal exceeds component limit")
+        component = pending.popleft()
+        if component == "..":
+            current = current.parent
+            continue
+        if component in ("", "."):
+            continue
+        entry = current / component
+        yield entry
+        if entry.is_symlink():
+            links += 1
+            if links > 40:
+                raise ValueError("input path traversal exceeds symlink limit")
+            target = Path(os.readlink(entry))
+            parts = target.parts
+            if target.is_absolute():
+                current = Path(target.anchor)
+                parts = parts[1:]
+            pending.extendleft(reversed(parts))
+        else:
+            current = entry
+
+
 def check_paths(manifest, source, output):
     """Resolve aliases before any cleanup; an input under output is unsafe."""
     destination = output.resolve()
@@ -284,6 +317,12 @@ def check_paths(manifest, source, output):
             entry = ancestor.parent.resolve() / ancestor.name
             if entry == destination or destination in entry.parents:
                 raise ValueError("input/output ancestor collision")
+        # An outer input link can name an owned output link inside its target.
+        # Inspect the traversal itself: the final target and lexical ancestors
+        # alone lose intermediates, especially targets containing '..'.
+        for entry in input_traversal_entries(original):
+            if entry == destination or destination in entry.parents:
+                raise ValueError("input/output symlink-target collision")
     for filename in ["source.raw", "source-manifest.raw", "manifest.json", "samples.jsonl", "adapter-status.json", "legacy-evidence.json"]:
         target = output / filename
         if target.exists() or target.is_symlink():
