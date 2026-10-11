@@ -1,8 +1,10 @@
 """RPC evidence must never gain precision, pairing, or scope during export."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tempfile
 import unittest
@@ -390,6 +392,88 @@ class RpcAdapterTests(unittest.TestCase):
             self.assertTrue(self.available, "RPC adapter has not been implemented")
             with self.assertRaises(ValueError):
                 self.adapter.adapt(proof, jsonl(rows))
+
+    def test_fifo_inputs_fail_within_deadline_without_mutation(self):
+        for argument in ("manifest", "source"):
+            for symlink in (False, True):
+                with self.subTest(argument=argument, symlink=symlink), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    proof = root / "proof.json"
+                    source = root / "source.samples"
+                    proof.write_text('{"historical":true}')
+                    source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    fifo = root / "unconnected.fifo"
+                    os.mkfifo(fifo)
+                    selected = fifo
+                    if symlink:
+                        selected = root / "fifo-alias"
+                        selected.symlink_to(fifo)
+                    inputs = {"manifest": proof, "source": source}
+                    inputs[argument] = selected
+                    command = [sys.executable, str(ADAPTER), "--manifest", str(inputs["manifest"]),
+                               "--source", str(inputs["source"]), "--output-dir", str(root / "out")]
+                    try:
+                        run = subprocess.run(command, capture_output=True, text=True, timeout=1)
+                    except subprocess.TimeoutExpired:
+                        self.fail("RPC adapter blocked opening an unconnected FIFO")
+                    self.assertEqual(run.returncode, 2, run.stderr)
+                    self.assertFalse((root / "out").exists())
+                    self.assertTrue(stat.S_ISFIFO(fifo.stat().st_mode))
+                    self.assertEqual(proof.read_text(), '{"historical":true}')
+                    self.assertEqual(source.read_text(), "SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    if symlink:
+                        self.assertTrue(selected.is_symlink())
+
+    def test_directory_and_device_inputs_rejected_before_reading(self):
+        for kind in ("directory", "device"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                proof = root / "proof.json"
+                proof.write_text('{"historical":true}')
+                source = root / "source-alias"
+                if kind == "directory":
+                    target = root / "input-directory"
+                    target.mkdir()
+                else:
+                    target = Path(os.devnull)
+                source.symlink_to(target, target_is_directory=(kind == "directory"))
+                run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(proof),
+                                      "--source", str(source), "--output-dir", str(root / "out")],
+                                     capture_output=True, text=True, timeout=1)
+                self.assertEqual(run.returncode, 2, run.stderr)
+                self.assertFalse((root / "out").exists())
+                self.assertTrue(source.is_symlink())
+                self.assertIn("regular file", run.stderr)
+
+    def test_regular_file_symlinks_preserve_original_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proof = root / "proof.json"
+            source = root / "source.samples"
+            proof.write_bytes(b'{"historical":true}\r\n')
+            raw = b"SAMPLE|Log, 10 lines|0|162.877|122.752\r\n"
+            source.write_bytes(raw)
+            proof_alias = root / "proof-alias"
+            source_alias = root / "source-alias"
+            proof_alias.symlink_to(proof)
+            source_alias.symlink_to(source)
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(proof_alias),
+                                  "--source", str(source_alias), "--output-dir", str(root / "out")],
+                                 capture_output=True, text=True, timeout=1)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual((root / "out/source.raw").read_bytes(), raw)
+            self.assertEqual((root / "out/source-manifest.raw").read_bytes(), proof.read_bytes())
+            self.assertTrue(proof_alias.is_symlink())
+            self.assertTrue(source_alias.is_symlink())
+
+    def test_rejected_nonregular_inputs_do_not_leak_descriptors(self):
+        self.assertTrue(self.available, "RPC adapter has not been implemented")
+        with tempfile.TemporaryDirectory() as directory:
+            before = len(os.listdir("/dev/fd"))
+            for _ in range(100):
+                with self.assertRaises((OSError, ValueError)):
+                    self.adapter.bounded_read(Path(directory), 100)
+            self.assertEqual(len(os.listdir("/dev/fd")), before)
 
 
 if __name__ == "__main__":
