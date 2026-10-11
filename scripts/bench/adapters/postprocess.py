@@ -28,6 +28,7 @@ import importlib.util
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -314,15 +315,22 @@ def adapt(kind, paths, manifest, metadata_paths=()):
 
 
 def check_aliases(output, inputs):
+    # resolve() follows a dangling input symlink outside the output directory.
+    # Check its lexical directory entry before following it: cleanup must never
+    # unlink that immutable input entry, even when its target does not exist.
+    lexical_destination = Path(os.path.abspath(output))
     destination = output.resolve()
     for source in inputs:
+        lexical_source = Path(os.path.abspath(source))
+        if lexical_source == lexical_destination or lexical_destination in lexical_source.parents:
+            raise AliasError("lexical input/output paths overlap; refusing mutation")
         resolved = source.resolve()
         if resolved == destination or destination in resolved.parents:
             raise AliasError("input/output paths overlap; refusing mutation")
         for name in GENERATED:
             artifact = output / name
-            if artifact.exists() and (artifact.resolve() == resolved or
-                                      (source.exists() and artifact.samefile(source))):
+            if (artifact.exists() or artifact.is_symlink()) and (artifact.resolve() == resolved or
+                                      (artifact.exists() and source.exists() and artifact.samefile(source))):
                 raise AliasError("input/output artifact alias; refusing mutation")
     if output.exists() and not output.is_dir():
         raise AliasError("output path is not a directory")
@@ -345,7 +353,10 @@ def main(argv=None):
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
-        check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
+        try:
+            check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
+        except (OSError, RuntimeError) as error:
+            raise AliasError("cannot safely resolve input/output aliases; refusing mutation") from error
         manifest = load_json(read_source(args.manifest, MAX_MANIFEST_BYTES)["text"])
         result = adapt(args.format, args.source, manifest, args.metadata)
         # Finish all validation/serialization before creating any output.
