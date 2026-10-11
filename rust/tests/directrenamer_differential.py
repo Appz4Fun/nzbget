@@ -97,6 +97,7 @@ main = r'''
 #include "FileSystem.h"
 #include "ParParser.h"
 #include "nzbget_rs.h"
+#include <algorithm>
 #include <clocale>
 #include <cstddef>
 #include <exception>
@@ -303,6 +304,26 @@ class GroupedNumbers : public std::numpunct<char> {
     std::string do_grouping() const override { return "\3"; }
 };
 
+// A stream must retain facet state between collisions, and the returned
+// name must retain embedded NULs even though FileExists sees a C string.
+class StatefulNumbers : public std::num_put<char> {
+    iter_type do_put(iter_type out, std::ios_base& stream, char_type, long value) const override {
+        static const int slot = std::ios_base::xalloc();
+        std::string text = std::to_string(++stream.iword(slot)) + ':' + std::to_string(value);
+        text += std::string("\0tail", 5);
+        stream.width(0);
+        return std::copy(text.begin(), text.end(), out);
+    }
+};
+
+// ostream normally swallows a facet exception and sets badbit. Clearing
+// the stream for the next candidate must preserve that original behavior.
+class ThrowingNumbers : public std::num_put<char> {
+    iter_type do_put(iter_type, std::ios_base&, char_type, long) const override {
+        throw std::runtime_error("num_put injected exception");
+    }
+};
+
 static void ffiEdges()
 {
     auto check = [](bool ok) { if (!ok) throw std::runtime_error("FFI edge failed"); };
@@ -357,6 +378,10 @@ int main(int argc, char** argv)
 		printf("%s: %ld rounds agree (reference %s)\n", argv[l], rounds, "''' + REFERENCE + r'''");
 	}
     std::locale saved = std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
+    edges();
+    std::locale::global(std::locale(std::locale::classic(), new StatefulNumbers));
+    edges();
+    std::locale::global(std::locale(std::locale::classic(), new ThrowingNumbers));
     edges();
     std::locale::global(saved);
 	return failures ? 1 : 0;
