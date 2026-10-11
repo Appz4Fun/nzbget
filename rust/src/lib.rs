@@ -33,6 +33,7 @@ pub mod scheduler;
 pub mod statmeter;
 pub mod text;
 pub mod url;
+pub mod urlcoord;
 pub mod util;
 pub mod webdownload;
 pub mod webserver;

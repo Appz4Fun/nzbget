@@ -3695,6 +3695,57 @@ pub extern "C" fn nzbget_rs_binrpc_trailing_ok(len: i64, max: i64) -> c_int {
     crate::binrpc::trailing_ok(len, max) as c_int
 }
 
+/// UrlDownloader::ProcessHeader's X-DNZB headers: 1 with `first` set to
+/// X-DNZB-Category's trimmed value, 2 with `first` the parameter's name and
+/// `value` its value, 0 (outputs untouched) for another line.
+///
+/// # Safety
+/// `line` is null (empty) or NUL-terminated; `first` and `value` are null
+/// or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_dnzb_header(line: *const c_char, first: *mut RsBuf, value: *mut RsBuf) -> c_int {
+    use crate::urlcoord::Dnzb;
+    match crate::urlcoord::dnzb_header(input(line)) {
+        Dnzb::None => 0,
+        Dnzb::Category(category) => {
+            if !first.is_null() {
+                *first = into_buf(category);
+            }
+            1
+        }
+        Dnzb::Param(name, text) => {
+            if !first.is_null() {
+                *first = into_buf(name);
+            }
+            if !value.is_null() {
+                *value = into_buf(text);
+            }
+            2
+        }
+    }
+}
+
+/// UrlCoordinator::UrlCompleted's statuses: reads and writes `url_status`
+/// and `delete_status`, writes `retry`.
+///
+/// # Safety
+/// The pointers are null (not read or written) or valid.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_url_completed(downloader: c_int, deleting: c_int, url_status: *mut c_int,
+    delete_status: *mut c_int, retry: *mut c_int) {
+    let read = |p: *mut c_int| if p.is_null() { 0 } else { *p };
+    let (url, delete, again) = crate::urlcoord::completed(downloader, deleting != 0, read(url_status), read(delete_status));
+    if !url_status.is_null() {
+        *url_status = url;
+    }
+    if !delete_status.is_null() {
+        *delete_status = delete;
+    }
+    if !retry.is_null() {
+        *retry = again as c_int;
+    }
+}
+
 #[cfg(test)]
 mod binrpc_tests {
     use super::*;
