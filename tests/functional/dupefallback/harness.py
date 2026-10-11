@@ -5532,6 +5532,39 @@ def scenario_idsafterfinaldelete(daemon, t):
     return ('idsafterfinaldelete', ok, 'keep=%s gone=%s new=%s' % (keep, gone, new_id))
 
 
+def scenario_idsafteremptyqueue(daemon, t):
+    """Deleting all queue and history entries must still preserve both ID floors."""
+    api = daemon.wait_ready()
+    def add(name):
+        nzb = base64.standard_b64encode(_fake_nzb_ids(['%s@id' % uuid.uuid4().hex for _ in range(3)], 30_000)).decode()
+        return _rpc(daemon, 'append', [name + '.nzb', nzb, '', 0, False, True, '', 0, 'FORCE', []]).get('result')
+    gone = [add('Gone.%d' % i) for i in range(3)]
+    old_files = [f['ID'] for f in api.listfiles()]
+    _rpc(daemon, 'editqueue', ['GroupFinalDelete', '', gone])
+    time.sleep(1)
+    _rpc(daemon, 'editqueue', ['HistoryFinalDelete', '', gone])
+    time.sleep(2)
+    empty = not api.listgroups() and not api.history()
+    try:
+        api.shutdown()
+    except Exception:
+        pass
+    if t.name == 'local':
+        t.procs[-1].wait(timeout=60)
+    else:
+        deadline = time.monotonic() + 60
+        while t.exists('nzbget.lock') and time.monotonic() < deadline:
+            time.sleep(0.3)
+        assert not t.exists('nzbget.lock'), "daemon must stop before restart"
+    daemon.start()
+    api = daemon.wait_ready()
+    new_id = add('New')
+    new_files = [f['ID'] for f in api.listfiles()]
+    ok = empty and new_id > max(gone) and bool(old_files) and bool(new_files) and min(new_files) > max(old_files)
+    return ('idsafteremptyqueue', ok, 'empty=%s gone=%s new=%s old_files=%s new_files=%s' %
+            (empty, gone, new_id, old_files, new_files))
+
+
 def scenario_idsafteremptyfinaldelete(daemon, t):
     """Deleting every queue and history item must preserve IDs at restart."""
     api = daemon.wait_ready()
@@ -10365,6 +10398,7 @@ SCENARIOS = {
     'newlinestate': scenario_newlinestate,
     'idsafterunreadable': scenario_idsafterunreadable,
     'idsafterfinaldelete': scenario_idsafterfinaldelete,
+    'idsafteremptyqueue': scenario_idsafteremptyqueue,
     'idsafteremptyfinaldelete': scenario_idsafteremptyfinaldelete,
     'fleetduringpost': scenario_fleetduringpost,
     'fleetslowurl': scenario_fleetslowurl,

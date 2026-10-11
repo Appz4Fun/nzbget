@@ -563,8 +563,17 @@ void DiskState::SaveIdFloor()
 	BString<1024> idsFilename("%s%cids", g_Options->GetQueueDir(), PATH_SEPARATOR);
 	BString<1024> tempFilename("%s.new", *idsFilename);
 	BString<100> text("nzb %i file %i\n", NzbInfo::LastGenId(), FileInfo::LastGenId());
-	if (!FileSystem::SaveBufferIntoFile(tempFilename, text, text.Length()) ||
-		!FileSystem::MoveFile(tempFilename, idsFilename))
+	if (!FileSystem::SaveBufferIntoFile(tempFilename, text, text.Length()))
+	{
+		FileSystem::DeleteFile(tempFilename);
+		return;
+	}
+
+	// Replace the previous floor in one step, including on Windows, where
+	// FileSystem::MoveFile's _wrename cannot replace an existing file.
+	fs::error_code ec;
+	fs::rename(fs::u8path(*tempFilename), fs::u8path(*idsFilename), ec);
+	if (ec)
 	{
 		FileSystem::DeleteFile(tempFilename);
 	}
@@ -2096,9 +2105,10 @@ bool DiskState::DownloadQueueExists()
 {
 	debug("Checking if a saved queue exists on disk");
 
+	// An empty queue still has saved state: the IDs handed out before its entries
+	// were deleted. Load it so both generators continue past those IDs.
 	return FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "queue")) ||
 		FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "history")) ||
-		// An empty queue still has the IDs handed out before its items were deleted.
 		FileSystem::FileExists(BString<1024>("%s%c%s", g_Options->GetQueueDir(), PATH_SEPARATOR, "ids"));
 }
 

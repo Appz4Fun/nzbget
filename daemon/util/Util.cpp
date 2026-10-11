@@ -2350,7 +2350,7 @@ void URL::ParseUrl()
 
 	// a scheme is letters, digits, "+", "-" and "."; a "://" further on (a
 	// relative "/get?u=https://...") doesn't make an absolute URL
-	if (protEnd == m_address || !isalpha((unsigned char)m_address[0]))
+	if (protEnd == *m_address || !isalpha((unsigned char)m_address[0]))
 	{
 		return;
 	}
