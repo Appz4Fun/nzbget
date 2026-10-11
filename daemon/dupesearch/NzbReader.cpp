@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <regex>
+#include <limits>
 #include "NzbReader.h"
 #include "XmlReader.h"
 
@@ -92,10 +93,13 @@ public:
 				poster = XmlReader::Attr(attrs, "poster");
 			}
 			m_name = NameOfSubject(XmlReader::Attr(attrs, "subject"));
+			m_fileBytes = 0;
+			m_firstId.clear();
 		}
 		else if (name == "segment" && m_inFile)
 		{
 			m_segmentBytes = atoll(XmlReader::Attr(attrs, "bytes").c_str());
+			m_segmentNumber = atoll(XmlReader::Attr(attrs, "number").c_str());
 			m_inSegment = true;
 		}
 	}
@@ -117,6 +121,12 @@ public:
 			{
 				sizes[m_name] += m_segmentBytes;
 				ids.insert(id);
+				if (m_segmentBytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - m_segmentBytes)
+				{
+					m_fileBytes += m_segmentBytes;
+				}
+				else geometryValid = false;
+				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
 			}
 			m_inSegment = false;
 		}
@@ -130,6 +140,13 @@ public:
 		}
 		else if (name == "file")
 		{
+			if (!IsParName(m_name) && m_fileBytes > 0)
+			{
+				dataFiles++;
+				if (dataBytes <= std::numeric_limits<long long>::max() - m_fileBytes) dataBytes += m_fileBytes;
+				else geometryValid = false;
+				if (!m_firstId.empty()) heads.push_back({ m_name, m_firstId, m_fileBytes });
+			}
 			m_inFile = false;
 		}
 		m_text.clear();
@@ -143,6 +160,10 @@ public:
 	int files = 0;
 	std::string poster;
 	std::map<std::string, long long> sizes;
+	std::vector<NzbSummary::Head> heads;
+	long long dataBytes = 0;
+	int dataFiles = 0;
+	bool geometryValid = true;
 	std::set<std::string> ids;
 	std::set<std::string> groups;
 	std::map<std::string, std::string> meta;
@@ -152,6 +173,9 @@ private:
 	std::string m_metaType;
 	std::string m_name;
 	long long m_segmentBytes = 0;
+	long long m_segmentNumber = 0;
+	long long m_fileBytes = 0;
+	std::string m_firstId;
 	bool m_inFile = false;
 	bool m_inSegment = false;
 };
@@ -210,5 +234,14 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
 		}
 	}
 	summary.mainName = mainSize >= 0 ? mainName : anyName;
+	if (reader.geometryValid)
+	{
+		summary.dataBytes = reader.dataBytes;
+		summary.dataFiles = reader.dataFiles;
+		summary.heads = std::move(reader.heads);
+	}
+	std::stable_sort(summary.heads.begin(), summary.heads.end(),
+		[](const NzbSummary::Head& a, const NzbSummary::Head& b) { return a.bytes > b.bytes; });
+	if (summary.heads.size() > 3) summary.heads.resize(3);
 	return true;
 }

@@ -287,6 +287,11 @@ fn main() {
         }
     });
 
+    bench("dupeidentity/bare-media identity", &mut || {
+        black_box(nzbget_rs::dupeidentity::inner_entry(black_box(b"decoded-video"),
+            black_box(b"Show.S01E01.1080p.WEB.H264-GRP.mkv"), 5_000_000_000, 1_000_000_000));
+    });
+
     // Bencher Metric Format
     let mut out = String::from("{\n");
     let last = results.len().saturating_sub(1);

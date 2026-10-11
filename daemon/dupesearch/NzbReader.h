@@ -35,6 +35,12 @@
  */
 struct NzbSummary
 {
+	struct Head
+	{
+		std::string name;
+		std::string messageId;
+		long long bytes = 0;
+	};
 	int files = 0;
 	long long totalBytes = 0;
 	std::set<std::string> filenames;			// lowercase
@@ -43,6 +49,9 @@ struct NzbSummary
 	std::vector<std::string> groups;			// newsgroups, sorted, unique
 	std::map<std::string, std::string> meta;	// lowercase type -> text
 	std::string mainName;						// the largest file that isn't par2
+	long long dataBytes = 0;
+	int dataFiles = 0;
+	std::vector<Head> heads;					// first parts of the largest data files
 
 	/* identifies the posting: a hash of its message-ids */
 	std::string Fingerprint() const;

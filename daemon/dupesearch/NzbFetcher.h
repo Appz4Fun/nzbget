@@ -55,6 +55,7 @@ public:
 		EReason reason = frFetch;
 		std::string data;
 		NzbSummary info;
+		bool sameInner = false;
 	};
 
 	// what happened to the listings of the postings fetched

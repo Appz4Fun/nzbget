@@ -62,6 +62,20 @@ more than 10% slower than the C++ it replaces is optimized further before it is
 merged; a slowdown that can't be removed is explained in the pull request. CI
 tracks the benchmarks with Bencher (see `rust/benches/README.md`).
 
+## Native duplicate discovery
+
+`dupeidentity` reads bounded RAR4/RAR5 first-article headers or a bare media
+file's yEnc size. It rejects samples, unknown sizes, encrypted headers and
+conflicting release names. The daemon retains article transport and queue
+ownership. `DupeSameSize` hints compare data-file counts and bytes independently
+of parity overhead; existing and newly discovered backups use the same rule.
+The hints select candidates for the existing checksum validation, rather than
+establishing byte identity. The broader discovery integration follows separately.
+
+The offline differential test compares the pure Python proxy reference with
+Rust. It deliberately never imports proxy configuration or performs indexer
+requests. The Bencher suite includes the new identity function.
+
 ## Parked
 
 - NZB parsing (`NzbFile::Parse`, libxml2 SAX1): a Rust parser that matches

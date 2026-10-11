@@ -24,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include "DupeSearch.h"
+#include "DupeIdentity.h"
 #include "DonorHealth.h"
 #include "DonorScore.h"
 #include "NntpHealthServer.h"
@@ -688,7 +689,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	int base = DonorScore::Base(job.score);
 
 	auto twinOf = [&](const NzbFetcher::Fetched& f)
-		{ return f.info.files == pick.files && f.info.totalBytes == pick.totalBytes; };
+		{ return DupeIdentity::SameData(pick, f.info); };
 	auto aliveOf = [&](const DonorHealth::Health& health) { return health.Alive(); };
 	auto entryOf = [&](size_t i, int score, double alive)
 		{
@@ -720,7 +721,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 	auto place = [&](size_t i, double alive, const char* how)
 		{
 			int score = ranks.Take(alive, twinOf(verified[i]));
-			int id = AddDonor(job, verified[i], base + score, alive);
+			int id = AddDonor(job, pick, verified[i], base + score, alive);
 			if (id == 0)
 			{
 				ranks.Release(score);
@@ -909,7 +910,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 			member.oldScore = entry.first < job.memberScores.size() ? job.memberScores[entry.first] : 0;
 			member.entry.score = isDead ? DonorScore::Dead : DonorScore::Dead + 1;
 			member.entry.alive = alive;
-			member.entry.twin = summary.files == pick.files && summary.totalBytes == pick.totalBytes;
+			member.entry.twin = DupeIdentity::SameData(pick, summary);
 			member.entry.bytes = summary.totalBytes;
 			placed[verified.size() + entry.first] = member;
 			Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: duplicate %s in history: alive=%i%% (%i of %i articles)%s", job.name.c_str(),
@@ -1014,7 +1015,7 @@ std::string DupeSearch::PickGone(const Job& job)
 	return "";
 }
 
-int DupeSearch::AddDonor(const Job& job, const NzbFetcher::Fetched& posting, int score, double alive)
+int DupeSearch::AddDonor(const Job& job, const NzbSummary& pick, const NzbFetcher::Fetched& posting, int score, double alive)
 {
 	if (IsStopped())
 	{
@@ -1045,6 +1046,11 @@ int DupeSearch::AddDonor(const Job& job, const NzbFetcher::Fetched& posting, int
 
 	NzbParameterList parameters;
 	parameters.SetParameter(DonorParam, "yes");
+	for (const std::string& hint : DupeIdentity::Hints(pick, posting.info, posting.sameInner))
+	{
+		size_t equals = hint.find('=');
+		parameters.SetParameter(hint.substr(0, equals).c_str(), hint.substr(equals + 1).c_str());
+	}
 	if (alive >= 0)
 	{
 		parameters.SetParameter(AliveParam, std::to_string((int)std::lround(100 * alive)).c_str());

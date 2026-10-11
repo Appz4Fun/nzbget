@@ -154,7 +154,7 @@ private:
 	 * another duplicate key), empty while it may */
 	std::string PickGone(const Job& job);
 	/* queues a posting as a duplicate of the pick; the download id, 0 when not added */
-	int AddDonor(const Job& job, const NzbFetcher::Fetched& posting, int score, double alive);
+	int AddDonor(const Job& job, const NzbSummary& pick, const NzbFetcher::Fetched& posting, int score, double alive);
 	/* the DupeScore (and a parameter "Name=Value") of a duplicate that sits in history or in the queue */
 	bool SetScore(int id, int score, const std::vector<std::string>& params);
 	void LoadState();
