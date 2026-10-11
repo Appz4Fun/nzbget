@@ -155,7 +155,7 @@ void RarRenamer::RenameFiles(const char* destDir)
 	{
 		RarRenamer* renamer;
 		RegEx regExPart{".*.part([0-9]+)\\.rar$"};
-		std::exception_ptr error;
+		std::exception_ptr error{};
 	} context{this};
 
 	NzbgetRsRarRenEnv env{};
@@ -177,10 +177,19 @@ void RarRenamer::RenameFiles(const char* destDir)
 	env.matchPart = [](void* ctx, const char* name, size_t* start, size_t* len) -> int
 	{
 		Context* c = static_cast<Context*>(ctx);
-		if (c->error || !c->regExPart.Match(name)) return 0;
-		*start = (size_t)c->regExPart.GetMatchStart(1);
-		*len = (size_t)c->regExPart.GetMatchLen(1);
-		return 1;
+		if (c->error) return 0;
+		try
+		{
+			if (!c->regExPart.Match(name)) return 0;
+			*start = (size_t)c->regExPart.GetMatchStart(1);
+			*len = (size_t)c->regExPart.GetMatchLen(1);
+			return 1;
+		}
+		catch (...)
+		{
+			c->error = std::current_exception();
+			return 0;
+		}
 	};
 	env.rename = [](void* ctx, size_t index, const char* dest)
 	{

@@ -99,7 +99,7 @@ pub fn old_extension(volume_no: i32) -> Vec<u8> {
 fn new_volume_filename(dir: &[u8], base: &[u8], v: &Volume) -> Vec<u8> {
     // the C++ passed the uint32 volume number as an int
     let ext = if v.new_naming { new_extension(v.volume_no as i32) } else { old_extension(v.volume_no as i32) };
-    [c(dir), b"/", c(base), b".", &ext].concat()
+    [c(dir), &[crate::paths::PATH_SEPARATOR], c(base), b".", &ext].concat()
 }
 
 /// SameArchiveName
@@ -278,5 +278,29 @@ mod tests {
         assert!(same_archive_name(b"a.part01.rar", b"a.part02.rar", true));
         assert!(!same_archive_name(b"a.part01.rar", b"b.part02.rar", true));
         assert!(same_archive_name(b"a.r00", b"a.r01", false));
+    }
+
+    #[test]
+    fn signed_volume_numbers_and_platform_separator() {
+        assert_eq!(new_extension(-2), b"part-001.rar");
+        assert_eq!(new_extension(i32::MAX), b"part-2147483648.rar");
+        assert_eq!(old_extension(-1), b"r-2");
+        assert_eq!(old_extension(14_201), b""); // the %c byte wraps to NUL
+        assert_eq!(old_extension(14_301), b"\x0100");
+        let v = Volume { volume_no: u32::MAX, new_naming: true, ..Volume::default() };
+        assert_eq!(new_volume_filename(b"dir", b"movie", &v),
+            [b"dir".as_slice(), &[crate::paths::PATH_SEPARATOR], b"movie.part0000.rar"].concat());
+    }
+
+    #[test]
+    fn candidate_preference_and_shared_volumes() {
+        let file = File { name: b"movie.mkv".to_vec(), ..File::default() };
+        let first = Volume { filename: b"a.part01.rar".to_vec(), has_next_volume: true,
+            multi_volume: true, new_naming: true, files: vec![file.clone()], ..Volume::default() };
+        let second = Volume { filename: b"a.part02.rar".to_vec(), volume_no: 1,
+            has_next_volume: false, ..first.clone() };
+        let decoy = Volume { filename: b"b.part02.rar".to_vec(), ..second.clone() };
+        let twin = Volume { filename: b"z.part01.rar".to_vec(), ..first.clone() };
+        assert_eq!(make_sets(&[first, decoy, second, twin]), vec![vec![0, 2], vec![3, 1]]);
     }
 }

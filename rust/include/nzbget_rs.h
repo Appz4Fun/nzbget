@@ -661,7 +661,12 @@ int nzbget_rs_rar_read(const NzbgetRsRarIo* io, NzbgetRsRarVolume* state);
 // gathered into sets; the sets not properly named are renamed through rename
 // (index into volumes, the new path). fileExists is FileSystem::FileExists;
 // matchPart the RegEx ".*.part([0-9]+)\\.rar$" (group 1's start and length).
-// Callbacks must not throw.
+// All input buffers are borrowed for the call. Callback strings are borrowed
+// only until the callback returns; callbacks must copy them to retain them and
+// must not free them or throw. No allocation crosses the ownership boundary.
+// NULL dir/env or NULL volumes with nonzero count makes the call a no-op.
+// NULL names and file arrays are treated as empty. Rust panics abort, never
+// unwind through C++.
 typedef struct NzbgetRsRarRenFile
 {
 	const char* name;
