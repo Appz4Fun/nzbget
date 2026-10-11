@@ -9,7 +9,7 @@ use std::ffi::{c_char, c_int, CString};
 use crate::wildmask::{wild_match, Lower};
 
 extern "C" {
-    fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
+    fn tolower(c: c_int) -> c_int;
     fn atoi(s: *const c_char) -> c_int;
 }
 
@@ -21,13 +21,23 @@ fn c(b: &[u8]) -> CString {
     CString::new(b).unwrap_or_default()
 }
 
+/// strncasecmp(line, lit, strlen(lit)) == 0 on the line as a C string, in
+/// place: glibc's loop (the C library's tolower of unsigned bytes, a stop
+/// after an equal NUL), with the line's end read as its NUL.
 fn prefix(line: &[u8], lit: &str) -> bool {
-    unsafe { strncasecmp(c(line).as_ptr(), c(lit.as_bytes()).as_ptr(), lit.len()) == 0 }
+    for (i, &b) in lit.as_bytes().iter().enumerate() {
+        let a = line.get(i).copied().unwrap_or(0);
+        if a != b && unsafe { tolower(a as c_int) != tolower(b as c_int) } {
+            return false;
+        }
+        if a == 0 {
+            return true;
+        }
+    }
+    true
 }
 
-fn find(h: &[u8], n: &[u8]) -> Option<usize> {
-    h.windows(n.len()).position(|w| w == n)
-}
+use crate::bytes::{find, find_byte};
 
 /// What a header line (its last '\r' cut off) does in ParseHeaders.
 #[derive(Debug, PartialEq)]
@@ -61,7 +71,7 @@ fn auth(b64: &[u8]) -> Header<'_> {
 
 pub fn header(line: &[u8], auth_info_empty: bool) -> Header<'_> {
     // the C string of the line ends at a NUL
-    let line = &line[..line.iter().position(|&b| b == 0).unwrap_or(line.len())];
+    let line = &line[..find_byte(line, 0).unwrap_or(line.len())];
     if prefix(line, "Content-Length: ") {
         Header::ContentLength(unsafe { atoi(c(&line[16..]).as_ptr()) })
     } else if prefix(line, "Authorization: Basic ") && auth_info_empty {
