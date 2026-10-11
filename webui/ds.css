@@ -87,16 +87,6 @@ body {
   backdrop-filter: blur(var(--blur-glass)) saturate(180%);
   box-shadow: var(--shadow-glass);
 }
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .ng-glass, .ng-toolbar, .ng-sidebar, .ng-menu, .ng-notice { background: var(--bg-elevated); }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .ng-glass, .ng-toolbar, .ng-sidebar, .ng-menu, .ng-notice {
-    background: var(--bg-elevated);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
 
 /* ---------- Button ---------- */
 .ng-btn {
@@ -144,7 +134,7 @@ body {
 .ng-btn-lg { height: var(--size-control-lg); padding: 0 var(--space-5); }
 .ng-btn-lg.ng-btn-icon { width: var(--size-control-lg); padding: 0; }
 
-.ng-btn:disabled, .ng-btn.is-disabled { opacity: var(--opacity-disabled); pointer-events: none; }
+.ng-btn:disabled, .ng-btn[aria-disabled="true"] { opacity: var(--opacity-disabled); pointer-events: none; }
 
 .ng-btn-group { display: inline-flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 
@@ -302,12 +292,22 @@ body {
   color: var(--label-primary);
   font: inherit;
   min-width: 0;
+  max-width: 100%;
+  margin: 0; /* Bootstrap gives inputs and selects a bottom margin and fixed widths */
 }
+.ng-select { width: auto; }
 .ng-field::placeholder { color: var(--label-secondary); }
-.ng-field:hover, .ng-select:hover { background: var(--fill-secondary); }
+.ng-field:hover, .ng-select:hover { background-color: var(--fill-secondary); }
 .ng-field:focus-visible, .ng-select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 0; }
 .ng-field-outlined { background: var(--bg-content); box-shadow: inset 0 0 0 1px var(--control-border); }
 .ng-field.is-invalid { outline: 2px solid var(--red); outline-offset: 0; }
+.ng-field:disabled, .ng-field[readonly], .ng-select:disabled {
+  background-color: var(--fill-quaternary);
+  box-shadow: inset 0 0 0 1px var(--separator);
+  border-color: transparent;
+  color: var(--label-secondary);
+  cursor: default;
+}
 textarea.ng-field { height: auto; min-height: 72px; padding: var(--space-2) var(--space-3); resize: vertical; line-height: 18px; }
 textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); font-size: 12px; }
 
@@ -348,6 +348,7 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
   width: 100%;
   height: 100%;
   padding: 0 30px 0 32px;
+  margin: 0;
   border: 0;
   border-radius: var(--radius-full);
   background: var(--fill-tertiary);
@@ -495,6 +496,9 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
 .ng-menu-shortcut { margin-left: auto; display: inline-flex; gap: 2px; color: var(--label-secondary); }
 .ng-menu-item-destructive { color: var(--red-text); }
 .ng-menu-item-destructive:hover, .ng-menu-item-destructive:focus-visible, .ng-menu-item-destructive.is-highlighted { background: var(--red-soft); color: var(--red-text); }
+/* doubled class: wins over the highlighted-item rules for shortcuts and key chips wherever they sit */
+.ng-menu-item.ng-menu-item-destructive:hover .ng-menu-shortcut, .ng-menu-item.ng-menu-item-destructive:focus-visible .ng-menu-shortcut, .ng-menu-item.ng-menu-item-destructive.is-highlighted .ng-menu-shortcut,
+.ng-menu-item.ng-menu-item-destructive:hover .ng-kbd, .ng-menu-item.ng-menu-item-destructive:focus-visible .ng-kbd, .ng-menu-item.ng-menu-item-destructive.is-highlighted .ng-kbd { color: var(--red-text); }
 .ng-menu-divider { height: 1px; margin: 4px 10px; background: var(--separator); border: 0; }
 
 /* ---------- Table ---------- */
@@ -502,7 +506,8 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
   border-radius: var(--radius-lg);
   background: var(--bg-content);
   box-shadow: var(--shadow-card);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .ng-table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .ng-table th {
@@ -534,6 +539,10 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
 .ng-table .ng-cell-sub { display: block; color: var(--label-secondary); font-size: 12px; line-height: 16px; font-weight: 400; }
 .ng-table-striped tbody tr:nth-child(even) { background: var(--fill-quaternary); }
 .ng-table-striped tbody tr:nth-child(even):hover { background: var(--fill-tertiary); }
+.ng-table tbody tr.is-selected,
+.ng-table tbody tr.is-selected:hover,
+.ng-table-striped tbody tr.is-selected:nth-child(even),
+.ng-table-striped tbody tr.is-selected:nth-child(even):hover { background: var(--accent-soft); }
 
 .ng-table-footer {
   display: flex;
@@ -567,7 +576,7 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
 .ng-pagination button:disabled { opacity: var(--opacity-disabled); cursor: default; }
 
 /* ---------- Sheet (modal dialog) ---------- */
-.ng-scrim { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; padding: var(--space-5); }
+.ng-scrim { position: fixed; inset: 0; z-index: 1050; background: var(--scrim); display: grid; place-items: center; padding: var(--space-5); }
 .ng-sheet {
   display: flex;
   flex-direction: column;
@@ -904,4 +913,16 @@ textarea.ng-field.ng-mono, .ng-field.ng-mono { font-family: var(--font-mono); fo
 @media (max-width: 640px) {
   .ng-ruled { padding: 0 var(--space-5); background-image: none; }
   .ng-rail-label { display: none; }
+}
+
+/* ---------- Glass fallbacks (last, so they win over the component rules) ---------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ng-glass, .ng-toolbar, .ng-sidebar, .ng-menu, .ng-notice { background: var(--bg-elevated); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ng-glass, .ng-toolbar, .ng-sidebar, .ng-menu, .ng-notice {
+    background: var(--bg-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }

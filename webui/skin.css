@@ -522,6 +522,23 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 	-webkit-font-smoothing: antialiased;
 }
 
+/* no backdrop blur, or the viewer asked for less transparency: an opaque bar */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	#Navbar .navbar-inner,
+	body.navfixed.scrolled #Navbar .navbar-inner {
+		background: var(--bg-elevated);
+	}
+}
+
+@media (prefers-reduced-transparency: reduce) {
+	#Navbar .navbar-inner,
+	body.navfixed.scrolled #Navbar .navbar-inner {
+		background: var(--bg-elevated);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
 /* narrower windows: drop the name, then the shortcut chips, then move the tabs to a second row */
 @media (max-width: 1280px) {
 	.nzb-logo-name,
