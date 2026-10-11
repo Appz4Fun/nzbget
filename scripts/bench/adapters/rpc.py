@@ -41,7 +41,7 @@ CALLERS = {
     "PostQueueBinCommand::Execute", "HistoryBinCommand::Execute",
     "EditQueueBinCommand::Execute", "DownloadBinCommand::Execute",
     "BinRpcProcessor::Execute", "RemoteClient::BuildFileList",
-    "RemoteClient::Log", "RemoteClient::PostQueue", "RemoteClient::History",
+    "RemoteClient::RequestServerLog", "RemoteClient::RequestPostQueue", "RemoteClient::RequestHistory",
 }
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 SHA40 = re.compile(r"[0-9a-fA-F]{40}\Z")
