@@ -269,12 +269,32 @@ class PostprocessAdapterTests(unittest.TestCase):
                     self.assertTrue(ancestor.is_symlink(), "original traversal ancestors must remain immutable")
                     self.assertEqual(original.read_text(), text)
 
-    def test_repeat_hold_run_replaces_only_generated_outputs(self):
+    def test_valid_reimport_rejects_reuse_without_losing_raw_archive(self):
         self.assertEqual(self.run_adapter("article-crc", ARTICLE)[0].returncode, 0)
+        archived = (self.output / "adapter-evidence.json").read_bytes()
+        metadata = (self.output / "legacy-metadata.json").read_bytes()
         result, _ = self.run_adapter("par-crc", PAR_CRC)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.evidence()["format"], "par-crc")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual((self.output / "adapter-evidence.json").read_bytes(), archived)
+        self.assertEqual((self.output / "legacy-metadata.json").read_bytes(), metadata)
+        self.assertFalse((self.output / "qualification.json").exists())
         self.assertEqual((self.output / "samples.jsonl").read_text(), "")
+
+    def test_malformed_reimport_preserves_sole_original_raw_bytes_and_metadata(self):
+        original_metadata = '{"historical":true,"original_note":"only retained in archive after reimport"}\n'
+        self.manifest.write_text(original_metadata)
+        result, source = self.run_adapter("article-crc", ARTICLE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        archive = (self.output / "adapter-evidence.json").read_bytes()
+        source.unlink()
+        self.manifest.write_text('{"historical":true,"replacement":true}\n')
+        result, _ = self.run_adapter("article-crc", "bad,header\n")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual((self.output / "adapter-evidence.json").read_bytes(), archive)
+        self.assertEqual(self.evidence()["sources"][0]["text"], ARTICLE)
+        self.assertEqual(self.evidence()["legacy_metadata"]["text"], original_metadata)
+        for name in ("qualification.json", "summary.json", "bencher.json", "report.md"):
+            self.assertFalse((self.output / name).exists(), "derived qualification must be invalidated")
 
     def test_hostile_manifest_types_rejected(self):
         for updates in ({"comparison": {"baseline": [], "candidate": "rust_candidate"}},
@@ -321,14 +341,14 @@ class PostprocessAdapterTests(unittest.TestCase):
         self.assertNotIn("candidate_sha", qualification)
         self.assertNotIn("testbed", qualification)
 
-    def test_legacy_rerun_removes_stale_v1_manifest(self):
+    def test_legacy_reimport_preserves_prior_v1_input_snapshot(self):
         self.output.mkdir()
         (self.output / "manifest.json").write_text('{"old":"v1"}')
         self.manifest.write_text('{"historical":true}')
         result, _ = self.run_adapter("article-crc", ARTICLE)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((self.output / "manifest.json").exists())
-        self.assertTrue((self.output / "legacy-metadata.json").exists())
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual((self.output / "manifest.json").read_text(), '{"old":"v1"}')
+        self.assertFalse((self.output / "legacy-metadata.json").exists())
 
     def test_overflowing_json_number_rejected(self):
         self.assert_invalid("deadpostings-summary", '[{"records":0,"samples":45,"cpp_ns":1e999,"rust_ns":1}]')
