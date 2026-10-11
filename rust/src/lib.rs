@@ -7,6 +7,7 @@ pub mod crc;
 pub mod decode;
 pub mod decoder;
 pub mod deobfuscation;
+pub mod directrenamer;
 pub mod escape;
 pub mod extload;
 pub mod feedfilter;

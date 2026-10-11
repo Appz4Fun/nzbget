@@ -713,6 +713,28 @@ void nzbget_rs_rename_analyzer_reset(NzbgetRsRenameAnalyzer* a);
 int nzbget_rs_rename_analyzer_append(NzbgetRsRenameAnalyzer* a, const char* buf, int len, char* setId);
 void nzbget_rs_rename_analyzer_finish(NzbgetRsRenameAnalyzer* a, char* hash);
 
+// DirectRenamer's new names (rust/src/directrenamer.rs), comparing in the
+// current locale. Strings are borrowed for the call; NULL strings are empty.
+// direct_regular_name: the index of the par2 hash whose filename the file
+// gets, or -1 to keep its name; at writes index's filename and hash (borrowed
+// until the call returns) for every index below count; NULL at returns -1.
+// direct_par_name: the par2 file's new name (free with nzbget_rs_free), *vol
+// counted up for every name tried (NULL vol: from 1); exists gets the full
+// path (NULL: nothing exists). direct_need_rename_pars: 1 when the par2 files
+// need new names; a NULL filename needs one; NULL pars/fold return 0. fold is
+// ParParser::FilenameFold. Callbacks must not throw; panics abort.
+typedef void (*NzbgetRsParHashAt)(void* ctx, size_t index, const char** filename, const char** hash);
+ptrdiff_t nzbget_rs_direct_regular_name(const char* oldName, const char* hash16k, size_t count,
+	NzbgetRsParHashAt at, void* ctx);
+NzbgetRsBuf nzbget_rs_direct_par_name(const char* oldName, const char* destDir, const char* setId,
+	char separator, int* vol, int (*exists)(void* ctx, const char* path), void* ctx);
+typedef struct NzbgetRsParName
+{
+	const char* filename;
+	const char* setId;
+} NzbgetRsParName;
+int nzbget_rs_direct_need_rename_pars(const NzbgetRsParName* pars, size_t count, int (*fold)(int));
+
 #ifdef __cplusplus
 }
 #endif

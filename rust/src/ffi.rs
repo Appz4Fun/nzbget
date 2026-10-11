@@ -2969,6 +2969,75 @@ pub unsafe extern "C" fn nzbget_rs_rename_analyzer_finish(a: *mut crate::renamea
     std::ptr::copy_nonoverlapping(h.as_ptr().cast(), hash, h.len());
 }
 
+/// Reads the par2 hash at an index of DirectRenamer's FileHashList.
+pub type ParHashAt = unsafe extern "C" fn(*mut std::ffi::c_void, usize, *mut *const c_char, *mut *const c_char);
+
+/// DirectRenamer::BuildNewRegularName: the index of the par2 hash whose file
+/// name the file gets, or -1 to keep its name.
+///
+/// # Safety
+/// `old_name` and `hash16k` are null (empty) or NUL-terminated. `at` writes,
+/// for every index below `count`, a filename and hash that are null (empty)
+/// or NUL-terminated and stay valid until this returns; it must not unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_direct_regular_name(old_name: *const c_char, hash16k: *const c_char, count: usize,
+    at: Option<ParHashAt>, ctx: *mut std::ffi::c_void) -> isize {
+    let as_c = |p: *const c_char| if p.is_null() { c"" } else { CStr::from_ptr(p) };
+    let Some(at) = at else { return -1 };
+    let hashes = (0..count).map(|i| {
+        let (mut filename, mut hash) = (std::ptr::null(), std::ptr::null());
+        at(ctx, i, &mut filename, &mut hash);
+        (as_c(filename), as_c(hash))
+    });
+    crate::directrenamer::regular_name(as_c(old_name), as_c(hash16k), hashes).map_or(-1, |i| i as isize)
+}
+
+/// DirectRenamer::BuildNewParName; free the name with nzbget_rs_free.
+///
+/// # Safety
+/// The names are null (empty) or NUL-terminated; `vol` is null (counting
+/// from 1, not written back) or a valid int. `exists` (null: nothing exists)
+/// gets a borrowed NUL-terminated full path and must not unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_direct_par_name(old_name: *const c_char, dest_dir: *const c_char, set_id: *const c_char,
+    separator: c_char, vol: *mut c_int, exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    ctx: *mut std::ffi::c_void) -> RsBuf {
+    let mut local = 1;
+    let vol = if vol.is_null() { &mut local } else { &mut *vol };
+    let mut exists = |path: &[u8]| {
+        let Some(exists) = exists else { return false };
+        let mut path = path.to_vec();
+        path.push(0);
+        exists(ctx, path.as_ptr().cast()) != 0
+    };
+    into_buf(crate::directrenamer::par_name(input(old_name), input(dest_dir), input(set_id), separator as u8, vol, &mut exists))
+}
+
+/// NzbgetRsParName: a par2 file of a download.
+#[repr(C)]
+pub struct ParName {
+    pub filename: *const c_char,
+    pub set_id: *const c_char,
+}
+
+/// DirectRenamer::NeedRenamePars: 1 when the par2 files need new names.
+///
+/// # Safety
+/// `pars` is null or `count` readable entries; their filenames are null or
+/// NUL-terminated (null: needs renaming), set ids null (empty) or
+/// NUL-terminated. `fold` is ParParser's and must not unwind; null returns 0.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_direct_need_rename_pars(pars: *const ParName, count: usize, fold: Option<extern "C" fn(c_int) -> c_int>) -> c_int {
+    let Some(fold) = fold else { return 0 };
+    if pars.is_null() {
+        return 0;
+    }
+    let pars: Vec<_> = std::slice::from_raw_parts(pars, count).iter().map(|p| {
+        ((!p.filename.is_null()).then(|| CStr::from_ptr(p.filename)), if p.set_id.is_null() { c"" } else { CStr::from_ptr(p.set_id) })
+    }).collect();
+    crate::directrenamer::need_rename_pars(&pars, &|b| fold(b as c_int) as u8) as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
