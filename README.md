@@ -81,6 +81,18 @@ For more detail, see [Duplicate fleets](https://appz4fun.github.io/nzbget/duplic
 
 NZBGet pull request [850](https://github.com/nzbgetcom/nzbget/pull/850), "Add DupeArticleFallback: recover missing articles from duplicate releases," opened in July 2026. Over three months it grew from article fallback to the whole fleet: stream repair across packaging and encryption, live repair, early failover with `HealthCheck=dupe`, donor search through NZBHydra2, `appendfleet`, a queue format that NZBGet can still read, more than 100 fixes to inherited bugs, and a functional test harness with more than 100 scenarios. It reached 385 commits and about 45,000 added lines, much of it tests.
 
+What the pull request's comments documented, in order:
+
+- **July 8–12: article fallback.** An article that fails on every server is fetched from a duplicate posting of the same release, then checked by its yEnc header before anything is written. A per-file "Recovered N of M" log line and the `DupeRecoveredArticles` counter in the API and web interface. Cutover after three recoveries in a file, lead rotation after three misses in a row, and a fix for a use-after-free crash with many duplicates.
+- **July 9–12: stream repair.** `DupeArticleFallback` became `no`, `article`, `stream`, or `live`. Byte-level repair from same-byte reposts, across packaging (store-mode RAR, ZIP, 7-Zip, raw splits), and across RAR encryption with the NZB password. `DupeStreamDecompress` repairs from compressed duplicates, live mode repairs during the download, and a fully repaired release without par2 completes with `SUCCESS`.
+- **September 10: par2 first.** A download's own par2 files always repair first, and par2 files are never borrowed.
+- **September 12: no more stalls.** A repair that waited hours on an unavailable duplicate moves on to the next one; requests for one release dropped from 258 to 9.
+- **October 2: renamed and obfuscated duplicates.** More probe articles per file, every same-size file of an obfuscated posting checked, a full par check after any donor write, and repair fetches limited to a quarter of the connections.
+- **October 5: failover and search.** `HealthCheck=dupe` with a dead-copy probe, `DupeStreamTimeout`, `DupeSearch` through Newznab or NZBHydra2 with a dry run, whole files rebuilt from a byte-identical duplicate, server answer 451 treated as missing, and checksums always checked on borrowed articles.
+- **October 5: compatibility and pairing.** Queue files written in NZBGet's own format again, with this work's data in a trailer NZBGet ignores; pairing by the part counts that subjects declare; a dead download fails over within about 70 failed articles instead of up to 1,000.
+
+After the last comment, the branch added `appendfleet`, twins and alts from par2 file lists, repair with a twin's par2 volumes, more than 100 fixes to inherited bugs, and the start of the Rust port.
+
 On 2026-10-09 the NZBGet maintainers closed it without merging, along with the related bug reports. No code review took place and no reason was given. That work is the starting point of RustyGet.
 
 ## A rewrite, not a fork
