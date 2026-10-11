@@ -280,6 +280,11 @@ BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
     BOOST_CHECK_CLOSE(DupeIdentity::Alive(health,fractional),0.25,0.00001);
     health.present=0;health.error=2;
     BOOST_CHECK_EQUAL(DupeIdentity::Alive(health,fractional),-1);
+    fractional.listedParts=5; fractional.declaredParts=150;
+    health.present=5; health.missing=0; health.error=0;
+    BOOST_CHECK(DupeIdentity::IsDead(health,fractional,10));
+    fractional.declaredParts=5;
+    BOOST_CHECK(!DupeIdentity::IsDead(health,fractional,10));
 }
 #endif
 

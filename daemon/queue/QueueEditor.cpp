@@ -30,6 +30,7 @@
 #include "HistoryCoordinator.h"
 #include "UrlCoordinator.h"
 #include "ParParser.h"
+#include "DupeSearch.h"
 
 const int MAX_ID = 1000000000;
 
@@ -1027,11 +1028,8 @@ void QueueEditor::SetNzbName(NzbInfo* nzbInfo, const char* name)
 
     std::string previous = nzbInfo->GetName();
     g_QueueCoordinator->SetQueueEntryName(m_downloadQueue, nzbInfo, name);
-    if (previous != nzbInfo->GetName())
-    {
-        DownloadQueue::Aspect named = { DownloadQueue::eaNzbNamed, m_downloadQueue, nzbInfo, nullptr };
-        m_downloadQueue->Notify(&named);
-    }
+    if (previous != nzbInfo->GetName() && g_DupeSearch)
+        g_DupeSearch->NotifyNameChanged(nzbInfo->GetId());
 }
 
 bool QueueEditor::MergeGroups(ItemList* itemList)

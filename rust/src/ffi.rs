@@ -6385,6 +6385,10 @@ pub extern "C" fn nzbget_rs_dupe_unlisted_missing(answered: i32, listed: u64, to
 pub extern "C" fn nzbget_rs_dupe_effective_alive(present: i32, missing: i32, error: i32, listed: u64, total: u64) -> f64 {
     crate::dupewatch::effective_alive(present, missing, error, listed, total)
 }
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_is_dead(present: i32, missing: i32, error: i32, listed: u64, total: u64, minimum: i32) -> c_int {
+    c_int::from(crate::dupewatch::dead_donor(present, missing, error, listed, total, minimum))
+}
 /// # Safety
 /// The decoded body is readable for len, or NULL (empty).
 #[no_mangle]

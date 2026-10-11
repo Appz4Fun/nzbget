@@ -1232,6 +1232,7 @@ void nzbget_rs_dupe_part_counts(const NzbgetRsDupePart* parts, size_t count, uin
 uint64_t nzbget_rs_dupe_whole_bytes(uint64_t bytes, uint64_t listed, uint64_t total);
 int32_t nzbget_rs_dupe_unlisted_missing(int32_t answered, uint64_t listed, uint64_t total);
 double nzbget_rs_dupe_effective_alive(int32_t present, int32_t missing, int32_t error, uint64_t listed, uint64_t total);
+int nzbget_rs_dupe_is_dead(int32_t present, int32_t missing, int32_t error, uint64_t listed, uint64_t total, int32_t minimum);
 uint64_t nzbget_rs_dupe_par_block(const char* data, size_t len);
 int nzbget_rs_dupe_par_doomed(uint64_t dataBytes, uint64_t articleBytes, const uint64_t* volumes,
     size_t count, double alive, uint64_t block);

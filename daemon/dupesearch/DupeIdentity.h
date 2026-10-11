@@ -28,6 +28,7 @@ public:
         const std::vector<std::string>& groups, time_t deadline, const FetchFunc& fetch = FetchFunc());
     static unsigned long long WholeBytes(const NzbSummary& info);
     static double Alive(const DonorHealth::Health& health, const NzbSummary& info);
+    static bool IsDead(const DonorHealth::Health& health, const NzbSummary& info, int minimum);
     static int UnlistedMissing(const DonorHealth::Health& health, const NzbSummary& info);
     static bool ParDoomed(const NzbSummary& info, double alive, time_t deadline);
     static bool OuterCompatible(const std::string& title, const std::string& name);

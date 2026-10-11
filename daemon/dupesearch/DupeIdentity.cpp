@@ -102,6 +102,16 @@ double DupeIdentity::Alive(const DonorHealth::Health& health, const NzbSummary& 
 #endif
 }
 
+bool DupeIdentity::IsDead(const DonorHealth::Health& health, const NzbSummary& info, int minimum)
+{
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_is_dead(health.present, health.missing, health.error, info.listedParts, info.declaredParts, minimum) != 0;
+#else
+    double alive = health.Alive();
+    return alive >= 0 && alive * 100 < minimum && health.missing >= DonorHealth::MinKnown;
+#endif
+}
+
 int DupeIdentity::UnlistedMissing(const DonorHealth::Health& health, const NzbSummary& info)
 {
 #ifdef NZBGET_USE_RUST

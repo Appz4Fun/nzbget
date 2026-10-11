@@ -52,6 +52,7 @@ public:
 	~DupeSearch() override;
 	void Run() override;
 	void Stop() override;
+    void NotifyNameChanged(int nzbId);
 
 	// seconds a key is not searched again, unless a higher-scored pick arrives
 	static constexpr int SearchWindowSec = 6 * 3600;
@@ -95,6 +96,7 @@ private:
 		time_t time = 0;
 		std::string title;
 		bool retryable = false;
+        std::string rawName; // Runtime-only normalization cache; never inferred from disk.
 	};
 
 	struct Job

@@ -277,6 +277,14 @@ pub fn effective_alive(present: i32, missing: i32, error: i32, listed: u64, decl
     f64::from(present) / (answered + extra) as f64
 }
 
+/// Count structurally absent parts as missing when evaluating an unusable donor.
+pub fn dead_donor(present: i32, missing: i32, error: i32, listed: u64, declared: u64, minimum: i32) -> bool {
+    let alive = effective_alive(present, missing, error, listed, declared);
+    let answered = present.max(0).saturating_add(missing.max(0)).saturating_add(error.max(0));
+    let missing = i64::from(missing.max(0)) + i64::from(unlisted_missing(answered, listed, declared));
+    alive >= 0.0 && alive * 100.0 < f64::from(minimum) && missing >= 5
+}
+
 /// Conservative PAR2 feasibility estimate; broadens discovery only.
 pub fn par_doomed(
     data_bytes: u64,
@@ -341,6 +349,16 @@ impl FetchBudget {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inferred_missing_rejects_unusable_partial_donors() {
+        assert!(dead_donor(5, 0, 0, 5, 150, 10));
+        assert!(!dead_donor(4, 0, 0, 5, 150, 10));
+        assert!(!dead_donor(0, 0, 100, 100, 100, 10));
+        assert!(dead_donor(0, 5, 0, 5, 5, 10));
+        assert!(!dead_donor(5, 0, 0, 5, 5, 10));
+        assert!(!dead_donor(5, 0, 0, 5, 150, 0));
+    }
+
     use super::*;
     const LIVE: u32 = ENABLED | DUPE_CHECK | PRESENT | NZB | DELETE_NONE | SCORE_MODE;
     #[test]
