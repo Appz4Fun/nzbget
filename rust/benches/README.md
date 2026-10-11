@@ -97,10 +97,15 @@ compiler, binary and input hashes in provenance.
 Variants are `cpp_current`, `cpp_optimized`, `rust_current`, `rust_candidate`.
 Omit unused variants, but never manufacture a required missing baseline. Keep
 the original C++ rows and any stronger optimized control visible.
-Set each fixture's `required_variants` explicitly. For an already-ported caller,
-include `rust_current` alongside the selected C++ and candidate variants so the
-preservation gate runs. Omitting this field defaults to the selected pair and
-does not establish current-Rust preservation.
+For runtime qualification, select `cpp_current` or `cpp_optimized` as the
+comparison baseline; selecting Rust cannot substitute for the C++ comparison.
+Set each fixture's `required_variants` explicitly. Each complete-caller fixture
+also needs `rust_preservation_applicability`: `required` for an already-ported
+caller, or `not_applicable` with a nonempty
+`provenance.rust_preservation_rationale`. `required` needs declared and measured
+`rust_current` alongside the selected comparison pair. `not_applicable` cannot
+waive a declared current-Rust baseline. Missing decisions or required baselines
+hold qualification. Kernel profiling does not require this decision.
 
 Each JSONL sample records `case`, `variant`, integer `process`, `round` and
 `order`, positive finite `elapsed_ns`, positive integer `iterations`, and the
@@ -116,6 +121,9 @@ python3 scripts/bench/summarize.py --manifest benchmark-results/manifest.json --
 ```
 
 Outputs are `summary.json`, `bencher.json`, `qualification.json` and `report.md`.
+Evidence readers reject FIFOs and other nonregular files before reading. Cleanup
+protects input traversal entries, including intermediate symlinks within symlink
+targets, before replacing generated artifacts.
 The paired ratio bootstrap resamples whole processes: 5000 draws, fixed seed
 20261011. Preserve configured prospective policy and fixture roles in the
 receipt/report. A valid exit 0 can mean HOLD; consumers must read qualification.
@@ -164,6 +172,8 @@ reviewed legacy evidence for PRs #84/#86. Partial legacy imports are explicit
 `archive_schema_version=1`: unknown identities/hashes remain unknown, empty
 samples are explicit, and original rows, units and raw hashes are preserved.
 These archives are not native v1 qualification or fabricated complete evidence.
+Use a fresh output directory for another import. Rejected archive reuse retains
+the original raw evidence and metadata while invalidating derived qualification.
 
 ## Trusted publication
 
@@ -182,6 +192,19 @@ python3 scripts/bench/collect_receipt.py --manifest benchmark-results/manifest.j
 Repeat `--build-metadata` and `--time-metadata` for multiple captured records.
 Bindings and the reviewed collection record must refer to the actual captured
 source, compiler, binary and input identities; do not invent missing references.
+The receipt's `source_hashes` contains descriptive checkout SHAs;
+`source_content_hashes` contains the SHA256 of each required variant's captured
+build source fixture. Both identities matter when source contents differ at the
+same checkout SHA. An optional manifest `provenance.source_content_hashes` must
+match the receipt exactly.
+
+The review record must explicitly state `actor: xbmc4lyfe`, `status: reviewed`,
+the reviewed `source_content_hashes`, and `rust_preservation_applicability` for
+every complete-caller fixture ID. Its hashes and decisions must exactly match
+the captured receipt and manifest; kernel fixtures are excluded from the decision
+map. The reviewer inspects these facts before approving them. Do not generate an
+approval by copying capture values into a review record. Standalone numeric
+qualification is separate from this reviewed provenance check.
 
 Capture the build and prebuilt execution for each reviewed complete-caller
 variant. Set `CXX_BIN`, `BUILD_ARGS`, `CALLER_BIN` and `RUN_ARGS` from that caller's
@@ -229,6 +252,10 @@ Manual validation begins pending and reports HOLD when evidence or publication
 does not complete. These GitHub statuses require the dedicated verified identity
 independently of Bencher configuration. Publication and archival serialize their
 writes by canonical PR number; fork heads are ineligible for publication.
+Publication requires a fresh output directory. Downloaded transport-validated
+manifest, samples and receipt bytes remain available after validation or
+publication errors; error handling replaces derived success with HOLD without
+deleting raw proof or overwriting evidence from an earlier attempt.
 
 At the `a3bb32e1` Rust-source validation snapshot, 219 unit tests (one ignored) and
 the allocation test passed. Clippy for the library and new Criterion benchmark passed with
