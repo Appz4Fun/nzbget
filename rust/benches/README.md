@@ -36,7 +36,7 @@ Three workflows in `.github/workflows/` run the benchmarks with
 | workflow | when | what |
 | --- | --- | --- |
 | `bench_base.yml` | push to `dupe-article-fallback` | records the base branch's results and sets the thresholds |
-| `bench_pr.yml` | a pull request from this repository | compares the branch with the base branch, comments the report on the pull request, and fails the check on an alert |
+| `bench_pr.yml` | a pull request from this repository into `dupe-article-fallback` | compares the branch with the base branch, comments the report on the pull request, and fails the check on an alert |
 | `bench_pr_closed.yml` | a pull request is closed | archives the pull request's branch in Bencher |
 
 The threshold is Bencher's `percentage` test on `latency`, upper boundary 0.10: a
@@ -50,13 +50,12 @@ The workflows do nothing until Bencher is set up:
 2. In the repository's settings, under Secrets and variables, add:
    - the **secret** `BENCHER_API_KEY`: the API key;
    - the **variable** `BENCHER_PROJECT`: the project's slug or UUID;
-   - optionally the variable `BENCHER_HOST`: the URL of a self-hosted server;
-   - optionally the variable `BENCHER_FAIL_ON_ALERT` set to `false`: report
-     alerts as comments but don't fail the check.
+   - optionally the variable `BENCHER_HOST`: the URL of a self-hosted server.
 3. Run `bench base` once (Actions, "Run workflow") so the base branch has a
    baseline; after that every push to it adds to it.
 
-Timings on shared GitHub runners vary by a few percent between runs, more for
+Bencher's report check fails when there is an alert; it blocks a merge only if
+branch protection requires it. Timings on shared GitHub runners vary by a few percent between runs, more for
 benchmarks of a few hundred nanoseconds. An alert on such a benchmark is worth a
 re-run before a fix. Pull requests from forks have no secrets and aren't benchmarked.
 

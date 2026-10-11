@@ -1,12 +1,13 @@
 # Benchmarks of a pull request, compared with the base branch's (bench_base.yml)
 # by Bencher: the report is a comment on the pull request, and a port more than
-# 10% slower is an alert that fails the check (repository variable
-# BENCHER_FAIL_ON_ALERT=false only reports). Pull requests from forks have no
-# secrets and are skipped.
+# 10% slower is an alert that fails the check. Only pull requests into the
+# base branch are benchmarked: it is the branch with a baseline. Pull requests
+# from forks have no secrets and are skipped.
 name: bench pull request
 
 on:
   pull_request:
+    branches: [dupe-article-fallback]
     types: [opened, reopened, edited, synchronize]
 
 jobs:
@@ -44,14 +45,11 @@ jobs:
         env:
           BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
           BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
-          BENCHER_FAIL_ON_ALERT: ${{ vars.BENCHER_FAIL_ON_ALERT }}
         run: |
           if [ -z "$BENCHER_KEY" ]; then
             echo "::notice::BENCHER_API_KEY is not set: benchmarks are not tracked"
             exit 0
           fi
-          fail=--error-on-alert
-          [ "$BENCHER_FAIL_ON_ALERT" = "false" ] && fail=
           bencher run \
             ${BENCHER_HOST_URL:+--host "$BENCHER_HOST_URL"} \
             --project '${{ vars.BENCHER_PROJECT }}' \
@@ -64,5 +62,5 @@ jobs:
             --testbed ubuntu-latest \
             --adapter json \
             --github-actions '${{ secrets.GITHUB_TOKEN }}' \
-            $fail \
+            --error-on-alert \
             "cd rust && cargo bench --bench ports"

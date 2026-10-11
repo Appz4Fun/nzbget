@@ -3,6 +3,7 @@ name: bench archive closed pull request
 
 on:
   pull_request:
+    branches: [dupe-article-fallback]
     types: [closed]
 
 jobs:
