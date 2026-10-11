@@ -19,6 +19,7 @@ pub mod parparser;
 pub mod paths;
 pub mod rarreader;
 pub mod rarrenamer;
+pub mod renameanalyzer;
 pub mod rpcparams;
 pub mod rpcroute;
 pub mod scheduler;

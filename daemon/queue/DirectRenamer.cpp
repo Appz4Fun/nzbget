@@ -28,6 +28,11 @@
 #include "Options.h"
 #include "FileSystem.h"
 #include "ParParser.h"
+#if defined(NZBGET_USE_RUST) && !defined(DISABLE_PARCHECK)
+#include <memory>
+#include "nzbget_rs.h"
+#define NZBGET_RS_RENAME_ANALYZER
+#endif
 
 #ifndef DISABLE_PARCHECK
 #include <par2/libpar2.h>
@@ -47,7 +52,11 @@ public:
 	const char* GetParSetId() { return m_parSetId; }
 
 private:
-#ifndef DISABLE_PARCHECK
+#ifdef NZBGET_RS_RENAME_ANALYZER
+	// rust/src/renameanalyzer.rs
+	std::unique_ptr<NzbgetRsRenameAnalyzer, void (*)(NzbgetRsRenameAnalyzer*)> m_rs{
+		nzbget_rs_rename_analyzer_new(), nzbget_rs_rename_analyzer_free};
+#elif !defined(DISABLE_PARCHECK)
 	Par2::MD5Context m_md5Context;
 	char m_signature[sizeof(Par2::PACKET_HEADER)];
 #endif
@@ -698,6 +707,13 @@ bool DirectRenamer::RenameFile(NzbInfo* nzbInfo, const std::string& oldFullFilen
 }
 
 
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Reset()
+{
+	nzbget_rs_rename_analyzer_reset(m_rs.get());
+	m_dataSize = 0;
+}
+#else
 void RenameContentAnalyzer::Reset()
 {
 #ifndef DISABLE_PARCHECK
@@ -705,7 +721,20 @@ void RenameContentAnalyzer::Reset()
 #endif
 	m_dataSize = 0;
 }
+#endif
 
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Append(const void* buffer, int len)
+{
+	char setId[33];
+	if (nzbget_rs_rename_analyzer_append(m_rs.get(), (const char*)buffer, len, setId))
+	{
+		m_parFile = true;
+		m_parSetId = setId;
+	}
+	m_dataSize += len;
+}
+#else
 void RenameContentAnalyzer::Append(const void* buffer, int len)
 {
 #ifndef DISABLE_PARCHECK
@@ -729,8 +758,17 @@ void RenameContentAnalyzer::Append(const void* buffer, int len)
 	m_dataSize += len;
 #endif
 }
+#endif
 
 // Must be called with locked DownloadQueue
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Finish()
+{
+	char hash[33];
+	nzbget_rs_rename_analyzer_finish(m_rs.get(), hash);
+	m_hash16k = hash;
+}
+#else
 void RenameContentAnalyzer::Finish()
 {
 #ifndef DISABLE_PARCHECK
@@ -740,3 +778,4 @@ void RenameContentAnalyzer::Finish()
 	m_hash16k = hash.print().c_str();
 #endif
 }
+#endif

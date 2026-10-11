@@ -696,6 +696,17 @@ typedef struct NzbgetRsRarRenEnv
 } NzbgetRsRarRenEnv;
 void nzbget_rs_rar_rename_files(const char* dir, const NzbgetRsRarRenVolume* volumes, size_t count, const NzbgetRsRarRenEnv* env);
 
+// DirectRenamer's RenameContentAnalyzer (rust/src/renameanalyzer.rs): the PAR2
+// packet header and MD5 of a file's first 16 KiB, fed article by article.
+// append returns 1 when it recognized a PAR2 header (setId: 32 hex digits and
+// a NUL); finish writes the printed MD5 (32 hex digits and a NUL).
+typedef struct NzbgetRsRenameAnalyzer NzbgetRsRenameAnalyzer;
+NzbgetRsRenameAnalyzer* nzbget_rs_rename_analyzer_new(void);
+void nzbget_rs_rename_analyzer_free(NzbgetRsRenameAnalyzer* a);
+void nzbget_rs_rename_analyzer_reset(NzbgetRsRenameAnalyzer* a);
+int nzbget_rs_rename_analyzer_append(NzbgetRsRenameAnalyzer* a, const char* buf, int len, char* setId);
+void nzbget_rs_rename_analyzer_finish(NzbgetRsRenameAnalyzer* a, char* hash);
+
 #ifdef __cplusplus
 }
 #endif
