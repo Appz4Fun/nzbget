@@ -326,6 +326,27 @@ class LocalTarget:
             shutil.rmtree(self.work, ignore_errors=True)
 
 
+class AdbProcess:
+    """Wait for a foreground process launched through adb to exit."""
+    def __init__(self, target, pid):
+        self.target = target
+        self.pid = pid
+
+    def wait(self, timeout=60):
+        deadline = time.monotonic() + timeout
+        while True:
+            result = self.target._adb('shell',
+                'if kill -0 %d 2>/dev/null; then echo running; else echo exited; fi' % self.pid)
+            status = result.stdout.strip()
+            if result.returncode != 0 or status not in ('running', 'exited'):
+                raise RuntimeError('could not check adb process %d: %s' % (self.pid, result.stderr))
+            if status == 'exited':
+                return
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired('adb process %d' % self.pid, timeout)
+            time.sleep(0.3)
+
+
 class AdbTarget:
     """Run nserv + daemon inside an Android emulator/device over adb.
 
@@ -392,9 +413,12 @@ class AdbTarget:
     def spawn(self, args, output_rel=None):
         # launch detached on device; ports are device-local
         output = self._q(self.path(output_rel)) if output_rel else '/dev/null'
-        remote = ' '.join(self._q(a) for a in args) + ' >' + output + ' 2>&1 &'
-        self._adb('shell', remote)
-        return None
+        remote = ' '.join(self._q(a) for a in args) + ' >' + output + ' 2>&1 & echo $!'
+        result = self._adb('shell', remote)
+        pid = result.stdout.strip()
+        if result.returncode != 0 or not pid.isdigit() or int(pid) <= 0:
+            raise RuntimeError('could not launch adb process: %s' % result.stderr)
+        return AdbProcess(self, int(pid))
 
     @staticmethod
     def _q(a):
@@ -477,7 +501,7 @@ class Daemon:
                      output_rel='nserv.log' if capture_requests else None)
 
     def start(self):
-        self.t.spawn([self.t.nzbget, '-c', self.t.path(self.conf_rel), '-s'])
+        self.process = self.t.spawn([self.t.nzbget, '-c', self.t.path(self.conf_rel), '-s'])
 
     def api(self):
         host = self.t.rpc_host()
@@ -5549,13 +5573,7 @@ def scenario_idsafteremptyqueue(daemon, t):
         api.shutdown()
     except Exception:
         pass
-    if t.name == 'local':
-        t.procs[-1].wait(timeout=60)
-    else:
-        deadline = time.monotonic() + 60
-        while t.exists('nzbget.lock') and time.monotonic() < deadline:
-            time.sleep(0.3)
-        assert not t.exists('nzbget.lock'), "daemon must stop before restart"
+    daemon.process.wait(timeout=60)
     daemon.start()
     api = daemon.wait_ready()
     new_id = add('New')
@@ -5582,13 +5600,7 @@ def scenario_idsafteremptyfinaldelete(daemon, t):
         api.shutdown()
     except Exception:
         pass
-    if t.name == 'local':
-        t.procs[-1].wait(timeout=60)
-    else:
-        deadline = time.monotonic() + 60
-        while t.exists('nzbget.lock') and time.monotonic() < deadline:
-            time.sleep(0.3)
-        assert not t.exists('nzbget.lock'), "daemon must stop before restart"
+    daemon.process.wait(timeout=60)
     assert not t.exists('main/queue/queue'), "queue state must be absent"
     assert not t.exists('main/queue/history'), "history state must be absent"
     assert t.exists('main/queue/ids'), "ID floor must exist"
