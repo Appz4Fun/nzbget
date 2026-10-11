@@ -5,7 +5,9 @@ fallback with the pre-port C++ (Json::Deserialize and ParseRequestParams):
 random request bodies - objects with "params" arrays of every length and
 entry kind, integers and doubles around int's range, strings with NULs and
 escapes, duplicate keys, other JSON and broken JSON. Compares the error
-response and every parameter.
+response and every parameter without ambiguous string escaping. Also checks
+targeted numeric/type boundaries, NULL FFI arguments, and allocation failures
+at each of the four C++ string copies.
 
 Usage: testserver_differential.py BUILD_DIR [ROUNDS]
 """
@@ -39,6 +41,10 @@ fallback_block = between(new_src, "#else\n		const auto jsonResult = Json::Deseri
 
 
 def impl(name, block):
+    # Fail only parameter copies; Deserialize itself is noexcept in C++.
+    marker = ("int parsed = nzbget_rs_test_server_params" if name == "newimpl"
+              else "auto paramsResult = ParseRequestParams")
+    block = block.replace(marker, "failAllocation = failAfter; " + marker)
     return f'''
 namespace {name}
 {{
@@ -46,7 +52,7 @@ namespace {name}
 	{{
 		using ServerParams = ::ServerParams;
 {parse_params}
-		std::string Run(const char* m_request)
+		std::string Run(const char* m_request, int failAfter = -1)
 		{{
 			std::string error;
 			ServerParams params{{}};
@@ -55,6 +61,7 @@ namespace {name}
 			{{
 {block}
 			}}();
+			failAllocation = -1;
 			return error.empty() ? Dump(params) : "error: " + error;
 		}}
 	}};
@@ -78,8 +85,23 @@ main = r'''
 #include <cstring>
 #include <exception>
 #include <optional>
+#include <new>
 #include <string>
+#include <vector>
 ''' + globals_block + r'''
+// Rust uses its own allocator. Fail actual C++ string allocations in the
+// callback and value_to<std::string> in the reference.
+static int failAllocation = -1;
+void* operator new(size_t size)
+{
+	if (failAllocation >= 0 && failAllocation-- == 0)
+		throw std::bad_alloc();
+	if (void* p = malloc(size ? size : 1)) return p;
+	throw std::bad_alloc();
+}
+void operator delete(void* p) noexcept { free(p); }
+void operator delete(void* p, size_t) noexcept { free(p); }
+
 struct ServerParams
 {
 	std::string host;
@@ -95,7 +117,9 @@ struct ServerParams
 static std::string Bytes(const std::string& s)
 {
 	std::string out = "[";
-	for (unsigned char c : s) { char b[8]; snprintf(b, sizeof(b), c < 32 || c > 126 ? "\\x%02x" : "%c", c); out += b; }
+	// Encode every byte so literal "\x00", embedded NULs and field delimiters
+	// cannot produce identical dumps for different parameters.
+	for (unsigned char c : s) { char b[3]; snprintf(b, sizeof(b), "%02x", c); out += b; }
 	return out + "]";
 }
 
@@ -173,22 +197,81 @@ static std::string body()
 	}
 }
 
+static bool check(const std::string& text, int failAfter = -1, const char* expected = nullptr)
+{
+	std::string a = oldimpl::Command().Run(text.c_str(), failAfter);
+	std::string b = newimpl::Command().Run(text.c_str(), failAfter);
+	std::string c = fallbackimpl::Command().Run(text.c_str(), failAfter);
+	if (a != b || a != c || (expected && a != expected))
+	{
+		fprintf(stderr, "mismatch on %s (allocation failure %d)\n  old:      %s\n  rust:     %s\n  fallback: %s\n",
+			Bytes(text).c_str(), failAfter, a.c_str(), b.c_str(), c.c_str());
+		exit(1);
+	}
+	return a.rfind("error", 0) != 0;
+}
+
+static void targeted()
+{
+	if (Bytes(std::string("a\0b", 3)) == Bytes("a\\x00b")) exit(1);
+	const std::vector<std::string> good = {"\"host\"", "119", "\"user\"", "\"pass\"", "true", "\"tls\"", "30", "2"};
+	auto array = [](const std::vector<std::string>& values) {
+		std::string out = "[";
+		for (const auto& v : values) { if (out.size() > 1) out += ","; out += v; }
+		return out + "]";
+	};
+	std::string valid = "{\"params\":" + array(good) + "}";
+	for (const char* bad : {"", " ", "{", "{\"params\":[]", "NaN", "[1,]"})
+		check(bad, -1, "error: Invalid JSON");
+	for (const char* bad : {"null", "true", "1", "\"params\"", "[]", "{}", "{\"params\":null}"})
+		check(bad, -1, "error: Invalid parameters");
+	for (size_t n = 0; n < good.size(); ++n)
+		check("{\"params\":" + array({good.begin(), good.begin() + n}) + "}", -1, "error: Invalid parameters");
+	const char* values[] = {"null", "true", "false", "[]", "{}", "\"\"", "\"a\\u0000b\"", "\"a\\\\x00b\"",
+		"0", "-0", "1", "-1", "2147483647", "2147483648", "-2147483648", "-2147483649",
+		"9223372036854775807", "9223372036854775808", "18446744073709551615", "18446744073709551616",
+		"1.0", "1.5", "-0.0", "1e2", "1e-400", "-1e-400", "1e400", "-1e400",
+		"2147483647.0", "2147483647.0000001", "2147483647.5", "2147483648.0", "-2147483648.0",
+		"-2147483648.0000001", "-2147483648.5", "2147483646.9999999999", "1e-300"};
+	for (size_t i = 0; i < good.size(); ++i)
+		for (const char* value : values)
+			for (int padding : {0, 32, 33, 64})
+			{
+				auto fields = good;
+				fields[i] = value;
+				check("{\"params\":" + array(fields) + "}" + std::string(padding, ' '));
+			}
+	check("{\"params\":null,\"par\\u0061ms\":" + array(good) + "}");
+	check("{\"params\":" + array(good) + ",\"params\":null}", -1, "error: Invalid parameters");
+	check("{\"params\\u0000\":" + array(good) + "}", -1, "error: Invalid parameters");
+	check(valid + std::string("\0garbage", 8)); // C string ends at its first NUL
+	check(std::string("{\"params\":\0", 11) + array(good) + "}", -1, "error: Invalid JSON");
+	auto longFields = good;
+	for (int i : {0, 2, 3, 5}) longFields[i] = "\"" + std::string(256, 'a' + i) + "\\u0000tail\"";
+	std::string longBody = "{\"params\":" + array(longFields) + "}";
+	for (int i = 0; i < 4; ++i) check(longBody, i, "error: Invalid parameters");
+	if (!check(longBody, 4)) exit(1);
+
+	const NzbgetRsJsonLimits limits{Json::string::max_size(), Json::JsonArray::max_size(), Json::JsonObject::max_size()};
+	int calls = 0;
+	auto count = [](void* ctx, const NzbgetRsTestServerParams*) noexcept { ++*static_cast<int*>(ctx); };
+	if (nzbget_rs_test_server_params(nullptr, limits, &calls, count) != 0 || calls != 0 ||
+		nzbget_rs_test_server_params("{}", limits, &calls, count) != -1 || calls != 0 ||
+		nzbget_rs_test_server_params(valid.c_str(), limits, &calls, count) != 1 || calls != 1 ||
+		nzbget_rs_test_server_params(valid.c_str(), limits, nullptr, nullptr) != 1)
+		exit(1);
+	puts("targeted bodies, copy allocation failures and NULL FFI arguments agree");
+}
+
 int main(int argc, char** argv)
 {
+	targeted();
 	long rounds = atol(argv[1]);
 	long ok = 0;
 	for (long round = 0; round < rounds; round++)
 	{
 		std::string text = body();
-		std::string a = oldimpl::Command().Run(text.c_str());
-		std::string b = newimpl::Command().Run(text.c_str());
-		std::string c = fallbackimpl::Command().Run(text.c_str());
-		if (a.rfind("error", 0) != 0) ok++;
-		if (a != b || a != c)
-		{
-			fprintf(stderr, "mismatch on %s\n  old:      %s\n  rust:     %s\n  fallback: %s\n", text.c_str(), a.c_str(), b.c_str(), c.c_str());
-			return 1;
-		}
+		if (check(text)) ok++;
 	}
 	printf("%ld bodies agree, %ld parsed (reference %s)\n", rounds, ok, "''' + REFERENCE + r'''");
 }
