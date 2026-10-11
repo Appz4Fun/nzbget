@@ -79,7 +79,7 @@ main = r'''
 #include <sys/stat.h>
 #include <clocale>
 #include <climits>
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) || defined(__UCLIBC__) || defined(__CYGWIN__)
 extern "C" int __xpg_strerror_r(int, char*, size_t);
 static bool longError = false;
 extern "C" int __real___xpg_strerror_r(int, char*, size_t);
@@ -253,7 +253,7 @@ static void ffiChecks()
 	nzbget_rs_error_message(ENOENT, nullptr);
 	for (int e : {0, ENOENT, EACCES, ENAMETOOLONG, -1, INT_MAX, INT_MIN}) {
 		char expected[1024] = {};
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) || defined(__UCLIBC__) || defined(__CYGWIN__)
 		__xpg_strerror_r(e, expected, 1023);
 #else
 		strerror_r(e, expected, 1023);
@@ -263,7 +263,7 @@ static void ffiChecks()
 		nzbget_rs_error_message(e, actual.text);
 		require(std::string(expected) == actual.text && actual.guard == 'G', "strerror_r mismatch/overflow");
 	}
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) || defined(__UCLIBC__) || defined(__CYGWIN__)
 	longError = true;
 	errno = ENOENT;
 	CString cut = ::FileSystem::GetLastErrorMessage();
@@ -408,6 +408,6 @@ with tempfile.TemporaryDirectory(prefix="nzbget-fsops-") as temp:
     binary = temp / "fsops"
     for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], []):
         subprocess.run([*shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")), *shlex.split(get("CXX_DEFINES")),
-                        *shlex.split(os.environ.get("FSOPS_CXX_FLAGS", "")), *extra, *(["-Wl,--wrap=__xpg_strerror_r"] if sys.platform.startswith("linux") else []), "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
+                        *shlex.split(os.environ.get("FSOPS_CXX_FLAGS", "")), *extra, *(["-Wl,--wrap=__xpg_strerror_r"] if sys.platform.startswith(("linux", "cygwin", "gnu")) else []), "-w", *shlex.split(get("CXX_INCLUDES")), str(temp / "main.cpp"), "-o", str(binary),
                         *[str(BUILD / l) if not l.startswith(("-", "/")) else l for l in libs]], check=True, cwd=BUILD)
         subprocess.run([str(binary), ROUNDS, str(temp / "t")], check=True)

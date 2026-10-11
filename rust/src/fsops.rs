@@ -8,9 +8,13 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 
 extern "C" {
-    // the XSI strerror_r (glibc's strerror_r is the GNU one, which leaves the
-    // buffer alone for known errors)
-    #[cfg_attr(target_env = "gnu", link_name = "__xpg_strerror_r")]
+    // These libcs export the GNU ABI as strerror_r and the XSI ABI under
+    // __xpg_strerror_r. In particular, Cygwin has an empty target_env.
+    // Other POSIX libcs (including musl and the BSDs) use strerror_r for XSI.
+    #[cfg_attr(
+        any(target_env = "gnu", target_env = "uclibc", target_os = "cygwin"),
+        link_name = "__xpg_strerror_r"
+    )]
     fn strerror_r(errnum: c_int, buf: *mut c_char, len: usize) -> c_int;
     fn strcasecmp(a: *const c_char, b: *const c_char) -> c_int;
     fn strncasecmp(a: *const c_char, b: *const c_char, n: usize) -> c_int;
