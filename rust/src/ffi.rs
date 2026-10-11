@@ -5365,3 +5365,48 @@ mod tests {
         unsafe { nzbget_rs_free(RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 }) };
     }
 }
+
+// ---- dupesearch (daemon/dupesearch/) ----
+
+/// DonorScore::Base.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_donorscore_base(pick_score: c_int) -> c_int {
+    crate::donorscore::base(pick_score)
+}
+
+/// DonorScore::Target.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_donorscore_target(alive: f64, twin: c_int) -> c_int {
+    crate::donorscore::target(alive, twin != 0)
+}
+
+/// One DonorScore::Entry across the C ABI.
+#[repr(C)]
+pub struct NzbgetRsDonorEntry {
+    pub score: c_int,
+    pub alive: f64,
+    pub twin: c_int,
+    pub bytes: i64,
+    pub grabs: c_int,
+}
+
+/// DonorScore::Rerank: `out` (writable for `n`) gets the scores parallel to
+/// `entries` (readable for `n`; either may be NULL when `n` is 0).
+///
+/// # Safety
+/// `entries` and `out` must be valid for `n` elements.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_donorscore_rerank(entries: *const NzbgetRsDonorEntry, n: usize,
+                                                     pick_bytes: i64, out: *mut c_int) {
+    if n == 0 {
+        return;
+    }
+    let raw = std::slice::from_raw_parts(entries, n);
+    let entries: Vec<crate::donorscore::Entry> = raw
+        .iter()
+        .map(|e| crate::donorscore::Entry { score: e.score, alive: e.alive, twin: e.twin != 0, bytes: e.bytes,
+                                            grabs: e.grabs })
+        .collect();
+    let scores = crate::donorscore::rerank(&entries, pick_bytes);
+    std::ptr::copy_nonoverlapping(scores.as_ptr(), out, n);
+}
