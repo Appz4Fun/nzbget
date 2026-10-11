@@ -316,6 +316,20 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(check["candidate"], "cpp_optimized")
         self.assertAlmostEqual(check["ratio"]["estimate"], 1.6)
 
+    def test_non_cpp_baseline_cannot_qualify_runtime_despite_rust_gain(self):
+        for scope in ("complete_caller", "kernel"):
+            m = manifest(scope)
+            m["comparison"]["baseline"] = "rust_current"
+            m["fixtures"][0]["required_variants"] = ["cpp_current", "rust_current", "rust_candidate"]
+            rows = self.rust_three_way_rows([20000] * 8, 15000)
+            summary, _, q = self.run_summary(m, rows)
+            case = summary["cases"][0]
+            self.assertAlmostEqual(case["ratio"]["estimate"], 0.75)
+            self.assertEqual(case["rust_preservation"]["status"], "PASS")
+            self.assertEqual(q["status"], "HOLD")
+            if scope == "complete_caller":
+                self.assertIn("non_cpp_runtime_baseline", case["reasons"])
+
     @staticmethod
     def rust_three_way_rows(current_elapsed, candidate_elapsed=8000):
         rows = samples()
@@ -481,6 +495,64 @@ class SummaryTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2)
                     self.assertTrue(alias.is_symlink())
                     self.assertEqual(before, (mf.read_bytes(), sf.read_bytes()))
+
+    def test_intermediate_symlink_target_entries_are_never_unlinked(self):
+        for use_parent, relative in ((False, False), (True, False), (False, True), (True, True)):
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                real, out = tmp / "real", tmp / "out"
+                real.mkdir()
+                out.mkdir()
+                ancestor = out / "summary.json"
+                ancestor.symlink_to(real, target_is_directory=True)
+                # Keep the other input outside 'real': otherwise its direct
+                # parent would accidentally protect the hidden target ancestor.
+                mf, sf = real / "manifest.json", tmp / "samples.jsonl"
+                mf.write_text(json.dumps(manifest()))
+                sf.write_text("\n".join(json.dumps(r) for r in samples()) + "\n")
+                link = tmp / "manifest-link"
+                target = ancestor / "manifest.json"
+                if use_parent:
+                    target = ancestor / ".." / "real" / "manifest.json"
+                if relative:
+                    target = target.relative_to(tmp)
+                link.symlink_to(target)
+                before = (mf.read_bytes(), sf.read_bytes())
+                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(link),
+                                         "--samples", str(sf), "--output-dir", str(out)], capture_output=True)
+                with self.subTest(use_parent=use_parent, relative=relative):
+                    self.assertEqual(result.returncode, 2)
+                    self.assertTrue(ancestor.is_symlink())
+                    self.assertTrue(link.is_symlink())
+                    self.assertEqual(before, (mf.read_bytes(), sf.read_bytes()))
+
+    def test_symlink_expansion_budget_rejects_cycle_promptly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            mf, sf = tmp / "manifest-link", tmp / "samples.jsonl"
+            mf.symlink_to("manifest-link")
+            sf.write_text("\n".join(json.dumps(r) for r in samples()) + "\n")
+            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(mf),
+                                     "--samples", str(sf), "--output-dir", str(tmp / "out")],
+                                    capture_output=True, timeout=2)
+            self.assertEqual(result.returncode, 2)
+            self.assertTrue(mf.is_symlink())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO control")
+    def test_fifo_input_rejected_without_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            mf, fifo, out = tmp / "manifest.json", tmp / "samples.jsonl", tmp / "out"
+            mf.write_text(json.dumps(manifest()))
+            os.mkfifo(fifo)
+            try:
+                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(mf),
+                                         "--samples", str(fifo), "--output-dir", str(out)],
+                                        capture_output=True, timeout=2)
+            except subprocess.TimeoutExpired:
+                self.fail("FIFO evidence input blocked instead of rejecting a nonregular file")
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":

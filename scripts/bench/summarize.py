@@ -8,15 +8,17 @@ hardware stability, process independence, or unchanged-control attribution.
 Those assertions require trusted evidence before a runtime replacement is approved.
 """
 import argparse
-from collections import defaultdict
+from collections import defaultdict, deque
 import hashlib
 import html
 import json
 import math
+import os
 from pathlib import Path
 import random
 import re
 import statistics
+import stat
 import sys
 import tempfile
 
@@ -261,7 +263,7 @@ def summarize(manifest, rows):
                    "outliers": "all retained; no trimming or independent round resampling",
                    "interpretation": "prospective conservative precision/sufficiency defaults; not statistical guarantees or a historical waiver",
                    "limits": "numerical eligibility only; independently verify git/build hashes, output correctness, testbed, process independence, and control attribution",
-                   "migration_rule": "all changed complete callers need upper selected-baseline ratio CI < 1; required current Rust needs upper preservation ratio CI <= 1; unchanged controls must include 1 against both baselines; kernels cannot qualify runtime"}
+                   "migration_rule": "runtime qualification requires selected baseline cpp_current or cpp_optimized; all changed complete callers need upper selected-baseline ratio CI < 1; required current Rust needs upper preservation ratio CI <= 1; unchanged controls must include 1 against both baselines; kernels cannot qualify runtime"}
     summary = {**identity, "comparison": manifest["comparison"], "toolchain": manifest["toolchain"],
                "provenance": manifest.get("provenance", {}), "methodology": methodology, "cases": []}
     bmf = {}
@@ -325,6 +327,8 @@ def summarize(manifest, rows):
                                               "reasons": rust_reasons}
                 if rust_reasons:
                     case["reasons"].append("existing_rust_not_preserved")
+        if fixture["scope"] == "complete_caller" and baseline not in ("cpp_current", "cpp_optimized"):
+            case["reasons"].append("non_cpp_runtime_baseline")
         if fixture["scope"] == "kernel":
             case["reasons"].append("kernel_cannot_qualify_runtime")
         if not case["reasons"]:
@@ -387,6 +391,8 @@ def render_report(summary, qualification):
                   "Prospective qualification policy: " + markdown(json.dumps(summary["methodology"]["policy"], sort_keys=True)) + ". "
                   "These conservative defaults are configurable and do not guarantee accuracy or reassess historical ports.", "",
                   "Changed complete callers need an upper ratio bound below 1. Every changed caller must pass, including tiny calls. "
+                  "Runtime qualification requires the selected baseline to be cpp_current or cpp_optimized; "
+                  "other comparisons remain useful numerical profiling and always hold runtime qualification. "
                   "A required current-Rust baseline also needs its candidate/current ratio upper bound at most 1, "
                   "with balanced order and sufficient precise evidence. This allows equality for preservation while "
                   "retaining the selected C++ baseline's strict speed gate. "
@@ -423,9 +429,58 @@ def strict_json(raw):
         raise ValidationError("malformed JSON input") from error
 
 
+def traversed_entries(path):
+    """Record entries visited during bounded POSIX symlink expansion, before '..'."""
+    absolute = path if path.is_absolute() else Path.cwd() / path
+    current = Path(absolute.anchor)
+    pending = deque(absolute.parts[1:])
+    visited = {current}
+    expansions = 0
+    while pending:
+        part = pending.popleft()
+        if part == ".":
+            continue
+        if part == "..":
+            current = current.parent
+            visited.add(current)
+            continue
+        entry = current / part
+        visited.add(entry)
+        try:
+            metadata = entry.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            # Missing inputs are rejected by the reader after stale owned
+            # artifacts are cleared; still protect each lexical component.
+            current = entry
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            expansions += 1
+            require(expansions <= 40, "input symlink expansion budget exceeded")
+            target = Path(os.readlink(entry))
+            if target.is_absolute():
+                current = Path(target.anchor)
+                visited.add(current)
+                parts = target.parts[1:]
+            else:
+                parts = target.parts
+            pending.extendleft(reversed(parts))
+        else:
+            current = entry
+    return visited
+
+
 def read_bounded(path, limit):
-    with path.open("rb") as stream:
-        data = stream.read(limit + 1)
+    # Opening a FIFO normally blocks before any size check. Open nonblocking,
+    # then inspect the descriptor actually opened before attempting any read.
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        require(stat.S_ISREG(metadata.st_mode), "evidence input must be a regular file")
+        require(metadata.st_size <= limit, "input exceeds byte budget")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            data = stream.read(limit + 1)
+    finally:
+        os.close(descriptor)
     require(len(data) <= limit, "input exceeds byte budget")
     return data
 
@@ -442,6 +497,8 @@ def main(argv=None):
         # traversed before a later '..' is still needed to reach the input.
         originals = [p if p.is_absolute() else Path.cwd() / p for p in (args.manifest, args.samples)]
         protected = {ancestor for p in originals for ancestor in (p, *p.parents)}
+        for path in originals:
+            protected.update(traversed_entries(path))
         resolved = {p.resolve() for p in protected}
         aliases = any(p.resolve() in resolved or any(p.exists() and i.exists() and p.samefile(i)
                                                     for i in protected) for p in targets)
