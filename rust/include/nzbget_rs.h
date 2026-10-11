@@ -696,6 +696,23 @@ typedef struct NzbgetRsRarRenEnv
 } NzbgetRsRarRenEnv;
 void nzbget_rs_rar_rename_files(const char* dir, const NzbgetRsRarRenVolume* volumes, size_t count, const NzbgetRsRarRenEnv* env);
 
+// DirectRenamer's RenameContentAnalyzer (rust/src/renameanalyzer.rs): the PAR2
+// packet header and MD5 of a file's first 16 KiB, fed article by article.
+// append returns 1 when it recognized a PAR2 header (setId: 32 hex digits and
+// a NUL); finish writes the printed MD5 (32 hex digits and a NUL).
+// The caller owns these 33-byte output buffers; no buffer is retained or freed.
+// Output buffers must not overlap the input or analyzer. NULL outputs discard
+// the set id; NULL hash makes finish a no-op. NULL analyzers are accepted as
+// no-ops, as are negative lengths and NULL input with positive length. NULL
+// input with zero length is an ordinary empty piece (it may recognize a header).
+// Use only new/free for analyzer ownership, with exclusive access on each call.
+typedef struct NzbgetRsRenameAnalyzer NzbgetRsRenameAnalyzer;
+NzbgetRsRenameAnalyzer* nzbget_rs_rename_analyzer_new(void);
+void nzbget_rs_rename_analyzer_free(NzbgetRsRenameAnalyzer* a);
+void nzbget_rs_rename_analyzer_reset(NzbgetRsRenameAnalyzer* a);
+int nzbget_rs_rename_analyzer_append(NzbgetRsRenameAnalyzer* a, const char* buf, int len, char* setId);
+void nzbget_rs_rename_analyzer_finish(NzbgetRsRenameAnalyzer* a, char* hash);
+
 #ifdef __cplusplus
 }
 #endif

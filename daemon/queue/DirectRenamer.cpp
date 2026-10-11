@@ -21,6 +21,7 @@
 
 #include "nzbget.h"
 
+#include <cstddef>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
@@ -28,6 +29,11 @@
 #include "Options.h"
 #include "FileSystem.h"
 #include "ParParser.h"
+#if defined(NZBGET_USE_RUST) && !defined(DISABLE_PARCHECK)
+#include <memory>
+#include "nzbget_rs.h"
+#define NZBGET_RS_RENAME_ANALYZER
+#endif
 
 #ifndef DISABLE_PARCHECK
 #include <par2/libpar2.h>
@@ -47,11 +53,17 @@ public:
 	const char* GetParSetId() { return m_parSetId; }
 
 private:
-#ifndef DISABLE_PARCHECK
+#ifdef NZBGET_RS_RENAME_ANALYZER
+	// rust/src/renameanalyzer.rs
+	std::unique_ptr<NzbgetRsRenameAnalyzer, void (*)(NzbgetRsRenameAnalyzer*)> m_rs{
+		nzbget_rs_rename_analyzer_new(), nzbget_rs_rename_analyzer_free};
+#elif !defined(DISABLE_PARCHECK)
 	Par2::MD5Context m_md5Context;
 	char m_signature[sizeof(Par2::PACKET_HEADER)];
 #endif
+#ifndef NZBGET_RS_RENAME_ANALYZER
 	int m_dataSize = 0;
+#endif
 	CString m_hash16k;
 	CString m_parSetId;
 	bool m_parFile = false;
@@ -698,6 +710,12 @@ bool DirectRenamer::RenameFile(NzbInfo* nzbInfo, const std::string& oldFullFilen
 }
 
 
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Reset()
+{
+	nzbget_rs_rename_analyzer_reset(m_rs.get());
+}
+#else
 void RenameContentAnalyzer::Reset()
 {
 #ifndef DISABLE_PARCHECK
@@ -705,32 +723,61 @@ void RenameContentAnalyzer::Reset()
 #endif
 	m_dataSize = 0;
 }
+#endif
 
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Append(const void* buffer, int len)
+{
+	char setId[33];
+	if (nzbget_rs_rename_analyzer_append(m_rs.get(), (const char*)buffer, len, setId))
+	{
+		m_parFile = true;
+		m_parSetId = setId;
+	}
+}
+#else
 void RenameContentAnalyzer::Append(const void* buffer, int len)
 {
 #ifndef DISABLE_PARCHECK
-	if ((size_t)m_dataSize < sizeof(m_signature))
+	if (len < 0 || (!buffer && len > 0))
+	{
+		return;
+	}
+	if (len > 0 && (size_t)m_dataSize < sizeof(m_signature))
 	{
 		memcpy(m_signature + m_dataSize, buffer, std::min((size_t)len, sizeof(m_signature) - m_dataSize));
 	}
 
-	if ((size_t)m_dataSize >= sizeof(m_signature) && (*(Par2::MAGIC*)m_signature) == Par2::packet_magic)
+	if ((size_t)m_dataSize >= sizeof(m_signature) &&
+		memcmp(m_signature, &Par2::packet_magic, sizeof(Par2::MAGIC)) == 0)
 	{
 		m_parFile = true;
-		m_parSetId = ((Par2::PACKET_HEADER*)m_signature)->setid.print().c_str();
+		Par2::MD5Hash setId;
+		memcpy(&setId, m_signature + offsetof(Par2::PACKET_HEADER, setid), sizeof(setId));
+		m_parSetId = setId.print().c_str();
 	}
 
-	int rem16kSize = std::min(len, 16 * 1024 - m_dataSize);
+	// Define the legacy two's-complement wrapping without signed overflow.
+	int rem16kSize = std::min(len, (int)(16u * 1024 - (unsigned int)m_dataSize));
 	if (rem16kSize > 0)
 	{
 		m_md5Context.Update(buffer, rem16kSize);
 	}
 
-	m_dataSize += len;
+	m_dataSize = (int)((unsigned int)m_dataSize + (unsigned int)len);
 #endif
 }
+#endif
 
 // Must be called with locked DownloadQueue
+#ifdef NZBGET_RS_RENAME_ANALYZER
+void RenameContentAnalyzer::Finish()
+{
+	char hash[33];
+	nzbget_rs_rename_analyzer_finish(m_rs.get(), hash);
+	m_hash16k = hash;
+}
+#else
 void RenameContentAnalyzer::Finish()
 {
 #ifndef DISABLE_PARCHECK
@@ -740,3 +787,4 @@ void RenameContentAnalyzer::Finish()
 	m_hash16k = hash.print().c_str();
 #endif
 }
+#endif

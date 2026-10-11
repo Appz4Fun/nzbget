@@ -2897,6 +2897,78 @@ pub unsafe extern "C" fn nzbget_rs_rar_rename_files(dir: *const c_char, volumes:
     crate::rarrenamer::rename_files(input(dir), &vols, &mut FfiRarRen(env));
 }
 
+/// DirectRenamer's RenameContentAnalyzer: a new analyzer (free with
+/// nzbget_rs_rename_analyzer_free).
+#[no_mangle]
+pub extern "C" fn nzbget_rs_rename_analyzer_new() -> *mut crate::renameanalyzer::Analyzer {
+    Box::into_raw(Box::default())
+}
+
+/// Frees an analyzer.
+///
+/// # Safety
+/// `a` is null or an analyzer not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rename_analyzer_free(a: *mut crate::renameanalyzer::Analyzer) {
+    if !a.is_null() {
+        drop(Box::from_raw(a));
+    }
+}
+
+/// RenameContentAnalyzer::Reset
+///
+/// # Safety
+/// `a` is null or a live analyzer.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rename_analyzer_reset(a: *mut crate::renameanalyzer::Analyzer) {
+    if let Some(a) = a.as_mut() {
+        a.reset();
+    }
+}
+
+/// RenameContentAnalyzer::Append: 1 when a PAR2 packet header was recognized,
+/// its set id then in `set_id` (32 hex digits and a NUL).
+///
+/// # Safety
+/// `a` is null or a live, exclusively accessed analyzer. For positive `len`,
+/// a non-null `buf` is readable for `len` bytes and does not overlap `a`.
+/// `set_id` is null or writable for 33 bytes and does not overlap `a` or `buf`.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rename_analyzer_append(
+    a: *mut crate::renameanalyzer::Analyzer,
+    buf: *const c_char,
+    len: c_int,
+    set_id: *mut c_char,
+) -> c_int {
+    let Some(a) = a.as_mut() else { return 0 };
+    if len < 0 || (buf.is_null() && len > 0) {
+        return 0;
+    }
+    let matched = a.append(span(buf, len as usize));
+    if matched && !set_id.is_null() {
+        if let Some(id) = &a.par_set_id {
+            std::ptr::copy_nonoverlapping(id.as_ptr().cast(), set_id, id.len());
+        }
+    }
+    matched as c_int
+}
+
+/// RenameContentAnalyzer::Finish: the MD5 of the first 16 KiB into `hash`
+/// (32 hex digits and a NUL).
+///
+/// # Safety
+/// `a` is null or a live, exclusively accessed analyzer; `hash` is null or
+/// writable for 33 bytes and does not overlap `a`.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rename_analyzer_finish(a: *mut crate::renameanalyzer::Analyzer, hash: *mut c_char) {
+    let Some(a) = a.as_mut() else { return };
+    if hash.is_null() {
+        return;
+    }
+    let h = a.finish();
+    std::ptr::copy_nonoverlapping(h.as_ptr().cast(), hash, h.len());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
