@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <limits>
 #include "DupeStreamRepair.h"
 #include "DupeArticleFallback.h"
 #include "FileSystem.h"
@@ -195,17 +196,88 @@ std::vector<int> DupeStreamRepair::SelectPatchParts(const StreamRangeList& donor
 std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donorRanges,
 	const StreamRangeList& holes, int probeCount)
 {
+	if (probeCount <= 0 || donorRanges.empty())
+	{
+		return {};
+	}
+
+	auto hasSafeEnd = [](const StreamRange& range)
+	{
+		if (range.Size > 0)
+		{
+			return range.Offset <= std::numeric_limits<int64>::max() - range.Size;
+		}
+		if (range.Size < 0)
+		{
+			return range.Offset >= std::numeric_limits<int64>::min() - range.Size;
+		}
+		return true;
+	};
+	// Cached checks evaluate each part, including neighbors that the original
+	// scan can short-circuit. Retain that scan when an end is unrepresentable.
+	bool safeEnds = holes.empty() ||
+		(std::all_of(donorRanges.begin(), donorRanges.end(), hasSafeEnd) &&
+			std::all_of(holes.begin(), holes.end(), hasSafeEnd));
+
+	// A forward sweep is valid only for positive, ordered, disjoint ranges.
+	// Keep the exact intersection predicate for all other geometries, including
+	// zero-size ranges, which can intersect a range containing their offset.
+	auto isOrdered = [](const StreamRangeList& ranges)
+	{
+		for (size_t i = 0; i < ranges.size(); i++)
+		{
+			if (ranges[i].Size <= 0 || (i > 0 && ranges[i - 1].End() > ranges[i].Offset))
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+	std::vector<char> intersects;
+	if (safeEnds)
+	{
+		intersects.resize(donorRanges.size(), false);
+		if (holes.empty() || (isOrdered(donorRanges) && isOrdered(holes)))
+		{
+			size_t holeIndex = 0;
+			for (size_t i = 0; i < donorRanges.size(); i++)
+			{
+				while (holeIndex < holes.size() && holes[holeIndex].End() <= donorRanges[i].Offset)
+				{
+					holeIndex++;
+				}
+				intersects[i] = holeIndex < holes.size() && RangesIntersect(donorRanges[i], holes[holeIndex]);
+			}
+		}
+		else
+		{
+			for (size_t i = 0; i < donorRanges.size(); i++)
+			{
+				intersects[i] = IntersectsAny(donorRanges[i], holes);
+			}
+		}
+	}
+
 	// candidates: parts whose estimated range - and the neighbors', to absorb
 	// estimation error - lies entirely inside already-downloaded regions
 	std::vector<int> candidates;
+	candidates.reserve(donorRanges.size());
 	for (size_t i = 0; i < donorRanges.size(); i++)
 	{
 		bool clear = true;
-		size_t from = i > 0 ? i - 1 : 0;
-		size_t to = std::min(donorRanges.size() - 1, i + 1);
-		for (size_t j = from; j <= to && clear; j++)
+		if (safeEnds)
 		{
-			clear = !IntersectsAny(donorRanges[j], holes);
+			clear = !intersects[i] && (i == 0 || !intersects[i - 1]) &&
+				(i + 1 == donorRanges.size() || !intersects[i + 1]);
+		}
+		else
+		{
+			size_t from = i > 0 ? i - 1 : 0;
+			size_t to = std::min(donorRanges.size() - 1, i + 1);
+			for (size_t j = from; j <= to && clear; j++)
+			{
+				clear = !IntersectsAny(donorRanges[j], holes);
+			}
 		}
 		if (clear)
 		{
@@ -220,6 +292,7 @@ std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donor
 
 	// spread the probes evenly across the candidate list
 	std::vector<int> probes;
+	probes.reserve(probeCount);
 	for (int k = 0; k < probeCount; k++)
 	{
 		probes.push_back(candidates[candidates.size() * (2 * k + 1) / (2 * probeCount)]);
