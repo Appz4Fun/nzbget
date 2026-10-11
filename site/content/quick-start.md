@@ -10,7 +10,7 @@ Open the web interface at `http://<host>:6789` and go to **Settings**. Click **S
 ## Set up the basics
 
 <ol class="steps">
-<li><p><strong>Secure the interface.</strong> In <strong>SECURITY</strong>, set <code>ControlUsername</code> and <code>ControlPassword</code>. Give other programs their own accounts: <code>RestrictedUsername</code> can use the interface but can't change settings, and <code>AddUsername</code> can only add downloads.</p></li>
+<li><p><strong>Secure the interface.</strong> In <strong>SECURITY</strong>, set <code>ControlUsername</code> and <code>ControlPassword</code>. Give other programs their own accounts: <code>RestrictedUsername</code> can do everything except change settings, which suits media managers, and <code>AddUsername</code> can only add downloads.</p></li>
 <li><p><strong>Add your news servers.</strong> In <strong>NEWS-SERVERS</strong>, enter the host, port, user name, password, and connection count from your provider. Keep encryption on. Click <strong>Test connection</strong>. Add block accounts as fill servers at level 1. See <a href="automation.html#news-servers">News servers</a>.</p></li>
 <li><p><strong>Choose your folders.</strong> In <strong>PATHS</strong>, set <code>MainDir</code>. The other paths default to folders inside it: <code>DestDir</code> for finished files, <code>InterDir</code> for downloads in progress, <code>NzbDir</code> for incoming NZB files, and <code>QueueDir</code> for the queue and history.</p></li>
 <li><p><strong>Add categories.</strong> In <strong>CATEGORIES</strong>, add one per kind of download, such as Movies and TV, each with its own <code>DestDir</code>. Media managers and the Kodi add-on send a category with each download.</p></li>
@@ -23,7 +23,7 @@ You can add NZB files in several ways:
 
 - **Web interface:** click **Add** and choose a file or paste a URL.
 - **Watched folder:** drop the file into `NzbDir`. A subfolder's name becomes the download's category.
-- **Media managers:** in Sonarr, Radarr, or Lidarr, add a download client of type NZBGet with your host, port, and an `AddUsername` account.
+- **Media managers:** in Sonarr, Radarr, or Lidarr, add a download client of type NZBGet with your host, port, and the `RestrictedUsername` account. Media managers also read the queue, history, and settings and edit the queue, which an `AddUsername` account can't do.
 - **Kodi:** the NeNeTeePee Stream add-on sends a whole fleet of copies at once. See [Streaming with Kodi](kodi.md).
 - **API:** call `append` or `appendfleet`. See [API and compatibility](api.md).
 

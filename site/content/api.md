@@ -35,7 +35,7 @@ Send credentials with HTTP basic authentication, or in the path, as in `http://u
 |---|---|---|
 | Control | `ControlUsername`, `ControlPassword` | Everything |
 | Restricted | `RestrictedUsername`, `RestrictedPassword` | The web interface, but no changes to settings and no passwords |
-| Add | `AddUsername`, `AddPassword` | `append`, `appendfleet`, and `version` only |
+| Add | `AddUsername`, `AddPassword` | `append`, `appendurl`, `appendfleet`, and `version` only |
 
 > [!WARNING] Use HTTPS on untrusted networks
 > Basic authentication only encodes the password; it doesn't encrypt it. Turn on the HTTPS port in **SECURITY** if clients connect over a network you don't control.
@@ -130,7 +130,7 @@ RustyGet also stores its findings as NZB parameters, which the API returns in `P
 
 RustyGet fixes several problems in NZBGet's API. Clients that rely on the old behavior may need changes:
 
-- **POST only.** `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `readurl`, `testserverspeed`, `testdiskspeed`, and `testnetworkspeed` no longer answer GET or JSON-P requests, so a link on another web page can't trigger them.
+- **POST on the JSON-RPC and XML-RPC paths.** `downloadextension`, `updateextension`, `deleteextension`, `testextension`, `readurl`, `testserverspeed`, `testdiskspeed`, and `testnetworkspeed` no longer run from a GET request to `/jsonrpc` or `/xmlrpc`. JSON-P requests to `/jsonprpc` still run every method, as in NZBGet, so keep the API port away from untrusted networks and browsers you don't control.
 - **Access checks in multicalls.** The XML-RPC `system.multicall` method runs each call with the caller's access level. In NZBGet, a restricted account could read passwords through it.
 - **Range checks.** Integers outside the 32-bit range are rejected instead of wrapping around. `editqueue` checks scores, priorities, parameters, and duplicate modes.
 - **Safe configuration saves.** `saveconfig` refuses an empty or malformed option list instead of truncating the file.

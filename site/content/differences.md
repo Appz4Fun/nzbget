@@ -69,7 +69,7 @@ See [Configuration options](options.md) for every option.
 - New method `appendfleet`, and new fields `DupeRecoveredArticles`, `DupeRecoveredBytesLo`, `DupeRecoveredBytesHi`, `DupeRecoveredHoles`, and `LiveRepairing`.
 - New stage `STREAM_REPAIRING`.
 - New NZB parameters, including `DupeKind`, `DupeFiles`, `DupeAlive`, and `DupeFleet`.
-- Methods that change the system or reach out to the network now need POST.
+- Methods that change the system or reach out to the network need POST on the JSON-RPC and XML-RPC paths. JSON-P still runs them, as in NZBGet.
 - `system.multicall` respects the caller's access level.
 - Out-of-range numbers are rejected, `saveconfig` refuses malformed input, and several decoding and output bugs are fixed.
 

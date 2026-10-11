@@ -103,7 +103,14 @@ If the terminal interface can't open your terminal, add `-o outputmode=log`.
 
 ## Run as a service
 
-On Linux with systemd, a unit such as this one runs RustyGet in daemon mode as its own user:
+On Linux with systemd, run RustyGet as its own user. Create the user with a home directory, which becomes the base of the default `MainDir`, `~/downloads`, and give it the installed configuration file, which the web interface writes to:
+
+```bash
+sudo useradd --system --create-home --home-dir /var/lib/nzbget nzbget
+sudo chown nzbget: /usr/local/etc/nzbget.conf
+```
+
+Then add a unit such as `/etc/systemd/system/nzbget.service`:
 
 ```ini
 [Unit]
@@ -115,15 +122,17 @@ Wants=network-online.target
 User=nzbget
 Group=nzbget
 Type=forking
-ExecStart=/usr/local/bin/nzbget -D -c /var/lib/nzbget/nzbget.conf
-ExecStop=/usr/local/bin/nzbget -Q -c /var/lib/nzbget/nzbget.conf
+ExecStart=/usr/local/bin/nzbget -D -c /usr/local/etc/nzbget.conf
+ExecStop=/usr/local/bin/nzbget -Q -c /usr/local/etc/nzbget.conf
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-On other systems, start it with `nzbget -D` from your init system and stop it with `nzbget -Q`.
+Start it with `sudo systemctl enable --now nzbget`. These paths assume the default install prefix, `/usr/local`; adjust them if you set `CMAKE_INSTALL_PREFIX`.
+
+On other systems, start RustyGet with `nzbget -D` from your init system and stop it with `nzbget -Q`.
 
 ## Move from NZBGet
 
