@@ -17,7 +17,7 @@ Twin
 : A backup whose files are byte-identical to the primary's, proven by the checksums in the two postings' par2 files: the full MD5, the MD5 of the first 16 KB, and the length of every file. A twin's articles and par2 volumes can be used freely. Tagged <span class="tag tag-twin">TWIN</span>, or `TWIN N/M` when more than half of the files match.
 
 Alt
-: The same release from another encode, so the bytes differ. An alt is only a failover backup; nothing is borrowed from it. Tagged <span class="tag tag-alt">ALT</span>.
+: The same release from another encode, so the bytes differ. An alt is a failover backup. Article fallback borrows only from files that match the primary's, so it finds little or nothing to borrow in an alt, unless the two share a file unchanged. Tagged <span class="tag tag-alt">ALT</span>.
 
 Same posting
 : Two NZB files that point to the same Usenet articles, such as one posting listed by two indexers. They can't back each other up, because they share every missing article. RustyGet recognizes them by their Message-IDs and keeps one.
@@ -58,12 +58,12 @@ RustyGet tries three ways to match a file in the primary to a file in a donor, i
 
 RustyGet checks a borrowed article before it counts:
 
-- Its yEnc header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written.
+- A yEnc article's header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written. Uuencoded articles carry no such header, so this check doesn't apply to them.
 - It's written to a staging file, never straight into the output, and the finished file must tile with no gaps or overlaps.
 - When the article carries a yEnc checksum, the checksum must match, as for any article, unless you set `CrcCheck=no`.
 - When the primary's par2 set describes the file, the article's data must match that set's block checksums. If the set doesn't list the file, or lists no usable checksums for it, this check can't run, and only the other checks apply. A block that also holds a still-missing article can't be checked yet either; the par check after the download covers it. RustyGet blocks a donor that fails for the rest of the download. After a restart it no longer knows which donor supplied an earlier article, so a failure found then can't block that donor.
 
-That's why article fallback needs par2: RustyGet doesn't borrow articles for a download that has no par2 files, and it never borrows par2 files themselves. It also stays off for downloads in force mode and with `RawArticle=yes`.
+That's why article fallback needs par2: RustyGet doesn't borrow articles for a download that has no par2 files, and it never borrows articles of a file it has recognized as par2. The first article of a file with a random name can be borrowed before RustyGet knows what the file is. It also stays off for downloads in force mode and with `RawArticle=yes`.
 
 ### Cutover and lead rotation
 
