@@ -238,6 +238,31 @@ class PublisherTests(unittest.TestCase):
                 publish.publish_results(api, args, self.manifest(), {"status": "PASS"}, True)
         self.assertEqual(api.writes, [])
 
+    def test_bencher_write_is_blocked_when_identity_check_moves_live_head(self):
+        class Moving(StatusAPI):
+            def get(self, endpoint):
+                response = super().get(endpoint)
+                if endpoint == "/user":
+                    self.head = "6" * 40
+                return response
+        api = Moving()
+        args = argparse.Namespace(mode="pr", repository="Appz4Fun/nzbget", pr=7, expected_base_sha=BASE,
+                                  controller_sha=BASE, testbed="i7-existing", output_dir=Path("results"), evidence_sha=EVIDENCE)
+        with patch.dict("os.environ", {"BENCHER_KEY": "private-key", "BENCHER_PROJECT": "existing-project"}), patch.object(publish.subprocess, "run", return_value=argparse.Namespace(returncode=0)) as run:
+            with self.assertRaises(publish.PublicationError):
+                publish.publish_results(api, args, self.manifest(), {"status": "PASS"}, True)
+            run.assert_not_called()
+        self.assertEqual(api.writes, [])
+
+    def test_zero_or_fork_only_lifecycle_targets_are_empty_without_writes(self):
+        class ForkOnly(StatusAPI):
+            def get_list(self, endpoint):
+                return [{"number": 7, "state": "open", "base": {"sha": BASE, "ref": "dupe-article-fallback", "repo": {"full_name": "Appz4Fun/nzbget"}},
+                         "head": {"sha": HEAD, "repo": {"full_name": "fork/repo"}}}]
+        for api in (StatusAPI(), ForkOnly()):
+            self.assertEqual(publish.list_lifecycle_prs(api, "Appz4Fun/nzbget", BASE), [])
+            self.assertEqual(api.writes, [])
+
     def test_identity_uses_api_not_actor_environment(self):
         class API:
             def get(self, endpoint):

@@ -474,6 +474,7 @@ def publish_results(api, args, manifest, qualification, receipt_ok):
                              args.output_dir / "selected-bencher.json", os.environ.get("BENCHER_HOST_URL", ""))
     # No measured command; the only subprocess with Bencher credentials reads
     # freshly validated BMF data. Capture output to avoid upstream secret leaks.
+    validate_current(api, args.repository, args.mode, args.expected_base_sha, manifest["candidate_sha"], args.pr, args.controller_sha)
     result = subprocess.run(command, env=bencher_environment(os.environ, key), capture_output=True, timeout=180, check=False)
     require(result.returncode == 0, "Bencher data-only publication failed or reported an alert")
     if args.mode == "pr":

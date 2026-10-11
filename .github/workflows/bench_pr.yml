@@ -72,6 +72,7 @@ jobs:
   lifecycle:
     name: Invalidate outdated qualification
     needs: targets
+    if: needs.targets.outputs.prs != '' && needs.targets.outputs.prs != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
