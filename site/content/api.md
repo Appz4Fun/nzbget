@@ -44,7 +44,7 @@ JSON-RPC takes positional parameters only: names are ignored, and the order matt
 
 ## Methods
 
-This is every method that RustyGet answers. All but `appendfleet` are inherited from NZBGet, and the repository's [API reference](https://github.com/Appz4Fun/nzbget/blob/dupe-article-fallback/docs/api/API.md) documents most of them in detail.
+This is every method that RustyGet answers. All but `appendfleet` are inherited from NZBGet, and the repository's [API reference](https://github.com/Appz4Fun/nzbget/blob/HEAD/docs/api/API.md) documents most of them in detail.
 
 | Area | Methods |
 |---|---|

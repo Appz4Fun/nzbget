@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -286,6 +287,12 @@ def conf_details_html(text: str, known: set[str]) -> str:
 def options_search(sections: list, url: str, title: str) -> list[dict]:
     entries = []
     for section in sections:
+        entries.append({
+            "t": title,
+            "s": section["title"],
+            "u": f"{url}#{section['id']}",
+            "x": "Options: " + ", ".join(o["name"] for o in section["options"]),
+        })
         for o in section["options"]:
             text = " ".join([o["summary"], o["values"], o["details"]])
             entries.append({
@@ -324,6 +331,7 @@ def options_page(conf: Path, upstream_file: Path) -> tuple[str, list, list]:
         sid = slugify(section["title"])
         if sid in {o["id"] for s2 in sections for o in s2["options"]}:
             sid += "-options"
+        section["id"] = sid
         toc.append({"level": 2, "id": sid, "text": section["title"]})
         parts.append(f'<section class="conf-section" data-section><h2 id="{sid}">{html.escape(section["title"])}</h2>')
         for o in section["options"]:
@@ -372,6 +380,28 @@ def rust_modules(src: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+MARKER = ".rustyget-site"
+
+
+def prepare_output(out: Path) -> None:
+    """Empty the output directory, refusing anything that isn't ours to delete.
+
+    Only a directory that an earlier build marked as its output, or an empty
+    one, is cleared. The repository, its parents and the site sources never are.
+    """
+    if out == ROOT or out in ROOT.parents or out == SITE or SITE in out.parents or out in SITE.parents:
+        raise SystemExit(f"refusing to write the site into {out}: choose a separate directory, such as build/site")
+    if out.exists():
+        if not out.is_dir():
+            raise SystemExit(f"{out} exists and isn't a directory")
+        if (out / MARKER).exists():
+            shutil.rmtree(out)
+        elif any(out.iterdir()):
+            raise SystemExit(f"{out} isn't empty and wasn't made by this script; remove it or choose another directory")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / MARKER).write_text("Output of site/build.py. The next build deletes this directory.\n")
+
+
 def git(*args: str) -> str:
     try:
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
@@ -412,6 +442,10 @@ def build(out: Path) -> None:
             render(md, page)
 
     order = [p for group in nav for p in group["pages"]]
+    # links to the source follow the branch this build came from (GitHub
+    # Actions sets GITHUB_REF_NAME), so a deploy from main links to main
+    site_config = dict(config["site"])
+    site_config["branch"] = os.environ.get("GITHUB_REF_NAME") or site_config["branch"]
     sha = git("rev-parse", "--short=8", "HEAD")
     built = git("log", "-1", "--format=%cs")
 
@@ -422,9 +456,7 @@ def build(out: Path) -> None:
         trim_blocks=True,
         lstrip_blocks=True,
     )
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+    prepare_output(out)
     shutil.copytree(SITE / "assets", out / "assets")
     (out / ".nojekyll").write_text("")
 
@@ -432,7 +464,7 @@ def build(out: Path) -> None:
     for i, page in enumerate(order):
         template = jenv.get_template(page.meta.get("template", "page") + ".html")
         rendered = template.render(
-            site=config["site"],
+            site=site_config,
             nav=nav,
             page=page,
             prev=order[i - 1] if i > 0 else None,
@@ -455,7 +487,7 @@ def build(out: Path) -> None:
     )
     (out / "404.html").write_text(
         jenv.get_template("page.html").render(
-            site=config["site"], nav=nav, page=not_found, prev=None, next=None, sha=sha, built=built,
+            site=site_config, nav=nav, page=not_found, prev=None, next=None, sha=sha, built=built,
             root=base_path,
         ),
         encoding="utf-8",

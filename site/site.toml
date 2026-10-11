@@ -9,6 +9,7 @@ crate = "rustyget"
 tagline = "a fleet-aware Usenet downloader, rewritten in Rust"
 status = "rewrite in progress"
 repo = "https://github.com/Appz4Fun/nzbget"
+# Source links use the branch being built (GITHUB_REF_NAME in Actions), else this one.
 branch = "dupe-article-fallback"
 base_url = "https://appz4fun.github.io/nzbget/"
 
