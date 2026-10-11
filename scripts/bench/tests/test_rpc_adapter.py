@@ -1,5 +1,6 @@
 """RPC evidence must never gain precision, pairing, or scope during export."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,8 @@ import stat
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from unittest.mock import patch
 
 
 ADAPTER = Path(__file__).resolve().parents[1] / "adapters" / "rpc.py"
@@ -521,6 +524,50 @@ class RpcAdapterTests(unittest.TestCase):
                 with self.assertRaises((OSError, ValueError)):
                     self.adapter.bounded_read(Path(directory), 100)
             self.assertEqual(len(os.listdir("/dev/fd")), before)
+
+    def test_traversal_budget_precedes_resolution_and_cleanup(self):
+        for argument in ("manifest", "source"):
+            for budget in ("symlink", "component"):
+                with self.subTest(argument=argument, budget=budget), tempfile.TemporaryDirectory() as directory:
+                    self.assertTrue(self.available, "RPC adapter has not been implemented")
+                    root = Path(directory).resolve()
+                    output = root / "out"
+                    output.mkdir()
+                    marker = output / "adapter-status.json"
+                    marker.write_text('{"adapter":"rpc","status":"READY"}')
+                    proof = root / "proof.json"
+                    proof.write_text('{"historical":true}')
+                    source = root / "source.samples"
+                    source.write_text("SAMPLE|Log, 10 lines|0|162.877|122.752\n")
+                    leaf = root / "leaf"
+                    leaf.write_text('{"malformed":')
+                    count = 45 if budget == "symlink" else 35
+                    links = [root / f"link-{i}" for i in range(count)]
+                    for index, link in enumerate(links):
+                        target = links[index + 1].name if index + 1 < count else leaf.name
+                        if budget == "component":
+                            target += "/" + "../" * 140
+                        link.symlink_to(target)
+                    inputs = {"manifest": proof, "source": source}
+                    inputs[argument] = links[0]
+                    real_readlink = os.readlink
+                    calls = []
+
+                    def counted_readlink(*args, **kwargs):
+                        calls.append(args[0])
+                        return real_readlink(*args, **kwargs)
+
+                    stderr = io.StringIO()
+                    with patch.object(self.adapter.os, "readlink", counted_readlink), redirect_stderr(stderr):
+                        result = self.adapter.main(["--manifest", str(inputs["manifest"]),
+                                                    "--source", str(inputs["source"]),
+                                                    "--output-dir", str(output)])
+                    self.assertEqual(result, 2)
+                    self.assertLessEqual(len(calls), 40, "unbounded preliminary resolve expanded symlinks before rejecting")
+                    self.assertIn(budget + " limit", stderr.getvalue())
+                    self.assertTrue(all(link.is_symlink() for link in links))
+                    self.assertEqual(leaf.read_text(), '{"malformed":')
+                    self.assertEqual(marker.read_text(), '{"adapter":"rpc","status":"READY"}')
 
 
 if __name__ == "__main__":
