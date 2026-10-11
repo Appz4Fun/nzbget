@@ -939,8 +939,12 @@ ptrdiff_t nzbget_rs_file_extension(const char* name, size_t len);
 // name: a static string for the log. size_ok: 1, or 0 with *expected and
 // *received set for a known type whose struct size differs from sizes[type].
 // bool_response: the bytes SendBoolResponse sends (free with nzbget_rs_free).
-// trailing_ok: 1 when 0 <= len <= max. NULL outputs aren't written; a short
-// base fails. Panics abort.
+// trailing_ok: 1 when 0 <= len <= max. NULL outputs aren't written; a NULL
+// or short base fails, as does a missing sizes entry for a known type,
+// leaving outputs untouched. NULL control strings/text mean empty strings.
+// Non-NULL inputs must be readable for their lengths (strings through NUL);
+// non-NULL uint32_t pointers must be aligned and outputs writable. Outputs
+// may overlap inputs; inputs are read first. Panics abort.
 int nzbget_rs_binrpc_check(const unsigned char* base, size_t len, const char* controlUser, const char* controlPassword,
 	uint32_t* type);
 const char* nzbget_rs_binrpc_name(uint32_t type);

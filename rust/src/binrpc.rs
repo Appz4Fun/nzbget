@@ -107,6 +107,12 @@ mod tests {
         let b = base(1, 0, &full, b"pw");
         assert!(!credentials_ok(&b, &full, b"pw"));
         assert!(credentials_ok(&b, &[&full[..], b"pw"].concat(), b"pw"));
+        // No read beyond the base when neither field is terminated. The old
+        // strcmp could read out of bounds here; the bounded port stops here.
+        let b = base(1, 0, &full, &full);
+        assert!(credentials_ok(&b, &[b'u'; 64], &full));
+        assert!(!credentials_ok(&b, b"", &[b'u'; 33]));
+        assert!(!credentials_ok(&b, b"", &[b'u'; 31]));
     }
 
     #[test]
@@ -119,6 +125,11 @@ mod tests {
         assert_eq!(request_name(14), c"History");
         assert_eq!(request_name(15), c"Unknown");
         assert_eq!(request_name(u32::MAX), c"Unknown");
+        for kind in [0x7fff_ffff, 0x8000_0000, u32::MAX] {
+            assert_eq!(size_error(&base(kind, 99, b"", b""), &sizes), None);
+            assert_eq!(request_name(kind), c"Unknown");
+        }
+        assert_eq!(size_error(&base(14, u32::MAX, b"", b""), &sizes), Some((114, u32::MAX)));
     }
 
     #[test]
@@ -126,5 +137,10 @@ mod tests {
         let r = bool_response(true, b"ok");
         assert_eq!(r, [0x6e, 0x7a, 0x62, 0x31, 0, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 3, b'o', b'k', 0]);
         assert!(trailing_ok(0, 10) && trailing_ok(10, 10) && !trailing_ok(-1, 10) && !trailing_ok(11, 10));
+        assert!(trailing_ok(0, 0));
+        assert!(!trailing_ok(0, -1));
+        assert!(!trailing_ok(i64::MIN, i64::MAX));
+        assert!(trailing_ok(i64::MAX, i64::MAX));
+        assert!(!trailing_ok(i64::MAX, i64::MAX - 1));
     }
 }
