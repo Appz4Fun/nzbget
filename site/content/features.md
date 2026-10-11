@@ -23,13 +23,20 @@ The same design pays off on large machines. Extra memory becomes an article cach
 
 Many postings hide their real filenames. A typical obfuscated posting has a 32-character hexadecimal base name and extensions such as `.01`, `.21`, and `.par2`. Archives can't be unpacked until their real names come back.
 
-The par2 files of a posting record the original names. The usual tool, par2cmdline, reads every downloaded file before it restores them, which takes from several minutes to tens of minutes depending on the size and the disk.
+The par2 files of a posting record the original names. The usual fix is to run par2cmdline, as in `par2cmdline r <name>.par2`, which reads every downloaded file before it restores the names. How long that takes depends on the size and the disk: from several minutes to tens of minutes.
 
-RustyGet's par-rename restores the names in seconds, even on slow devices, because it reads only the names that the par2 files store and needs no verification pass. NZBGet's own example: a 4 GB download with 75 renamed files, restored in two seconds on a slow Linux device.
+RustyGet's par-rename restores the names in seconds, even on slow devices, because it reads only the names that the par2 files store and needs no verification pass. NZBGet's own example: a 4 GB download with 75 renamed files, restored in two seconds on a slow Linux device. The download's log shows each step:
+
+```text
+INFO  Checking renamed files for Example.Release
+INFO  Renaming 3f9c0e5a7d214b8c96e1f0a2b4c6d8e1.50 to Example.Release.r65
+INFO  Renaming 3f9c0e5a7d214b8c96e1f0a2b4c6d8e1.47 to Example.Release.r25
+INFO  Successfully renamed 75 file(s) for Example.Release
+```
 
 ### RAR-rename
 
-RAR-rename restores the names of multi-volume RAR archives from the archive headers. It works when a posting has no par2 files at all, and when the files were obfuscated before the par2 files were created. In RustyGet the RAR header parser and the renaming of volume sets run in Rust.
+RAR-rename, added in NZBGet 18.0, restores the names of multi-volume RAR archives from the archive headers. It works when a posting has no par2 files at all, and when the files were obfuscated before the par2 files were created. In RustyGet the RAR header parser and the renaming of volume sets run in Rust.
 
 ## Quick par verification
 
