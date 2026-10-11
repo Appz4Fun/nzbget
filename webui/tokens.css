@@ -1,0 +1,127 @@
+/* NZBGet Design System tokens - generated from the design system's tokens.json.
+   Do not edit by hand: change tokens.json and regenerate. Dark is the first theme. */
+
+@font-face {
+	font-family: "Azeret Mono";
+	src: url(lib/azeret-mono.woff2) format("woff2");
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+:root,
+[data-theme="dark"] {
+	--bg-window: #0a0a0e;
+	--bg-content: #14141a;
+	--bg-elevated: #1a1a22;
+	--bg-glass: rgba(20, 20, 26, 0.72);
+	--fill-primary: rgba(255, 255, 255, 0.14);
+	--fill-secondary: rgba(255, 255, 255, 0.10);
+	--fill-tertiary: rgba(255, 255, 255, 0.06);
+	--fill-quaternary: rgba(255, 255, 255, 0.03);
+	--label-primary: #fafafa;
+	--label-secondary: #9ca3af;
+	--label-tertiary: #5b5f6a;
+	--separator: rgba(255, 255, 255, 0.08);
+	--rule: rgba(255, 255, 255, 0.16);
+	--control-border: #686c79;
+	--grid-line: rgba(255, 255, 255, 0.03);
+	--accent: #f97316;
+	--accent-fill: #cc4a0b;
+	--on-accent: #ffffff;
+	--accent-soft: rgba(234, 88, 12, 0.16);
+	--focus-ring: #f97316;
+	--brand: #ea580c;
+	--green: #22c55e;
+	--green-text: #4ade80;
+	--green-soft: rgba(34, 197, 94, 0.14);
+	--yellow: #eab308;
+	--yellow-text: #facc15;
+	--yellow-soft: rgba(234, 179, 8, 0.14);
+	--red: #ef4444;
+	--red-text: #f87171;
+	--red-soft: rgba(239, 68, 68, 0.14);
+	--cyan: #22d3ee;
+	--cyan-text: #67e8f9;
+	--cyan-soft: rgba(34, 211, 238, 0.12);
+	--scrim: rgba(0, 0, 0, 0.60);
+	--shadow-control: 0 1px 2px rgba(0, 0, 0, 0.50), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+	--shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	--shadow-card: 0 0 0 1px rgba(255, 255, 255, 0.08);
+	--shadow-popover: 0 16px 48px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.10);
+	--shadow-sheet: 0 32px 96px rgba(0, 0, 0, 0.70), 0 0 0 1px rgba(255, 255, 255, 0.10);
+	--shadow-glow: 0 0 24px rgba(234, 88, 12, 0.35), 0 0 64px rgba(249, 115, 22, 0.12);
+}
+
+[data-theme="light"] {
+	--bg-window: #f7f7fa;
+	--bg-content: #ffffff;
+	--bg-elevated: #ffffff;
+	--bg-glass: rgba(255, 255, 255, 0.72);
+	--fill-primary: rgba(10, 10, 14, 0.12);
+	--fill-secondary: rgba(10, 10, 14, 0.08);
+	--fill-tertiary: rgba(10, 10, 14, 0.05);
+	--fill-quaternary: rgba(10, 10, 14, 0.03);
+	--label-primary: #1a1522;
+	--label-secondary: #555a64;
+	--label-tertiary: #9a9ea8;
+	--separator: rgba(10, 10, 14, 0.08);
+	--rule: rgba(26, 21, 34, 0.20);
+	--control-border: #868b95;
+	--grid-line: rgba(10, 10, 14, 0.045);
+	--accent: #b93d0b;
+	--accent-fill: #cc4a0b;
+	--on-accent: #ffffff;
+	--accent-soft: rgba(234, 88, 12, 0.10);
+	--focus-ring: #c2410c;
+	--brand: #ea580c;
+	--green: #15803d;
+	--green-text: #166534;
+	--green-soft: rgba(22, 163, 74, 0.12);
+	--yellow: #b47b05;
+	--yellow-text: #854d0e;
+	--yellow-soft: rgba(234, 179, 8, 0.18);
+	--red: #dc2626;
+	--red-text: #b91c1c;
+	--red-soft: rgba(220, 38, 38, 0.10);
+	--cyan: #0891b2;
+	--cyan-text: #0e7490;
+	--cyan-soft: rgba(8, 145, 178, 0.10);
+	--scrim: rgba(10, 10, 14, 0.30);
+	--shadow-control: 0 1px 2px rgba(10, 10, 14, 0.10), 0 0 0 1px rgba(10, 10, 14, 0.06);
+	--shadow-glass: 0 8px 28px rgba(10, 10, 14, 0.10), 0 0 0 1px rgba(10, 10, 14, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.80);
+	--shadow-card: 0 1px 2px rgba(10, 10, 14, 0.04), 0 0 0 1px rgba(10, 10, 14, 0.08);
+	--shadow-popover: 0 12px 36px rgba(10, 10, 14, 0.14), 0 0 0 1px rgba(10, 10, 14, 0.08);
+	--shadow-sheet: 0 24px 72px rgba(10, 10, 14, 0.22), 0 0 0 1px rgba(10, 10, 14, 0.08);
+	--shadow-glow: 0 2px 12px rgba(194, 65, 12, 0.28);
+}
+
+:root {
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-10: 40px;
+	--radius-xs: 3px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-xl: 12px;
+	--radius-full: 999px;
+	--size-control-sm: 24px;
+	--size-control-md: 30px;
+	--size-control-lg: 38px;
+	--size-row: 40px;
+	--size-toolbar: 52px;
+	--size-sidebar: 232px;
+	--size-grid: 80px;
+	--blur-glass: 24px;
+	--blur-menu: 40px;
+	--opacity-disabled: 0.4;
+	--font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "Azeret Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	--font-icon: "Material Symbols Rounded";
+}

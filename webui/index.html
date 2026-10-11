@@ -31,7 +31,19 @@
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-status-bar-style" content="black" />
-	
+	<meta name="theme-color" content="#0a0a0e" />
+
+	<!-- Theme: set data-theme before any stylesheet loads, so the page never flashes the other theme -->
+	<script language="javascript" type="text/javascript">
+		(function() {
+			var theme = null;
+			try { theme = localStorage.getItem('Theme'); } catch (e) {}
+			if (theme !== 'light' && theme !== 'dark') {
+				theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+			}
+			document.documentElement.setAttribute('data-theme', theme);
+		})();
+	</script>
 
 	<!-- Libraries -->
 	<!-- %if-debug%
@@ -70,17 +82,22 @@
 	<!-- %if-debug%
 	<link rel="stylesheet" type="text/css" href="lib/bootstrap.css" />
 	<link rel="stylesheet" type="text/css" href="style.css" />
+	<link rel="stylesheet" type="text/css" href="tokens.css" />
+	<link rel="stylesheet" type="text/css" href="ds.css" />
 	<link id="ThemeStyleSheet" rel="stylesheet" type="text/css" href="light-theme.css"> 
+	<link rel="stylesheet" type="text/css" href="skin.css" />
 	%end% -->
 	<!-- Loading all css files from libraries and NZBGet in one request -->
 	<!-- %if-not-debug% -->
-	<link rel="stylesheet" type="text/css" href="combined.css?lib/bootstrap.css+style.css" />
+	<link rel="stylesheet" type="text/css" href="combined.css?lib/bootstrap.css+style.css+tokens.css+ds.css" />
 	<link id="ThemeStyleSheet" rel="stylesheet" type="text/css" href="light-theme.css"> 
+	<link rel="stylesheet" type="text/css" href="skin.css" />
 	<!-- %end% -->
 
 	<!-- fav and touch icons -->
 
   <!-- favicons -->
+  <link rel="icon" type="image/svg+xml" href="img/nzbget-icon-dark.svg">
   <link rel="shortcut icon" href="img/favicon.ico">
   <!-- apple ios -->
   <script language="javascript" type="text/javascript">
