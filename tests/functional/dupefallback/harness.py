@@ -5549,10 +5549,16 @@ def scenario_idsafteremptyfinaldelete(daemon, t):
         api.shutdown()
     except Exception:
         pass
-    t.procs[-1].wait(timeout=60)
-    assert not os.path.exists(t.path("main", "queue", "queue")), "queue state must be absent"
-    assert not os.path.exists(t.path("main", "queue", "history")), "history state must be absent"
-    assert os.path.exists(t.path("main", "queue", "ids")), "ID floor must exist"
+    if t.name == 'local':
+        t.procs[-1].wait(timeout=60)
+    else:
+        deadline = time.monotonic() + 60
+        while t.exists('nzbget.lock') and time.monotonic() < deadline:
+            time.sleep(0.3)
+        assert not t.exists('nzbget.lock'), "daemon must stop before restart"
+    assert not t.exists('main/queue/queue'), "queue state must be absent"
+    assert not t.exists('main/queue/history'), "history state must be absent"
+    assert t.exists('main/queue/ids'), "ID floor must exist"
     daemon.start()
     api = daemon.wait_ready()
     new_id = add('New')
