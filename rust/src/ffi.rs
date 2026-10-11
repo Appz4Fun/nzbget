@@ -3876,6 +3876,105 @@ pub unsafe extern "C" fn nzbget_rs_binrpc_history_line(id: u32, kind: u32, nicen
     }
 }
 
+/// The C library's ctype under the daemon's locale (NzbFile).
+#[repr(C)]
+pub struct RsCtype {
+    /// isspace/isdigit classes of bytes 0..=255 (glibc's table at index 0).
+    classes: *const u16,
+    space: u16,
+    digit: u16,
+    /// tolower of -128..=255, at index 0 (glibc's table).
+    lower: *const c_int,
+    char_signed: c_int,
+}
+
+/// # Safety
+/// `ct` is null or valid, with its tables readable over their ranges.
+unsafe fn rs_ctype<'a>(ct: *const RsCtype) -> Option<crate::nzbfile::Ctype<'a>> {
+    let ct = ct.as_ref()?;
+    if ct.classes.is_null() || ct.lower.is_null() {
+        return None;
+    }
+    Some(crate::nzbfile::Ctype {
+        classes: std::slice::from_raw_parts(ct.classes, 256),
+        space: ct.space,
+        digit: ct.digit,
+        lower: std::slice::from_raw_parts(ct.lower.sub(128), 384),
+        char_signed: ct.char_signed != 0,
+    })
+}
+
+/// NzbFile::AddFileInfo's totals for one file.
+#[repr(C)]
+pub struct RsFileTotals {
+    kept: usize,
+    total_articles: c_int,
+    missed_articles: c_int,
+    size: i64,
+    remaining_size: i64,
+    missed_size: i64,
+    cut_short: c_int,
+}
+
+/// A file's segments (`parts` and `sizes`, `count` of them in the nzb's
+/// order) as NzbFile::AddFileInfo makes them: 1 with the kept segments'
+/// indexes in part order in `order[0..totals.kept]` and `totals` set; 0
+/// (outputs untouched) when none is left or an argument is missing.
+///
+/// # Safety
+/// `subject` is null (empty) or NUL-terminated; `parts`, `sizes` and
+/// `order` are arrays of `count` (null for 0); `ct` and `totals` valid.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nzb_file_totals(subject: *const c_char, parts: *const c_int, sizes: *const i64,
+    count: usize, ct: *const RsCtype, order: *mut usize, totals: *mut RsFileTotals) -> c_int {
+    let Some(ct) = rs_ctype(ct) else { return 0 };
+    if totals.is_null() || (count > 0 && (parts.is_null() || sizes.is_null() || order.is_null())) {
+        return 0;
+    }
+    let (parts, sizes) = if count > 0 {
+        (std::slice::from_raw_parts(parts, count), std::slice::from_raw_parts(sizes, count))
+    } else {
+        (&[][..], &[][..])
+    };
+    let Some(t) = crate::nzbfile::file_totals(input(subject), parts, sizes, &ct) else { return 0 };
+    std::ptr::copy_nonoverlapping(t.order.as_ptr(), order, t.order.len());
+    *totals = RsFileTotals {
+        kept: t.order.len(),
+        total_articles: t.total_articles,
+        missed_articles: t.missed_articles,
+        size: t.size,
+        remaining_size: t.remaining_size,
+        missed_size: t.missed_size,
+        cut_short: t.cut_short as c_int,
+    };
+    1
+}
+
+/// NzbFile::DeclaredParts: the "(1/N)" part count ending the subject, 0
+/// for none (or a missing ctype).
+///
+/// # Safety
+/// `subject` is null (empty) or NUL-terminated; `ct` valid.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nzb_declared_parts(subject: *const c_char, ct: *const RsCtype) -> c_int {
+    rs_ctype(ct).map_or(0, |ct| crate::nzbfile::declared_parts(input(subject), &ct))
+}
+
+/// NzbFile::HasDuplicateFilenames over `count` files' names and subjects.
+///
+/// # Safety
+/// `names` and `subjects` are arrays of `count` NUL-terminated strings (null
+/// entries are empty), or null for 0.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_nzb_duplicate_filenames(names: *const *const c_char,
+    subjects: *const *const c_char, count: usize) -> c_int {
+    if count > 0 && (names.is_null() || subjects.is_null()) {
+        return 0;
+    }
+    let files: Vec<(&[u8], &[u8])> = (0..count).map(|i| (input(*names.add(i)), input(*subjects.add(i)))).collect();
+    crate::nzbfile::has_duplicate_filenames(&files) as c_int
+}
+
 #[cfg(test)]
 mod binrpc_tests {
     use super::*;
