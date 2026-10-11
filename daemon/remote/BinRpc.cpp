@@ -323,6 +323,45 @@ void BinRpcProcessor::Dispatch()
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+// The trailing data of a list response, built by rust/src/binrpc.rs.
+class RsEntries
+{
+public:
+	RsEntries() : m_buf(nzbget_rs_binrpc_buf_new(), nzbget_rs_binrpc_buf_free) {}
+
+	// ints in host order; strings with the index of their length field;
+	// the 4-byte padding goes into the length at padField
+	void Add(std::initializer_list<uint32> ints, std::initializer_list<std::pair<const char*, size_t>> strings, size_t padField)
+	{
+		std::vector<const char*> texts;
+		std::vector<size_t> fields;
+		for (const std::pair<const char*, size_t>& s : strings)
+		{
+			texts.push_back(s.first);
+			fields.push_back(s.second);
+		}
+		nzbget_rs_binrpc_entry(m_buf.get(), std::data(ints), ints.size(), texts.data(), fields.data(), texts.size(), padField);
+	}
+
+	int Size() { return (int)nzbget_rs_binrpc_buf_len(m_buf.get()); }
+
+	// the bytes, sent after the response
+	void Send(Connection* connection)
+	{
+		NzbgetRsBuf bytes = nzbget_rs_binrpc_buf_take(m_buf.release());
+		if (bytes.len > 0)
+		{
+			connection->Send(bytes.data, (int)bytes.len);
+		}
+		nzbget_rs_free(bytes);
+	}
+
+private:
+	std::unique_ptr<NzbgetRsBinBuf, void(*)(NzbgetRsBinBuf*)> m_buf;
+};
+#endif
+
 //*****************************************************************
 // Commands
 
@@ -561,6 +600,157 @@ void DownloadBinCommand::Execute()
 		FileSystem::BaseFileName(DownloadRequest.m_nzbFilename)));
 }
 
+#ifdef NZBGET_USE_RUST
+void ListBinCommand::Execute()
+{
+	SNzbListRequest ListRequest;
+	if (!ReceiveRequest(&ListRequest, sizeof(ListRequest)))
+	{
+		return;
+	}
+
+	SNzbListResponse ListResponse;
+	memset(&ListResponse, 0, sizeof(ListResponse));
+	ListResponse.m_messageBase.m_signature = htonl(NZBMESSAGE_SIGNATURE);
+	ListResponse.m_messageBase.m_structSize = htonl(sizeof(ListResponse));
+	ListResponse.m_entrySize = htonl(sizeof(SNzbListResponseFileEntry));
+	ListResponse.m_regExValid = 0;
+
+	RsEntries entries;
+
+	if (ntohl(ListRequest.m_fileList))
+	{
+		ERemoteMatchMode matchMode = (ERemoteMatchMode)ntohl(ListRequest.m_matchMode);
+		bool matchGroup = ntohl(ListRequest.m_matchGroup);
+		TerminateField(ListRequest.m_pattern);
+		const char* pattern = ListRequest.m_pattern;
+
+		std::unique_ptr<RegEx> regEx;
+		if (matchMode == rmRegEx)
+		{
+			regEx = std::make_unique<RegEx>(pattern);
+			ListResponse.m_regExValid = regEx->IsValid();
+		}
+
+		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+
+		int nrNzbEntries = downloadQueue->GetQueue()->size();
+		int nrPPPEntries = 0;
+		int nrFileEntries = 0;
+
+		// nzb entries
+		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+		{
+			uint32 sizeHi, sizeLo, remainingSizeHi, remainingSizeLo, pausedSizeHi, pausedSizeLo;
+			Util::SplitInt64(nzbInfo->GetSize(), &sizeHi, &sizeLo);
+			Util::SplitInt64(nzbInfo->GetRemainingSize(), &remainingSizeHi, &remainingSizeLo);
+			Util::SplitInt64(nzbInfo->GetPausedSize(), &pausedSizeHi, &pausedSizeLo);
+			entries.Add({(uint32)nzbInfo->GetId(), (uint32)nzbInfo->GetKind(), sizeLo, sizeHi, remainingSizeLo,
+				remainingSizeHi, pausedSizeLo, pausedSizeHi, (uint32)nzbInfo->GetPausedFileCount(),
+				(uint32)nzbInfo->GetRemainingParCount(), (uint32)nzbInfo->GetPriority(),
+				(uint32)(matchGroup && (!regEx || regEx->Match(nzbInfo->GetName()))), 0, 0, 0, 0, 0},
+				{{nzbInfo->GetFilename(), 12}, {nzbInfo->GetName(), 13}, {nzbInfo->GetDestDir(), 14},
+				{nzbInfo->GetCategory(), 15}, {nzbInfo->GetQueuedFilename(), 16}}, 16);
+		}
+
+		// ppp entries
+		int nzbIndex = 0;
+		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+		{
+			nzbIndex++;
+			for (NzbParameter& nzbParameter : nzbInfo->GetParameters())
+			{
+				entries.Add({(uint32)nzbIndex, 0, 0}, {{nzbParameter.GetName(), 1}, {nzbParameter.GetValue(), 2}}, 2);
+				nrPPPEntries++;
+			}
+		}
+
+		// file entries
+		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+		{
+			for (FileInfo* fileInfo : nzbInfo->GetFileList())
+			{
+				nrFileEntries++;
+				int nzbIndex = 0;
+				for (uint32 i = 0; i < downloadQueue->GetQueue()->size(); i++)
+				{
+					nzbIndex++;
+					if (downloadQueue->GetQueue()->at(i).get() == fileInfo->GetNzbInfo())
+					{
+						break;
+					}
+				}
+
+				bool match = false;
+				if (regEx && !matchGroup)
+				{
+					BString<1024> filename("%s/%s", fileInfo->GetNzbInfo()->GetName(),
+						FileSystem::BaseFileName(fileInfo->GetFilename()));
+					match = regEx->Match(filename);
+				}
+
+				uint32 fileSizeHi, fileSizeLo, remainingSizeHi, remainingSizeLo;
+				Util::SplitInt64(fileInfo->GetSize(), &fileSizeHi, &fileSizeLo);
+				Util::SplitInt64(fileInfo->GetRemainingSize(), &remainingSizeHi, &remainingSizeLo);
+				entries.Add({(uint32)fileInfo->GetId(), (uint32)nzbIndex, fileSizeLo, fileSizeHi, remainingSizeLo,
+					remainingSizeHi, (uint32)fileInfo->GetPaused(), (uint32)fileInfo->GetFilenameConfirmed(),
+					(uint32)fileInfo->GetActiveDownloads(), (uint32)match, 0, 0},
+					{{fileInfo->GetSubject(), 10}, {fileInfo->GetFilename(), 11}}, 11);
+			}
+		}
+
+		ListResponse.m_nrTrailingNzbEntries = htonl(nrNzbEntries);
+		ListResponse.m_nrTrailingPPPEntries = htonl(nrPPPEntries);
+		ListResponse.m_nrTrailingFileEntries = htonl(nrFileEntries);
+		ListResponse.m_trailingDataLength = htonl(entries.Size());
+	}
+
+	if (htonl(ListRequest.m_serverState))
+	{
+		int postJobCount = 0;
+		int64 remainingSize;
+		{
+			GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+			for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+			{
+				postJobCount += nzbInfo->GetPostInfo() ? 1 : 0;
+			}
+			downloadQueue->CalcRemainingSize(&remainingSize, nullptr);
+		}
+
+		uint32 sizeHi, sizeLo;
+		uint32 downloadRate = Util::SafeIntCast<int64, uint32>(g_StatMeter->CalcCurrentDownloadSpeed());
+		ListResponse.m_downloadRate = htonl(downloadRate);
+		Util::SplitInt64(remainingSize, &sizeHi, &sizeLo);
+		ListResponse.m_remainingSizeHi = htonl(sizeHi);
+		ListResponse.m_remainingSizeLo = htonl(sizeLo);
+		ListResponse.m_downloadLimit = htonl(g_WorkState->GetSpeedLimit());
+		ListResponse.m_downloadPaused = htonl(g_WorkState->GetPauseDownload());
+		ListResponse.m_postPaused = htonl(g_WorkState->GetPausePostProcess());
+		ListResponse.m_scanPaused = htonl(g_WorkState->GetPauseScan());
+		ListResponse.m_threadCount = htonl(Thread::GetThreadCount() - 1); // not counting itself
+		ListResponse.m_postJobCount = htonl(postJobCount);
+
+		int upTimeSec, dnTimeSec;
+		int64 allBytes;
+		bool standBy;
+		g_StatMeter->CalcTotalStat(&upTimeSec, &dnTimeSec, &allBytes, &standBy);
+		ListResponse.m_upTimeSec = htonl(upTimeSec);
+		ListResponse.m_downloadTimeSec = htonl(dnTimeSec);
+		ListResponse.m_downloadStandBy = htonl(standBy);
+		Util::SplitInt64(allBytes, &sizeHi, &sizeLo);
+		ListResponse.m_downloadedBytesHi = htonl(sizeHi);
+		ListResponse.m_downloadedBytesLo = htonl(sizeLo);
+	}
+
+	// Send the request answer
+	m_connection->Send((char*) &ListResponse, sizeof(ListResponse));
+
+	// Send the data
+	entries.Send(m_connection);
+}
+
+#else
 void ListBinCommand::Execute()
 {
 	SNzbListRequest ListRequest;
@@ -819,6 +1009,83 @@ void ListBinCommand::Execute()
 	}
 }
 
+#endif
+
+#ifdef NZBGET_USE_RUST
+void LogBinCommand::Execute()
+{
+	SNzbLogRequest LogRequest;
+	if (!ReceiveRequest(&LogRequest, sizeof(LogRequest)))
+	{
+		return;
+	}
+
+	RsEntries entries;
+	int nrEntries;
+	int bufsize;
+
+	{
+		GuardedMessageList messages = g_Log->GuardMessages();
+
+		nrEntries = ntohl(LogRequest.m_lines);
+		// a negative count asks for no entries
+		if (nrEntries < 0)
+		{
+			nrEntries = 0;
+		}
+		uint32 idFrom = ntohl(LogRequest.m_idFrom);
+		int start = messages->size();
+		if (nrEntries > 0)
+		{
+			if (nrEntries > (int)messages->size())
+			{
+				nrEntries = messages->size();
+			}
+			start = messages->size() - nrEntries;
+		}
+		if (idFrom > 0 && !messages->empty())
+		{
+			start = idFrom - messages->front().GetId();
+			if (start < 0)
+			{
+				start = 0;
+			}
+			nrEntries = messages->size() - start;
+			if (nrEntries < 0)
+			{
+				nrEntries = 0;
+			}
+		}
+
+		int written = 0;
+		for (uint32 i = (uint32)start; i < messages->size(); i++)
+		{
+			Message& message = messages->at(i);
+			entries.Add({(uint32)message.GetId(), (uint32)message.GetKind(), (uint32)(int)message.GetTime(), 0},
+				{{message.GetText(), 3}}, 3);
+			written++;
+		}
+		bufsize = entries.Size();
+	}
+
+	SNzbLogResponse LogResponse;
+	LogResponse.m_messageBase.m_signature = htonl(NZBMESSAGE_SIGNATURE);
+	LogResponse.m_messageBase.m_structSize = htonl(sizeof(LogResponse));
+	LogResponse.m_entrySize = htonl(sizeof(SNzbLogResponseEntry));
+	LogResponse.m_nrTrailingEntries = htonl(nrEntries);
+	LogResponse.m_trailingDataLength = htonl(bufsize);
+
+	// Send the request answer
+	m_connection->Send((char*) &LogResponse, sizeof(LogResponse));
+
+	// Send the data
+	if (bufsize > 0)
+	{
+		entries.Send(m_connection);
+	}
+}
+
+#else
 void LogBinCommand::Execute()
 {
 	SNzbLogRequest LogRequest;
@@ -908,6 +1175,8 @@ void LogBinCommand::Execute()
 		m_connection->Send(buf, bufsize);
 	}
 }
+
+#endif
 
 void EditQueueBinCommand::Execute()
 {
@@ -1011,6 +1280,61 @@ void EditQueueBinCommand::Execute()
 	}
 }
 
+#ifdef NZBGET_USE_RUST
+void PostQueueBinCommand::Execute()
+{
+	SNzbPostQueueRequest PostQueueRequest;
+	if (!ReceiveRequest(&PostQueueRequest, sizeof(PostQueueRequest)))
+	{
+		return;
+	}
+
+	SNzbPostQueueResponse PostQueueResponse;
+	memset(&PostQueueResponse, 0, sizeof(PostQueueResponse));
+	PostQueueResponse.m_messageBase.m_signature = htonl(NZBMESSAGE_SIGNATURE);
+	PostQueueResponse.m_messageBase.m_structSize = htonl(sizeof(PostQueueResponse));
+	PostQueueResponse.m_entrySize = htonl(sizeof(SNzbPostQueueResponseEntry));
+
+	RsEntries entries;
+
+	{
+		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+
+		// Make a data structure and copy all the elements of the list into it
+		NzbList* nzbList = downloadQueue->GetQueue();
+
+		int NrEntries = 0;
+		time_t curTime = Util::CurrentTime();
+
+		for (NzbInfo* nzbInfo : nzbList)
+		{
+			PostInfo* postInfo = nzbInfo->GetPostInfo();
+			if (!postInfo)
+			{
+				continue;
+			}
+
+			NrEntries++;
+			entries.Add({(uint32)nzbInfo->GetId(), (uint32)postInfo->GetStage(), (uint32)postInfo->GetStageProgress(),
+				(uint32)postInfo->GetFileProgress(),
+				(uint32)(int)(postInfo->GetStartTime() ? curTime - postInfo->GetStartTime() : 0),
+				(uint32)(int)(postInfo->GetStageTime() ? curTime - postInfo->GetStageTime() : 0), 0, 0, 0, 0},
+				{{postInfo->GetNzbInfo()->GetFilename(), 6}, {postInfo->GetNzbInfo()->GetName(), 7},
+				{postInfo->GetNzbInfo()->GetDestDir(), 8}, {postInfo->GetProgressLabel(), 9}}, 9);
+		}
+
+		PostQueueResponse.m_nrTrailingEntries = htonl(NrEntries);
+		PostQueueResponse.m_trailingDataLength = htonl(entries.Size());
+	}
+
+	// Send the request answer
+	m_connection->Send((char*) &PostQueueResponse, sizeof(PostQueueResponse));
+
+	// Send the data
+	entries.Send(m_connection);
+}
+
+#else
 void PostQueueBinCommand::Execute()
 {
 	SNzbPostQueueRequest PostQueueRequest;
@@ -1110,6 +1434,8 @@ void PostQueueBinCommand::Execute()
 	}
 }
 
+#endif
+
 void WriteLogBinCommand::Execute()
 {
 	SNzbWriteLogRequest WriteLogRequest;
@@ -1162,6 +1488,70 @@ void ScanBinCommand::Execute()
 	SendBoolResponse(true, syncMode ? "Scan-Command completed" : "Scan-Command scheduled successfully");
 }
 
+#ifdef NZBGET_USE_RUST
+void HistoryBinCommand::Execute()
+{
+	SNzbHistoryRequest HistoryRequest;
+	if (!ReceiveRequest(&HistoryRequest, sizeof(HistoryRequest)))
+	{
+		return;
+	}
+
+	bool showHidden = ntohl(HistoryRequest.m_hidden);
+
+	SNzbHistoryResponse HistoryResponse;
+	memset(&HistoryResponse, 0, sizeof(HistoryResponse));
+	HistoryResponse.m_messageBase.m_signature = htonl(NZBMESSAGE_SIGNATURE);
+	HistoryResponse.m_messageBase.m_structSize = htonl(sizeof(HistoryResponse));
+	HistoryResponse.m_entrySize = htonl(sizeof(SNzbHistoryResponseEntry));
+
+	RsEntries entries;
+
+	{
+		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
+
+		int nrEntries = 0;
+		for (HistoryInfo* historyInfo : downloadQueue->GetHistory())
+		{
+			if (historyInfo->GetKind() != HistoryInfo::hkDup || showHidden)
+			{
+				nrEntries++;
+				// fields a kind doesn't set are 0
+				uint32 sizeHi = 0, sizeLo = 0, fileCount = 0, parStatus = 0, scriptStatus = 0, urlStatus = 0;
+				if (historyInfo->GetKind() == HistoryInfo::hkNzb)
+				{
+					NzbInfo* nzbInfo = historyInfo->GetNzbInfo();
+					Util::SplitInt64(nzbInfo->GetSize(), &sizeHi, &sizeLo);
+					fileCount = nzbInfo->GetFileCount();
+					parStatus = nzbInfo->GetParStatus();
+					scriptStatus = nzbInfo->GetScriptStatuses()->CalcTotalStatus();
+				}
+				else if (historyInfo->GetKind() == HistoryInfo::hkDup && showHidden)
+				{
+					DupInfo* dupInfo = historyInfo->GetDupInfo();
+					Util::SplitInt64(dupInfo->GetSize(), &sizeHi, &sizeLo);
+				}
+				else if (historyInfo->GetKind() == HistoryInfo::hkUrl)
+				{
+					NzbInfo* nzbInfo = historyInfo->GetNzbInfo();
+					urlStatus = nzbInfo->GetUrlStatus();
+				}
+				entries.Add({(uint32)historyInfo->GetId(), (uint32)historyInfo->GetKind(), (uint32)(int)historyInfo->GetTime(), 0,
+					sizeLo, sizeHi, fileCount, parStatus, scriptStatus, urlStatus}, {{historyInfo->GetName(), 3}}, 3);
+			}
+		}
+
+		HistoryResponse.m_nrTrailingEntries = htonl(nrEntries);
+		HistoryResponse.m_trailingDataLength = htonl(entries.Size());
+	}
+
+	// Send the request answer
+	m_connection->Send((char*) &HistoryResponse, sizeof(HistoryResponse));
+
+	// Send the data
+	entries.Send(m_connection);
+}
+#else
 void HistoryBinCommand::Execute()
 {
 	SNzbHistoryRequest HistoryRequest;
@@ -1271,3 +1661,4 @@ void HistoryBinCommand::Execute()
 		m_connection->Send(buf, bufsize);
 	}
 }
+#endif
