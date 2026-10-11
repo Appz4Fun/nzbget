@@ -5588,3 +5588,63 @@ pub unsafe extern "C" fn nzbget_rs_donorscore_rerank(entries: *const NzbgetRsDon
     let scores = crate::donorscore::rerank(&entries, pick_bytes);
     std::ptr::copy_nonoverlapping(scores.as_ptr(), out, n);
 }
+
+/// The bytes of a (pointer, length) argument; NULL is empty.
+unsafe fn arg<'a>(data: *const c_char, len: usize) -> &'a [u8] {
+    if data.is_null() || len == 0 { &[] } else { std::slice::from_raw_parts(data.cast(), len) }
+}
+
+/// ReleaseName::Clean.
+///
+/// # Safety
+/// `name` must be readable for `len` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_clean(name: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::releasename::clean(arg(name, len)))
+}
+
+/// ReleaseName::Normalize.
+///
+/// # Safety
+/// `name` must be readable for `len` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_normalize(name: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::releasename::normalize(arg(name, len)))
+}
+
+/// ReleaseName::ShortQuery.
+///
+/// # Safety
+/// `title` must be readable for `len` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_short_query(title: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::releasename::short_query(arg(title, len)))
+}
+
+/// ReleaseName::Parse, encoded as releasename::encode describes.
+///
+/// # Safety
+/// `name` must be readable for `len` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_parse(name: *const c_char, len: usize) -> RsBuf {
+    into_buf(crate::releasename::encode(&crate::releasename::parse(arg(name, len))))
+}
+
+/// ReleaseName::Readable.
+///
+/// # Safety
+/// `name` must be readable for `len` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_readable(name: *const c_char, len: usize) -> c_int {
+    c_int::from(crate::releasename::readable(arg(name, len)))
+}
+
+/// ReleaseName::SameRelease.
+///
+/// # Safety
+/// `a` and `b` must be readable for `alen` and `blen` bytes (or NULL).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_releasename_same_release(a: *const c_char, alen: usize, b: *const c_char,
+                                                            blen: usize) -> c_int {
+    c_int::from(crate::releasename::same_release(arg(a, alen), arg(b, blen)))
+}

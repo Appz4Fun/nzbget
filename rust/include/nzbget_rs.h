@@ -1024,6 +1024,19 @@ int nzbget_rs_donorscore_base(int pickScore);
 int nzbget_rs_donorscore_target(double alive, int twin);
 void nzbget_rs_donorscore_rerank(const NzbgetRsDonorEntry* entries, size_t n, int64_t pickBytes, int* out);
 
+// ReleaseName (rust/src/releasename.rs): Clean, Normalize, ShortQuery, Readable,
+// SameRelease; Parse returns the attributes encoded: per set (resolution,
+// quality, codec, bitDepth, audio, channels, network, edition, hdr) a u32
+// count and its strings, each a u32 length and bytes; then title, group, the
+// seasons and episodes (u32 count, i32 each), year (i32), repack and proper
+// (one byte each); all little-endian. Names may be NULL (empty).
+NzbgetRsBuf nzbget_rs_releasename_clean(const char* name, size_t len);
+NzbgetRsBuf nzbget_rs_releasename_normalize(const char* name, size_t len);
+NzbgetRsBuf nzbget_rs_releasename_short_query(const char* title, size_t len);
+NzbgetRsBuf nzbget_rs_releasename_parse(const char* name, size_t len);
+int nzbget_rs_releasename_readable(const char* name, size_t len);
+int nzbget_rs_releasename_same_release(const char* a, size_t alen, const char* b, size_t blen);
+
 #ifdef __cplusplus
 }
 #endif

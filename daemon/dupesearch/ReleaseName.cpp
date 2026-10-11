@@ -25,10 +25,91 @@
 #include "ReleaseName.h"
 
 #include "DupeUtil.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#include <cstring>
+#endif
 
 using DupeUtil::Lower;
 using DupeUtil::Trim;
 
+#ifdef NZBGET_USE_RUST
+// rust/src/releasename.rs
+namespace
+{
+
+std::string Take(NzbgetRsBuf buf)
+{
+	std::string out(buf.data, buf.len);
+	nzbget_rs_free(buf);
+	return out;
+}
+
+struct Reader
+{
+	const char* p;
+	const char* end;
+	uint32_t U32() { uint32_t v = 0; if (end - p >= 4) { memcpy(&v, p, 4); p += 4; } else { p = end; } return v; }
+	std::string Str() { uint32_t n = U32(); n = std::min<uint32_t>(n, end - p); std::string s(p, n); p += n; return s; }
+	int I32() { return (int)U32(); }
+	bool Byte() { return p < end ? *p++ != 0 : false; }
+};
+
+}
+
+std::string ReleaseName::Clean(const std::string& name)
+{
+	return Take(nzbget_rs_releasename_clean(name.data(), name.size()));
+}
+
+std::string ReleaseName::Normalize(const std::string& name)
+{
+	return Take(nzbget_rs_releasename_normalize(name.data(), name.size()));
+}
+
+std::string ReleaseName::ShortQuery(const std::string& title)
+{
+	return Take(nzbget_rs_releasename_short_query(title.data(), title.size()));
+}
+
+ReleaseName::Attrs ReleaseName::Parse(const std::string& name)
+{
+	std::string raw = Take(nzbget_rs_releasename_parse(name.data(), name.size()));
+	Reader in{raw.data(), raw.data() + raw.size()};
+	Attrs attrs;
+	for (std::set<std::string>* set : {&attrs.resolution, &attrs.quality, &attrs.codec, &attrs.bitDepth, &attrs.audio,
+		&attrs.channels, &attrs.network, &attrs.edition, &attrs.hdr})
+	{
+		for (uint32_t n = in.U32(); n > 0 && in.p < in.end; n--)
+		{
+			set->insert(in.Str());
+		}
+	}
+	attrs.title = in.Str();
+	attrs.group = in.Str();
+	for (std::vector<int>* list : {&attrs.seasons, &attrs.episodes})
+	{
+		for (uint32_t n = in.U32(); n > 0 && in.p < in.end; n--)
+		{
+			list->push_back(in.I32());
+		}
+	}
+	attrs.year = in.I32();
+	attrs.repack = in.Byte();
+	attrs.proper = in.Byte();
+	return attrs;
+}
+
+bool ReleaseName::Readable(const std::string& name)
+{
+	return nzbget_rs_releasename_readable(name.data(), name.size()) != 0;
+}
+
+bool ReleaseName::SameRelease(const std::string& aName, const std::string& bName)
+{
+	return nzbget_rs_releasename_same_release(aName.data(), aName.size(), bName.data(), bName.size()) != 0;
+}
+#else
 namespace
 {
 
@@ -504,3 +585,4 @@ bool ReleaseName::SameRelease(const std::string& aName, const std::string& bName
 		Compatible(a.audio, b.audio) && Compatible(a.channels, b.channels) &&
 		Compatible(a.network, b.network) && Compatible(a.edition, b.edition);
 }
+#endif
