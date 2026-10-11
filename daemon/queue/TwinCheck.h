@@ -90,17 +90,20 @@ public:
 	 * their names; "" for none */
 	static std::string Fingerprint(const std::vector<FileSig>& sigs);
 
-	/* the files of a posting's par2 set, as fetched for its fingerprint (kept in the
-	 * queue directory, file "twincheck"); empty if not known */
-	static std::vector<FileSig> SigsOf(int nzbId);
+	/* is the par2 file list of the posting with fingerprint <print> stored (in the
+	 * queue directory, file "twincheck"; bound to the fingerprint: download ids
+	 * start over when queue and history are emptied) */
+	static bool HasSigs(int nzbId, const char* print);
 	/* the label of download <dupeId> against <primaryId> by their par2 file lists:
-	 * "twin" (every file), "twin:N/M" (N of the primary's M files: a near-twin,
-	 * a re-packed archive header), "alt" (none), "" when a list isn't known */
-	static std::string Kind(int primaryId, int dupeId);
+	 * "twin" (every file), "twin:N/M" (N of the primary's M files, more than half:
+	 * a near-twin, a re-packed archive header), "alt" (fewer), "" when it can't be told */
+	static std::string Kind(int primaryId, const char* primaryPrint, int dupeId, const char* dupePrint);
 	/* the file of download <donorId> holding the bytes of our file <target> (or
-	 * <targetAlt>) of download <ownId>: its name; "-" when our file's content is
-	 * known and no single donor file holds it; "" when our content isn't known */
-	static std::string MatchByContent(int ownId, const char* target, const char* targetAlt, int donorId);
+	 * <targetAlt>) of download <ownId>: its name; "-" when the donor's complete
+	 * list has no file with these bytes; "" when not known (incomplete or missing
+	 * lists, several candidates): then the other matching decides */
+	static std::string MatchByContent(int ownId, const char* ownPrint, const char* target, const char* targetAlt,
+		int donorId, const char* donorPrint);
 	/* the twin check runs on the Rust parts (rust/src/twin.rs) */
 	static bool Available()
 	{

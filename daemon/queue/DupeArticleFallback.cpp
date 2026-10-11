@@ -832,8 +832,11 @@ void DupeArticleFallback::PinSources(DownloadQueue* downloadQueue, FileInfo* fil
 		NzbInfo* parsedDonor = GetParsedDonor(donorNzbInfo);
 		if (parsedDonor)
 		{
+			// the donor's par2 fingerprint: its file list is matched by content (twin.rs)
+			NzbParameter* donorPrint = donorNzbInfo->GetParameters()->Find(TwinCheck::FilesParam);
 			AppendDonorCandidate(candidates, contributors, donorNzbInfo->GetId(),
-				parsedDonor, fileInfo, articleInfo->GetPartNumber(), targetNzbFilename);
+				parsedDonor, fileInfo, articleInfo->GetPartNumber(), targetNzbFilename,
+				donorPrint ? donorPrint->GetValue() : nullptr);
 		}
 		else
 		{
@@ -860,9 +863,10 @@ void DupeArticleFallback::PinSources(DownloadQueue* downloadQueue, FileInfo* fil
 
 void DupeArticleFallback::AppendDonorCandidate(std::vector<CString>& candidates,
 	std::vector<int>& contributors, int donorNzbId,
-	NzbInfo* parsedDonor, FileInfo* targetFile, int partNumber, const char* targetNzbFilename)
+	NzbInfo* parsedDonor, FileInfo* targetFile, int partNumber, const char* targetNzbFilename,
+	const char* donorPrint)
 {
-	FileInfo* donorFile = MatchDonorFile(targetFile, parsedDonor, targetNzbFilename, donorNzbId);
+	FileInfo* donorFile = MatchDonorFile(targetFile, parsedDonor, targetNzbFilename, donorNzbId, donorPrint);
 	if (!donorFile)
 	{
 		return;
@@ -979,7 +983,7 @@ NzbInfo* DupeArticleFallback::GetParsedDonor(NzbInfo* donorNzbInfo)
 }
 
 FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* donorNzb,
-	const char* targetNzbFilename, int donorNzbId)
+	const char* targetNzbFilename, int donorNzbId, const char* donorPrint)
 {
 	if (IsParFile(targetFile))
 	{
@@ -988,24 +992,50 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 
 	// by content first, when the par2 file lists of both postings are known
 	// (twin.rs): a donor file with the target's MD5 and length is the same bytes
-	// under any name, one named alike with another MD5 is not
-	std::string byContent = donorNzbId && targetFile->GetNzbInfo() ? TwinCheck::MatchByContent(targetFile->GetNzbInfo()->GetId(),
-		targetFile->GetFilename(), targetNzbFilename, donorNzbId) : "";
+	// under any name. "-": the donor's complete list has no file with these bytes;
+	// "": not known (incomplete or missing lists, several candidates)
+	NzbInfo* own = targetFile->GetNzbInfo();
+	NzbParameter* ownPrint = own ? own->GetParameters()->Find(TwinCheck::FilesParam) : nullptr;
+	std::string byContent = donorNzbId && ownPrint && !Util::EmptyStr(donorPrint) ?
+		TwinCheck::MatchByContent(own->GetId(), ownPrint->GetValue(), targetFile->GetFilename(),
+			targetNzbFilename, donorNzbId, donorPrint) : "";
 	if (byContent == "-")
 	{
 		return nullptr;
 	}
 	if (!byContent.empty())
 	{
+		// the donor's file of that name, if one alone fits our articles (exact case
+		// first): else the nzb names it otherwise, and the other matching decides
+		FileInfo* exact = nullptr;
+		FileInfo* folded = nullptr;
+		int exactCount = 0;
+		int foldedCount = 0;
 		for (FileInfo* donorFile : donorNzb->GetFileList())
 		{
-			if (!strcasecmp(donorFile->GetFilename(), byContent.c_str()) && !IsParFile(donorFile) &&
-				StructureMatches(targetFile, donorFile))
+			if (IsParFile(donorFile) || !StructureMatches(targetFile, donorFile))
 			{
-				return donorFile;
+				continue;
+			}
+			if (!strcmp(donorFile->GetFilename(), byContent.c_str()))
+			{
+				exact = donorFile;
+				exactCount++;
+			}
+			else if (!strcasecmp(donorFile->GetFilename(), byContent.c_str()))
+			{
+				folded = donorFile;
+				foldedCount++;
 			}
 		}
-		return nullptr;	// the same bytes, but not in articles that fit ours
+		if (exactCount == 1)
+		{
+			return exact;
+		}
+		if (exactCount == 0 && foldedCount == 1)
+		{
+			return folded;
+		}
 	}
 
 	std::vector<FileInfo*> structuralMatches;

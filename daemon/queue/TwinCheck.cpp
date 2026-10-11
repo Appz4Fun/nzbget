@@ -399,31 +399,28 @@ std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t si
 	return SigLines(RsString(nzbget_rs_twin_par2_sigs((const unsigned char*)data, size)));
 }
 
-std::vector<TwinCheck::FileSig> TwinCheck::SigsOf(int nzbId)
+bool TwinCheck::HasSigs(int nzbId, const char* print)
 {
-	if (!OpenStore())
-	{
-		return {};
-	}
-	return SigLines(RsString(nzbget_rs_twin_sigs(nzbId)));
+	return OpenStore() && nzbget_rs_twin_has(nzbId, print);
 }
 
-std::string TwinCheck::Kind(int primaryId, int dupeId)
+std::string TwinCheck::Kind(int primaryId, const char* primaryPrint, int dupeId, const char* dupePrint)
 {
 	if (!OpenStore())
 	{
 		return "";
 	}
-	return RsString(nzbget_rs_twin_kind(primaryId, dupeId));
+	return RsString(nzbget_rs_twin_kind(primaryId, primaryPrint, dupeId, dupePrint));
 }
 
-std::string TwinCheck::MatchByContent(int ownId, const char* target, const char* targetAlt, int donorId)
+std::string TwinCheck::MatchByContent(int ownId, const char* ownPrint, const char* target, const char* targetAlt,
+	int donorId, const char* donorPrint)
 {
 	if (!OpenStore())
 	{
 		return "";
 	}
-	return RsString(nzbget_rs_twin_match(ownId, target, targetAlt, donorId));
+	return RsString(nzbget_rs_twin_match(ownId, ownPrint, target, targetAlt, donorId, donorPrint));
 }
 
 std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
@@ -436,15 +433,228 @@ std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
 	return RsString(nzbget_rs_twin_fingerprint(lines.c_str()));
 }
 #else
-// without the Rust parts there is no twin check (TwinCheck::Available() is false)
-std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char*) { return {}; }
-uint64 TwinCheck::BlockSize(const char*, size_t) { return 0; }
-int TwinCheck::VolumeBlocks(const std::string&) { return -1; }
-std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char*, size_t) { return {}; }
-std::vector<TwinCheck::FileSig> TwinCheck::SigsOf(int) { return {}; }
-std::string TwinCheck::Kind(int, int) { return ""; }
-std::string TwinCheck::MatchByContent(int, const char*, const char*, int) { return ""; }
-std::string TwinCheck::Fingerprint(const std::vector<FileSig>&) { return ""; }
+// Without the Rust parts the twin check (labels, content matching) doesn't run,
+// but par-repair with a twin's par2 set (Repair.cpp) works as before: these
+// are the C++ helpers it had, kept for builds without cargo.
+namespace
+{
+
+uint64 ReadLe64(const uchar* p)
+{
+	uint64 value = 0;
+	for (int i = 7; i >= 0; i--)
+	{
+		value = (value << 8) | p[i];
+	}
+	return value;
+}
+
+std::string Hex(const uchar* p, int len)
+{
+	static const char* digits = "0123456789abcdef";
+	std::string hex;
+	for (int i = 0; i < len; i++)
+	{
+		hex += digits[p[i] >> 4];
+		hex += digits[p[i] & 15];
+	}
+	return hex;
+}
+
+std::string XmlText(std::string text)
+{
+	static const std::pair<const char*, const char*> entities[] =
+		{ {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"} };
+	for (const auto& entity : entities)
+	{
+		for (size_t at = text.find(entity.first); at != std::string::npos; at = text.find(entity.first, at + 1))
+		{
+			text.replace(at, strlen(entity.first), entity.second);
+		}
+	}
+	return text;
+}
+
+}
+
+std::vector<TwinCheck::NzbEntry> TwinCheck::ReadNzbEntries(const char* filename)
+{
+	std::vector<NzbEntry> entries;
+	std::ifstream in(fs::u8path(filename), std::ios::binary);
+	std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	size_t pos = 0;
+	while ((pos = xml.find("<file", pos)) != std::string::npos)
+	{
+		size_t end = xml.find("</file>", pos);
+		if (end == std::string::npos)
+		{
+			break;
+		}
+		std::string file = xml.substr(pos, end - pos);
+		pos = end + 7;
+
+		NzbEntry entry;
+		size_t at = file.find("subject=\"");
+		if (at != std::string::npos)
+		{
+			size_t close = file.find('"', at + 9);
+			entry.subject = XmlText(file.substr(at + 9, close == std::string::npos ? 0 : close - at - 9));
+		}
+		size_t open = entry.subject.find('"');
+		size_t close = open == std::string::npos ? std::string::npos : entry.subject.find('"', open + 1);
+		if (close != std::string::npos)
+		{
+			entry.filename = entry.subject.substr(open + 1, close - open - 1);
+			// a name, not a path
+			std::replace(entry.filename.begin(), entry.filename.end(), '/', '_');
+			std::replace(entry.filename.begin(), entry.filename.end(), '\\', '_');
+		}
+		for (at = file.find("<group>"); at != std::string::npos; at = file.find("<group>", at + 1))
+		{
+			size_t groupEnd = file.find("</group>", at);
+			if (groupEnd != std::string::npos)
+			{
+				entry.groups.emplace_back(XmlText(file.substr(at + 7, groupEnd - at - 7)).c_str());
+			}
+		}
+		for (at = file.find("<segment"); at != std::string::npos; at = file.find("<segment", at + 1))
+		{
+			size_t bodyStart = file.find('>', at);
+			size_t segmentEnd = file.find("</segment>", at);
+			if (bodyStart == std::string::npos || segmentEnd == std::string::npos || bodyStart > segmentEnd)
+			{
+				continue;
+			}
+			std::string tag = file.substr(at, bodyStart - at);
+			size_t bytesAt = tag.find("bytes=\"");
+			int64 bytes = bytesAt != std::string::npos ? atoll(tag.c_str() + bytesAt + 7) : 0;
+			std::string id = XmlText(file.substr(bodyStart + 1, segmentEnd - bodyStart - 1)).substr(0, 1000);
+			// it goes into NNTP commands as is (see NzbFile): no line breaks, spaces
+			// or control characters
+			for (char& c : id)
+			{
+				if ((unsigned char)c <= ' ' || c == 0x7f)
+				{
+					c = '_';
+				}
+			}
+			entry.segments.emplace_back(bytes, "<" + id + ">");
+			entry.size += bytes;
+		}
+		if (!entry.segments.empty())
+		{
+			std::string name = entry.filename.empty() ? entry.subject : entry.filename;
+			std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+			entry.par2 = name.find(".par2") != std::string::npos;
+			entries.push_back(std::move(entry));
+		}
+	}
+	return entries;
+}
+
+uint64 TwinCheck::BlockSize(const char* data, size_t size)
+{
+	const uchar* p = (const uchar*)data;
+	for (size_t pos = 0; pos + 64 + 8 <= size; pos += 4)
+	{
+		if (!memcmp(p + pos, "PAR2\0PKT", 8) && !memcmp(p + pos + 48, "PAR 2.0\0Main\0\0\0\0", 16))
+		{
+			return ReadLe64(p + pos + 64);
+		}
+	}
+	return 0;
+}
+
+int TwinCheck::VolumeBlocks(const std::string& filename)
+{
+	std::string name = filename;
+	std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+	size_t at = name.rfind(".vol");
+	if (at == std::string::npos)
+	{
+		return -1;
+	}
+	size_t plus = name.find('+', at);
+	if (plus == std::string::npos || !isdigit((uchar)name[plus + 1]))
+	{
+		return -1;
+	}
+	return atoi(name.c_str() + plus + 1);
+}
+
+std::vector<TwinCheck::FileSig> TwinCheck::ParsePar2(const char* data, size_t size)
+{
+	std::map<std::string, FileSig> files;	// by file id: volumes repeat the packets
+	const uchar* p = (const uchar*)data;
+	size_t pos = 0;
+	while (pos + 64 <= size)
+	{
+		if (memcmp(p + pos, "PAR2\0PKT", 8))
+		{
+			// a lost article leaves a gap: find the next packet
+			pos += 4;
+			continue;
+		}
+		uint64 length = ReadLe64(p + pos + 8);
+		if (length < 64 || length % 4 || length > size - pos)
+		{
+			pos += 4;
+			continue;
+		}
+		if (!memcmp(p + pos + 48, "PAR 2.0\0FileDesc", 16) && length >= 64 + 56)
+		{
+			// file id, MD5 of the file, MD5 of its first 16 KB, length, name
+			const uchar* body = p + pos + 64;
+			FileSig& sig = files[Hex(body, 16)];
+			sig.md5 = Hex(body + 16, 16);
+			sig.hash16k = Hex(body + 32, 16);
+			sig.length = ReadLe64(body + 48);
+			sig.name.assign((const char*)body + 56, (size_t)(length - 64 - 56));
+			sig.name = sig.name.substr(0, sig.name.find('\0'));
+		}
+		pos += (size_t)length;
+	}
+
+	std::vector<FileSig> sigs;
+	for (auto& entry : files)
+	{
+		sigs.push_back(std::move(entry.second));
+	}
+	return sigs;
+}
+
+bool TwinCheck::HasSigs(int, const char*) { return false; }
+std::string TwinCheck::Kind(int, const char*, int, const char*) { return ""; }
+std::string TwinCheck::MatchByContent(int, const char*, const char*, const char*, int, const char*) { return ""; }
+
+std::string TwinCheck::Fingerprint(const std::vector<FileSig>& sigs)
+{
+	// by content only: names may differ between postings
+	std::vector<std::string> files;
+	for (const FileSig& sig : sigs)
+	{
+		files.push_back(sig.md5 + ":" + std::to_string(sig.length));
+	}
+	if (files.empty())
+	{
+		return "";
+	}
+	std::sort(files.begin(), files.end());
+	files.erase(std::unique(files.begin(), files.end()), files.end());
+
+	// FNV-1a, 64 bits: kept in the queue, so it mustn't vary between builds
+	uint64 hash = 14695981039346656037ULL;
+	for (const std::string& file : files)
+	{
+		for (char c : file + "\n")
+		{
+			hash ^= (uchar)c;
+			hash *= 1099511628211ULL;
+		}
+	}
+	BString<1024> hex("%016llx-%i", (unsigned long long)hash, (int)files.size());
+	return *hex;
+}
 #endif
 
 bool TwinCheck::FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64 maxSize,
@@ -549,7 +759,12 @@ void TwinCheck::ServiceWork()
 			for (Item& item : items)
 			{
 				NzbInfo* nzbInfo = item.nzbInfo;
-				if (fingerprintOf(nzbInfo).empty() && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
+				// and so do those whose file list isn't stored (a fingerprint from
+				// before the lists were kept, or the store file lost)
+				std::string print = fingerprintOf(nzbInfo);
+				bool listless = print != "none" && print != "lost" && !print.empty() &&
+					!HasSigs(nzbInfo->GetId(), print.c_str());
+				if ((print.empty() || listless) && !strchr(nzbInfo->GetQueuedFilename(), '|') &&
 					FileSystem::FileExists(nzbInfo->GetQueuedFilename()))
 				{
 					// the dupe tool's hints of a twin go first; they prove nothing
@@ -606,7 +821,7 @@ void TwinCheck::ServiceWork()
 				std::string kindText;
 				if (nzbInfo != primary && isDupe(item) && byPar2)
 				{
-					std::string byFiles = Kind(primary->GetId(), nzbInfo->GetId());
+					std::string byFiles = Kind(primary->GetId(), primaryPrint.c_str(), nzbInfo->GetId(), print.c_str());
 					kindText = !byFiles.empty() ? byFiles : print == primaryPrint ? "twin" : "alt";
 				}
 				const char* kind = nzbInfo == primary || !isDupe(item) ? "" :

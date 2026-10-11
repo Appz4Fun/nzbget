@@ -8,7 +8,7 @@
 //! rust-par2), fingerprints, the per-posting file lists kept in the queue
 //! directory, labels, and picking a duplicate's file by content.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Cursor, Write};
 use std::sync::Mutex;
@@ -24,24 +24,38 @@ pub struct FileSig {
 
 /// The files the FileDesc packets in `data` describe (a par2-file, or the part
 /// of one that arrived: lost articles leave gaps, the parser skips to the next
-/// packet). Empty when there's no usable set.
+/// packet). Empty when there's no usable set. Names are made valid file names
+/// the way the queue makes its own (FileSystem::MakeValidFilename).
 pub fn par2_sigs(data: &[u8]) -> Vec<FileSig> {
+    par2_set(data).0
+}
+
+/// The files of the par2 set in `data`, and whether the list is complete: the
+/// Main packet arrived and every file it names has its FileDesc packet. A
+/// partial list proves nothing about a file it doesn't name.
+pub fn par2_set(data: &[u8]) -> (Vec<FileSig>, bool) {
     let len = data.len() as u64;
     let mut reader = Cursor::new(data);
-    match rust_par2::parse_par2_reader(&mut reader, len) {
+    let (mut sigs, complete) = match rust_par2::parse_par2_reader(&mut reader, len) {
         Ok(set) if !set.files.is_empty() => {
-            let mut sigs: Vec<FileSig> = set
+            let complete = !set.file_order.is_empty() && set.file_order.iter().all(|id| set.files.contains_key(id));
+            let sigs = set
                 .files
                 .values()
-                .map(|f| FileSig { name: f.filename.clone(), length: f.size, md5: hex(&f.hash) })
+                .map(|f| FileSig { name: valid_name(&f.filename), length: f.size, md5: hex(&f.hash) })
                 .collect();
-            sigs.sort_by(|a, b| a.name.cmp(&b.name));
-            sigs
+            (sigs, complete)
         }
         // its Main packet lost (the first article of the par2-file missing): the
-        // FileDesc packets that arrived still tell the files
-        _ => scan_file_descs(data),
-    }
+        // FileDesc packets that arrived still tell the files, but maybe not all
+        _ => (scan_file_descs(data), false),
+    };
+    sigs.sort_by(|a, b| a.name.cmp(&b.name));
+    (sigs, complete)
+}
+
+fn valid_name(name: &str) -> String {
+    String::from_utf8_lossy(&crate::paths::make_valid_filename(name.as_bytes(), false)).into_owned()
 }
 
 /// FileDesc packets read wherever they are in `data` (no Main packet needed).
@@ -65,7 +79,7 @@ fn scan_file_descs(data: &[u8]) -> Vec<FileSig> {
             let name = &body[56..];
             let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
             files.insert(id, FileSig {
-                name: String::from_utf8_lossy(name).into_owned(),
+                name: valid_name(&String::from_utf8_lossy(name)),
                 length: u64::from_le_bytes(body[48..56].try_into().unwrap()),
                 md5: hex(&body[16..32]),
             });
@@ -127,90 +141,149 @@ pub fn fingerprint(sigs: &[FileSig]) -> String {
     format!("{hash:016x}-{}", files.len())
 }
 
-/// How many of `primary`'s files `dupe` holds (by MD5 and length).
+/// How many of `primary`'s files `dupe` holds (by MD5 and length), each file
+/// of `dupe` standing in for one of `primary`'s at most.
 pub fn shared_files(primary: &[FileSig], dupe: &[FileSig]) -> usize {
-    let held: HashSet<(&str, u64)> = dupe.iter().map(|s| (s.md5.as_str(), s.length)).collect();
-    primary.iter().filter(|s| held.contains(&(s.md5.as_str(), s.length))).count()
+    let mut held: HashMap<(&str, u64), usize> = HashMap::new();
+    for s in dupe {
+        *held.entry((s.md5.as_str(), s.length)).or_default() += 1;
+    }
+    primary
+        .iter()
+        .filter(|s| match held.get_mut(&(s.md5.as_str(), s.length)) {
+            Some(count) if *count > 0 => {
+                *count -= 1;
+                true
+            }
+            _ => false,
+        })
+        .count()
 }
 
-/// The label of `dupe` against `primary`: "twin" (every file), "twin:N/M" (N of
-/// the primary's M files: a near-twin), "alt" (none), "" when a list is empty.
-pub fn kind(primary: &[FileSig], dupe: &[FileSig]) -> String {
-    if primary.is_empty() || dupe.is_empty() {
+/// The label of `dupe` against `primary`: "twin" (every file, and no other),
+/// "twin:N/M" (N of the primary's M files, more than half: a near-twin, a
+/// re-packed archive header), "alt" (fewer: a shared NFO or sample doesn't make
+/// a twin), "" when a list is empty, or when an incomplete list would make an alt.
+pub fn kind(primary: &Listed, dupe: &Listed) -> String {
+    if primary.sigs.is_empty() || dupe.sigs.is_empty() {
         return String::new();
     }
-    let shared = shared_files(primary, dupe);
-    if shared == 0 {
-        "alt".into()
-    } else if shared == primary.len() && primary.len() == dupe.len() {
+    let shared = shared_files(&primary.sigs, &dupe.sigs);
+    let total = primary.sigs.len();
+    if shared == total && dupe.sigs.len() == total {
         "twin".into()
+    } else if shared * 2 > total {
+        format!("twin:{shared}/{total}")
+    } else if primary.complete && dupe.complete {
+        "alt".into()
     } else {
-        format!("twin:{shared}/{}", primary.len())
+        String::new()
     }
 }
 
 /// The name of the duplicate's file holding the same bytes as our file named
-/// `target` (or `target_alt`, the name our nzb gives it). `None`: we don't know
-/// our file's content. `Some("")`: we do, and no duplicate file holds it (or
-/// two do). Names compare without regard to case, like the C++ matching.
-pub fn match_by_content(own: &[FileSig], target: &str, target_alt: &str, donor: &[FileSig]) -> Option<String> {
-    let ours = own.iter().find(|s| {
-        s.name.eq_ignore_ascii_case(target) || (!target_alt.is_empty() && s.name.eq_ignore_ascii_case(target_alt))
-    })?;
-    let mut found = donor.iter().filter(|s| s.md5 == ours.md5 && s.length == ours.length);
+/// `target` (or `target_alt`, the name our nzb gives it). `None`: not known (our
+/// file isn't in our list, the name fits several, several donor files hold the
+/// bytes, or the donor's list is incomplete and doesn't have them). `Some("")`:
+/// the donor's complete list has no file with these bytes.
+pub fn match_by_content(own: &Listed, target: &str, target_alt: &str, donor: &Listed) -> Option<String> {
+    let ours = find_sig(&own.sigs, target).or_else(|| find_sig(&own.sigs, target_alt))?;
+    let mut found = donor.sigs.iter().filter(|s| s.md5 == ours.md5 && s.length == ours.length);
     match (found.next(), found.next()) {
         (Some(one), None) => Some(one.name.clone()),
-        _ => Some(String::new()),
+        (Some(_), Some(_)) => None,
+        (None, _) if donor.complete => Some(String::new()),
+        (None, _) => None,
     }
+}
+
+/// The file named `name`: the one with this exact name, else the only one that
+/// differs in case; `None` when there's none or the case leaves it open.
+fn find_sig<'a>(sigs: &'a [FileSig], name: &str) -> Option<&'a FileSig> {
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(exact) = sigs.iter().find(|s| s.name == name) {
+        return Some(exact);
+    }
+    let mut folded = sigs.iter().filter(|s| s.name.eq_ignore_ascii_case(name));
+    match (folded.next(), folded.next()) {
+        (Some(one), None) => Some(one),
+        _ => None,
+    }
+}
+
+/// A posting's file list as stored: bound to the fingerprint it was made for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listed {
+    pub sigs: Vec<FileSig>,
+    pub complete: bool,
+    pub print: String,
 }
 
 /// The par2 file lists of the postings fingerprinted so far, by download id,
 /// appended to a file in the queue directory: each list starts with a line
-/// "id\tnew" and has "id\tlength\tmd5\tname" lines; a later list of an id
-/// replaces the earlier one.
+/// "id\tnew\tfingerprint\tcomplete" and has "id\tlength\tmd5\tname" lines; a
+/// later list of an id replaces the earlier one. A list is only used for the
+/// fingerprint it was made for: download ids start over when the queue and
+/// history are emptied, the file stays.
 #[derive(Default)]
 pub struct Store {
-    path: String,
-    sigs: HashMap<i32, Vec<FileSig>>,
+    path: std::path::PathBuf,
+    lists: HashMap<i32, Listed>,
 }
 
+static EMPTY: Listed = Listed { sigs: Vec::new(), complete: false, print: String::new() };
+
 impl Store {
-    pub fn open(path: &str) -> Store {
-        let mut store = Store { path: path.to_string(), sigs: HashMap::new() };
-        if let Ok(file) = std::fs::File::open(path) {
+    pub fn open(path: std::path::PathBuf) -> Store {
+        let mut store = Store { path, lists: HashMap::new() };
+        if let Ok(file) = std::fs::File::open(&store.path) {
             for line in BufReader::new(file).lines().map_while(Result::ok) {
-                if let Some(id) = line.strip_suffix("\tnew").and_then(|id| id.parse::<i32>().ok()) {
-                    store.sigs.insert(id, Vec::new());
+                let parts: Vec<&str> = line.splitn(4, '\t').collect();
+                let Some(Ok(id)) = parts.first().map(|id| id.parse::<i32>()) else {
+                    continue;
+                };
+                if parts.get(1) == Some(&"new") {
+                    store.lists.insert(id, Listed {
+                        sigs: Vec::new(),
+                        print: parts.get(2).unwrap_or(&"").to_string(),
+                        complete: parts.get(3) == Some(&"1"),
+                    });
                     continue;
                 }
-                let mut parts = line.splitn(4, '\t');
-                let (Some(id), Some(length), Some(md5), Some(name)) = (parts.next(), parts.next(), parts.next(), parts.next())
-                else {
+                let (Some(length), Some(md5), Some(name)) = (parts.get(1), parts.get(2), parts.get(3)) else {
                     continue;
                 };
-                let (Ok(id), Ok(length)) = (id.parse::<i32>(), length.parse::<u64>()) else {
+                let Ok(length) = length.parse::<u64>() else {
                     continue;
                 };
-                store.sigs.entry(id).or_default().push(FileSig { name: name.to_string(), length, md5: md5.to_string() });
+                if let Some(listed) = store.lists.get_mut(&id) {
+                    listed.sigs.push(FileSig { name: name.to_string(), length, md5: md5.to_string() });
+                }
             }
         }
         store
     }
 
-    pub fn put(&mut self, id: i32, sigs: Vec<FileSig>) {
+    pub fn put(&mut self, id: i32, listed: Listed) {
         if let Ok(mut out) = OpenOptions::new().create(true).append(true).open(&self.path) {
-            let mut text = format!("{id}\tnew\n");
-            for s in &sigs {
+            let mut text = format!("{id}\tnew\t{}\t{}\n", listed.print, u8::from(listed.complete));
+            for s in &listed.sigs {
                 let name = s.name.replace(['\n', '\t', '\r'], "_");
                 text.push_str(&format!("{id}\t{}\t{}\t{name}\n", s.length, s.md5));
             }
             let _ = out.write_all(text.as_bytes());
         }
-        self.sigs.insert(id, sigs);
+        self.lists.insert(id, listed);
     }
 
-    pub fn get(&self, id: i32) -> &[FileSig] {
-        self.sigs.get(&id).map(Vec::as_slice).unwrap_or(&[])
+    /// The list of download `id` if it was made for fingerprint `print`, else an empty one.
+    pub fn get(&self, id: i32, print: &str) -> &Listed {
+        match self.lists.get(&id) {
+            Some(listed) if !print.is_empty() && listed.print == print => listed,
+            _ => &EMPTY,
+        }
     }
 }
 
@@ -368,23 +441,71 @@ mod tests {
         assert_eq!(volume_blocks("x.par2"), None);
     }
 
+    fn listed(sigs: Vec<FileSig>, complete: bool) -> Listed {
+        Listed { print: fingerprint(&sigs), sigs, complete }
+    }
+
     #[test]
     fn kinds() {
-        let primary = vec![sig("a", "1", 1), sig("b", "2", 2), sig("c", "3", 3)];
+        let primary = listed(vec![sig("a", "1", 1), sig("b", "2", 2), sig("c", "3", 3)], true);
         assert_eq!(kind(&primary, &primary), "twin");
-        assert_eq!(kind(&primary, &[sig("x", "1", 1), sig("y", "2", 2), sig("z", "9", 3)]), "twin:2/3");
-        assert_eq!(kind(&primary, &[sig("x", "7", 1)]), "alt");
-        assert_eq!(kind(&primary, &[]), "");
+        // two of three files: a near-twin
+        let near = listed(vec![sig("x", "1", 1), sig("y", "2", 2), sig("z", "9", 3)], true);
+        assert_eq!(kind(&primary, &near), "twin:2/3");
+        // one shared file (an NFO) of three: an alt, not a near-twin
+        let nfo = listed(vec![sig("x", "1", 1), sig("y", "8", 2), sig("z", "9", 3)], true);
+        assert_eq!(kind(&primary, &nfo), "alt");
+        // ... unless a list is incomplete: then it can't tell
+        assert_eq!(kind(&primary, &listed(nfo.sigs.clone(), false)), "");
+        assert_eq!(kind(&primary, &listed(vec![], true)), "");
+    }
+
+    #[test]
+    fn identical_files_count_once() {
+        // two identical files in the primary; the dupe holds one of them and an
+        // unrelated file: one shared, not two (no exact twin)
+        let primary = listed(vec![sig("a", "1", 1), sig("b", "1", 1)], true);
+        let dupe = listed(vec![sig("x", "1", 1), sig("y", "7", 7)], true);
+        assert_eq!(shared_files(&primary.sigs, &dupe.sigs), 1);
+        assert_eq!(kind(&primary, &dupe), "alt");
     }
 
     #[test]
     fn content_match() {
-        let own = vec![sig("QnL.7z.002", "80a3", 500), sig("QnL.7z.001", "9f9b", 500)];
-        let donor = vec![sig("TA7.7z.001", "d512", 500), sig("TA7.7z.002", "80a3", 500)];
+        let own = listed(vec![sig("QnL.7z.002", "80a3", 500), sig("QnL.7z.001", "9f9b", 500)], true);
+        let donor = listed(vec![sig("TA7.7z.001", "d512", 500), sig("TA7.7z.002", "80a3", 500)], true);
         assert_eq!(match_by_content(&own, "QnL.7z.002", "", &donor), Some("TA7.7z.002".into()));
-        assert_eq!(match_by_content(&own, "qnl.7Z.001", "", &donor), Some(String::new()));
+        // a complete donor list without the bytes: authoritative
+        assert_eq!(match_by_content(&own, "QnL.7z.001", "", &donor), Some(String::new()));
+        // case differs, one candidate: found
+        assert_eq!(match_by_content(&own, "qnl.7Z.002", "", &donor), Some("TA7.7z.002".into()));
         assert_eq!(match_by_content(&own, "other", "", &donor), None);
         assert_eq!(match_by_content(&own, "other", "QnL.7z.002", &donor), Some("TA7.7z.002".into()));
+        // an incomplete donor list without the bytes: not known
+        let partial = listed(vec![sig("TA7.7z.001", "d512", 500)], false);
+        assert_eq!(match_by_content(&own, "QnL.7z.002", "", &partial), None);
+        // no donor list (not fingerprinted yet): not known
+        assert_eq!(match_by_content(&own, "QnL.7z.002", "", &listed(vec![], false)), None);
+        // two donor files hold the bytes: left to the structure
+        let twice = listed(vec![sig("P.001", "80a3", 500), sig("P.002", "80a3", 500)], true);
+        assert_eq!(match_by_content(&own, "QnL.7z.002", "", &twice), None);
+    }
+
+    #[test]
+    fn par2_names_made_valid() {
+        // the names the queue gives files: a PAR2 name with a separator or a colon
+        assert_eq!(valid_name("dir/file.rar"), "dir_file.rar");
+        assert_eq!(valid_name("a:b.rar"), "a_b.rar");
+    }
+
+    #[test]
+    fn exact_case_first() {
+        let own = listed(vec![sig("A.rar", "1", 1), sig("a.rar", "2", 1)], true);
+        let donor = listed(vec![sig("x", "1", 1), sig("y", "2", 1)], true);
+        assert_eq!(match_by_content(&own, "a.rar", "", &donor), Some("y".into()));
+        assert_eq!(match_by_content(&own, "A.rar", "", &donor), Some("x".into()));
+        // folded only, two candidates: not known
+        assert_eq!(match_by_content(&own, "A.RAR", "", &donor), None);
     }
 
     #[test]
@@ -420,7 +541,8 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
             return; // no par2cmdline here
         }
         let par2 = std::fs::read(dir.join("m.par2")).unwrap();
-        let sigs = par2_sigs(&par2);
+        let (sigs, complete) = par2_set(&par2);
+        assert!(complete);
         assert_eq!(sigs.len(), 1);
         assert_eq!(sigs[0].name, "movie.mkv");
         assert_eq!(sigs[0].length, 300_000);
@@ -432,23 +554,40 @@ c@x</segment><segment bytes="7" number="2">id3@x</segment></segments></file>
         for b in damaged.iter_mut().take(64) {
             *b = 0;
         }
-        assert_eq!(par2_sigs(&damaged).len(), 1);
+        let (sigs, complete) = par2_set(&damaged);
+        assert_eq!(sigs.len(), 1);
+        assert!(!complete, "without its Main packet a list can't be known complete");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nzb_in_a_declared_legacy_encoding() {
+        // ISO-8859-1, "r\xe9lease.par2": still read, still a par2-file
+        let mut xml = b"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><nzb><file subject=\"&quot;r".to_vec();
+        xml.push(0xe9);
+        xml.extend_from_slice(b"lease.par2&quot; yEnc (1/1)\"><groups><group>a.b</group></groups><segments><segment bytes=\"9\" number=\"1\">id@x</segment></segments></file></nzb>");
+        let entries = read_nzb(&xml);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].filename, "r\u{e9}lease.par2");
+        assert!(entries[0].is_par2());
     }
 
     #[test]
     fn store_round_trip() {
         let path = std::env::temp_dir().join(format!("twincheck-test-{}", std::process::id()));
-        let path = path.to_str().unwrap();
-        let _ = std::fs::remove_file(path);
-        let mut store = Store::open(path);
-        store.put(7, vec![sig("a\tb", "1", 1)]);
-        store.put(7, vec![sig("c", "2", 2)]);
-        store.put(8, vec![sig("d", "3", 3)]);
-        let again = Store::open(path);
-        assert_eq!(again.get(7), &[sig("c", "2", 2)]);
-        assert_eq!(again.get(8), &[sig("d", "3", 3)]);
-        assert!(again.get(9).is_empty());
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&path);
+        let mut store = Store::open(path.clone());
+        store.put(7, listed(vec![sig("a\tb", "1", 1)], true));
+        let second = listed(vec![sig("c", "2", 2)], false);
+        store.put(7, second.clone());
+        let third = listed(vec![sig("d", "3", 3)], true);
+        store.put(8, third.clone());
+        let again = Store::open(path.clone());
+        assert_eq!(again.get(7, &second.print), &second);
+        assert_eq!(again.get(8, &third.print), &third);
+        // another posting under a reused id: its list isn't this one
+        assert!(again.get(8, "other-print").sigs.is_empty());
+        assert!(again.get(9, &third.print).sigs.is_empty());
+        let _ = std::fs::remove_file(&path);
     }
 }

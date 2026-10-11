@@ -55,37 +55,61 @@ fn with_store<T>(f: impl FnOnce(&mut crate::twin::Store) -> T) -> Option<T> {
     guard.as_mut().map(f)
 }
 
+/// A file system path from C bytes, kept byte for byte (paths needn't be UTF-8).
+unsafe fn path_arg(raw: *const c_char) -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(input(raw)))
+    }
+    #[cfg(not(unix))]
+    {
+        std::path::PathBuf::from(String::from_utf8_lossy(input(raw)).into_owned())
+    }
+}
+
+unsafe fn str_arg(raw: *const c_char) -> String {
+    String::from_utf8_lossy(input(raw)).into_owned()
+}
+
+unsafe fn bytes_arg<'a>(data: *const u8, len: usize) -> &'a [u8] {
+    if data.is_null() { &[] } else { std::slice::from_raw_parts(data, len) }
+}
+
 /// Opens (or reopens) the store of par2 file lists at `path`.
 ///
 /// # Safety
 /// `path` is null or a valid NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_twin_open(path: *const c_char) {
-    let path = String::from_utf8_lossy(input(path)).into_owned();
-    let store = crate::twin::Store::open(&path);
+    let store = crate::twin::Store::open(path_arg(path));
     *crate::twin::STORE.lock().unwrap_or_else(|e| e.into_inner()) = Some(store);
 }
 
-/// Parses the par2 data, stores its file list for download `id` (when it has
-/// files) and returns its fingerprint ("" for none).
+/// Parses the par2 data, stores its file list for download `id` (bound to its
+/// fingerprint, when it has files) and returns the fingerprint ("" for none).
 ///
 /// # Safety
 /// `data` points to `len` readable bytes (or is null with `len` 0).
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_twin_put_par2(id: i32, data: *const u8, len: usize) -> RsBuf {
-    let bytes = if data.is_null() { &[][..] } else { std::slice::from_raw_parts(data, len) };
-    let sigs = crate::twin::par2_sigs(bytes);
+    let (sigs, complete) = crate::twin::par2_set(bytes_arg(data, len));
     let print = crate::twin::fingerprint(&sigs);
     if !sigs.is_empty() {
-        with_store(|store| store.put(id, sigs));
+        let listed = crate::twin::Listed { sigs, complete, print: print.clone() };
+        with_store(|store| store.put(id, listed));
     }
     into_buf(print.into_bytes())
 }
 
-/// The file list of download `id` as "length\tmd5\tname" lines ("" if unknown).
+/// Whether a file list of download `id` made for fingerprint `print` is stored.
+///
+/// # Safety
+/// `print` is null or a valid NUL-terminated string.
 #[no_mangle]
-pub extern "C" fn nzbget_rs_twin_sigs(id: i32) -> RsBuf {
-    into_buf(with_store(|store| sigs_text(store.get(id))).unwrap_or_default())
+pub unsafe extern "C" fn nzbget_rs_twin_has(id: i32, print: *const c_char) -> bool {
+    let print = str_arg(print);
+    with_store(|store| !store.get(id, &print).sigs.is_empty()).unwrap_or(false)
 }
 
 /// The par2 data's file list as "length\tmd5\tname" lines, and nothing stored.
@@ -94,18 +118,7 @@ pub extern "C" fn nzbget_rs_twin_sigs(id: i32) -> RsBuf {
 /// `data` points to `len` readable bytes (or is null with `len` 0).
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_twin_par2_sigs(data: *const u8, len: usize) -> RsBuf {
-    let bytes = if data.is_null() { &[][..] } else { std::slice::from_raw_parts(data, len) };
-    into_buf(sigs_text(&crate::twin::par2_sigs(bytes)))
-}
-
-/// The fingerprint of the par2 data ("" for none), and nothing stored.
-///
-/// # Safety
-/// `data` points to `len` readable bytes (or is null with `len` 0).
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_twin_par2_fingerprint(data: *const u8, len: usize) -> RsBuf {
-    let bytes = if data.is_null() { &[][..] } else { std::slice::from_raw_parts(data, len) };
-    into_buf(crate::twin::fingerprint(&crate::twin::par2_sigs(bytes)).into_bytes())
+    into_buf(sigs_text(&crate::twin::par2_sigs(bytes_arg(data, len))))
 }
 
 fn parse_sigs_text(text: &[u8]) -> Vec<crate::twin::FileSig> {
@@ -136,8 +149,7 @@ pub unsafe extern "C" fn nzbget_rs_twin_fingerprint(lines: *const c_char) -> RsB
 /// `data` points to `len` readable bytes (or is null with `len` 0).
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_par2_block_size(data: *const u8, len: usize) -> u64 {
-    let bytes = if data.is_null() { &[][..] } else { std::slice::from_raw_parts(data, len) };
-    crate::twin::block_size(bytes)
+    crate::twin::block_size(bytes_arg(data, len))
 }
 
 /// The recovery blocks a par2-volume's name gives ("x.vol03+04.par2": 4), -1 if none.
@@ -146,31 +158,38 @@ pub unsafe extern "C" fn nzbget_rs_par2_block_size(data: *const u8, len: usize) 
 /// `filename` is null or a valid NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_par2_volume_blocks(filename: *const c_char) -> i32 {
-    crate::twin::volume_blocks(&String::from_utf8_lossy(input(filename)))
-        .map_or(-1, |b| i32::try_from(b).unwrap_or(i32::MAX))
+    crate::twin::volume_blocks(&str_arg(filename)).map_or(-1, |b| i32::try_from(b).unwrap_or(i32::MAX))
 }
 
-/// The label of download `dupe` against `primary`: "twin", "twin:N/M", "alt",
-/// or "" when a file list isn't known.
+/// The label of download `dupe` against `primary` (each by id and fingerprint):
+/// "twin", "twin:N/M", "alt", or "" when it can't be told.
+///
+/// # Safety
+/// `primary_print` and `dupe_print` are null or valid NUL-terminated strings.
 #[no_mangle]
-pub extern "C" fn nzbget_rs_twin_kind(primary: i32, dupe: i32) -> RsBuf {
-    let kind = with_store(|store| crate::twin::kind(store.get(primary), store.get(dupe))).unwrap_or_default();
+pub unsafe extern "C" fn nzbget_rs_twin_kind(primary: i32, primary_print: *const c_char, dupe: i32,
+    dupe_print: *const c_char) -> RsBuf {
+    let (primary_print, dupe_print) = (str_arg(primary_print), str_arg(dupe_print));
+    let kind = with_store(|store| crate::twin::kind(store.get(primary, &primary_print), store.get(dupe, &dupe_print)))
+        .unwrap_or_default();
     into_buf(kind.into_bytes())
 }
 
 /// The file of download `donor` holding the bytes of our file `target` (or
-/// `target_alt`) of download `own`: its name; "-" when our file's content is
-/// known and no single donor file holds it; "" when our content isn't known.
+/// `target_alt`) of download `own` (each by id and fingerprint): its name; "-"
+/// when the donor's complete list has no file with these bytes; "" when not known.
 ///
 /// # Safety
-/// `target` and `target_alt` are null or valid NUL-terminated strings.
+/// Every pointer is null or a valid NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_twin_match(own: i32, target: *const c_char, target_alt: *const c_char,
-    donor: i32) -> RsBuf {
-    let target = String::from_utf8_lossy(input(target)).into_owned();
-    let target_alt = String::from_utf8_lossy(input(target_alt)).into_owned();
-    let found = with_store(|store| crate::twin::match_by_content(store.get(own), &target, &target_alt, store.get(donor)))
-        .flatten();
+pub unsafe extern "C" fn nzbget_rs_twin_match(own: i32, own_print: *const c_char, target: *const c_char,
+    target_alt: *const c_char, donor: i32, donor_print: *const c_char) -> RsBuf {
+    let (own_print, donor_print) = (str_arg(own_print), str_arg(donor_print));
+    let (target, target_alt) = (str_arg(target), str_arg(target_alt));
+    let found = with_store(|store| {
+        crate::twin::match_by_content(store.get(own, &own_print), &target, &target_alt, store.get(donor, &donor_print))
+    })
+    .flatten();
     into_buf(match found {
         None => Vec::new(),
         Some(name) if name.is_empty() => b"-".to_vec(),
@@ -185,8 +204,7 @@ pub unsafe extern "C" fn nzbget_rs_twin_match(own: i32, target: *const c_char, t
 /// `path` is null or a valid NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_nzb_entries(path: *const c_char) -> RsBuf {
-    let path = String::from_utf8_lossy(input(path)).into_owned();
-    let xml = std::fs::read(path).unwrap_or_default();
+    let xml = std::fs::read(path_arg(path)).unwrap_or_default();
     let clean = |s: &str| s.replace(['\n', '\t', '\r'], "_");
     let mut v = Vec::new();
     for e in crate::twin::read_nzb(&xml) {
