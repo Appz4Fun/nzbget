@@ -103,6 +103,10 @@ bool g_stopping = false;
 // the servers busy): after MaxAttempts it's given up, not tried first forever
 std::map<int, int> g_failedAttempts;
 constexpr int MaxAttempts = 3;
+// the service, for Nudge() (under g_mutex); the check waits for its interval
+// unless nudged
+TwinCheck* g_instance = nullptr;
+std::atomic<bool> g_nudged{false};
 
 int Attempts(int nzbId)
 {
@@ -134,6 +138,9 @@ private:
 	int m_primaryId = 0;
 	std::string m_primaryNzbFilename;
 	ArticleFetcher m_fetcher;
+	// something was stored: the next round at once (a check that came to nothing
+	// waits for the interval, not retried every second)
+	bool m_stored = false;
 
 	void Sample();
 	void Store(const char* name, const char* value, const char* name2 = nullptr, const char* value2 = nullptr);
@@ -178,6 +185,11 @@ void TwinCheckJob::Run()
 			g_jobs.erase(job);
 			g_checking.erase(job->GetNzbId());
 			g_jobCount--;
+			// the labels from what this job stored, and the next job, at once
+			if (!g_stopping && job->m_stored)
+			{
+				TwinCheck::NudgeLocked();
+			}
 		}
 	} unregister{this};
 
@@ -244,6 +256,7 @@ void TwinCheckJob::Run()
 	if (nzbInfo)
 	{
 		nzbInfo->GetParameters()->SetParameter(TwinCheck::FilesParam, fingerprint.c_str());
+		m_stored = true;
 		nzbInfo->PrintMessage(Message::mkDetail, "Fingerprint of %s: %s (%i file(s) in its par2 set)",
 			nzbInfo->GetName(), fingerprint.c_str(), files);
 		downloadQueue->HistoryChanged();
@@ -276,6 +289,7 @@ void TwinCheckJob::Store(const char* name, const char* value, const char* name2,
 		{
 			nzbInfo->GetParameters()->SetParameter(name2, value2);
 		}
+		m_stored = true;
 		downloadQueue->HistoryChanged();
 		downloadQueue->Save();
 	}
@@ -722,6 +736,7 @@ bool TwinCheck::FetchEntry(ArticleFetcher& fetcher, const NzbEntry& entry, int64
 
 void TwinCheck::ServiceWork()
 {
+	g_nudged = false;
 	if (!Available() || !g_Options->GetDupeCheck())
 	{
 		return;
@@ -856,7 +871,7 @@ void TwinCheck::ServiceWork()
 
 			// the primary: the download running (the highest score of the queued
 			// ones not held back as duplicates), else the newest one in history
-			// that wasn't deleted as a duplicate
+			// that wasn't deleted as a duplicate, else the queued one to run first
 			NzbInfo* primary = nullptr;
 			for (Item& item : items)
 			{
@@ -870,6 +885,18 @@ void TwinCheck::ServiceWork()
 				if (!primary && !item.queued && !isDupe(item))
 				{
 					primary = item.nzbInfo;	// history: newest first
+				}
+			}
+			// every queued one paused and none done yet: the one to run first, so its
+			// duplicates are labelled before anything downloads
+			if (!primary)
+			{
+				for (Item& item : items)
+				{
+					if (item.queued && (!primary || item.nzbInfo->GetDupeScore() > primary->GetDupeScore()))
+					{
+						primary = item.nzbInfo;
+					}
 				}
 			}
 
@@ -1007,4 +1034,58 @@ void TwinCheck::Reset()
 {
 	Guard guard(g_mutex);
 	g_stopping = false;
+}
+
+TwinCheck::TwinCheck()
+{
+	Reset();
+	{
+		Guard guard(g_mutex);
+		g_instance = this;
+	}
+	m_observer.m_owner = this;
+	DownloadQueue::Guard()->Attach(&m_observer);
+}
+
+TwinCheck::~TwinCheck()
+{
+	// the queue (QueueCoordinator's) outlives this, and would notify freed memory
+	DownloadQueue::Guard()->Detach(&m_observer);
+	Guard guard(g_mutex);
+	g_instance = nullptr;
+}
+
+int TwinCheck::ServiceInterval()
+{
+	// nudged: within a second, not at once: a fetch that fails at once is retried
+	// at most once a second
+	return g_nudged ? 1 : 15;
+}
+
+void TwinCheck::Nudge()
+{
+	Guard guard(g_mutex);
+	NudgeLocked();
+}
+
+void TwinCheck::NudgeLocked()
+{
+	g_nudged = true;
+	if (g_instance)
+	{
+		g_instance->WakeUp();
+	}
+}
+
+void TwinCheck::DownloadQueueObserver::Update(Subject* caller, void* aspect)
+{
+	// called with the queue locked: no g_mutex here (jobs ending take it, then
+	// may wait for the queue)
+	DownloadQueue::Aspect* queueAspect = (DownloadQueue::Aspect*)aspect;
+	if (queueAspect->action == DownloadQueue::eaNzbAdded && queueAspect->nzbInfo &&
+		!Util::EmptyStr(queueAspect->nzbInfo->GetDupeKey()))
+	{
+		g_nudged = true;
+		m_owner->WakeUp();
+	}
 }

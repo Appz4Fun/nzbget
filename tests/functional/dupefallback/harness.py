@@ -1875,8 +1875,9 @@ def scenario_repost(daemon, t):
     blocks in part01 and in the par2; the donor is a REPOST: byte-identical
     members under the same names, cut into different article sizes. Suffix/
     name pairing must repair the damaged archive volume. The PAR2 file must
-    remain exactly as downloaded, with no donor PAR2 requests: names, sizes,
-    and partial byte identity do not authorize borrowing another PAR set.
+    remain exactly as downloaded, and the donor's PAR set is never used (the
+    twin check may read it for a fingerprint): names, sizes, and partial byte
+    identity do not authorize borrowing another PAR set.
     Expected history status is FAILURE/PAR because the stand-in parity is
     opaque random bytes. Capture nserv requests when running this scenario."""
     seg_primary, seg_donor = 500_000, 300_000
@@ -1920,9 +1921,13 @@ def scenario_repost(daemon, t):
                           t.read_file('nserv.log').decode(errors='replace'))
     donor_par = sum('repostB/x.par2?' in request for request in requests)
     donor_rar = sum('repostB/x.part01.rar?' in request for request in requests)
+    # the twin check reads the donor's smallest par2-file for its fingerprint
+    # (as soon as it's added): reading isn't borrowing. Borrowing would be its
+    # par2 set used in the repair, or blocks in our par2-file (untouched_par)
+    donor_par_set_used = _grep_log(t, 'par2 set of twin') > 0
     return ('repost',
             integ_rar and untouched_par and intact_2 and intact_3 and
-            donor_rar > 0 and donor_par == 0 and
+            donor_rar > 0 and not donor_par_set_used and
             h['Status'] == 'FAILURE/PAR' and recov == 1 and queued == 1 and repaired >= 1,
             'status=%s recovered=%d queued_logs=%d repair_logs=%d '
             'rar=%s par2_untouched=%s intact=%s/%s donor_rar=%d donor_par2=%d'
@@ -9502,6 +9507,39 @@ def scenario_twinalt(daemon, t):
     return ('twinalt', ok, 'kinds=%s prints=%s' % (kinds, prints))
 
 
+def scenario_twinlabelonadd(daemon, t):
+    """Duplicates are labelled as they are added, before the primary downloads:
+    the primary waits paused in the queue, a twin and an alt are added. Their
+    par2 fingerprints are fetched at once (not at the next 15-second round of
+    the check), and both labels are there within 10 seconds of the last add."""
+    primary = _twin_release(t, 'tlP', 13100, 50_000, 65536, 4)
+    twin = _twin_release(t, 'tlT', 13100, 70_000, 131072, 9)
+    alt = _twin_release(t, 'tlA', 13200, 50_000, 65536, 4)
+    api = daemon.wait_ready()
+    # past the check's first round after the start: only a nudge runs it soon
+    time.sleep(2)
+    daemon.append(api, 'Primary', build_multi_nzb(primary), True, 'tl-key', 100)
+    daemon.append(api, 'Twin', build_multi_nzb(twin), False, 'tl-key', 90)
+    daemon.append(api, 'Alt', build_multi_nzb(alt), False, 'tl-key', 80)
+    added = time.time()
+
+    def param(h, name):
+        return next((p['Value'] for p in h.get('Parameters', []) if p['Name'] == name), '')
+    kinds, elapsed = {}, None
+    while time.time() < added + 60:
+        hist = {h['Name']: h for h in api.history()}
+        kinds = {n: param(hist.get(n, {}), 'DupeKind') for n in ('Twin', 'Alt')}
+        if kinds['Twin'] and kinds['Alt']:
+            elapsed = time.time() - added
+            break
+        time.sleep(0.5)
+    queued = [g for g in api.listgroups() if g['NZBName'] == 'Primary']
+    ok = (kinds == {'Twin': 'twin', 'Alt': 'alt'} and elapsed is not None and elapsed < 10 and
+          len(queued) == 1 and queued[0]['DownloadedSizeMB'] == 0)
+    return ('twinlabelonadd', ok, 'kinds=%s elapsed=%s primary_queued=%s' % (
+        kinds, None if elapsed is None else round(elapsed, 1), bool(queued)))
+
+
 def scenario_twinparrepair(daemon, t):
     """The primary loses 4 articles of part01 (about 6 blocks of 64 KB) and its own
     par2 set holds 2: par-repair can't do it alone. A twin in history (the same
@@ -10192,6 +10230,7 @@ SCENARIOS = {
     'pardamageborrow': scenario_pardamageborrow,
     'nosourceonce': scenario_nosourceonce,
     'twinalt': scenario_twinalt,
+    'twinlabelonadd': scenario_twinlabelonadd,
     'neartwinborrow': scenario_neartwinborrow,
     'lostindexpar': scenario_lostindexpar,
     'obfuscatedparnoborrow': scenario_obfuscatedparnoborrow,
@@ -10517,6 +10556,7 @@ SCENARIO_OPTIONS = {
     'pardamageborrow': ['ParCheck=auto', 'HealthCheck=dupe', 'DupeArticleFallback=live'],
     'nosourceonce': ['DupeArticleFallback=live', 'HealthCheck=none'],
     'twinalt': ['HealthCheck=dupe'],
+    'twinlabelonadd': ['HealthCheck=dupe'],
     'neartwinborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'ParCheck=force'],
     'lostindexpar': ['ParCheck=auto', 'Unpack=no', 'DupeArticleFallback=no'],
     'obfuscatedparnoborrow': ['DupeArticleFallback=live', 'HealthCheck=none', 'DirectRename=no', 'ParCheck=force'],

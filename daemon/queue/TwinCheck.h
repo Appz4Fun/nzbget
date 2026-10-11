@@ -127,11 +127,28 @@ public:
 	static void WaitAll();
 	static void Reset();
 
-	TwinCheck() { Reset(); }
+	TwinCheck();
+	~TwinCheck() override;
+
+	/* runs the check at once (not at the next interval): a duplicate was added, or
+	 * a fingerprint arrived */
+	static void Nudge();
+	/* the same, with the check's registry lock held (a job ending) */
+	static void NudgeLocked();
 
 protected:
-	int ServiceInterval() override { return 15; }
+	int ServiceInterval() override;
 	void ServiceWork() override;
+
+private:
+	class DownloadQueueObserver final : public Observer
+	{
+	public:
+		TwinCheck* m_owner;
+		void Update(Subject* caller, void* aspect) override;
+	};
+
+	DownloadQueueObserver m_observer;
 };
 
 #endif
