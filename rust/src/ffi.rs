@@ -96,12 +96,20 @@ pub unsafe extern "C" fn nzbget_rs_twin_open(path: *const c_char) {
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_twin_put_par2(id: i32, posting: *const c_char, data: *const u8, len: usize)
     -> RsBuf {
-    let (sigs, complete) = crate::twin::par2_set(bytes_arg(data, len));
+    let (mut sigs, complete) = crate::twin::par2_set(bytes_arg(data, len));
+    let posting = str_arg(posting);
+    // a partial list adds to the posting's partial list from an earlier try (that
+    // one may have seen articles this one didn't); a complete one replaces it
+    if !complete {
+        if let Some(earlier) = with_store(|store| store.partial_of(id, &posting).map(|l| l.sigs.clone())).flatten() {
+            sigs = crate::twin::merge(&earlier, &sigs);
+        }
+    }
     let print = crate::twin::fingerprint(&sigs);
     if !sigs.is_empty() {
         // bound to the posting: its fingerprint and the posting's own id (a hash of
         // its message-ids), which differently named twins don't share
-        let identity = format!("{print}#{}", str_arg(posting));
+        let identity = format!("{print}#{posting}");
         let listed = crate::twin::Listed { sigs, complete, print: identity };
         with_store(|store| store.put(id, listed));
     }

@@ -183,6 +183,19 @@ pub fn kind(primary: &Listed, dupe: &Listed) -> String {
     }
 }
 
+/// The files of two partial lists of one posting together (each file once):
+/// retries that saw other articles of the par2-file add what they found.
+pub fn merge(a: &[FileSig], b: &[FileSig]) -> Vec<FileSig> {
+    let mut merged: Vec<FileSig> = a.to_vec();
+    for sig in b {
+        if !merged.contains(sig) {
+            merged.push(sig.clone());
+        }
+    }
+    merged.sort_by(|x, y| x.name.cmp(&y.name));
+    merged
+}
+
 /// The name of the duplicate's file holding the same bytes as our file named
 /// `target` (or `target_alt`, the name our nzb gives it). `None`: not known (our
 /// file isn't in our list, the name fits several, several donor files hold the
@@ -304,6 +317,14 @@ impl Store {
             let _ = out.write_all(record(id, &listed).as_bytes());
         }
         self.lists.insert(id, listed);
+    }
+
+    /// A partial list of download `id` stored for the posting `posting` (the part
+    /// of its identity after '#'): retries add to it until a complete list comes.
+    pub fn partial_of(&self, id: i32, posting: &str) -> Option<&Listed> {
+        self.lists
+            .get(&id)
+            .filter(|listed| !listed.complete && listed.print.rsplit_once('#').map(|(_, p)| p) == Some(posting))
     }
 
     /// The list of download `id` if it was made for posting identity `print`, else an empty one.
@@ -556,6 +577,14 @@ mod tests {
         let donor = listed(vec![sig("x?y.rar", "1", 1)], true);
         assert_eq!(match_by_content(&own, "a_b.rar", "", &donor), Some("x_y.rar".into()));
         assert_eq!(own.sigs[0].name, "a:b.rar");
+    }
+
+    #[test]
+    fn partial_lists_merge() {
+        let first = vec![sig("a", "1", 1), sig("b", "2", 2)];
+        let third = vec![sig("b", "2", 2)];
+        assert_eq!(merge(&first, &third), first);
+        assert_eq!(merge(&third, &[sig("c", "3", 3)]), vec![sig("b", "2", 2), sig("c", "3", 3)]);
     }
 
     #[test]
