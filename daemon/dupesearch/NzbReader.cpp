@@ -27,6 +27,9 @@
 #include "XmlReader.h"
 
 #include "DupeUtil.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs_dupesearch_nzb.h"
+#endif
 
 using DupeUtil::Lower;
 using DupeUtil::Trim;
@@ -46,6 +49,10 @@ std::string NameOfSubject(const std::string& subject)
 			return Trim(subject.substr(open + 1, close - open - 1));
 		}
 	}
+#ifdef NZBGET_USE_RUST
+	NzbgetRsSubjectRange range = nzbget_rs_dupesearch_unquoted_subject((const uint8_t*)subject.data(), subject.size());
+	return subject.substr(range.start, range.len);
+#else
     // Standard unquoted yEnc subjects decorate the filename with a part count.
     // Strip only that terminal decoration, so volume-like media names stay data.
     static const std::regex tail(R"(\s+yEnc(?:\s+\([0-9]+/[0-9]+\))?\s*$)", std::regex::icase);
@@ -55,6 +62,7 @@ std::string NameOfSubject(const std::string& subject)
         return Trim(subject.substr(0, (size_t)match.position()));
     }
 	return Trim(subject);
+#endif
 }
 
 bool ValidMessageId(const std::string& id)
@@ -77,7 +85,11 @@ bool ValidMessageId(const std::string& id)
 
 bool IsParName(const std::string& name)
 {
+#ifdef NZBGET_USE_RUST
+	return nzbget_rs_dupesearch_par_name((const uint8_t*)name.data(), name.size()) != 0;
+#else
 	return name.size() >= 5 && Lower(name.substr(name.size() - 5)) == ".par2";
+#endif
 }
 
 class Reader : public XmlReader::Handler

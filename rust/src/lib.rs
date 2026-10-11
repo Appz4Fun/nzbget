@@ -41,6 +41,7 @@ pub mod webserver;
 pub mod webutil;
 pub mod ffi;
 pub mod donorscore;
+pub mod dupesearch_nzb;
 pub mod releasename;
 pub mod posting;
 pub mod twin;
