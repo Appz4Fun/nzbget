@@ -2930,8 +2930,9 @@ pub unsafe extern "C" fn nzbget_rs_rename_analyzer_reset(a: *mut crate::renamean
 /// its set id then in `set_id` (32 hex digits and a NUL).
 ///
 /// # Safety
-/// `a` is null or a live analyzer; `buf` is readable for `len` bytes (when
-/// positive); `set_id` is writable for 33 bytes.
+/// `a` is null or a live, exclusively accessed analyzer. For positive `len`,
+/// a non-null `buf` is readable for `len` bytes and does not overlap `a`.
+/// `set_id` is null or writable for 33 bytes and does not overlap `a` or `buf`.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_rename_analyzer_append(
     a: *mut crate::renameanalyzer::Analyzer,
@@ -2940,16 +2941,13 @@ pub unsafe extern "C" fn nzbget_rs_rename_analyzer_append(
     set_id: *mut c_char,
 ) -> c_int {
     let Some(a) = a.as_mut() else { return 0 };
-    if len < 0 {
-        // nothing read; the size goes down as the C++ int did
-        a.data_size = a.data_size.wrapping_add(len);
+    if len < 0 || (buf.is_null() && len > 0) {
         return 0;
     }
     let matched = a.append(span(buf, len as usize));
     if matched && !set_id.is_null() {
         if let Some(id) = &a.par_set_id {
-            std::ptr::copy_nonoverlapping(id.as_ptr().cast(), set_id, id.len().min(32));
-            *set_id.add(id.len().min(32)) = 0;
+            std::ptr::copy_nonoverlapping(id.as_ptr().cast(), set_id, id.len());
         }
     }
     matched as c_int
@@ -2959,7 +2957,8 @@ pub unsafe extern "C" fn nzbget_rs_rename_analyzer_append(
 /// (32 hex digits and a NUL).
 ///
 /// # Safety
-/// `a` is null or a live analyzer; `hash` is writable for 33 bytes.
+/// `a` is null or a live, exclusively accessed analyzer; `hash` is null or
+/// writable for 33 bytes and does not overlap `a`.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_rename_analyzer_finish(a: *mut crate::renameanalyzer::Analyzer, hash: *mut c_char) {
     let Some(a) = a.as_mut() else { return };
@@ -2967,8 +2966,7 @@ pub unsafe extern "C" fn nzbget_rs_rename_analyzer_finish(a: *mut crate::renamea
         return;
     }
     let h = a.finish();
-    std::ptr::copy_nonoverlapping(h.as_ptr().cast(), hash, h.len().min(32));
-    *hash.add(h.len().min(32)) = 0;
+    std::ptr::copy_nonoverlapping(h.as_ptr().cast(), hash, h.len());
 }
 
 #[cfg(test)]

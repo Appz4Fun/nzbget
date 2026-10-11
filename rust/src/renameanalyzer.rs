@@ -5,22 +5,30 @@
 //! were read, Reset keeping what it found).
 
 use md5::{Digest, Md5};
+use md5::block_api::Md5Core;
+use md5::digest::{block_api::CoreProxy, common::hazmat::SerializableState};
 
 const HEADER: usize = 64;
 const MAGIC: &[u8; 8] = b"PAR2\0PKT";
-const LIMIT: i64 = 16 * 1024;
+const LIMIT: i32 = 16 * 1024;
 
 /// Par2::MD5Hash::print: the bytes from last to first, upper-case hex.
-fn print(hash: &[u8]) -> String {
-    hash.iter().rev().map(|b| format!("{b:02X}")).collect()
+fn print(hash: &[u8]) -> [u8; 33] {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = [0; 33];
+    for (pair, b) in out[..32].as_chunks_mut::<2>().0.iter_mut().zip(hash.iter().rev()) {
+        pair[0] = HEX[(b >> 4) as usize];
+        pair[1] = HEX[(b & 15) as usize];
+    }
+    out
 }
 
 pub struct Analyzer {
     md5: Md5,
     signature: [u8; HEADER],
-    pub(crate) data_size: i32,
+    data_size: i32,
     pub par_file: bool,
-    pub par_set_id: Option<String>,
+    pub par_set_id: Option<[u8; 33]>,
 }
 
 impl Default for Analyzer {
@@ -53,7 +61,9 @@ impl Analyzer {
             self.par_set_id = Some(print(&self.signature[32..48]));
             matched = true;
         }
-        let rem = (len as i64).min(LIMIT - size as i64);
+        // Match the legacy 32-bit arithmetic, including the subtraction after
+        // the cumulative size wraps. Widening this subtraction changes hashing.
+        let rem = len.min(LIMIT.wrapping_sub(size));
         if rem > 0 {
             self.md5.update(&buf[..rem as usize]);
         }
@@ -62,8 +72,21 @@ impl Analyzer {
     }
 
     /// Finish: the MD5 of the first 16 KiB, printed
-    pub fn finish(&mut self) -> String {
-        let hash = std::mem::replace(&mut self.md5, Md5::new()).finalize();
+    pub fn finish(&mut self) -> [u8; 33] {
+        let hash = self.md5.clone().finalize();
+        // Par2::MD5Context::Final replaces the chaining words with the digest,
+        // but retains the byte count and buffered input. Neither finalize_reset
+        // nor simply finalizing a clone preserves subsequent Finish/Append calls.
+        // Md5Core serializes four little-endian words followed by its block count.
+        let (core, buffer) = self.md5.clone().decompose();
+        let mut state = core.serialize();
+        state[..16].copy_from_slice(&hash);
+        // libpar2 also byte-swaps its live state when printing on big endian.
+        #[cfg(target_endian = "big")]
+        for word in state[..16].as_chunks_mut::<4>().0 {
+            word.reverse();
+        }
+        self.md5 = Md5::compose(Md5Core::deserialize(&state).expect("valid MD5 core state"), buffer);
         print(&hash)
     }
 }
@@ -83,10 +106,60 @@ mod tests {
         assert!(!a.append(&header));
         assert!(!a.par_file);
         assert!(a.append(b"more"));
-        assert_eq!(a.par_set_id.as_deref(), Some("0F0E0D0C0B0A09080706050403020100"));
+        assert_eq!(a.par_set_id.as_ref(), Some(b"0F0E0D0C0B0A09080706050403020100\0"));
         let mut b = Analyzer::default();
         b.append(b"");
         // MD5("") = d41d8cd98f00b204e9800998ecf8427e, printed backwards
-        assert_eq!(b.finish(), "7E42F8EC980980E904B2008FD98C1DD4");
+        assert_eq!(&b.finish(), b"7E42F8EC980980E904B2008FD98C1DD4\0");
+    }
+
+    #[test]
+    fn size_wrap_keeps_legacy_md5_window() {
+        let mut a = Analyzer { data_size: i32::MAX, ..Analyzer::default() };
+        a.append(b"x");
+        assert_eq!(a.data_size, i32::MIN);
+        a.append(&[b'y'; 16 * 1024]);
+        a.append(b"y");
+        a.append(b"z");
+        // The wrapped subtraction is negative through INT_MIN + 16384.
+        assert_eq!(a.finish(), print(&Md5::digest(b"z")));
+    }
+
+    #[test]
+    fn ffi_buffers_and_invalid_inputs() {
+        use crate::ffi::*;
+        use std::ptr::{null, null_mut};
+        // Exercise the real ABI, including caller-owned buffers with canaries.
+        unsafe {
+            nzbget_rs_rename_analyzer_free(null_mut());
+            nzbget_rs_rename_analyzer_reset(null_mut());
+            nzbget_rs_rename_analyzer_finish(null_mut(), null_mut());
+            assert_eq!(nzbget_rs_rename_analyzer_append(null_mut(), null(), 0, null_mut()), 0);
+            let a = nzbget_rs_rename_analyzer_new();
+            let mut out = [0x55u8; 35];
+            let dest = out.as_mut_ptr().add(1).cast();
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 99, dest), 0);
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), -1, dest), 0);
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 0, dest), 0);
+            assert_eq!(out, [0x55; 35]);
+            nzbget_rs_rename_analyzer_finish(a, null_mut());
+            nzbget_rs_rename_analyzer_finish(a, dest);
+            assert_eq!(&out[1..34], b"7E42F8EC980980E904B2008FD98C1DD4\0");
+            assert_eq!((out[0], out[34]), (0x55, 0x55));
+
+            nzbget_rs_rename_analyzer_reset(a);
+            let mut header = [0u8; 64];
+            header[..8].copy_from_slice(MAGIC);
+            for (i, b) in header[32..48].iter_mut().enumerate() { *b = i as u8; }
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, header.as_ptr().cast(), 64, dest), 0);
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 0, null_mut()), 1);
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 0, dest), 1);
+            assert_eq!(&out[1..34], b"0F0E0D0C0B0A09080706050403020100\0");
+            assert_eq!((out[0], out[34]), (0x55, 0x55));
+            nzbget_rs_rename_analyzer_reset(a);
+            assert!((*a).par_file);
+            assert_eq!((*a).par_set_id.as_ref().unwrap(), &out[1..34]);
+            nzbget_rs_rename_analyzer_free(a);
+        }
     }
 }

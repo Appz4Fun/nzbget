@@ -21,6 +21,7 @@
 
 #include "nzbget.h"
 
+#include <cstddef>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
@@ -60,7 +61,9 @@ private:
 	Par2::MD5Context m_md5Context;
 	char m_signature[sizeof(Par2::PACKET_HEADER)];
 #endif
+#ifndef NZBGET_RS_RENAME_ANALYZER
 	int m_dataSize = 0;
+#endif
 	CString m_hash16k;
 	CString m_parSetId;
 	bool m_parFile = false;
@@ -711,7 +714,6 @@ bool DirectRenamer::RenameFile(NzbInfo* nzbInfo, const std::string& oldFullFilen
 void RenameContentAnalyzer::Reset()
 {
 	nzbget_rs_rename_analyzer_reset(m_rs.get());
-	m_dataSize = 0;
 }
 #else
 void RenameContentAnalyzer::Reset()
@@ -732,30 +734,37 @@ void RenameContentAnalyzer::Append(const void* buffer, int len)
 		m_parFile = true;
 		m_parSetId = setId;
 	}
-	m_dataSize += len;
 }
 #else
 void RenameContentAnalyzer::Append(const void* buffer, int len)
 {
 #ifndef DISABLE_PARCHECK
-	if ((size_t)m_dataSize < sizeof(m_signature))
+	if (len < 0 || (!buffer && len > 0))
+	{
+		return;
+	}
+	if (len > 0 && (size_t)m_dataSize < sizeof(m_signature))
 	{
 		memcpy(m_signature + m_dataSize, buffer, std::min((size_t)len, sizeof(m_signature) - m_dataSize));
 	}
 
-	if ((size_t)m_dataSize >= sizeof(m_signature) && (*(Par2::MAGIC*)m_signature) == Par2::packet_magic)
+	if ((size_t)m_dataSize >= sizeof(m_signature) &&
+		memcmp(m_signature, &Par2::packet_magic, sizeof(Par2::MAGIC)) == 0)
 	{
 		m_parFile = true;
-		m_parSetId = ((Par2::PACKET_HEADER*)m_signature)->setid.print().c_str();
+		Par2::MD5Hash setId;
+		memcpy(&setId, m_signature + offsetof(Par2::PACKET_HEADER, setid), sizeof(setId));
+		m_parSetId = setId.print().c_str();
 	}
 
-	int rem16kSize = std::min(len, 16 * 1024 - m_dataSize);
+	// Define the legacy two's-complement wrapping without signed overflow.
+	int rem16kSize = std::min(len, (int)(16u * 1024 - (unsigned int)m_dataSize));
 	if (rem16kSize > 0)
 	{
 		m_md5Context.Update(buffer, rem16kSize);
 	}
 
-	m_dataSize += len;
+	m_dataSize = (int)((unsigned int)m_dataSize + (unsigned int)len);
 #endif
 }
 #endif
