@@ -15,14 +15,20 @@ Run remotely (not on the development Mac), after configuring/building with
 python3 rust/tests/streamcompare_differential.py build --sanitize --rounds 100000
 python3 rust/tests/streamcompare_differential.py build --sanitize --mutation
 python3 rust/tests/streamcompare_differential.py build --sanitize --mutation-threshold
-python3 rust/tests/streamcompare_differential.py build --bench
-python3 rust/tests/streamcompare_analyze.py evidence/release/raw.csv
+python3 rust/tests/streamcompare_differential.py build --tag timing --rounds 100000
+# After compilation/parity ends, run the prebuilt timer under benchmark EX alone.
+taskset -c 0 evidence/release-timing/caller bench > evidence/release-timing/raw.csv
+python3 rust/tests/streamcompare_analyze.py evidence/release-timing/raw.csv
 ```
 
-Acquire the heavy lock, then the benchmark lock, in that order. Compilation and
-tests use an exclusive `/tmp/i7-heavy.lock` and shared
-`/tmp/nzbget-rust-benchmark.lock`; timings hold both exclusively. Release locks
-between bounded stages. Use Cargo build jobs 3 and CMake `-j3` maximum.
+Compilation/tests acquire exclusive `/tmp/i7-heavy.lock`, then shared
+`/tmp/nzbget-rust-benchmark.lock`. Release both after that bounded stage.
+Prebuilt timers acquire exclusive `/tmp/nzbget-rust-benchmark.lock` alone;
+never compile or acquire the heavy lock while holding that timing lock.
+Use Cargo build jobs 3 and CMake `-j3` maximum. The recorded qualification
+runs predate this final coordinator refinement: they acquired heavy EX first,
+then benchmark EX for their bounded compile/timing stage, which was the active
+protocol at the time. Their prebuilt binaries remain available for replay.
 
 No-probe calls retain the exact C++ base-only calculation to avoid an FFI
 regression. Selected probes with no holes sum raw donor sizes, including
