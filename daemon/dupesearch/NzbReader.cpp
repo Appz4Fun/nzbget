@@ -26,6 +26,7 @@
 #include "NzbReader.h"
 #include "XmlReader.h"
 #include "NzbFile.h"
+#include "ParParser.h"
 #ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
 #endif
@@ -273,12 +274,29 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
         std::sort(reader.articleSizes.begin(), reader.articleSizes.end());
         summary.articleBytes = reader.articleSizes[reader.articleSizes.size()/2];
     }
-    std::stable_sort(reader.parityHeads.begin(), reader.parityHeads.end(),
-        [](const NzbSummary::Head& a, const NzbSummary::Head& b) { return a.bytes < b.bytes; });
-    if (!reader.parityHeads.empty())
+    // File size does not identify a PAR2 index: an index can be larger than
+    // a recovery volume. Use the shared filename parser and keep capacity
+    // paired with the selected index's collection.
+    for (const auto& head : reader.parityHeads)
     {
-        summary.parIndex = reader.parityHeads.front();
-        for (size_t i=1;i<reader.parityHeads.size();i++) summary.recoveryBytes.push_back((uint64_t)reader.parityHeads[i].bytes);
+        int baseLen = 0;
+        if (ParParser::ParseParFilename(head.name.c_str(), true, &baseLen, nullptr) &&
+            baseLen >= 0 && (size_t)baseLen + 5 == head.name.size())
+        {
+            summary.parIndex = head;
+            break;
+        }
+    }
+    if (!summary.parIndex.messageId.empty())
+    {
+        for (const auto& head : reader.parityHeads)
+        {
+            int baseLen = 0;
+            if (ParParser::ParseParFilename(head.name.c_str(), true, &baseLen, nullptr) &&
+                baseLen >= 0 && (size_t)baseLen + 5 < head.name.size() &&
+                ParParser::SameParCollection(summary.parIndex.name.c_str(), head.name.c_str(), true))
+                summary.recoveryBytes.push_back((uint64_t)head.bytes);
+        }
     }
 
 	std::string mainName;

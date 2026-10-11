@@ -288,6 +288,31 @@ BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
 }
 #endif
 
+BOOST_AUTO_TEST_CASE(NativeParityIndexByFilenameTest)
+{
+    NzbSummary info;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({
+        { "rel.vol00+01.par2", { 100 } },
+        { "rel.par2", { 900 } },
+        { "rel.vol01+02.PAR2", { 200 } },
+        { "other.vol00+10.par2", { 1000 } },
+        { "rel.mkv", { 10000 } }
+    }, "par-index"), info));
+    BOOST_CHECK_EQUAL(info.parIndex.name, "rel.par2");
+    BOOST_REQUIRE_EQUAL(info.recoveryBytes.size(), 2);
+    BOOST_CHECK_EQUAL(info.recoveryBytes[0], 100);
+    BOOST_CHECK_EQUAL(info.recoveryBytes[1], 200);
+
+    // Without an identifiable base index, recovery capacity is unknown.
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({
+        { "rel.vol00+01.par2", { 100 } },
+        { "rel.vol01+02.par2", { 200 } },
+        { "rel.mkv", { 10000 } }
+    }, "par-volumes"), info));
+    BOOST_CHECK(info.parIndex.messageId.empty());
+    BOOST_CHECK(info.recoveryBytes.empty());
+}
+
 BOOST_AUTO_TEST_CASE(NativeIdentityParitySuffixTest)
 {
     NzbSummary pick, donor;

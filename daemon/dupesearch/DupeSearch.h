@@ -139,7 +139,7 @@ private:
 	bool Prepare(DownloadQueue* downloadQueue, int nzbId, Job& job);
 	bool PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job);
 	void Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior, time_t deadline, NzbFetcher::Budget& budget,
-		std::vector<NzbFetcher::Fetched>& fetched, std::set<std::string>& attempted, NzbFetcher::Stats& stats,
+		std::vector<NzbFetcher::Fetched>& fetched, std::set<std::string>& attempted, NzbFetcher::Stats& stats, Newznab::SearchStats& queryStats,
 		int& results, int& candidates, int& postings);
 	void Search(const Job& job);
 	/* health checks, adds and ranks the verified postings and the key's duplicates in history */

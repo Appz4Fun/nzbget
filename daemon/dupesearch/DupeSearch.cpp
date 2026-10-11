@@ -529,6 +529,7 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
         pick->SetChanged(true);
         downloadQueue->SaveChanged();
     }
+    job.rankOnly = rankOnly;
     Collect(downloadQueue, pick, job);
     job.dupeKey = key;
     job.score = score;
@@ -580,6 +581,19 @@ void DupeSearch::Collect(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, Job& jo
 	for (NzbInfo* item : downloadQueue->GetQueue())
 	{
 		addKnown(item);
+        // Zero-delay ranking can precede asynchronous duplicate filing. The
+        // score editor handles either live or history IDs, so include that
+        // snapshot rather than losing the only add notification.
+        if (job.rankOnly && item != nzbInfo && item->GetKind()==NzbInfo::nkNzb &&
+            item->GetDupeMode()==dmScore && !item->GetPostInfo() &&
+            (item->GetDeleteStatus()==NzbInfo::dsNone || item->GetDeleteStatus()==NzbInfo::dsDupe) &&
+            item->GetDupeScore()<nzbInfo->GetDupeScore() && LowerKey(EffectiveKey(item))==lowerKey &&
+            ReleaseName::SameRelease(nzbInfo->GetName(),item->GetName()) &&
+            !Util::EmptyStr(item->GetQueuedFilename()) && !strchr(item->GetQueuedFilename(),'|'))
+        {
+            job.members.emplace_back(item->GetId(),item->GetQueuedFilename());
+            job.memberScores.push_back(item->GetDupeScore());
+        }
 	}
 	for (HistoryInfo* historyInfo : downloadQueue->GetHistory())
 	{
@@ -604,7 +618,7 @@ void DupeSearch::Collect(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, Job& jo
 
 void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior,
     time_t deadline, NzbFetcher::Budget& budget, std::vector<NzbFetcher::Fetched>& fetched,
-    std::set<std::string>& attempted, NzbFetcher::Stats& stats, int& results, int& candidates, int& postings)
+    std::set<std::string>& attempted, NzbFetcher::Stats& stats, Newznab::SearchStats& queryStats, int& results, int& candidates, int& postings)
 {
 #ifdef NZBGET_USE_RUST
     if (IsStopped() || budget.Spent() || Util::CurrentTime()>=deadline || pick.messageIds.empty()) return;
@@ -641,6 +655,9 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
     // Do not spend indexer grabs when a usable whole backup already exists.
     std::set<std::string> probed;
     auto whole=[&](const NzbSummary& info) {
+        // A failed pick is not its own backup, even if all of its articles exist.
+        // Match the same-posting rejection used later before adding donors.
+        if (info.Fingerprint()==pick.Fingerprint() || Posting::SamePosting(pick.messageIds,info.messageIds)) return false;
         if (Util::CurrentTime()>=deadline || IsStopped() || !probed.insert(info.Fingerprint()).second) return false;
         auto h=check(info);
         return DupeIdentity::Alive(h,info)>=0.999;
@@ -677,6 +694,9 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
     nzbget_rs_free(raw);
     Newznab::SearchStats searchStats;
     auto wider=Newznab::Search(g_Options->GetDupeSearchUrl(),g_Options->GetDupeSearchApiKey(),queries,deadline,&searchStats);
+    queryStats.queries += searchStats.queries;
+    queryStats.failed += searchStats.failed;
+    queryStats.pages += searchStats.pages;
     std::vector<Newznab::Result> all=prior;
     std::set<std::string> seen;
     for (const auto& r:prior) seen.insert(r.link);
@@ -816,7 +836,7 @@ void DupeSearch::Search(const Job& job)
 
 	knownReader.join();
     int resultCount=(int)results.size(), candidateCount=(int)candidates.size(), postingCount=(int)order.size();
-    Expand(job,pick,results,deadline,budget,fetched,attempted,fetchStats,resultCount,candidateCount,postingCount);
+    Expand(job,pick,results,deadline,budget,fetched,attempted,fetchStats,stats,resultCount,candidateCount,postingCount);
 
 	// what is worth keeping, in this order: another release (by the name of
 	// its largest data file, when that name is readable), a posting nzbget
@@ -864,7 +884,7 @@ void DupeSearch::Search(const Job& job)
 	// posting could be fetched (indexers refusing, the deadline) - doesn't hold the
 	// key for SearchWindowSec: the next add of the key, or a restart, searches it again
 	bool allFailed = stats.queries > 0 && stats.failed == stats.queries;
-	bool queriesFailed = stats.failed > 0 && fetched.empty();
+	bool queriesFailed = stats.failed > 0 && verified.empty();
 	bool nothingFetched = fetched.empty() && fetchStats.refused + fetchStats.fetch + notTried > 0;
 	if (queriesFailed || nothingFetched)
 	{

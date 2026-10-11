@@ -38,6 +38,7 @@ pub struct SearchStamp {
 
 /// Higher-score selection is performed separately so integrations can preserve
 /// the legacy live-only policy or enable the historical proxy enhancement.
+#[inline]
 pub fn decide(
     flags: u32,
     score: i32,
@@ -74,6 +75,7 @@ pub fn decide(
     Decision::Search
 }
 
+#[inline]
 pub fn recent_search_suppressed(score: i32, now: i64, previous: Option<SearchStamp>) -> bool {
     previous.is_some_and(|stamp| {
         now.saturating_sub(stamp.time) < SEARCH_WINDOW_SEC
@@ -90,27 +92,19 @@ pub struct Snapshot<'a> {
     pub score: i32,
     pub flags: u32,
 }
-pub fn higher_score(
-    pick: Snapshot<'_>,
-    others: &[Snapshot<'_>],
-    include_history: bool,
-) -> Option<i32> {
-    others
-        .iter()
-        .filter(|other| {
-            other.id != pick.id
-                && other.flags & (PRESENT | NZB) == PRESENT | NZB
-                && other.key.eq_ignore_ascii_case(pick.key)
-                && other.score > pick.score
-                && other.flags & (DELETING | DELETE_MANUAL | DELETE_COPY) == 0
-                && if other.flags & HISTORY != 0 {
-                    include_history
-                } else {
-                    other.flags & DELETE_NONE != 0
-                }
-        })
-        .map(|other| other.score)
-        .max()
+#[inline]
+pub fn higher_peer(pick: Snapshot<'_>, other: Snapshot<'_>, include_history: bool) -> bool {
+    other.id != pick.id
+        && other.score > pick.score
+        && other.flags & (PRESENT | NZB) == PRESENT | NZB
+        && other.flags & (DELETING | DELETE_MANUAL | DELETE_COPY) == 0
+        && if other.flags & HISTORY != 0 { include_history } else { other.flags & DELETE_NONE != 0 }
+        && other.key.eq_ignore_ascii_case(pick.key)
+}
+
+pub fn higher_score(pick: Snapshot<'_>, others: &[Snapshot<'_>], include_history: bool) -> Option<i32> {
+    others.iter().filter(|other| higher_peer(pick, **other, include_history))
+        .map(|other| other.score).max()
 }
 
 /// Compare persisted normalized title/key with current normalized title/key.

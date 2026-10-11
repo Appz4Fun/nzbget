@@ -6304,15 +6304,20 @@ pub unsafe extern "C" fn nzbget_rs_dupe_watch(pick: *const DupeWatchPeer, peers:
     count: usize, now: i64, previous_score: i32, previous_time: i64, has_previous: c_int,
     identity_changed: c_int) -> c_int {
     if pick.is_null() { return 0; }
-    let snapshot = |p: &DupeWatchPeer| crate::dupewatch::Snapshot {
-        id: p.id, score: p.score, flags: p.flags, key: arg(p.key, p.key_len),
-    };
-    let pick = snapshot(&*pick);
-    let peers = if count == 0 || peers.is_null() { &[][..] } else { std::slice::from_raw_parts(peers, count) };
-    let peers: Vec<_> = peers.iter().map(snapshot).collect();
-    let higher = crate::dupewatch::higher_score(pick, &peers, true);
-    let previous = (has_previous != 0).then_some(crate::dupewatch::SearchStamp { score: previous_score, time: previous_time });
-    crate::dupewatch::decide(pick.flags, pick.score, higher, now, previous, identity_changed != 0) as c_int
+    use crate::dupewatch::{self, Decision, Snapshot};
+    let pick = &*pick;
+    let previous = if has_previous != 0 { Some(dupewatch::SearchStamp { score: previous_score, time: previous_time }) } else { None };
+    let preliminary = dupewatch::decide(pick.flags, pick.score, None, now, previous, identity_changed != 0);
+    // Every peer can only turn Search into Skip; Skip and post-process Retry
+    // are already final. Do not allocate/copy snapshots or inspect unused keys.
+    if preliminary != Decision::Search || count == 0 || peers.is_null() { return preliminary as c_int; }
+    let mine = Snapshot { id: pick.id, score: pick.score, flags: pick.flags, key: arg(pick.key, pick.key_len) };
+    for peer in std::slice::from_raw_parts(peers, count) {
+        if peer.id == pick.id || peer.score <= pick.score { continue; }
+        let other = Snapshot { id: peer.id, score: peer.score, flags: peer.flags, key: arg(peer.key, peer.key_len) };
+        if dupewatch::higher_peer(mine, other, true) { return Decision::Skip as c_int; }
+    }
+    Decision::Search as c_int
 }
 
 /// Returns unique query strings: u32 count LE, then u32 length LE and bytes.
