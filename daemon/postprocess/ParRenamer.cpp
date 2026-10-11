@@ -267,6 +267,11 @@ void ParRenamer::Execute()
 		Context& c = *static_cast<Context*>(ctx);
 		try { c.self->m_dirList.emplace_back(dir); return 0; } catch (...) { return c.Fail(); }
 	};
+	env.destination = [](void* ctx, const char*, void* sink, void (*add)(void*, const char*)) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { add(sink, c.self->m_destDir); return 0; } catch (...) { return c.Fail(); }
+	};
 
 	NzbgetRsParRenamerState state{m_fileCount, m_curFile, m_renamedCount, m_hasMissedFiles, m_hasDamagedParFiles, m_detectMissing};
 	nzbget_rs_par_renamer_execute(&env, &state, m_infoName, m_destDir, PATH_SEPARATOR);

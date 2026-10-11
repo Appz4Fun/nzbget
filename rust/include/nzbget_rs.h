@@ -844,7 +844,10 @@ int nzbget_rs_test_server_params(const char* request, NzbgetRsJsonLimits limits,
 // an aborted run. stateChanged publishes members before callbacks, cannot
 // fail or unwind, and must not retain the borrowed state pointer. It writes
 // back detectMissing, which callbacks can change through the C++ setter.
-// previousDirs / rememberDir retain the directory list across runs. All sink
+// previousDirs / rememberDir retain the directory list across runs.
+// destination calls add once with the current destination after initial progress;
+// a NULL callback uses execute's destDir argument instead. All input strings
+// are copied before callbacks may replace the caller's storage. All sink
 // and add pointers are borrowed, non-NULL, and valid only during the callback.
 // No buffers or objects transfer ownership across the ABI. rename: RenameFile
 // without the count, 1 when moved. fold is ParParser::FilenameFold. NULL
@@ -883,6 +886,7 @@ typedef struct NzbgetRsParRenamerEnv
 	void (*stateChanged)(void* ctx, NzbgetRsParRenamerState* state);
 	int (*previousDirs)(void* ctx, const char* unused, void* sink, void (*add)(void* sink, const char* name));
 	int (*rememberDir)(void* ctx, const char* dir);
+	int (*destination)(void* ctx, const char* unused, void* sink, void (*add)(void* sink, const char* dir));
 } NzbgetRsParRenamerEnv;
 int nzbget_rs_par_renamer_execute(const NzbgetRsParRenamerEnv* env, NzbgetRsParRenamerState* state,
 	const char* infoName, const char* destDir, char separator);

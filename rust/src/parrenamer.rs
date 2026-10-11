@@ -52,6 +52,8 @@ pub enum Read {
 }
 
 pub trait Env {
+    /// Read the destination after the initial UpdateProgress, which may change it.
+    fn destination(&mut self, initial: &[u8]) -> R<Vec<u8>>;
     /// Publish changed members before another callback can observe them.
     fn state_changed(&mut self, state: &mut State);
     /// Preserve the C++ directory list across Execute calls, including aborted runs.
@@ -158,7 +160,7 @@ pub fn execute<E: Env>(env: &mut E, state: &mut State, info_name: &[u8], dest_di
 impl<E: Env> ParRenamer<'_, E> {
     fn run(&mut self, info_name: &[u8]) -> R<()> {
         self.env.progress(&text(&[b"Checking renamed files for ", info_name]), 0)?;
-        let dest_dir = self.dest_dir.clone();
+        let dest_dir = self.env.destination(&self.dest_dir)?;
         self.dir_list = self.env.previous_dirs()?;
         self.build_dir_list(&dest_dir)?;
 

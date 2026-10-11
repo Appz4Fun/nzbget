@@ -3242,6 +3242,8 @@ pub struct ParRenamerEnv {
     pub previous_dirs: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *mut std::ffi::c_void,
         unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int>,
     pub remember_dir: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub destination: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *mut std::ffi::c_void,
+        unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int>,
 }
 
 /// NzbgetRsParRenamerState: ParRenamer's members, read and written back.
@@ -3297,6 +3299,10 @@ impl ParRenamerFfi<'_> {
 }
 
 impl crate::parrenamer::Env for ParRenamerFfi<'_> {
+    fn destination(&mut self, initial: &[u8]) -> crate::parrenamer::R<Vec<u8>> {
+        if self.0.destination.is_none() { return Ok(initial.to_vec()) }
+        self.names(self.0.destination, b"")?.pop().ok_or(crate::parrenamer::Abort)
+    }
     fn state_changed(&mut self, state: &mut crate::parrenamer::State) {
         if let Some(f) = self.0.state_changed {
             let mut st = ParRenamerState {
@@ -3415,7 +3421,11 @@ pub unsafe extern "C" fn nzbget_rs_par_renamer_execute(env: *const ParRenamerEnv
         has_missed_files: st.has_missed_files != 0, has_damaged_par_files: st.has_damaged_par_files != 0,
         detect_missing: st.detect_missing != 0,
     };
-    let result = crate::parrenamer::execute(&mut ParRenamerFfi(env), &mut rs, input(info_name), input(dest_dir), separator as u8);
+    // A callback may replace the caller's CString members. Do not keep Rust
+    // references to their allocations alive while calling back into C++.
+    let info_name = input(info_name).to_vec();
+    let dest_dir = input(dest_dir).to_vec();
+    let result = crate::parrenamer::execute(&mut ParRenamerFfi(env), &mut rs, &info_name, &dest_dir, separator as u8);
     st.file_count = rs.file_count;
     st.cur_file = rs.cur_file;
     st.renamed_count = rs.renamed_count;

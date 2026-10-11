@@ -9,6 +9,8 @@ Every version runs on an identical copy at the same path; compares the
 files left (names and contents), every message, progress update and
 registered name, and the counters. Also covers callback-visible state,
 repeated Execute calls, callback/translation exceptions, and bounded paths.
+Explicit cases cover a destination changed by initial progress, hash16k-only
+matching and first-entry precedence, and one warning/.bad move per damaged par.
 Inputs that made the original C++ read uninitialized memory are compared
 only between Rust and the initialized fallback.
 
@@ -92,6 +94,7 @@ struct Plan
 	bool detectMissing = false;
 	int executions = 1;
 	bool setMissing = false;
+	bool redirectDest = false;
 };
 
 template <class Base> struct Recorder : Base
@@ -101,6 +104,7 @@ template <class Base> struct Recorder : Base
 	int stopCalls = 0;
 	int renames = 0;
 	int events = 0;
+	std::string selectedDest;
 
 	void Observe()
 	{
@@ -113,6 +117,11 @@ template <class Base> struct Recorder : Base
 	{
 		Observe();
 		log += "P " + std::string(Base::GetProgressLabel()) + " " + std::to_string(Base::GetStageProgress()) + "\n";
+		if (plan.redirectDest)
+		{
+			Base::SetDestDir(selectedDest.c_str());
+			plan.redirectDest = false;
+		}
 	}
 	bool IsStopped() override
 	{
@@ -171,7 +180,8 @@ template <class Impl> static std::string Run(const stdfs::path& scenario, const 
 	Recorder<Impl> renamer;
 	renamer.plan = plan;
 	translateAfter = plan.throwTranslate;
-	renamer.SetDestDir(work.string().c_str());
+	renamer.selectedDest = work.string();
+	renamer.SetDestDir((plan.redirectDest ? work / "unused" : work).string().c_str());
 	renamer.SetInfoName("scenario");
 	renamer.SetDetectMissing(plan.detectMissing);
 	std::string result;
@@ -336,6 +346,17 @@ int main(int argc, char** argv)
 		}
 	}
 	{
+		// The initial UpdateProgress callback may change the destination before
+		// BuildDirList reads it. The old destination must not be cached early.
+		Plan plan;
+		plan.redirectDest = true;
+		std::string a = Run<oldimpl::ParRenamer>(all[0], temp / "work", plan);
+		std::string b = Run<newimpl::ParRenamer>(all[0], temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(all[0], temp / "work", plan);
+		if (a != b || a != c)
+		{ fprintf(stderr, "initial destination callback mismatch\n%s\n%s\n%s", a.c_str(), b.c_str(), c.c_str()); return 1; }
+	}
+	{
 		stdfs::path dir = temp / "same-size";
 		stdfs::remove_all(dir);
 		stdfs::copy(all[0], dir, stdfs::copy_options::recursive);
@@ -349,6 +370,85 @@ int main(int argc, char** argv)
 		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
 		if (a != b || a != c || b.find("File testfile.dat is missing") == std::string::npos)
 		{ fprintf(stderr, "same-size mismatch\n"); return 1; }
+	}
+	{
+		// Matching intentionally ignores the rest of the contents and file size.
+		stdfs::path dir = temp / "same-prefix";
+		stdfs::remove_all(dir);
+		stdfs::copy(all[0], dir, stdfs::copy_options::recursive);
+		std::string original = ReadFile(dir / "testfile.dat");
+		stdfs::remove(dir / "testfile.dat");
+		WriteFile(dir / "obfuscated", original.substr(0, 16384) + "different tail");
+		Plan plan;
+		plan.detectMissing = true;
+		std::string a = Run<oldimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+		if (a != b || a != c || b.find("N obfuscated -> testfile.dat") == std::string::npos)
+		{ fprintf(stderr, "same-prefix mismatch\n"); return 1; }
+	}
+	{
+		// Two entries with the same hash16k keep the first source-map entry,
+		// even though its described size and full-file hash are different.
+		stdfs::path dir = temp / "first-hash";
+		stdfs::remove_all(dir);
+		std::string original = ReadFile(all[0] / "testfile.dat");
+		Par2::MD5Context prefix;
+		Par2::MD5Hash prefixHash;
+		prefix.Update(original.data(), 16384);
+		prefix.Final(prefixHash);
+		std::string content = ReadFile(all[0] / "testfile.par2");
+		for (size_t at = 0; at + 64 <= content.size(); )
+		{
+			unsigned long long length = 0;
+			for (int i = 0; i < 8; i++) length |= (unsigned long long)(unsigned char)content[at + 8 + i] << (8 * i);
+			if (length < 64 || length > content.size() - at) return 1;
+			if (length > 120 && !content.compare(at + 48, 16, std::string("PAR 2.0\0FileDesc", 16)))
+			{
+				// Short descriptions need equal full/16k hashes to pass libpar2's checks.
+				memcpy(content.data() + at + 80, &prefixHash, 16);
+				memcpy(content.data() + at + 96, &prefixHash, 16);
+				Par2::MD5Context md5;
+				Par2::MD5Hash hash;
+				md5.Update(content.data() + at + 32, length - 32);
+				md5.Final(hash);
+				memcpy(content.data() + at + 16, &hash, 16);
+			}
+			at += length;
+		}
+		WriteFile(dir / "testfile.par2", content);
+		WriteFile(dir / "obfuscated", original);
+		Plan plan;
+		std::string a = Run<oldimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+		if (a != b || a != c || b.find("N obfuscated -> testfile.nfo") == std::string::npos ||
+			b.find("R testfile.dat") != std::string::npos)
+		{ fprintf(stderr, "first-hash mismatch\n%s\n", b.c_str()); return 1; }
+	}
+	{
+		// Several missing descriptions must produce one warning and one .bad move.
+		stdfs::path dir = temp / "damaged-descriptions";
+		stdfs::remove_all(dir);
+		std::string content = ReadFile(all[0] / "testfile.par2");
+		for (size_t at = 0; at + 64 <= content.size(); )
+		{
+			unsigned long long length = 0;
+			for (int i = 0; i < 8; i++) length |= (unsigned long long)(unsigned char)content[at + 8 + i] << (8 * i);
+			if (length < 64 || length > content.size() - at) return 1;
+			if (!content.compare(at + 48, 16, std::string("PAR 2.0\0FileDesc", 16))) content[at + 16] ^= 1;
+			at += length;
+		}
+		WriteFile(dir / "obfuscated", content);
+		Plan plan;
+		std::string a = Run<oldimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string b = Run<newimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string c = Run<fallbackimpl::ParRenamer>(dir, temp / "work", plan);
+		std::string warning = "Damaged par2-file detected:";
+		size_t first = b.find(warning);
+		if (a != b || a != c || first == std::string::npos || b.find(warning, first + 1) != std::string::npos ||
+			b.find("renamed 2 missed 0 damaged 1") == std::string::npos || b.find("Failed to rename") != std::string::npos)
+		{ fprintf(stderr, "damaged descriptions mismatch\n%s\n", b.c_str()); return 1; }
 	}
 	{
 		// A valid packet checksum with an empty description name makes the
@@ -408,6 +508,9 @@ with tempfile.TemporaryDirectory(prefix="nzbget-parrenamer-") as temp:
     binary = temp / "parrenamer"
     subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")),
                     *shlex.split(get("CXX_DEFINES")), "-UNZBGET_USE_RUST", *shlex.split(get("CXX_INCLUDES")), "-fsyntax-only",
+                    str(ROOT / "daemon/postprocess/ParRenamer.cpp")], check=True, cwd=BUILD)
+    subprocess.run(["chrt", "-i", "0", "nice", "-n", "19", *shlex.split(os.environ.get("CXX", "c++")), *shlex.split(get("CXX_FLAGS")),
+                    *shlex.split(get("CXX_DEFINES")), "-DDISABLE_PARCHECK", *shlex.split(get("CXX_INCLUDES")), "-fsyntax-only",
                     str(ROOT / "daemon/postprocess/ParRenamer.cpp")], check=True, cwd=BUILD)
     for extra in (["-O1", "-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"], ["-O2"]):
         print("C++ flags:", " ".join(extra), flush=True)
