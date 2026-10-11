@@ -215,24 +215,16 @@ std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donor
 		for (size_t i = 0; i < ranges.size(); i++)
 		{
 			const StreamRange& range = ranges[i];
-			int64 end;
-#if defined(__GNUC__) || defined(__clang__)
-			if (__builtin_add_overflow(range.Offset, range.Size, &end))
-#else
 			if ((range.Size > 0 && range.Offset > std::numeric_limits<int64>::max() - range.Size) ||
 				(range.Size < 0 && range.Offset < std::numeric_limits<int64>::min() - range.Size))
-#endif
 			{
 				return {false, false};
 			}
-#if !defined(__GNUC__) && !defined(__clang__)
-			end = range.End();
-#endif
 			if (range.Size <= 0 || (i > 0 && previousEnd > range.Offset))
 			{
 				properties.Ordered = false;
 			}
-			previousEnd = end;
+			previousEnd = range.End();
 		}
 		return properties;
 	};
