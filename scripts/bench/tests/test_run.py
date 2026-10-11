@@ -744,6 +744,209 @@ raise SystemExit(runner.main())
             signal.signal(signal.SIGALRM, previous_handler)
             signal.setitimer(signal.ITIMER_REAL, *previous_timer)
 
+    def test_alarm_firing_during_arming_restores_previous_handler_and_timer(self):
+        spec = importlib.util.spec_from_file_location("runner_alarm_arming", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_timer, real_clock = signal.setitimer, time.monotonic
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        handler = lambda number, frame: None
+        clock, armed = [0.0], [False]
+        def timer(which, value, interval=0):
+            result = real_timer(which, value, interval)
+            if value > 0 and not armed[0]:
+                armed[0] = True
+                real_timer(which, 0)  # safely disable the real repeating RED alarm
+                clock[0] = 11.0
+                signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+            return result
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            real_timer(signal.ITIMER_REAL, 30, .5)
+            module.signal.setitimer = timer
+            module.time.monotonic = lambda: clock[0]
+            with self.assertRaises(ValueError):
+                with module.capture_alarm(10, None):
+                    self.fail("arming failure reached capture body")
+            self.assertTrue(armed[0])
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            self.assertGreater(remaining, 0)
+            self.assertEqual(interval, .5)
+        finally:
+            module.signal.setitimer = real_timer
+            module.time.monotonic = real_clock
+            real_timer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            real_timer(signal.ITIMER_REAL, *previous_timer)
+
+    def test_alarm_after_descriptor_acquisition_closes_owned_descriptor(self):
+        fixture = self.root / "fixture"
+        fixture.write_bytes(b"controlled bytes")
+        spec = importlib.util.spec_from_file_location("runner_descriptor_boundary", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_clock = time.monotonic
+        previous_trace = sys.gettrace()
+        clock, acquired = [0.0], []
+        def trace(frame, event, arg):
+            descriptor = frame.f_locals.get("descriptor")
+            if frame.f_code is module.digest_file.__code__ and event == "line" and descriptor is not None and not acquired:
+                acquired.append(descriptor)
+                clock[0] = 11.0
+                signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+            return trace
+        try:
+            module.time.monotonic = lambda: clock[0]
+            sys.settrace(trace)
+            with self.assertRaises(ValueError): module.digest_file(fixture, deadline=10)
+            sys.settrace(previous_trace)
+            self.assertEqual(len(acquired), 1)
+            with self.assertRaises(OSError): os.fstat(acquired[0])
+        finally:
+            sys.settrace(previous_trace)
+            module.time.monotonic = real_clock
+            for descriptor in acquired:
+                try: os.close(descriptor)
+                except OSError: pass
+
+    def test_alarm_before_open_returns_closes_allocated_descriptor(self):
+        fixture = self.root / "fixture"
+        fixture.write_bytes(b"controlled bytes")
+        spec = importlib.util.spec_from_file_location("runner_open_return", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_open, real_clock = os.open, time.monotonic
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        clock, acquired = [0.0], []
+        def opener(*args, **kwargs):
+            descriptor = real_open(*args, **kwargs)
+            acquired.append(descriptor)
+            clock[0] = 11.0
+            os.kill(os.getpid(), signal.SIGALRM)
+            return descriptor
+        try:
+            module.os.open = opener
+            module.time.monotonic = lambda: clock[0]
+            with self.assertRaises(ValueError): module.digest_file(fixture, deadline=10)
+            self.assertEqual(len(acquired), 1)
+            with self.assertRaises(OSError): os.fstat(acquired[0])
+            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
+        finally:
+            module.os.open = real_open
+            module.time.monotonic = real_clock
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            for descriptor in acquired:
+                try: os.close(descriptor)
+                except OSError: pass
+
+    def test_alarm_during_disarm_cannot_interrupt_restoration(self):
+        spec = importlib.util.spec_from_file_location("runner_alarm_disarm", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_timer, real_clock = signal.setitimer, time.monotonic
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        handler = lambda number, frame: None
+        clock, armed, fired = [0.0], [False], [False]
+        def timer(which, value, interval=0):
+            if value == 0 and armed[0] and not fired[0]:
+                fired[0] = True
+                clock[0] = 11.0
+                os.kill(os.getpid(), signal.SIGALRM)
+            result = real_timer(which, value, interval)
+            if value > 0: armed[0] = True
+            return result
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            real_timer(signal.ITIMER_REAL, 30, .5)
+            module.signal.setitimer = timer
+            module.time.monotonic = lambda: clock[0]
+            with module.capture_alarm(10, None): pass
+            self.assertTrue(fired[0])
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            self.assertGreater(remaining, 0)
+            self.assertEqual(interval, .5)
+            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
+        finally:
+            module.signal.setitimer = real_timer
+            module.time.monotonic = real_clock
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            real_timer(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            real_timer(signal.ITIMER_REAL, *previous_timer)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    def test_blocked_pending_caller_alarm_is_preserved_and_capture_fails_closed(self):
+        spec = importlib.util.spec_from_file_location("runner_blocked_alarm", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        delivered = []
+        handler = lambda number, frame: delivered.append(number)
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 30, .5)
+            os.kill(os.getpid(), signal.SIGALRM)
+            with self.assertRaises(module.CaptureFailure) as failure:
+                with module.capture_alarm(time.monotonic() + 10, None):
+                    self.fail("blocked caller alarm reached capture body")
+            self.assertEqual(failure.exception.code, "unavailable")
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            self.assertIn(signal.SIGALRM, signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            self.assertIn(signal.SIGALRM, signal.sigpending())
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[1], .5)
+            self.assertFalse(delivered)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    def test_alarm_entering_restoration_mask_still_restores_state(self):
+        spec = importlib.util.spec_from_file_location("runner_restore_mask", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_mask, real_clock = signal.pthread_sigmask, time.monotonic
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        previous_mask = real_mask(signal.SIG_BLOCK, set())
+        clock, exiting, fired = [0.0], [False], [False]
+        handler = lambda number, frame: None
+        def mask(how, values):
+            if how == signal.SIG_BLOCK and exiting[0] and not fired[0]:
+                fired[0] = True
+                clock[0] = 11.0
+                os.kill(os.getpid(), signal.SIGALRM)
+            return real_mask(how, values)
+        try:
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 30, .5)
+            module.signal.pthread_sigmask = mask
+            module.time.monotonic = lambda: clock[0]
+            with self.assertRaises(module.CaptureFailure):
+                with module.capture_alarm(10, None): exiting[0] = True
+            self.assertTrue(fired[0])
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[1], .5)
+            self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
+        finally:
+            module.signal.pthread_sigmask = real_mask
+            module.time.monotonic = real_clock
+            real_mask(signal.SIG_BLOCK, {signal.SIGALRM})
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            real_mask(signal.SIG_SETMASK, previous_mask)
+
     @unittest.skipUnless(LINUX, "capture policy tests are Linux-only")
     def test_capture_byte_policy_holds_oversized_input_before_launch(self):
         metadata, ready = self.root / "proof.json", self.root / "never"

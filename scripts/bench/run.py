@@ -47,21 +47,54 @@ def capture_alarm(deadline, cancelled):
         if time.monotonic() >= deadline:
             raise CaptureFailure("deadline")
 
-    check()
-    previous_handler = signal.getsignal(signal.SIGALRM)
-    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    def interrupt(number, frame):
+        try:
+            check()
+        except BaseException:
+            # Prevent a repeating alarm from interrupting exception cleanup.
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            raise
+
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+    previous_handler = None
+    previous_timer = None
+    installed = False
     entered = time.monotonic()
-    signal.signal(signal.SIGALRM, lambda number, frame: check())
-    tick = min(POLL_SECONDS, max(deadline - entered, 0.000001))
-    signal.setitimer(signal.ITIMER_REAL, tick, tick)
     try:
+        check()
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        # An already blocked/pending alarm belongs to the caller. Preserve it
+        # and fail closed rather than claim an interruptible capture.
+        if signal.SIGALRM in previous_mask or signal.SIGALRM in signal.sigpending():
+            raise CaptureFailure("unavailable")
+        signal.signal(signal.SIGALRM, interrupt)
+        installed = True
+        tick = min(POLL_SECONDS, max(deadline - entered, 0.000001))
+        signal.setitimer(signal.ITIMER_REAL, tick, tick)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         yield check
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
-        if previous_timer[0] > 0:
-            remaining = max(0.000001, previous_timer[0] - (time.monotonic() - entered))
-            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
+        # If an alarm raises while entering this mask, interrupt() has already
+        # blocked subsequent delivery; the nested finally still restores state.
+        try:
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        finally:
+            try:
+                if previous_timer is not None:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                if installed:
+                    # Discard only this capture's pending alarm before restoring
+                    # the caller's handler (which may be SIG_DFL).
+                    if signal.SIGALRM in signal.sigpending():
+                        signal.sigwait({signal.SIGALRM})
+                if previous_handler is not None:
+                    signal.signal(signal.SIGALRM, previous_handler)
+                if previous_timer is not None and previous_timer[0] > 0:
+                    remaining = max(0.000001, previous_timer[0] - (time.monotonic() - entered))
+                    signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
@@ -69,8 +102,14 @@ def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
     max_bytes = DEFAULT_CAPTURE_MAX_BYTES if max_bytes is None else max_bytes
     deadline = time.monotonic() + 300 if deadline is None else deadline
     with capture_alarm(deadline, cancelled) as check:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        descriptor = None
         try:
+            acquisition_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            finally:
+                # Ownership is recorded before a pending alarm can raise.
+                signal.pthread_sigmask(signal.SIG_SETMASK, acquisition_mask)
             before = os.fstat(descriptor)
             if not stat.S_ISREG(before.st_mode):
                 raise CaptureFailure("non_regular")
@@ -99,7 +138,16 @@ def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
                 raise CaptureFailure("changed_during_read")
             return digest.hexdigest()
         finally:
-            os.close(descriptor)
+            close_mask = None
+            try:
+                close_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            finally:
+                try:
+                    if descriptor is not None:
+                        os.close(descriptor)
+                finally:
+                    if close_mask is not None:
+                        signal.pthread_sigmask(signal.SIG_SETMASK, close_mask)
 
 # Preserve the invocation's implementation identity. Later source changes must
 # not relabel already-loaded code as though it came from the new file.
