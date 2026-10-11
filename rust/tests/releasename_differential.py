@@ -108,7 +108,7 @@ static std::string RandomName()
 	static const char* const TITLES[] = {"Show", "The.Show", "Dark Matter 2024", "1917", "2001.A.Space.Odyssey",
 		"13.Reasons.Why", "Game.of.Thrones", "Star_City", "Mr.Robot", "Der Tatort", "x", "", "Quiet Harbour"};
 	static const char* const MARKS[] = {"S01E02", "s1e2", "S01", "S01E01E02", "S01E01-E03", "S01E01-03", "S01E05-02",
-		"S01E01-2023", "1x02", "12x105", "S1234", "S01E12345", "2019", "1999", "2024", "", "S02E14-E70", "S01E01-e03x"};
+		"S01E01-2023", "S01E01-E51", "S01E01-E52", "S01E10-60", "S01E10-61", "S1E5-55", "1x02", "12x105", "S1234", "S01E12345", "2019", "1999", "2024", "", "S02E14-E70", "S01E01-e03x"};
 	static const char* const PARTS[] = {"1080p", "2160p", "720p", "1080i", "4K", "UHD", "FHD", "WEB-DL", "WEB", "WEBRip",
 		"BluRay", "Blu-Ray", "BDRip", "REMUX", "HDTV", "x265", "H.265", "H 264", "HEVC", "AV1", "10bit", "Hi10P", "8bit",
 		"DDP5.1", "DD+5.1", "EAC3", "E-AC-3", "DTS-HD.MA.5.1", "DTS-X", "TrueHD.7.1", "Atmos", "AAC2.0", "6ch", "DV",
