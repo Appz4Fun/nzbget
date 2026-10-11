@@ -61,4 +61,30 @@ BOOST_AUTO_TEST_CASE(ArticleRetriesWithDupeDecisions)
 	BOOST_CHECK(search.GetMessage().find("DupeSearch") != std::string::npos);
 }
 
+namespace
+{
+SystemHealth::Status ReadChunkStatus(const char* setting)
+{
+    Options::CmdOptList cmdOpts;
+    cmdOpts.push_back(setting);
+    Options options(&cmdOpts, nullptr);
+    return SystemHealth::Connection::ArticleReadChunkSizeValidator(options).Validate();
+}
+}
+
+BOOST_AUTO_TEST_CASE(ArticleReadChunkSizeUsesConfiguredKilobytes)
+{
+    BOOST_CHECK(ReadChunkStatus("ArticleReadChunkSize=4").IsOk());
+    BOOST_CHECK(ReadChunkStatus("ArticleReadChunkSize=1025").IsOk());
+    BOOST_CHECK(ReadChunkStatus("ArticleReadChunkSize=10240").IsOk());
+
+    SystemHealth::Status low = ReadChunkStatus("ArticleReadChunkSize=3");
+    BOOST_CHECK(low.IsWarning());
+    BOOST_CHECK(low.GetMessage().find("3 KB.") != std::string::npos);
+
+    SystemHealth::Status high = ReadChunkStatus("ArticleReadChunkSize=10241");
+    BOOST_CHECK(high.IsInfo());
+    BOOST_CHECK(high.GetMessage().find("10241 KB.") != std::string::npos);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

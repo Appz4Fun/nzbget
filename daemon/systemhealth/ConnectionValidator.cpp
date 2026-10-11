@@ -103,7 +103,8 @@ Status ArticleTimeoutValidator::Validate() const
 
 Status ArticleReadChunkSizeValidator::Validate() const
 {
-	int val = m_options.GetArticleReadChunkSize();
+	// Options stores bytes; these thresholds and messages use configured KB.
+	int val = m_options.GetArticleReadChunkSize() / 1024;
 	Status s = CheckPositiveNum(Options::ARTICLEREADCHUNKSIZE, val);
 	if (!s.IsOk()) return s;
 
