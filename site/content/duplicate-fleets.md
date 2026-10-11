@@ -58,7 +58,7 @@ RustyGet tries three ways to match a file in the primary to a file in a donor, i
 
 RustyGet checks a borrowed article before it counts:
 
-- A yEnc article's header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written. Uuencoded articles carry no such header, so this check doesn't apply to them.
+- A yEnc article's header must place it exactly where the missing article belongs, next to the articles around it. If the size, start, or end disagree, it's rejected before anything is written. Articles in the older uuencode format carry no such header, so this check doesn't apply to them.
 - It's written to a staging file, never straight into the output, and the finished file must tile with no gaps or overlaps.
 - When the article carries a yEnc checksum, the checksum must match, as for any article, unless you set `CrcCheck=no`.
 - When the primary's par2 set describes the file, the article's data must match that set's block checksums. If the set doesn't list the file, or lists no usable checksums for it, this check can't run, and only the other checks apply. A block that also holds a still-missing article can't be checked yet either; the par check after the download covers it. RustyGet blocks a donor that fails for the rest of the download. After a restart it no longer knows which donor supplied an earlier article, so a failure found then can't block that donor.
