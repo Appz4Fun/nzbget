@@ -17,6 +17,8 @@ mutations = {
     'discard_first_crc': ('if i == 0 {\n            block', 'if i == 0 {\n            0'),
     'zero_length_combines': ('else if blocksize == 0 {', 'else if false {'),
     'wrong_polynomial': ('0xedb8_8320', '0xedb8_8321'),
+    'wrong_length_bit_offset': ('(bit + 3) & 31', '(bit + 2) & 31'),
+    'omit_remaining_length_bits': ('while remaining != 0 {', 'while false {'),
     'accept_short_descriptor': ('if required > len || (count != 0 && bytes.is_null())',
                                 'if count != 0 && bytes.is_null()'),
 }

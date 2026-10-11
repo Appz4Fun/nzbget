@@ -76,11 +76,25 @@ static void fixtures() {
     const uint64_t sizes[] = {0,1,2,4,17,512,716800,0x7fffffffULL,0x80000000ULL,
         0xffffffffULL,0x100000000ULL,0x100000001ULL,0xffffffffffffffffULL};
     Par2::MD5Hash hash{};
-    for (uint32 n : {0u,1u,2u,3u,16u,1024u,32768u}) {
+    for (uint32 n : {0u,1u,2u,3u,4u,8u,16u,1024u,32768u}) {
         Par2::VerificationPacket packet;
         packet.Create(n);
         for (uint32 i=0;i<n;i++) packet.SetBlockHashAndCRC(i,hash,rng());
         for (uint64_t size:sizes) check(packet,size);
+    }
+    // Exercise every length-bit transition through actual LE packet access,
+    // descriptor construction and the unchanged u64-to-u32 caller cast.
+    for (uint32 n : {3u,4u,8u}) {
+        Par2::VerificationPacket packet;
+        packet.Create(n);
+        for (uint32 i=0;i<n;i++) packet.SetBlockHashAndCRC(i,hash,rng());
+        for (unsigned bit=0;bit<32;bit++) {
+            const uint64_t power = uint64_t(1) << bit;
+            for (uint64_t length : {power-1,power,power+1}) {
+                check(packet,length);
+                check(packet,0x100000000ULL+length);
+            }
+        }
     }
     for (unsigned t=0;t<10000;t++) {
         Par2::VerificationPacket packet;
