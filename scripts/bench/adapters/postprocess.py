@@ -351,7 +351,10 @@ def check_aliases(output, inputs):
         # may traverse OUT/manifest.json (a directory symlink) while output is
         # named through another symlink to OUT. Resolving only the leaf loses
         # the ancestor entry that generated-artifact cleanup would unlink.
-        for ancestor in (lexical_source, *lexical_source.parents):
+        # Preserve '..' in the original traversal: removing it before following
+        # symlinks can erase an input ancestor that cleanup would mutate.
+        original_source = source.absolute()
+        for ancestor in (original_source, *original_source.parents):
             entry = ancestor.parent.resolve() / ancestor.name
             if entry == destination or destination in entry.parents:
                 raise AliasError("input ancestor traverses the output directory; refusing mutation")
