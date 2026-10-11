@@ -7,7 +7,7 @@
 //! byte). Positions are offsets into it.
 //! Unterminated slices are rejected without mutation, including empty slices.
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{c_char, c_int, CStr};
 
 use crate::decode::json_next_value;
 use crate::webutil::xml_find_tag;
@@ -27,19 +27,17 @@ pub enum Kind {
     Xml,
 }
 
+use crate::bytes::{find, find_byte};
+
 /// The text up to the first NUL.
 fn text(buf: &[u8]) -> &[u8] {
-    &buf[..buf.iter().position(|&b| b == 0).unwrap_or(buf.len())]
+    &buf[..find_byte(buf, 0).unwrap_or(buf.len())]
 }
 
 // Validate the safe Rust API before any indexing or call to C's strtoll.
 fn terminated(buf: &mut [u8]) -> Option<&mut [u8]> {
-    let end = buf.iter().position(|&b| b == 0)?;
+    let end = find_byte(buf, 0)?;
     Some(&mut buf[..=end])
-}
-
-fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 /// strchr(set, c): NUL is in every set.
@@ -70,8 +68,9 @@ fn json_step(buf: &[u8], at: usize) -> usize {
 }
 
 /// XmlNextValue: the content of `<tag>` inside the next `<value>`.
+/// `buf` ends with its first NUL.
 fn xml_next_value(buf: &[u8], tag: &[u8]) -> Option<(usize, usize)> {
-    let t = text(buf);
+    let t = &buf[..buf.len() - 1];
     let (value, value_len) = xml_find_tag(t, b"value")?;
     let (content, len) = xml_find_tag(&t[value..], tag)?;
     let content = value + content;
@@ -100,6 +99,11 @@ pub fn skip_to_params(buf: &mut [u8]) -> usize {
 /// without a value.
 pub fn next_int(buf: &mut [u8], kind: Kind) -> (usize, Option<i32>) {
     let Some(buf) = terminated(buf) else { return (0, None) };
+    next_int_terminated(buf, kind)
+}
+
+/// next_int on a buffer that ends with its first NUL.
+fn next_int_terminated(buf: &mut [u8], kind: Kind) -> (usize, Option<i32>) {
     let r = match kind {
         Kind::Get => (|| {
             let param = find(text(buf), b"=")? + 1;
@@ -143,6 +147,11 @@ pub fn next_int(buf: &mut [u8], kind: Kind) -> (usize, Option<i32>) {
 /// The position is unchanged without a value.
 pub fn next_str(buf: &mut [u8], kind: Kind) -> (usize, Option<usize>) {
     let Some(buf) = terminated(buf) else { return (0, None) };
+    next_str_terminated(buf, kind)
+}
+
+/// next_str on a buffer that ends with its first NUL.
+fn next_str_terminated(buf: &mut [u8], kind: Kind) -> (usize, Option<usize>) {
     let r = match kind {
         Kind::Get => (|| {
             let param = find(text(buf), b"=")? + 1;
@@ -185,9 +194,14 @@ pub fn next_str(buf: &mut [u8], kind: Kind) -> (usize, Option<usize>) {
 /// position even when it isn't a JSON boolean, as the C++ did.
 pub fn next_bool(buf: &mut [u8], kind: Kind, json: bool) -> (usize, Option<bool>) {
     let Some(buf) = terminated(buf) else { return (0, None) };
+    next_bool_terminated(buf, kind, json)
+}
+
+/// next_bool on a buffer that ends with its first NUL.
+fn next_bool_terminated(buf: &mut [u8], kind: Kind, json: bool) -> (usize, Option<bool>) {
     match kind {
         Kind::Get => {
-            let (pos, param) = next_str(buf, kind);
+            let (pos, param) = next_str_terminated(buf, kind);
             let Some(param) = param else { return (0, None) };
             let value = text(&buf[param..]);
             let r = if !json {
@@ -213,6 +227,189 @@ pub fn next_bool(buf: &mut [u8], kind: Kind, json: bool) -> (usize, Option<bool>
         Kind::Xml => {
             let Some((param, len)) = xml_next_value(buf, b"boolean") else { return (0, None) };
             (param + len + 9, Some(buf[param] == b'1'))
+        }
+    }
+}
+
+/// The request read in place from a NUL-terminated pointer, for JSON and GET
+/// parameters: every scan stops at the first NUL and goes only as far as the
+/// value being read, as the C++ did - the rest of the request (an NZB of
+/// several hundred KB in `append`) isn't measured on each parameter.
+#[derive(Clone, Copy)]
+pub struct Raw(*mut u8);
+
+impl Raw {
+    /// # Safety
+    /// `p` is writable and NUL-terminated; it outlives the value.
+    pub unsafe fn new(p: *mut u8) -> Raw {
+        Raw(p)
+    }
+
+    /// # Safety
+    /// `i` is at most the index of the first NUL.
+    unsafe fn at(self, i: usize) -> u8 {
+        *self.0.add(i)
+    }
+
+    /// # Safety
+    /// As `at`, and `i` is before the first NUL.
+    unsafe fn set(self, i: usize, v: u8) {
+        *self.0.add(i) = v;
+    }
+
+    /// The index of the first byte from `i` that `stop` accepts, or of the NUL.
+    unsafe fn scan(self, mut i: usize, stop: impl Fn(u8) -> bool) -> usize {
+        while self.at(i) != 0 && !stop(self.at(i)) {
+            i += 1;
+        }
+        i
+    }
+
+    /// decode::json_next_value on the text up to the first NUL.
+    unsafe fn json_next_value(self) -> Option<(usize, usize)> {
+        let start = self.scan(0, |b| !b" ,[{:\r\n\t\x0c".contains(&b));
+        if self.at(start) == 0 {
+            return None;
+        }
+        if self.at(start) != b'"' {
+            let end = self.scan(start, |b| b" ,]}\r\n\t\x0c".contains(&b));
+            return Some((start, end - start));
+        }
+        let mut e = start + 1;
+        loop {
+            e = self.scan(e, |b| b == b'"' || b == b'\\');
+            match self.at(e) {
+                0 => return Some((start, e - start)),
+                b'"' => return Some((start, e + 1 - start)),
+                _ => {}
+            }
+            // a byte must follow both the backslash and the byte after it
+            if self.at(e + 1) == 0 || self.at(e + 2) == 0 {
+                return None;
+            }
+            e += 2;
+        }
+    }
+
+    unsafe fn json_step(self, at: usize) -> usize {
+        match self.at(at) {
+            b']' | 0 => 0,
+            _ => 1,
+        }
+    }
+
+    /// The offset just after the first '=', if any.
+    unsafe fn get_param(self) -> Option<usize> {
+        let eq = self.scan(0, |b| b == b'=');
+        (self.at(eq) != 0).then_some(eq + 1)
+    }
+
+    unsafe fn parse_int(self, at: usize) -> Option<i32> {
+        let start = self.0.add(at).cast::<c_char>();
+        let mut end: *mut c_char = std::ptr::null_mut();
+        let number = strtoll(start, &mut end, 10);
+        if end.cast_const() == start.cast_const() {
+            return None;
+        }
+        i32::try_from(number).ok()
+    }
+
+    /// The whole request up to its NUL, for XML-RPC.
+    unsafe fn terminated(self) -> &'static mut [u8] {
+        let len = CStr::from_ptr(self.0.cast()).to_bytes().len();
+        std::slice::from_raw_parts_mut(self.0, len + 1)
+    }
+
+    /// next_int.
+    ///
+    /// # Safety
+    /// As `new`; the request isn't otherwise accessed during the call.
+    pub unsafe fn next_int(self, kind: Kind) -> (usize, Option<i32>) {
+        let r = match kind {
+            Kind::Get => (|| {
+                let param = self.get_param()?;
+                let value = self.parse_int(param)?;
+                let pos = self.scan(param, |b| !in_set(b"-+0123456789&", b));
+                Some((pos, value))
+            })(),
+            Kind::Json => (|| {
+                let (param, len) = self.json_next_value()?;
+                if !in_set(b"-+0123456789", self.at(param)) {
+                    return None;
+                }
+                let value = self.parse_int(param)?;
+                Some((param + len + self.json_step(param + len), value))
+            })(),
+            Kind::Xml => return next_int_terminated(self.terminated(), kind),
+        };
+        r.map_or((0, None), |(pos, value)| (pos, Some(value)))
+    }
+
+    /// next_str.
+    ///
+    /// # Safety
+    /// As `next_int`.
+    pub unsafe fn next_str(self, kind: Kind) -> (usize, Option<usize>) {
+        let r = match kind {
+            Kind::Get => (|| {
+                let param = self.get_param()?;
+                let end = self.scan(param, |b| b == b'&');
+                let pos = if self.at(end) == b'&' {
+                    self.set(end, 0);
+                    end + 1
+                } else {
+                    end
+                };
+                let value = std::slice::from_raw_parts_mut(self.0.add(param), end - param);
+                let n = crate::text::url_decode(value);
+                self.set(param + n, 0);
+                Some((pos, param))
+            })(),
+            Kind::Json => (|| {
+                let (param, len) = self.json_next_value()?;
+                if len < 2 || self.at(param) != b'"' || self.at(param + len - 1) != b'"' {
+                    return None;
+                }
+                let pos = param + len + self.json_step(param + len);
+                self.set(param + len - 1, 0);
+                Some((pos, param + 1))
+            })(),
+            Kind::Xml => return next_str_terminated(self.terminated(), kind),
+        };
+        r.map_or((0, None), |(pos, value)| (pos, Some(value)))
+    }
+
+    /// next_bool.
+    ///
+    /// # Safety
+    /// As `next_int`.
+    pub unsafe fn next_bool(self, kind: Kind, json: bool) -> (usize, Option<bool>) {
+        match kind {
+            Kind::Get => {
+                let (pos, param) = self.next_str(kind);
+                let Some(param) = param else { return (0, None) };
+                let value = CStr::from_ptr(self.0.add(param).cast()).to_bytes();
+                let r = if !json {
+                    Some(value.first() == Some(&b'1'))
+                } else if value.starts_with(b"true") {
+                    Some(true)
+                } else if value.starts_with(b"false") {
+                    Some(false)
+                } else {
+                    None
+                };
+                (pos, r)
+            }
+            Kind::Json => {
+                let Some((param, len)) = self.json_next_value() else { return (0, None) };
+                let value = match std::slice::from_raw_parts(self.0.add(param), len) {
+                    b"true" => true,
+                    b"false" => false,
+                    _ => return (0, None),
+                };
+                (param + len + self.json_step(param + len), Some(value))
+            }
+            Kind::Xml => next_bool_terminated(self.terminated(), kind, json),
         }
     }
 }
@@ -328,5 +525,38 @@ mod tests {
         let (_, s) = next_str(&mut b[p1..], Kind::Xml);
         assert_eq!(text(&b[p1 + s.unwrap()..]), b"a&amp;b");
         assert_eq!(next_int(&mut buf("<value><i4>2147483648</i4></value>"), Kind::Xml).1, None);
+    }
+    #[test]
+    fn raw_matches_slices() {
+        let mut state = 0x9e3779b97f4a7c15u64;
+        let mut next = move || { state ^= state << 13; state ^= state >> 7; state ^= state << 17; state };
+        const PIECES: &[&[u8]] = &[b"\"", b"\\", b"\\\"", b"a", b"12", b"-3", b"+", b"true", b"false", b",", b"]", b"}", b"[",
+            b" ", b"\t", b"=", b"&", b"%41", b"%", b"x=1", b"\0", b":", b"\"params\"", b"1", b"0"];
+        for _ in 0..200_000 {
+            let mut buf = Vec::new();
+            for _ in 0..next() % 12 {
+                buf.extend_from_slice(PIECES[(next() % PIECES.len() as u64) as usize]);
+            }
+            buf.push(0);
+            let kind = [Kind::Get, Kind::Json][(next() % 2) as usize];
+            let what = next() % 3;
+            let json = next() % 2 == 0;
+            let (mut a, mut b) = (buf.clone(), buf.clone());
+            let ra = match what {
+                0 => { let (p, v) = next_int(&mut a, kind); (p, v.map(|v| v as i64)) }
+                1 => { let (p, v) = next_bool(&mut a, kind, json); (p, v.map(|v| v as i64)) }
+                _ => { let (p, v) = next_str(&mut a, kind); (p, v.map(|v| v as i64)) }
+            };
+            let rb = unsafe {
+                let raw = Raw::new(b.as_mut_ptr());
+                match what {
+                    0 => { let (p, v) = raw.next_int(kind); (p, v.map(|v| v as i64)) }
+                    1 => { let (p, v) = raw.next_bool(kind, json); (p, v.map(|v| v as i64)) }
+                    _ => { let (p, v) = raw.next_str(kind); (p, v.map(|v| v as i64)) }
+                }
+            };
+            assert_eq!(ra, rb, "{:?} {what} {:?}", kind, String::from_utf8_lossy(&buf));
+            assert_eq!(a, b, "{:?} {what} {:?}", kind, String::from_utf8_lossy(&buf));
+        }
     }
 }

@@ -4,12 +4,7 @@
 use crate::wildmask::Lower;
 
 /// strstr on NUL-free byte strings: an empty needle is found at 0.
-fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
-    }
-    hay.windows(needle.len()).position(|w| w == needle)
-}
+use crate::bytes::find;
 
 /// A string formatted into BString<100>: at most 99 bytes.
 fn bstring100(parts: &[&[u8]]) -> Vec<u8> {
