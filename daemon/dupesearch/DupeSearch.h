@@ -74,6 +74,7 @@ public:
 	// the measured share alive (percent) of a duplicate in history this search
 	// ranked but didn't add (a client's own backup, an earlier donor)
 	static constexpr const char* HealthParam = "DupeHealth";
+    static constexpr const char* OwnedKeyParam = "DupeSearchOwnedKey";
 
 	/* "dupes:" + the normalized title: the duplicate key of a download that has none */
 	static std::string MakeDupeKey(const std::string& name);

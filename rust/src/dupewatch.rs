@@ -78,8 +78,9 @@ pub fn decide(
 #[inline]
 pub fn recent_search_suppressed(score: i32, now: i64, previous: Option<SearchStamp>) -> bool {
     previous.is_some_and(|stamp| {
-        now.saturating_sub(stamp.time) < SEARCH_WINDOW_SEC
-            && stamp.score >= score.max(BASE_PICK_SCORE)
+        stamp.score >= score.max(BASE_PICK_SCORE)
+            && (now < stamp.time
+                || (now as u64).wrapping_sub(stamp.time as u64) < SEARCH_WINDOW_SEC as u64)
     })
 }
 

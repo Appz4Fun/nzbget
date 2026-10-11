@@ -1215,6 +1215,10 @@ typedef struct {
     size_t key_len;
 } NzbgetRsDupeWatchPeer;
 // Return 0 skip, 1 retry post-processing, 2 search. Inputs caller-owned/readable.
+/* This decision function only reads its valid snapshot inputs and cannot unwind. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((pure, nothrow))
+#endif
 int nzbget_rs_dupe_watch(const NzbgetRsDupeWatchPeer* pick, const NzbgetRsDupeWatchPeer* peers, size_t count,
     int64_t now, int32_t previousScore, int64_t previousTime, int hasPrevious, int identityChanged);
 NzbgetRsBuf nzbget_rs_dupe_queries(const char* name, size_t len);

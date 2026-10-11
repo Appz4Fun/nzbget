@@ -1276,6 +1276,7 @@ void QueueEditor::SetNzbDupeParam(NzbInfo* nzbInfo, DownloadQueue::EEditAction a
 	switch (action)
 	{
 		case DownloadQueue::eaGroupSetDupeKey:
+            nzbInfo->GetParameters()->SetParameter(DupeSearch::OwnedKeyParam, nullptr);
 			nzbInfo->SetDupeKey(text);
 			break;
 

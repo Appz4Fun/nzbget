@@ -6297,26 +6297,36 @@ pub struct DupeWatchPeer {
     pub key_len: usize,
 }
 
+#[inline(never)]
+unsafe fn dupe_watch_has_higher(pick: &DupeWatchPeer, peers: *const DupeWatchPeer, count: usize) -> bool {
+    use crate::dupewatch::{self, Snapshot};
+    let mine = Snapshot { id: pick.id, score: pick.score, flags: pick.flags, key: arg(pick.key, pick.key_len) };
+    for peer in std::slice::from_raw_parts(peers, count) {
+        if peer.id == pick.id || peer.score <= pick.score { continue; }
+        let other = Snapshot { id: peer.id, score: peer.score, flags: peer.flags, key: arg(peer.key, peer.key_len) };
+        if dupewatch::higher_peer(mine, other, true) { return true; }
+    }
+    false
+}
+
 /// # Safety
 /// Peer records and key buffers valid for their counts; pick is non-NULL.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_dupe_watch(pick: *const DupeWatchPeer, peers: *const DupeWatchPeer,
     count: usize, now: i64, previous_score: i32, previous_time: i64, has_previous: c_int,
     identity_changed: c_int) -> c_int {
+    use crate::dupewatch::{self, Decision};
     if pick.is_null() { return 0; }
-    use crate::dupewatch::{self, Decision, Snapshot};
     let pick = &*pick;
-    let previous = if has_previous != 0 { Some(dupewatch::SearchStamp { score: previous_score, time: previous_time }) } else { None };
+    // Changed identities never use the previous stamp; avoid irrelevant time
+    // arithmetic as well as peer/key work on these common fast paths.
+    let previous = if has_previous != 0 && identity_changed == 0 {
+        Some(dupewatch::SearchStamp { score: previous_score, time: previous_time })
+    } else { None };
     let preliminary = dupewatch::decide(pick.flags, pick.score, None, now, previous, identity_changed != 0);
-    // Every peer can only turn Search into Skip; Skip and post-process Retry
-    // are already final. Do not allocate/copy snapshots or inspect unused keys.
     if preliminary != Decision::Search || count == 0 || peers.is_null() { return preliminary as c_int; }
-    let mine = Snapshot { id: pick.id, score: pick.score, flags: pick.flags, key: arg(pick.key, pick.key_len) };
-    for peer in std::slice::from_raw_parts(peers, count) {
-        if peer.id == pick.id || peer.score <= pick.score { continue; }
-        let other = Snapshot { id: peer.id, score: peer.score, flags: peer.flags, key: arg(peer.key, peer.key_len) };
-        if dupewatch::higher_peer(mine, other, true) { return Decision::Skip as c_int; }
-    }
+    // Keep the key scan out of the entry's register-save/prologue fast path.
+    if dupe_watch_has_higher(pick, peers, count) { return Decision::Skip as c_int; }
     Decision::Search as c_int
 }
 

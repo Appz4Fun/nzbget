@@ -420,6 +420,10 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     bool history = downloadQueue->GetQueue()->Find(nzbId) != pick;
     std::string key = EffectiveKey(pick);
     std::string lowerKey = LowerKey(key);
+    const std::string ownerPrefix = std::to_string(nzbId) + ":";
+    NzbParameter* owner = pick->GetParameters()->Find(OwnedKeyParam);
+    bool generatedKey = Util::EmptyStr(pick->GetDupeKey()) ||
+        (owner && ownerPrefix + key == owner->GetValue() && key.compare(0, 6, "dupes:") == 0);
     std::string title;
     Searched previous;
     bool havePrevious = false, changedIdentity = false, rankOnly = false, cachedName = false;
@@ -429,6 +433,10 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
         if (found != m_searched.end()) {
             previous = found->second;
             havePrevious = true;
+            // Missing legacy title is ambiguous unless this exact NZB carries
+            // the persisted marker written when native discovery generated it.
+            if (previous.title.empty() && generatedKey && key.compare(0, 6, "dupes:")==0)
+                previous.title = key.substr(6);
             cachedName = !previous.title.empty() && previous.rawName == pick->GetName();
         }
         rankOnly = m_rankPending.erase(nzbId) != 0 && havePrevious;
@@ -444,7 +452,7 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     }
     if (changedIdentity) rankOnly = false;
     // Only rewrite a key this search previously generated; explicit client keys stay.
-    if (changedIdentity && key == "dupes:" + previous.title)
+    if (changedIdentity && generatedKey && !history && key == "dupes:" + previous.title)
     {
         key = "dupes:" + title;
         lowerKey = LowerKey(key);
@@ -503,7 +511,12 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     for (size_t i = 0; i < others.size(); i++)
     {
         uint32_t f = flags(others[i], histories[i]);
-        if (keys[i] == lowerKey && (f & rsDupeManagedFleet)) pickFlags |= rsDupeManagedFleet;
+        // Only a live eligible fleet member represents current management;
+        // retired history/deleting entries must not poison future plain picks.
+        if (keys[i] == lowerKey && (f & rsDupeManagedFleet) && !(f & rsDupeHistory) &&
+            (f & (rsDupePresent | rsDupeNzb | rsDupeDeleteNone)) == (rsDupePresent | rsDupeNzb | rsDupeDeleteNone) &&
+            !(f & (rsDupeDeleting | rsDupeDeleteManual | rsDupeDeleteCopy | rsDupeDeleteGood | rsDupeSuccess)))
+            pickFlags |= rsDupeManagedFleet;
         peers.push_back({ others[i]->GetId(), others[i]->GetDupeScore(), f, keys[i].data(), keys[i].size() });
     }
     snapshot.flags = pickFlags;
@@ -525,6 +538,7 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     if (edit)
     {
         pick->SetDupeKey(key.c_str());
+        pick->GetParameters()->SetParameter(OwnedKeyParam, generatedKey ? (ownerPrefix + key).c_str() : nullptr);
         if (pick->GetDupeScore() < BasePickScore) pick->SetDupeScore(BasePickScore);
         pick->SetChanged(true);
         downloadQueue->SaveChanged();
@@ -997,6 +1011,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		DonorScore::Entry entry;
 		std::string title;
 		bool member = false;	// a duplicate that was already in history: always rescored
+        bool valid = true; // Final score/parameter update must still succeed.
 		int oldScore = 0;		// a member's score before: never raised unless it is whole
 	};
 	std::map<size_t, Placed> placed;
@@ -1282,6 +1297,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		}
 		else
 		{
+            donor.valid = false;
 			rescoreFailed++;
 		}
 	}
@@ -1310,9 +1326,16 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		m_sent.erase(job.nzbId);
 	}
     // Empty searches are retryable while the pick remains queued; no new grabs for a completed key.
-    bool usableBackup=std::any_of(placed.begin(),placed.end(),[](const auto& item) {
-        return item.second.entry.score>DonorScore::Dead && item.second.entry.alive>=0.999;
-    });
+    bool usableBackup = false;
+    {
+        GuardedDownloadQueue queue = DownloadQueue::Guard();
+        usableBackup=std::any_of(placed.begin(),placed.end(),[&](const auto& item) {
+            if (!item.second.valid || item.second.entry.score<=DonorScore::Dead || item.second.entry.alive<0.999) return false;
+            if (item.second.id<0) return g_Options->GetDupeSearchDryRun();
+            NzbInfo* backup=FindNzb(queue,item.second.id);
+            return backup && !backup->GetDeleting() && backup->GetDeleteStatus()!=NzbInfo::dsManual;
+        });
+    }
     bool retryWanted=!job.rankOnly;
     if (job.rankOnly)
     {
@@ -1731,10 +1754,8 @@ void DupeSearch::LoadState()
             std::getline(stream, searched.title, '\t');
             std::string retry;
             std::getline(stream,retry,'\t');
-            // Three-field legacy stamps stored generated ownership in the key.
-            if (searched.title.empty() && key.compare(0, 6, "dupes:") == 0)
-                searched.title = key.substr(6);
-            // An explicit legacy key has no old title: refresh its identity once.
+            // Legacy records have no ownership evidence. Refresh once while
+            // preserving their key; only a per-NZB persisted marker proves ownership.
             searched.retryable=retry=="1" || searched.title.empty();
 			if (now - searched.time < StateTtlSec)
 			{

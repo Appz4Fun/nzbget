@@ -36,6 +36,7 @@
 #include "ServerPool.h"
 #include "DupeProbe.h"
 #include "ParDamage.h"
+#include "DupeSearch.h"
 
 /**
  * Removes old entries from (recent) history
@@ -990,6 +991,7 @@ void HistoryCoordinator::HistorySetDupeParam(HistoryInfo* historyInfo, DownloadQ
 		switch (action)
 		{
 			case DownloadQueue::eaHistorySetDupeKey:
+                historyInfo->GetNzbInfo()->GetParameters()->SetParameter(DupeSearch::OwnedKeyParam, nullptr);
 				historyInfo->GetNzbInfo()->SetDupeKey(text);
 				break;
 
