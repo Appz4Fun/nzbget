@@ -3435,9 +3435,249 @@ pub unsafe extern "C" fn nzbget_rs_par_renamer_execute(env: *const ParRenamerEnv
     result.is_ok() as c_int
 }
 
+/// NzbgetRsFsOps: FileSystem's calls for the deletes and RenameBak. Strings
+/// are borrowed NUL-terminated paths; -1 reports a C++ exception.
+#[repr(C)]
+pub struct FsOps {
+    pub ctx: *mut std::ffi::c_void,
+    pub path_type: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub remove_dir: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub delete_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub delete_link: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, c_int) -> c_int>,
+    pub list: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *mut std::ffi::c_void,
+        unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int>,
+    pub file_exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub dir_exists: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>,
+    pub move_file: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char, *const c_char) -> c_int>,
+    pub last_error: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void,
+        unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int>,
+}
+
+struct FsOpsFfi<'a>(&'a FsOps);
+
+unsafe extern "C" fn fs_ops_set(sink: *mut std::ffi::c_void, text: *const c_char) {
+    *sink.cast::<Vec<u8>>() = input(text).to_vec();
+}
+
+impl FsOpsFfi<'_> {
+    fn int(r: c_int) -> crate::fsdelete::R<c_int> {
+        if r < 0 { Err(crate::fsdelete::Abort) } else { Ok(r) }
+    }
+    fn path(&self, f: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> c_int>, path: &[u8]) -> crate::fsdelete::R<c_int> {
+        let Some(f) = f else { return Ok(0) };
+        let path = nul(path);
+        Self::int(unsafe { f(self.0.ctx, path.as_ptr().cast()) })
+    }
+}
+
+fn path_type_from(t: c_int) -> crate::fsdelete::PathType {
+    use crate::fsdelete::PathType::*;
+    match t { 1 => File, 2 => Directory, 3 => Link, 4 => DirectoryLink, _ => Error }
+}
+
+impl crate::fsdelete::Ops for FsOpsFfi<'_> {
+    fn path_type(&mut self, path: &[u8]) -> crate::fsdelete::R<crate::fsdelete::PathType> {
+        Ok(path_type_from(self.path(self.0.path_type, path)?))
+    }
+    fn remove_dir(&mut self, path: &[u8]) -> crate::fsdelete::R<bool> {
+        Ok(self.path(self.0.remove_dir, path)? != 0)
+    }
+    fn delete_file(&mut self, path: &[u8]) -> crate::fsdelete::R<bool> {
+        Ok(self.path(self.0.delete_file, path)? != 0)
+    }
+    fn delete_link(&mut self, path: &[u8], kind: crate::fsdelete::PathType) -> crate::fsdelete::R<bool> {
+        let Some(f) = self.0.delete_link else { return Ok(false) };
+        let path = nul(path);
+        let kind = match kind { crate::fsdelete::PathType::DirectoryLink => 4, _ => 3 };
+        Ok(Self::int(unsafe { f(self.0.ctx, path.as_ptr().cast(), kind) })? != 0)
+    }
+    fn list(&mut self, dir: &[u8]) -> crate::fsdelete::R<Vec<Vec<u8>>> {
+        let mut names: Vec<Vec<u8>> = Vec::new();
+        if let Some(f) = self.0.list {
+            let dir = nul(dir);
+            Self::int(unsafe { f(self.0.ctx, dir.as_ptr().cast(), (&mut names as *mut Vec<Vec<u8>>).cast(), par_renamer_add_name) })?;
+        }
+        Ok(names)
+    }
+    fn file_exists(&mut self, path: &[u8]) -> crate::fsdelete::R<bool> {
+        Ok(self.path(self.0.file_exists, path)? != 0)
+    }
+    fn dir_exists(&mut self, path: &[u8]) -> crate::fsdelete::R<bool> {
+        Ok(self.path(self.0.dir_exists, path)? != 0)
+    }
+    fn move_file(&mut self, from: &[u8], to: &[u8]) -> crate::fsdelete::R<bool> {
+        let Some(f) = self.0.move_file else { return Ok(false) };
+        let (from, to) = (nul(from), nul(to));
+        Ok(Self::int(unsafe { f(self.0.ctx, from.as_ptr().cast(), to.as_ptr().cast()) })? != 0)
+    }
+    fn last_error(&mut self) -> crate::fsdelete::R<Vec<u8>> {
+        let mut text = Vec::new();
+        if let Some(f) = self.0.last_error {
+            Self::int(unsafe { f(self.0.ctx, (&mut text as *mut Vec<u8>).cast(), fs_ops_set) })?;
+        }
+        Ok(text)
+    }
+}
+
+/// FileSystem::DeleteDirectory: 1 removed, 0 not, -1 a callback's exception.
+///
+/// # Safety
+/// `ops` is null (returns 0) or valid with callbacks that don't unwind;
+/// `dir` is null (empty) or NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_delete_directory(ops: *const FsOps, dir: *const c_char, separator: c_char) -> c_int {
+    let Some(ops) = ops.as_ref() else { return 0 };
+    match crate::fsdelete::delete_directory(&mut FsOpsFfi(ops), input(dir), separator as u8) {
+        Ok(done) => done as c_int,
+        Err(_) => -1,
+    }
+}
+
+/// FileSystem::DeleteDirectoryWithContent: 1 all deleted, 0 not, -1 a
+/// callback's exception. `errmsg` (null: not written) gets the error, empty
+/// when cleared; free it with nzbget_rs_free.
+///
+/// # Safety
+/// As nzbget_rs_delete_directory; `errmsg` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_delete_directory_with_content(ops: *const FsOps, dir: *const c_char, separator: c_char,
+    errmsg: *mut RsBuf) -> c_int {
+    let mut text = Vec::new();
+    let result = match ops.as_ref() {
+        Some(ops) => crate::fsdelete::delete_directory_with_content(&mut FsOpsFfi(ops), input(dir), separator as u8, &mut text),
+        None => Ok(false),
+    };
+    if !errmsg.is_null() {
+        errmsg.write(into_buf(text));
+    }
+    match result {
+        Ok(done) => done as c_int,
+        Err(_) => -1,
+    }
+}
+
+/// FileSystem::RenameBak: 1 moved, 0 not, -1 a callback's exception.
+/// `new_name` (null: not written) gets the name tried last; free it with
+/// nzbget_rs_free.
+///
+/// # Safety
+/// As nzbget_rs_delete_directory; `filename`/`bak_part` are null (empty) or
+/// NUL-terminated; `new_name` is null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_rename_bak(ops: *const FsOps, filename: *const c_char, bak_part: *const c_char,
+    remove_old_extension: c_int, new_name: *mut RsBuf) -> c_int {
+    let mut name = Vec::new();
+    let result = match ops.as_ref() {
+        Some(ops) => crate::fsdelete::rename_bak(&mut FsOpsFfi(ops), input(filename), input(bak_part), remove_old_extension != 0, &mut name),
+        None => Ok(false),
+    };
+    if !new_name.is_null() {
+        new_name.write(into_buf(name));
+    }
+    match result {
+        Ok(done) => done as c_int,
+        Err(_) => -1,
+    }
+}
+
+/// FileSystem::GetFileExtension: the offset of the last '.', or -1.
+///
+/// # Safety
+/// `name` is null (with `len` 0) or `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_file_extension(name: *const c_char, len: usize) -> isize {
+    let name = bytes_arg(name.cast(), len);
+    crate::fsdelete::file_extension(name).map_or(-1, |ext| (name.len() - ext.len()) as isize)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fsdelete_null_ops_initialize_outputs() {
+        use std::ptr::{null, null_mut};
+        // Poison rather than zero the output: a caller need not initialize
+        // an out parameter, even when the operation fails.
+        let poison = || RsBuf { data: null_mut(), len: usize::MAX, cap: usize::MAX };
+        unsafe {
+            let mut error = poison();
+            assert_eq!(nzbget_rs_delete_directory_with_content(null(), null(), b'/' as c_char, &mut error), 0);
+            assert_eq!(error.len, 0);
+            assert_eq!(input(error.data), b"");
+            nzbget_rs_free(error);
+            let mut name = poison();
+            assert_eq!(nzbget_rs_rename_bak(null(), null(), null(), 0, &mut name), 0);
+            assert_eq!(name.len, 0);
+            assert_eq!(input(name.data), b"");
+            nzbget_rs_free(name);
+            assert_eq!(nzbget_rs_delete_directory(null(), null(), b'/' as c_char), 0);
+            assert_eq!(nzbget_rs_delete_directory_with_content(null(), null(), 0, null_mut()), 0);
+            assert_eq!(nzbget_rs_rename_bak(null(), null(), null(), 0, null_mut()), 0);
+            assert_eq!(nzbget_rs_file_extension(null(), 0), -1);
+            assert_eq!(nzbget_rs_file_extension(b"a.\0b.c".as_ptr().cast(), 6), 4);
+        }
+    }
+
+    #[test]
+    fn fsdelete_borrowed_buffers_and_callback_abort() {
+        use std::ptr::{null, null_mut};
+        struct State { calls: Vec<Vec<u8>>, abort: bool }
+        unsafe extern "C" fn kind(ctx: *mut std::ffi::c_void, path: *const c_char) -> c_int {
+            let st = &mut *ctx.cast::<State>();
+            st.calls.push(input(path).to_vec());
+            if input(path) == b"root" { 2 } else if st.abort { -1 } else { 1 }
+        }
+        unsafe extern "C" fn list(_: *mut std::ffi::c_void, _: *const c_char,
+            sink: *mut std::ffi::c_void, add: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int {
+            let mut name = b"file\0".to_vec();
+            add(sink, name.as_ptr().cast());
+            name.fill(b'x'); // the callback's buffer may immediately be reused
+            0
+        }
+        unsafe extern "C" fn last_error(_: *mut std::ffi::c_void, sink: *mut std::ffi::c_void,
+            set: unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char)) -> c_int {
+            let mut text = b"failure\0".to_vec();
+            set(sink, text.as_ptr().cast());
+            text.fill(b'x');
+            0
+        }
+        unsafe extern "C" fn fail(ctx: *mut std::ffi::c_void, path: *const c_char) -> c_int {
+            (*ctx.cast::<State>()).calls.push(input(path).to_vec());
+            0
+        }
+        let mut st = State { calls: Vec::new(), abort: false };
+        let mut ops = FsOps {
+            ctx: (&mut st as *mut State).cast(), path_type: Some(kind), remove_dir: Some(fail),
+            delete_file: Some(fail), delete_link: None, list: Some(list),
+            file_exists: None, dir_exists: None, move_file: None, last_error: Some(last_error),
+        };
+        unsafe {
+            let mut error = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, c"root".as_ptr(), b'/' as c_char, error.as_mut_ptr()), 0);
+            let error = error.assume_init();
+            assert_eq!(input(error.data), b"could not delete root/file: failure");
+            assert_eq!(st.calls, [b"root".to_vec(), b"root/file".to_vec(), b"root/file".to_vec(), b"root".to_vec()]);
+            st.calls.clear();
+            st.abort = true;
+            let mut aborted = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, c"root".as_ptr(), b'/' as c_char, aborted.as_mut_ptr()), -1);
+            let aborted = aborted.assume_init();
+            assert_eq!(aborted.len, 0);
+            assert_eq!(st.calls, [b"root".to_vec(), b"root/file".to_vec()]);
+            // An independent call cannot invalidate a previously returned buffer.
+            assert_eq!(input(error.data), b"could not delete root/file: failure");
+            nzbget_rs_free(error);
+            nzbget_rs_free(aborted);
+            ops.path_type = None;
+            assert_eq!(nzbget_rs_delete_directory_with_content(&ops, null(), 0, null_mut()), 0);
+            let mut name = std::mem::MaybeUninit::uninit();
+            assert_eq!(nzbget_rs_rename_bak(&ops, null(), null(), 0, name.as_mut_ptr()), 0);
+            let name = name.assume_init();
+            assert_eq!(input(name.data), b".");
+            nzbget_rs_free(name);
+        }
+    }
 
     #[test]
     fn parrenamer_nulls_borrowed_names_and_exception_state() {

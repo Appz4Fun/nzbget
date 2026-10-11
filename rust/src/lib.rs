@@ -12,6 +12,7 @@ pub mod escape;
 pub mod extload;
 pub mod feedfilter;
 pub mod filetypes;
+pub mod fsdelete;
 #[cfg(unix)]
 pub mod fsops;
 pub mod json;

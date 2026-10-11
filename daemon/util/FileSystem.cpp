@@ -23,6 +23,7 @@
 #include "FileSystem.h"
 #ifdef NZBGET_USE_RUST
 #include "nzbget_rs.h"
+#include <exception>
 #include <memory>
 
 // Keep the Rust allocation owned even if std::string's allocation throws.
@@ -1034,6 +1035,17 @@ std::string FileSystem::EscapePathForShell(const std::string& path)
 }
 #endif
 
+#ifdef NZBGET_USE_RUST
+std::optional<std::string> FileSystem::GetFileExtension(std::string_view filename)
+{
+	// rust/src/fsdelete.rs
+	ptrdiff_t extIdx = nzbget_rs_file_extension(filename.data(), filename.size());
+	if (extIdx < 0)
+		return std::nullopt;
+
+	return std::string(filename.substr(extIdx));
+}
+#else
 std::optional<std::string> FileSystem::GetFileExtension(std::string_view filename)
 {
 	size_t extIdx = filename.rfind(".");
@@ -1042,6 +1054,7 @@ std::optional<std::string> FileSystem::GetFileExtension(std::string_view filenam
 
 	return std::string(filename.substr(extIdx));
 }
+#endif
 
 namespace
 {
@@ -1095,6 +1108,99 @@ bool DeleteLink(const char* filename, PathType pathType)
 #endif
 	return FileSystem::DeleteFile(filename);
 }
+
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
+// The calls rust/src/fsdelete.rs makes. errno is kept between the calls as
+// the C++ kept it (Rust's own allocations don't touch it) and restored when
+// the operation returns; an exception ends the operation and is rethrown.
+class RsFsOps
+{
+public:
+	NzbgetRsFsOps ops{};
+
+	RsFsOps() : m_errno(errno)
+	{
+		ops.ctx = this;
+		ops.pathType = [](void* ctx, const char* path) noexcept -> int
+		{
+			return Call(ctx, [&] { return static_cast<int>(GetPathTypeNoFollow(path)); });
+		};
+		ops.removeDir = [](void* ctx, const char* path) noexcept -> int
+		{
+			return Call(ctx, [&] { return FileSystem::RemoveDirectory(path) ? 1 : 0; });
+		};
+		ops.deleteFile = [](void* ctx, const char* path) noexcept -> int
+		{
+			return Call(ctx, [&] { return FileSystem::DeleteFile(path) ? 1 : 0; });
+		};
+		ops.deleteLink = [](void* ctx, const char* path, int type) noexcept -> int
+		{
+			return Call(ctx, [&] { return DeleteLink(path, type == 4 ? PathType::DirectoryLink : PathType::Link) ? 1 : 0; });
+		};
+		ops.list = [](void* ctx, const char* dir, void* sink, void (*add)(void*, const char*)) noexcept -> int
+		{
+			return Call(ctx, [&]
+			{
+				DirBrowser browser(dir);
+				while (const char* filename = browser.Next())
+				{
+					add(sink, filename);
+				}
+				return 0;
+			});
+		};
+		ops.fileExists = [](void* ctx, const char* path) noexcept -> int
+		{
+			return Call(ctx, [&] { return FileSystem::FileExists(path) ? 1 : 0; });
+		};
+		ops.dirExists = [](void* ctx, const char* path) noexcept -> int
+		{
+			return Call(ctx, [&] { return FileSystem::DirectoryExists(path) ? 1 : 0; });
+		};
+		ops.moveFile = [](void* ctx, const char* from, const char* to) noexcept -> int
+		{
+			return Call(ctx, [&] { return FileSystem::MoveFile(from, to) ? 1 : 0; });
+		};
+		ops.lastError = [](void* ctx, void* sink, void (*set)(void*, const char*)) noexcept -> int
+		{
+			return Call(ctx, [&] { set(sink, FileSystem::GetLastErrorMessage()); return 0; });
+		};
+	}
+
+	int Finish(int result)
+	{
+		errno = m_errno;
+		if (m_error)
+		{
+			std::rethrow_exception(m_error);
+		}
+		return result;
+	}
+
+private:
+	int m_errno;
+	std::exception_ptr m_error;
+
+	template <class F>
+	static int Call(void* ctx, F f) noexcept
+	{
+		RsFsOps& self = *static_cast<RsFsOps*>(ctx);
+		errno = self.m_errno;
+		try
+		{
+			int result = f();
+			self.m_errno = errno;
+			return result;
+		}
+		catch (...)
+		{
+			self.m_errno = errno;
+			self.m_error = std::current_exception();
+			return -1;
+		}
+	}
+};
+#endif
 }
 
 bool FileSystem::IsLink(const char* filename)
@@ -1103,6 +1209,43 @@ bool FileSystem::IsLink(const char* filename)
 	return type == PathType::Link || type == PathType::DirectoryLink;
 }
 
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
+/* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
+bool FileSystem::DeleteDirectory(const char* dirFilename)
+{
+	// rust/src/fsdelete.rs
+	RsFsOps ops;
+	return ops.Finish(nzbget_rs_delete_directory(&ops.ops, dirFilename, PATH_SEPARATOR)) == 1;
+}
+
+bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& errmsg)
+{
+	// Keep the POSIX NULL-path error distinct from an empty path, without
+	// passing NULL to lstat or printf (their declarations require non-NULL).
+	if (!dirFilename)
+	{
+		errmsg.Clear();
+		errno = EFAULT;
+		errmsg.Format("could not delete (null): %s", *GetLastErrorMessage());
+		return false;
+	}
+	// rust/src/fsdelete.rs
+	RsFsOps ops;
+	NzbgetRsBuf text{};
+	int result = nzbget_rs_delete_directory_with_content(&ops.ops, dirFilename, PATH_SEPARATOR, &text);
+	if (text.len == 0)
+	{
+		errmsg.Clear();
+	}
+	else
+	{
+		errmsg.Set(text.data, (int)text.len);
+	}
+	nzbget_rs_free(text);
+	return ops.Finish(result) == 1;
+}
+
+#else
 /* Delete directory which is empty or contains only hidden files or directories (whose names start with dot) */
 bool FileSystem::DeleteDirectory(const char* dirFilename)
 {
@@ -1209,6 +1352,8 @@ bool FileSystem::DeleteDirectoryWithContent(const char* dirFilename, CString& er
 	return ok;
 }
 
+#endif
+
 int64 FileSystem::FileSize(const char* filename)
 {
 #ifdef WIN32
@@ -1256,6 +1401,20 @@ std::optional<FileSystem::DiskState> FileSystem::GetDiskState(const char* path)
 
 bool FileSystem::RenameBak(const char* filename, const char* bakPart, bool removeOldExtension, CString& newName)
 {
+#if defined(NZBGET_USE_RUST) && !defined(WIN32)
+	// The Rust ABI treats NULL strings as empty. Preserve the platform C
+	// library's original formatting/syscall behavior for NULL arguments.
+	if (filename && bakPart)
+	{
+		// rust/src/fsdelete.rs
+		RsFsOps ops;
+		NzbgetRsBuf name{};
+		int result = nzbget_rs_rename_bak(&ops.ops, filename, bakPart, removeOldExtension, &name);
+		newName.Set(name.data, (int)name.len);
+		nzbget_rs_free(name);
+		return ops.Finish(result) == 1;
+	}
+#endif
 	BString<1024> changedFilename;
 
 	if (removeOldExtension)

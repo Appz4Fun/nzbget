@@ -891,6 +891,39 @@ typedef struct NzbgetRsParRenamerEnv
 int nzbget_rs_par_renamer_execute(const NzbgetRsParRenamerEnv* env, NzbgetRsParRenamerState* state,
 	const char* infoName, const char* destDir, char separator);
 
+// FileSystem's deletes and RenameBak (rust/src/fsdelete.rs). The callbacks
+// get borrowed NUL-terminated paths and return -1 for a C++ exception (the
+// call then returns -1). pathType: GetPathTypeNoFollow, 0 error, 1 file,
+// 2 directory, 3 link, 4 directory link. removeDir / deleteFile / deleteLink
+// (type 3 or 4) / fileExists / dirExists / moveFile: 1 done or yes. list
+// calls add for each name of DirBrowser's snapshot; lastError calls set with
+// GetLastErrorMessage for the call that failed last. NULL callbacks mean
+// errors, empty lists, nothing done. errmsg / newName (NULL: not written)
+// get a buffer to free with nzbget_rs_free; an empty errmsg was cleared.
+// A NULL ops table returns 0 and writes empty output buffers. Output slots
+// must not hold an allocation needing release. Callbacks must not unwind;
+// sink and add/set are valid only during their list/lastError call. Strings
+// passed to add/set are copied before that function returns.
+typedef struct NzbgetRsFsOps
+{
+	void* ctx;
+	int (*pathType)(void* ctx, const char* path);
+	int (*removeDir)(void* ctx, const char* path);
+	int (*deleteFile)(void* ctx, const char* path);
+	int (*deleteLink)(void* ctx, const char* path, int type);
+	int (*list)(void* ctx, const char* dir, void* sink, void (*add)(void* sink, const char* name));
+	int (*fileExists)(void* ctx, const char* path);
+	int (*dirExists)(void* ctx, const char* path);
+	int (*moveFile)(void* ctx, const char* from, const char* to);
+	int (*lastError)(void* ctx, void* sink, void (*set)(void* sink, const char* text));
+} NzbgetRsFsOps;
+int nzbget_rs_delete_directory(const NzbgetRsFsOps* ops, const char* dir, char separator);
+int nzbget_rs_delete_directory_with_content(const NzbgetRsFsOps* ops, const char* dir, char separator, NzbgetRsBuf* errmsg);
+int nzbget_rs_rename_bak(const NzbgetRsFsOps* ops, const char* filename, const char* bakPart, int removeOldExtension,
+	NzbgetRsBuf* newName);
+// FileSystem::GetFileExtension: the offset of the last '.', or -1.
+ptrdiff_t nzbget_rs_file_extension(const char* name, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
