@@ -136,6 +136,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(status, 0, error)
         self.assertTrue(ready.exists())
 
+    @unittest.skipUnless(LINUX, "fake build-driver tests are Linux-only")
+    def test_ninja_symlink_alias_gets_job_cap_and_preserves_invocation_name(self):
+        ninja = self.root / "ninja"
+        ninja.write_text("#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\nprint(json.dumps({'name':Path(sys.argv[0]).name,'args':sys.argv[1:]}))\n")
+        ninja.chmod(0o755)
+        alias = self.root / "build-driver"
+        alias.symlink_to(ninja)
+        for jobs in (3, 2):
+            with self.subTest(jobs=jobs):
+                status, output, error = self.run_cli("build", [str(alias)], ("--jobs", str(jobs)))
+                self.assertEqual(status, 0, error)
+                actual = json.loads(output)
+                self.assertEqual(actual["name"], "build-driver")
+                self.assertEqual(actual["args"], [f"-j{jobs}"])
+
     @unittest.skipUnless(LINUX, "metadata collision tests are Linux-only")
     def test_metadata_cannot_replace_inputs_aliases_or_lock_files(self):
         for case in ("fixture", "tool", "executable", "lock", "hardlink", "symlink", "parent_symlink", "parent_symlink_dotdot"):

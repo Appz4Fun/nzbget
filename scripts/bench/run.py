@@ -113,9 +113,7 @@ def prepare_command(args):
                 jobs = value.split("=", 1)[1]
             if jobs is not None and (not jobs.isdigit() or not 1 <= int(jobs) <= args.jobs):
                 raise ValueError("build jobs must be at most the configured cap (maximum 3)")
-        if name == "ninja":
-            command[1:1] = [f"-j{args.jobs}"]
-        elif name == "cmake" and "--build" in command:
+        if name == "cmake" and "--build" in command:
             native_start = command.index("--") if "--" in command else len(command)
             command[native_start:native_start] = ["--parallel", str(args.jobs)]
     executable = shutil.which(command[0])
@@ -128,6 +126,8 @@ def prepare_command(args):
         raise ValueError("shell/eval commands are not accepted; pass an argument vector")
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("command must be an executable regular file")
+    if args.mode == "build" and (name == "ninja" or resolved_name == "ninja"):
+        command[1:1] = [f"-j{args.jobs}"]
     if args.mode == "time":
         if timing_forbidden(resolved_name):
             raise ValueError("timing requires a prebuilt native measurement program")
