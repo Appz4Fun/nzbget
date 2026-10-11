@@ -979,6 +979,18 @@ int nzbget_rs_binrpc_edit_split(const char* data, size_t len, size_t textLen, si
 	uint32_t* ids);
 int nzbget_rs_binrpc_is_url(const char* content);
 
+// UrlCoordinator (rust/src/urlcoord.rs). dnzb_header: UrlDownloader's
+// X-DNZB headers; 1 with *first X-DNZB-Category's trimmed value, 2 with
+// *first "*DNZB:" and the header's name (cut to 99 bytes) and *value its
+// value after the colon's spaces, right-trimmed, Latin-1 to UTF-8; 0 for
+// another line (outputs untouched). Free outputs with nzbget_rs_free; NULL
+// outputs aren't written, a NULL line is empty. completed: the URL and
+// delete statuses UrlCompleted leaves for the downloader's status
+// (WebDownloader::EStatus) and whether the fetch is retried; NULL pointers
+// read as 0 and aren't written.
+int nzbget_rs_url_dnzb_header(const char* line, NzbgetRsBuf* first, NzbgetRsBuf* value);
+void nzbget_rs_url_completed(int downloaderStatus, int deleting, int* urlStatus, int* deleteStatus, int* retry);
+
 #ifdef __cplusplus
 }
 #endif

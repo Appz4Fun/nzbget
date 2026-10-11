@@ -31,7 +31,35 @@
 #include "Scanner.h"
 #include "DiskState.h"
 #include "QueueScript.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
+#ifdef NZBGET_USE_RUST
+void UrlDownloader::ProcessHeader(const char* line)
+{
+	WebDownloader::ProcessHeader(line);
+
+	// rust/src/urlcoord.rs
+	NzbgetRsBuf first{}, value{};
+	switch (nzbget_rs_url_dnzb_header(line, &first, &value))
+	{
+		case 1:
+			m_category = CString(first.data, (int)first.len);
+			debug("Category: %s", *m_category);
+			nzbget_rs_free(first);
+			break;
+
+		case 2:
+			debug("X-DNZB: %s", first.data);
+			debug("Value: %s", value.data);
+			m_nzbInfo->GetParameters()->SetParameter(first.data, value.data);
+			nzbget_rs_free(first);
+			nzbget_rs_free(value);
+			break;
+	}
+}
+#else
 void UrlDownloader::ProcessHeader(const char* line)
 {
 	WebDownloader::ProcessHeader(line);
@@ -62,6 +90,7 @@ void UrlDownloader::ProcessHeader(const char* line)
 		}
 	}
 }
+#endif
 
 UrlCoordinator::UrlCoordinator()
 {
@@ -306,6 +335,21 @@ void UrlCoordinator::UrlCompleted(UrlDownloader* urlDownloader)
 		// remove downloader from downloader list
 		m_activeDownloads.erase(std::find(m_activeDownloads.begin(), m_activeDownloads.end(), urlDownloader));
 
+#ifdef NZBGET_USE_RUST
+		// rust/src/urlcoord.rs
+		int urlStatus = nzbInfo->GetUrlStatus();
+		int deleteStatus = nzbInfo->GetDeleteStatus();
+		int again = 0;
+		nzbget_rs_url_completed(urlDownloader->GetStatus(), nzbInfo->GetDeleting(), &urlStatus, &deleteStatus, &again);
+		retry = again != 0;
+		if (nzbInfo->GetDeleting())
+		{
+			nzbInfo->SetDeleteStatus((NzbInfo::EDeleteStatus)deleteStatus);
+			nzbInfo->SetDeleting(false);
+		}
+		nzbInfo->SetUrlStatus((NzbInfo::EUrlStatus)urlStatus);
+
+#else
 		retry = urlDownloader->GetStatus() == WebDownloader::adRetry && !nzbInfo->GetDeleting();
 
 		if (nzbInfo->GetDeleting())
@@ -328,6 +372,7 @@ void UrlCoordinator::UrlCompleted(UrlDownloader* urlDownloader)
 			nzbInfo->SetUrlStatus(NzbInfo::lsNone);
 		}
 
+#endif
 		if (!retry)
 		{
 			DownloadQueue::Aspect aspect = {DownloadQueue::eaUrlCompleted, downloadQueue, nzbInfo, nullptr};
