@@ -20,9 +20,9 @@ pub const PATH_SEPARATOR: u8 = b'/';
 #[cfg(not(windows))]
 pub const ALT_PATH_SEPARATOR: u8 = b'\\';
 
-const RESERVED_DEVICE_NAMES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
-    "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+const RESERVED_DEVICE_NAMES: [&std::ffi::CStr; 22] = [
+    c"CON", c"PRN", c"AUX", c"NUL", c"COM1", c"COM2", c"COM3", c"COM4", c"COM5", c"COM6", c"COM7", c"COM8", c"COM9",
+    c"LPT1", c"LPT2", c"LPT3", c"LPT4", c"LPT5", c"LPT6", c"LPT7", c"LPT8", c"LPT9",
 ];
 
 /// FileSystem::NormalizePathSeparators, in place.
@@ -65,33 +65,34 @@ pub fn reserved_char(c: u8) -> bool {
 /// The text is a C string: it ends at a NUL.
 pub fn make_valid_filename(name: &[u8], allow_slashes: bool) -> Vec<u8> {
     let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
-    let mut r: Vec<u8> = name
-        .iter()
-        .map(|&c| {
-            if !reserved_char(c) {
-                c
-            } else if allow_slashes && (c == PATH_SEPARATOR || c == ALT_PATH_SEPARATOR) {
-                PATH_SEPARATOR
-            } else {
-                b'_'
-            }
-        })
-        .collect();
+    // Leave room for the temporary C terminator (or the reserved-name prefix)
+    // so appending it does not grow an otherwise exactly-sized allocation.
+    let mut r = Vec::with_capacity(name.len() + 1);
+    r.extend(name.iter().map(|&c| {
+        if !reserved_char(c) {
+            c
+        } else if allow_slashes && (c == PATH_SEPARATOR || c == ALT_PATH_SEPARATOR) {
+            PATH_SEPARATOR
+        } else {
+            b'_'
+        }
+    }));
     while matches!(r.last(), Some(b'.' | b' ')) {
         r.pop();
     }
-    for reserved in RESERVED_DEVICE_NAMES {
-        let len = reserved.len();
-        let mut c_r = r.clone();
-        c_r.push(0);
-        let mut c_res = reserved.as_bytes().to_vec();
-        c_res.push(0);
-        let equal = unsafe { strncasecmp(c_r.as_ptr().cast(), c_res.as_ptr().cast(), len) } == 0;
-        // result[len]: the NUL at the end counts
-        if equal && matches!(c_r.get(len), Some(b'.' | 0)) {
-            r.insert(0, b'_');
-            break;
-        }
+    // compared as C strings: the name NUL-terminated once, the reserved names static
+    r.push(0);
+    let reserved = RESERVED_DEVICE_NAMES.iter().any(|reserved| {
+        let len = reserved.to_bytes().len();
+        // Check the required boundary first to avoid libc calls for ordinary
+        // names. This byte check is locale-independent; case folding is not.
+        // result[len]: the NUL at the end counts.
+        matches!(r.get(len), Some(b'.' | 0))
+            && unsafe { strncasecmp(r.as_ptr().cast(), reserved.as_ptr(), len) } == 0
+    });
+    r.pop();
+    if reserved {
+        r.insert(0, b'_');
     }
     r
 }
@@ -117,35 +118,37 @@ pub fn sanitize_path_segment(name: &[u8]) -> Vec<u8> {
     if name.is_empty() {
         return Vec::new();
     }
-    let result = make_valid_filename(name, false);
-    // runs of two or more dots become '_'
-    let mut collapsed = Vec::with_capacity(result.len());
+    let mut result = make_valid_filename(name, false);
+    // Runs of two or more dots become '_'. The output never grows, so
+    // compact in place instead of allocating a second buffer per segment.
+    let mut written = 0;
     let mut dots = 0;
-    for &c in &result {
+    for read in 0..result.len() {
+        let c = result[read];
         if c == b'.' {
             dots += 1;
             continue;
         }
-        match dots {
-            0 => {}
-            1 => collapsed.push(b'.'),
-            _ => collapsed.push(b'_'),
+        if dots != 0 {
+            result[written] = if dots == 1 { b'.' } else { b'_' };
+            written += 1;
         }
         dots = 0;
-        collapsed.push(c);
+        result[written] = c;
+        written += 1;
     }
-    match dots {
-        0 => {}
-        1 => collapsed.push(b'.'),
-        _ => collapsed.push(b'_'),
+    if dots != 0 {
+        result[written] = if dots == 1 { b'.' } else { b'_' };
+        written += 1;
     }
-    while matches!(collapsed.last(), Some(b'.' | b' ')) {
-        collapsed.pop();
+    result.truncate(written);
+    while matches!(result.last(), Some(b'.' | b' ')) {
+        result.pop();
     }
-    if collapsed.is_empty() || collapsed == b"." || collapsed == b".." {
+    if result.is_empty() || result == b"." || result == b".." {
         return Vec::new();
     }
-    collapsed
+    result
 }
 
 /// FileSystem::SanitizeRelativePath: each segment sanitized, empty ones
