@@ -522,3 +522,21 @@ a.card:hover { border-color: var(--line-strong); box-shadow: var(--shadow); }
   main { padding: 0; }
   a.ext::after { content: " (" attr(href) ")"; font-size: .8em; color: var(--muted); }
 }
+
+/* Settings pictures keep page previews short and open the complete capture. */
+.settings-figure { margin: 1.4rem 0 2rem; }
+.settings-shot {
+  display: block;
+  max-height: 28rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.settings-shot img { display: block; width: 100%; height: auto; }
+.settings-shot:focus-visible { outline: 2px solid var(--rust); outline-offset: 4px; }
+.settings-figure figcaption { margin-top: .55rem; color: var(--muted); font-size: .85rem; }
+
+@media print {
+  .settings-shot { max-height: none; overflow: visible; }
+}
