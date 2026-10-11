@@ -73,7 +73,9 @@ jobs:
           trap 'rm -rf "$scratch"' EXIT
           # An unpublished or already archived PR has no active branch. Do not
           # confuse lookup errors with absence, or expose raw API/CLI diagnostics.
-          if ! bencher branch list "$BENCHER_PROJECT" --name "$branch" --per-page 2 \
+          # Only the live GitHub guard below needs GitHub credentials.
+          if ! env -u BENCH_GITHUB_TOKEN -u BENCHMARK_GITHUB_TOKEN -u GH_TOKEN -u GITHUB_TOKEN \
+              bencher branch list "$BENCHER_PROJECT" --name "$branch" --per-page 2 \
               --attempts 2 --timeout 15 >"$scratch/branches.json" 2>"$scratch/error"; then
             echo "::error::Bencher branch lookup failed; no archive was attempted."
             exit 1
@@ -120,7 +122,8 @@ jobs:
             echo "::error::Archive guard did not authorize this operation."
             exit 1
           fi
-          if ! bencher archive --project "$BENCHER_PROJECT" --branch "$branch" \
+          if ! env -u BENCH_GITHUB_TOKEN -u BENCHMARK_GITHUB_TOKEN -u GH_TOKEN -u GITHUB_TOKEN \
+              bencher archive --project "$BENCHER_PROJECT" --branch "$branch" \
               --attempts 2 --timeout 15 >"$scratch/archive" 2>"$scratch/error"; then
             echo "::error::Bencher archive failed; branch lifecycle remains unresolved."
             exit 1

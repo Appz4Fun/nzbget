@@ -24,6 +24,8 @@ class ArchiveTests(unittest.TestCase):
             executable.write_text('''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')
+with open(os.environ['BENCH_ENV'], 'a') as f:
+    f.write(json.dumps([name for name in ('BENCH_GITHUB_TOKEN', 'BENCHMARK_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN') if name in os.environ]) + '\\n')
 if os.environ.get('FAILURE') and (os.environ['FAILURE'] != 'archive' or sys.argv[1] == 'archive'):
     print('credential-canary ' + os.environ['FAILURE'], file=sys.stderr)
     sys.exit(1)
@@ -34,6 +36,7 @@ if sys.argv[1:3] == ['branch', 'list']: print(os.environ['ROWS'])
             scripts.mkdir(parents=True)
             (scripts / 'publish.py').write_text('''import os, sys
 from pathlib import Path
+Path(os.environ['GUARD_ENV']).write_text(str(os.environ.get('BENCH_GITHUB_TOKEN') == 'github-token-canary'))
 if os.environ['GUARD_FAILS'] == '1':
     print('credential-canary invalid identity', file=sys.stderr)
     sys.exit(2)
@@ -43,13 +46,19 @@ Path(sys.argv[sys.argv.index('--github-output') + 1]).write_text(
             calls = folder / 'calls'
             env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'],
                        CALLS=str(calls), ROWS=rows, FAILURE=failure,
+                       BENCH_ENV=str(folder / 'bench-env'), GUARD_ENV=str(folder / 'guard-env'),
                        BENCHER_PROJECT='test-project', BENCHER_KEY='credential-canary',
                        BENCHER_HOST_URL='https://bencher.example', PR_NUMBER=pr_number, GITHUB_REPOSITORY='Appz4Fun/nzbget',
-                       BENCH_GITHUB_TOKEN='github-token-canary',
+                       BENCH_GITHUB_TOKEN='github-token-canary', BENCHMARK_GITHUB_TOKEN='configured-token-canary',
+                       GH_TOKEN='gh-token-canary', GITHUB_TOKEN='actions-token-canary',
                        GUARD_READY=str(guard_ready).lower(), GUARD_FAILS=str(int(guard_fails)))
             result = subprocess.run(['bash', '-c', archive_shell()], env=env,
                                     capture_output=True, text=True, cwd=folder)
             invocations = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            bench_env = folder / 'bench-env'
+            guard_env = folder / 'guard-env'
+            self.bencher_environments = [json.loads(line) for line in bench_env.read_text().splitlines()] if bench_env.exists() else []
+            self.guard_has_dedicated_token = guard_env.exists() and guard_env.read_text() == 'True'
             return result, invocations
 
     def test_archive_uses_pr_identity_without_credentials_in_argv(self):
@@ -59,6 +68,13 @@ Path(sys.argv[sys.argv.index('--github-output') + 1]).write_text(
         self.assertEqual(calls[0][:5], ['branch', 'list', 'test-project', '--name', 'pr-17'])
         self.assertEqual(calls[1][:5], ['archive', '--project', 'test-project', '--branch', 'pr-17'])
         self.assertNotIn('credential-canary', json.dumps(calls) + result.stdout + result.stderr)
+
+    def test_only_archive_guard_receives_github_credentials(self):
+        result, calls = self.invoke('[{"name":"pr-17"}]')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.bencher_environments, [[], []])
+        self.assertTrue(self.guard_has_dedicated_token)
 
     def test_no_active_branch_never_performs_write(self):
         result, calls = self.invoke('[]')
