@@ -324,41 +324,111 @@ void BinRpcProcessor::Dispatch()
 }
 
 #ifdef NZBGET_USE_RUST
-// The trailing data of a list response, built by rust/src/binrpc.rs.
-class RsEntries
+// The entries of one kind of a list response, collected under the locks as
+// plain structs (the first Inline of them on the stack, the strings pointing
+// into the queue or log): rust/src/binrpc.rs encodes them all in one call
+template <class T, size_t Inline>
+class RsBatch
 {
 public:
-	RsEntries() : m_buf(nzbget_rs_binrpc_buf_new(), nzbget_rs_binrpc_buf_free) {}
+	RsBatch() : m_data(m_inline), m_capacity(Inline) {}
+	RsBatch(const RsBatch&) = delete;
 
-	// ints in host order; strings with the index of their length field;
-	// the 4-byte padding goes into the length at padField
-	void Add(std::initializer_list<uint32> ints, std::initializer_list<std::pair<const char*, size_t>> strings, size_t padField)
+	// room for a count of entries known beforehand
+	void Reserve(size_t count)
 	{
-		std::vector<const char*> texts;
-		std::vector<size_t> fields;
-		for (const std::pair<const char*, size_t>& s : strings)
+		if (count > m_capacity)
 		{
-			texts.push_back(s.first);
-			fields.push_back(s.second);
+			Grow(count);
 		}
-		nzbget_rs_binrpc_entry(m_buf.get(), std::data(ints), ints.size(), texts.data(), fields.data(), texts.size(), padField);
 	}
 
-	int Size() { return (int)nzbget_rs_binrpc_buf_len(m_buf.get()); }
+	void Add(const T& entry)
+	{
+		if (m_size == m_capacity)
+		{
+			Grow(m_capacity * 2);
+		}
+		m_data[m_size++] = entry;
+	}
+
+	const T* Data() const { return m_data; }
+	size_t Size() const { return m_size; }
+
+private:
+	T m_inline[Inline]; // not initialized: the entries are plain structs
+	std::unique_ptr<T[]> m_heap;
+	T* m_data;
+	size_t m_capacity;
+	size_t m_size = 0;
+
+	void Grow(size_t capacity)
+	{
+		std::unique_ptr<T[]> heap(new T[capacity]);
+		memcpy(static_cast<void*>(heap.get()), m_data, m_size * sizeof(T));
+		m_heap = std::move(heap);
+		m_data = m_heap.get();
+		m_capacity = capacity;
+	}
+};
+
+// Match Rust's repr(C) layout, including pointer alignment on 32-bit targets.
+#define RS_LAYOUT(type, first, ints, strings) \
+    static_assert(offsetof(type, first) == ((4 * (ints) + alignof(NzbgetRsBinText) - 1) & \
+        ~(alignof(NzbgetRsBinText) - 1)) && \
+        sizeof(type) == offsetof(type, first) + (strings) * sizeof(NzbgetRsBinText), "BinRpc entry layout")
+RS_LAYOUT(NzbgetRsBinNzb, filename, 12, 5);
+RS_LAYOUT(NzbgetRsBinParam, name, 1, 2);
+RS_LAYOUT(NzbgetRsBinFile, subject, 10, 2);
+RS_LAYOUT(NzbgetRsBinLog, text, 3, 1);
+RS_LAYOUT(NzbgetRsBinPost, filename, 6, 4);
+RS_LAYOUT(NzbgetRsBinHistory, name, 9, 1);
+#undef RS_LAYOUT
+
+static NzbgetRsBinText RsText(const char* text)
+{
+	return {text, text ? strlen(text) : 0};
+}
+
+// The trailing data of a list response, encoded by rust/src/binrpc.rs
+class RsBytes
+{
+public:
+	RsBytes() : m_bytes{} {}
+	char* Scratch() { return m_scratch; }
+	size_t Capacity() const { return sizeof(m_scratch); }
+	RsBytes(const RsBytes&) = delete;
+	~RsBytes() { Free(); }
+
+	RsBytes& operator=(NzbgetRsBinResponse bytes)
+	{
+		Free();
+		m_bytes = bytes;
+		return *this;
+	}
+
+	int Size() { return (int)m_bytes.len; }
 
 	// the bytes, sent after the response
 	void Send(Connection* connection)
 	{
-		NzbgetRsBuf bytes = nzbget_rs_binrpc_buf_take(m_buf.release());
-		if (bytes.len > 0)
+		if (m_bytes.len > 0)
 		{
-			connection->Send(bytes.data, (int)bytes.len);
+			connection->Send(m_bytes.data, (int)m_bytes.len);
 		}
-		nzbget_rs_free(bytes);
 	}
 
 private:
-	std::unique_ptr<NzbgetRsBinBuf, void(*)(NzbgetRsBinBuf*)> m_buf;
+	NzbgetRsBinResponse m_bytes;
+    // A complete small response and its final NUL, alive until Send returns.
+    char m_scratch[16384];
+    void Free()
+    {
+        if (m_bytes.ownedCapacity != 0)
+        {
+            nzbget_rs_free({m_bytes.data, m_bytes.len, m_bytes.ownedCapacity});
+        }
+    }
 };
 #endif
 
@@ -620,7 +690,7 @@ void ListBinCommand::Execute()
 	ListResponse.m_entrySize = htonl(sizeof(SNzbListResponseFileEntry));
 	ListResponse.m_regExValid = 0;
 
-	RsEntries entries;
+	RsBytes entries;
 
 	if (ntohl(ListRequest.m_fileList))
 	{
@@ -642,6 +712,20 @@ void ListBinCommand::Execute()
 		int nrPPPEntries = 0;
 		int nrFileEntries = 0;
 
+		// the entries, collected under the lock for rust/src/binrpc.rs
+		RsBatch<NzbgetRsBinNzb, 16> nzbEntries;
+		RsBatch<NzbgetRsBinParam, 32> pppEntries;
+		RsBatch<NzbgetRsBinFile, 32> fileEntries;
+		size_t pppCount = 0, fileCount = 0;
+		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
+		{
+			pppCount += nzbInfo->GetParameters()->size();
+			fileCount += nzbInfo->GetFileList()->size();
+		}
+		nzbEntries.Reserve(nrNzbEntries);
+		pppEntries.Reserve(pppCount);
+		fileEntries.Reserve(fileCount);
+
 		// nzb entries
 		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
 		{
@@ -649,12 +733,12 @@ void ListBinCommand::Execute()
 			Util::SplitInt64(nzbInfo->GetSize(), &sizeHi, &sizeLo);
 			Util::SplitInt64(nzbInfo->GetRemainingSize(), &remainingSizeHi, &remainingSizeLo);
 			Util::SplitInt64(nzbInfo->GetPausedSize(), &pausedSizeHi, &pausedSizeLo);
-			entries.Add({(uint32)nzbInfo->GetId(), (uint32)nzbInfo->GetKind(), sizeLo, sizeHi, remainingSizeLo,
+			nzbEntries.Add({(uint32)nzbInfo->GetId(), (uint32)nzbInfo->GetKind(), sizeLo, sizeHi, remainingSizeLo,
 				remainingSizeHi, pausedSizeLo, pausedSizeHi, (uint32)nzbInfo->GetPausedFileCount(),
 				(uint32)nzbInfo->GetRemainingParCount(), (uint32)nzbInfo->GetPriority(),
-				(uint32)(matchGroup && (!regEx || regEx->Match(nzbInfo->GetName()))), 0, 0, 0, 0, 0},
-				{{nzbInfo->GetFilename(), 12}, {nzbInfo->GetName(), 13}, {nzbInfo->GetDestDir(), 14},
-				{nzbInfo->GetCategory(), 15}, {nzbInfo->GetQueuedFilename(), 16}}, 16);
+				(uint32)(matchGroup && (!regEx || regEx->Match(nzbInfo->GetName()))),
+				RsText(nzbInfo->GetFilename()), RsText(nzbInfo->GetName()), RsText(nzbInfo->GetDestDir()),
+				RsText(nzbInfo->GetCategory()), RsText(nzbInfo->GetQueuedFilename())});
 		}
 
 		// ppp entries
@@ -664,24 +748,31 @@ void ListBinCommand::Execute()
 			nzbIndex++;
 			for (NzbParameter& nzbParameter : nzbInfo->GetParameters())
 			{
-				entries.Add({(uint32)nzbIndex, 0, 0}, {{nzbParameter.GetName(), 1}, {nzbParameter.GetValue(), 2}}, 2);
+				pppEntries.Add({(uint32)nzbIndex, RsText(nzbParameter.GetName()), RsText(nzbParameter.GetValue())});
 				nrPPPEntries++;
 			}
 		}
 
-		// file entries
+		// file entries: the usual owner is already known from this walk.
+		int ownerIndex = 0;
 		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
 		{
+			ownerIndex++;
 			for (FileInfo* fileInfo : nzbInfo->GetFileList())
 			{
 				nrFileEntries++;
-				int nzbIndex = 0;
-				for (uint32 i = 0; i < downloadQueue->GetQueue()->size(); i++)
+				int nzbIndex = ownerIndex;
+				if (fileInfo->GetNzbInfo() != nzbInfo)
 				{
-					nzbIndex++;
-					if (downloadQueue->GetQueue()->at(i).get() == fileInfo->GetNzbInfo())
+					// Retain the first-match behavior for an unusual parent.
+					nzbIndex = 0;
+					for (uint32 i = 0; i < downloadQueue->GetQueue()->size(); i++)
 					{
-						break;
+						nzbIndex++;
+						if (downloadQueue->GetQueue()->at(i).get() == fileInfo->GetNzbInfo())
+						{
+							break;
+						}
 					}
 				}
 
@@ -696,12 +787,15 @@ void ListBinCommand::Execute()
 				uint32 fileSizeHi, fileSizeLo, remainingSizeHi, remainingSizeLo;
 				Util::SplitInt64(fileInfo->GetSize(), &fileSizeHi, &fileSizeLo);
 				Util::SplitInt64(fileInfo->GetRemainingSize(), &remainingSizeHi, &remainingSizeLo);
-				entries.Add({(uint32)fileInfo->GetId(), (uint32)nzbIndex, fileSizeLo, fileSizeHi, remainingSizeLo,
+				fileEntries.Add({(uint32)fileInfo->GetId(), (uint32)nzbIndex, fileSizeLo, fileSizeHi, remainingSizeLo,
 					remainingSizeHi, (uint32)fileInfo->GetPaused(), (uint32)fileInfo->GetFilenameConfirmed(),
-					(uint32)fileInfo->GetActiveDownloads(), (uint32)match, 0, 0},
-					{{fileInfo->GetSubject(), 10}, {fileInfo->GetFilename(), 11}}, 11);
+					(uint32)fileInfo->GetActiveDownloads(), (uint32)match,
+					RsText(fileInfo->GetSubject()), RsText(fileInfo->GetFilename())});
 			}
 		}
+
+		entries = nzbget_rs_binrpc_encode_list_into(nzbEntries.Data(), nzbEntries.Size(), pppEntries.Data(), pppEntries.Size(),
+			fileEntries.Data(), fileEntries.Size(), entries.Scratch(), entries.Capacity());
 
 		ListResponse.m_nrTrailingNzbEntries = htonl(nrNzbEntries);
 		ListResponse.m_nrTrailingPPPEntries = htonl(nrPPPEntries);
@@ -1024,7 +1118,7 @@ void LogBinCommand::Execute()
 		return;
 	}
 
-	RsEntries entries;
+	RsBytes entries;
 	int nrEntries;
 	int bufsize;
 
@@ -1061,14 +1155,19 @@ void LogBinCommand::Execute()
 			}
 		}
 
-		int written = 0;
+		// the messages from start on, collected under the lock for rust/src/binrpc.rs
+		RsBatch<NzbgetRsBinLog, 32> log;
+		if ((size_t)start < messages->size())
+		{
+			log.Reserve(messages->size() - (size_t)start);
+		}
 		for (uint32 i = (uint32)start; i < messages->size(); i++)
 		{
 			Message& message = messages->at(i);
-			entries.Add({(uint32)message.GetId(), (uint32)message.GetKind(), (uint32)(int)message.GetTime(), 0},
-				{{message.GetText(), 3}}, 3);
-			written++;
+			log.Add({(uint32)message.GetId(), (uint32)message.GetKind(), (uint32)(int)message.GetTime(),
+				RsText(message.GetText())});
 		}
+		entries = nzbget_rs_binrpc_encode_log_into(log.Data(), log.Size(), entries.Scratch(), entries.Capacity());
 		bufsize = entries.Size();
 	}
 
@@ -1327,7 +1426,7 @@ void PostQueueBinCommand::Execute()
 	PostQueueResponse.m_messageBase.m_structSize = htonl(sizeof(PostQueueResponse));
 	PostQueueResponse.m_entrySize = htonl(sizeof(SNzbPostQueueResponseEntry));
 
-	RsEntries entries;
+	RsBytes entries;
 
 	{
 		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
@@ -1337,6 +1436,9 @@ void PostQueueBinCommand::Execute()
 
 		int NrEntries = 0;
 		time_t curTime = Util::CurrentTime();
+		// collected under the lock for rust/src/binrpc.rs
+		RsBatch<NzbgetRsBinPost, 16> jobs;
+		jobs.Reserve(nzbList->size());
 
 		for (NzbInfo* nzbInfo : nzbList)
 		{
@@ -1347,13 +1449,14 @@ void PostQueueBinCommand::Execute()
 			}
 
 			NrEntries++;
-			entries.Add({(uint32)nzbInfo->GetId(), (uint32)postInfo->GetStage(), (uint32)postInfo->GetStageProgress(),
+			jobs.Add({(uint32)nzbInfo->GetId(), (uint32)postInfo->GetStage(), (uint32)postInfo->GetStageProgress(),
 				(uint32)postInfo->GetFileProgress(),
 				(uint32)(int)(postInfo->GetStartTime() ? curTime - postInfo->GetStartTime() : 0),
-				(uint32)(int)(postInfo->GetStageTime() ? curTime - postInfo->GetStageTime() : 0), 0, 0, 0, 0},
-				{{postInfo->GetNzbInfo()->GetFilename(), 6}, {postInfo->GetNzbInfo()->GetName(), 7},
-				{postInfo->GetNzbInfo()->GetDestDir(), 8}, {postInfo->GetProgressLabel(), 9}}, 9);
+				(uint32)(int)(postInfo->GetStageTime() ? curTime - postInfo->GetStageTime() : 0),
+				RsText(postInfo->GetNzbInfo()->GetFilename()), RsText(postInfo->GetNzbInfo()->GetName()),
+				RsText(postInfo->GetNzbInfo()->GetDestDir()), RsText(postInfo->GetProgressLabel())});
 		}
+		entries = nzbget_rs_binrpc_encode_post_queue_into(jobs.Data(), jobs.Size(), entries.Scratch(), entries.Capacity());
 
 		PostQueueResponse.m_nrTrailingEntries = htonl(NrEntries);
 		PostQueueResponse.m_trailingDataLength = htonl(entries.Size());
@@ -1537,12 +1640,15 @@ void HistoryBinCommand::Execute()
 	HistoryResponse.m_messageBase.m_structSize = htonl(sizeof(HistoryResponse));
 	HistoryResponse.m_entrySize = htonl(sizeof(SNzbHistoryResponseEntry));
 
-	RsEntries entries;
+	RsBytes entries;
 
 	{
 		GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 
 		int nrEntries = 0;
+		// collected under the lock for rust/src/binrpc.rs
+		RsBatch<NzbgetRsBinHistory, 32> history;
+		history.Reserve(downloadQueue->GetHistory()->size());
 		for (HistoryInfo* historyInfo : downloadQueue->GetHistory())
 		{
 			if (historyInfo->GetKind() != HistoryInfo::hkDup || showHidden)
@@ -1568,10 +1674,11 @@ void HistoryBinCommand::Execute()
 					NzbInfo* nzbInfo = historyInfo->GetNzbInfo();
 					urlStatus = nzbInfo->GetUrlStatus();
 				}
-				entries.Add({(uint32)historyInfo->GetId(), (uint32)historyInfo->GetKind(), (uint32)(int)historyInfo->GetTime(), 0,
-					sizeLo, sizeHi, fileCount, parStatus, scriptStatus, urlStatus}, {{historyInfo->GetName(), 3}}, 3);
+				history.Add({(uint32)historyInfo->GetId(), (uint32)historyInfo->GetKind(), (uint32)(int)historyInfo->GetTime(),
+					sizeLo, sizeHi, fileCount, parStatus, scriptStatus, urlStatus, RsText(historyInfo->GetName())});
 			}
 		}
+		entries = nzbget_rs_binrpc_encode_history_into(history.Data(), history.Size(), entries.Scratch(), entries.Capacity());
 
 		HistoryResponse.m_nrTrailingEntries = htonl(nrEntries);
 		HistoryResponse.m_trailingDataLength = htonl(entries.Size());

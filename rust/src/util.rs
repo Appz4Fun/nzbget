@@ -39,6 +39,46 @@ fn decimal(value: f64, precision: c_int, suffix: &[u8]) -> Vec<u8> {
     }
 }
 
+/// A byte Vec's amortized doubling would exceed its allocation limit.
+/// Only a growth request needs intervention; existing spare capacity is used.
+pub(crate) fn byte_vec_needs_exact_growth(capacity: usize, len: usize, additional: usize, limit: usize) -> bool {
+    additional > capacity.saturating_sub(len) && capacity > limit / 2
+}
+
+/// Preserve normal amortized growth, but use the exact required capacity
+/// when doubling would exceed the byte Vec's isize::MAX allocation limit.
+pub(crate) fn reserve_bytes(out: &mut Vec<u8>, additional: usize) {
+    if additional > out.capacity() - out.len() {
+        if byte_vec_needs_exact_growth(out.capacity(), out.len(), additional, isize::MAX as usize) {
+            out.reserve_exact(additional);
+        } else {
+            out.reserve(additional);
+        }
+    }
+}
+
+/// `decimal`'s text added to `out`; the value is formatted on the stack.
+fn decimal_into(out: &mut Vec<u8>, value: f64, precision: c_int, suffix: &[u8]) {
+    let mut stack = [0u8; 64];
+    // The fixed format and promoted varargs types agree; snprintf writes at
+    // most stack.len() bytes, including its terminator.
+    let n = unsafe { snprintf(stack.as_mut_ptr().cast(), stack.len(), c"%.*f".as_ptr(), precision, value) };
+    if n < 0 {
+        return;
+    }
+    let n = n as usize;
+    reserve_bytes(out, n.saturating_add(suffix.len()));
+    if n < stack.len() {
+        out.extend_from_slice(&stack[..n]);
+    } else {
+        let mut buf = vec![0u8; n + 1];
+        // the same call into a buffer of the length it asked for
+        unsafe { snprintf(buf.as_mut_ptr().cast(), buf.len(), c"%.*f".as_ptr(), precision, value) };
+        out.extend_from_slice(&buf[..n]);
+    }
+    out.extend_from_slice(suffix);
+}
+
 /// Util::FormatSize: the C++ computes in float and prints with "%.2f".
 pub fn format_size(size: i64) -> Vec<u8> {
     let f = size as f32;
@@ -53,6 +93,26 @@ pub fn format_size(size: i64) -> Vec<u8> {
     } else {
         // (int) of an int64: wraps
         format!("{} B", size as i32).into_bytes()
+    }
+}
+
+/// `format_size`'s text added to `out`.
+pub fn format_size_into(out: &mut Vec<u8>, size: i64) {
+    let f = size as f32;
+    if size > 1024 * 1024 * 1000 {
+        decimal_into(out, (f / 1024.0 / 1024.0 / 1024.0) as f64, 2, b" GB")
+    } else if size > 1024 * 1000 {
+        decimal_into(out, (f / 1024.0 / 1024.0) as f64, 2, b" MB")
+    } else if size > 1000 {
+        decimal_into(out, (f / 1024.0) as f64, 2, b" KB")
+    } else if size == 0 {
+        reserve_bytes(out, 4);
+        out.extend_from_slice(b"0 MB")
+    } else {
+        // (int) of an int64: wraps
+        let text = format!("{} B", size as i32);
+        reserve_bytes(out, text.len());
+        out.extend_from_slice(text.as_bytes())
     }
 }
 

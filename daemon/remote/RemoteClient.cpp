@@ -56,8 +56,8 @@ struct RsEntry
 	}
 };
 
-// prints a line from Rust and frees it
-#define RS_PRINT_LINE(buf) do { NzbgetRsBuf rsLine = (buf); printf("%s\n", rsLine.data); nzbget_rs_free(rsLine); } while (0)
+// A listing from rust/src/binrpc.rs: the printed lines of a response's entries as one string, freed after
+#define RS_PRINT_LISTING(buf) do { NzbgetRsBuf rsListing = (buf); printf("%s", rsListing.data); nzbget_rs_free(rsListing); } while (0)
 #endif
 
 void RemoteClient::printf(const char * msg,...)
@@ -772,21 +772,8 @@ bool RemoteClient::RequestServerLog(int lines)
 		printf("-----------------------------------\n");
 
 #ifdef NZBGET_USE_RUST
-		size_t at = 0;
-		static const size_t textString[] = {3};
-		for (uint32 i = 0; i < ntohl(LogResponse.m_nrTrailingEntries); i++)
-		{
-			RsEntry<4, 1> e;
-			if (!e.Next(buf, buf.Size(), at, textString))
-			{
-				break;
-			}
-			NzbgetRsBuf line;
-			if (nzbget_rs_binrpc_log_line(e.ints[1], e.strings[0], &line))
-			{
-				RS_PRINT_LINE(line);
-			}
-		}
+		// rust/src/binrpc.rs: the lines of all the entries that fit the data
+		RS_PRINT_LISTING(nzbget_rs_binrpc_log_listing(buf, buf.Size(), ntohl(LogResponse.m_nrTrailingEntries)));
 #else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(LogResponse.m_nrTrailingEntries); i++)
@@ -1082,17 +1069,8 @@ bool RemoteClient::RequestPostQueue()
 		printf("-----------------------------------\n");
 
 #ifdef NZBGET_USE_RUST
-		size_t at = 0;
-		static const size_t postStrings[] = {6, 7, 8, 9};
-		for (uint32 i = 0; i < ntohl(PostQueueResponse.m_nrTrailingEntries); i++)
-		{
-			RsEntry<10, 4> e;
-			if (!e.Next(buf, buf.Size(), at, postStrings))
-			{
-				break;
-			}
-			RS_PRINT_LINE(nzbget_rs_binrpc_post_queue_line(e.ints[0], e.ints[1], e.ints[2], e.strings[1]));
-		}
+		// rust/src/binrpc.rs: the lines of all the entries that fit the data
+		RS_PRINT_LISTING(nzbget_rs_binrpc_post_queue_listing(buf, buf.Size(), ntohl(PostQueueResponse.m_nrTrailingEntries)));
 #else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(PostQueueResponse.m_nrTrailingEntries); i++)
@@ -1221,22 +1199,8 @@ bool RemoteClient::RequestHistory(bool withHidden)
 		printf("-----------------------------------\n");
 
 #ifdef NZBGET_USE_RUST
-		size_t at = 0;
-		static const size_t nameString[] = {3};
-		for (uint32 i = 0; i < ntohl(HistoryResponse.m_nrTrailingEntries); i++)
-		{
-			RsEntry<10, 1> e;
-			if (!e.Next(buf, buf.Size(), at, nameString))
-			{
-				break;
-			}
-			NzbgetRsBuf line;
-			if (nzbget_rs_binrpc_history_line(e.ints[0], e.ints[1], e.strings[0], e.ints[6], e.ints[5], e.ints[4],
-				e.ints[7], e.ints[8], e.ints[9], &line))
-			{
-				RS_PRINT_LINE(line);
-			}
-		}
+		// rust/src/binrpc.rs: the lines of all the entries that fit the data
+		RS_PRINT_LISTING(nzbget_rs_binrpc_history_listing(buf, buf.Size(), ntohl(HistoryResponse.m_nrTrailingEntries)));
 #else
 		char* bufPtr = (char*)buf;
 		for (uint32 i = 0; i < ntohl(HistoryResponse.m_nrTrailingEntries); i++)

@@ -269,13 +269,26 @@ fn main() {
         }
     });
 
-    // BinRpc entries and the URL fetch's header
-    bench("binrpc/append_entry 1,000 log entries", &mut || {
-        let mut buf = Vec::with_capacity(64 * 1024);
-        for i in 0..1000u32 {
-            binrpc::append_entry(&mut buf, &[i, 2, 1_700_000_000, 0], &[(b"A log line of typical length, with a few words in it.", 3)], 3);
-        }
-        black_box(buf);
+    // BinRpc's batched response encoders, with caller scratch and an owned buffer.
+    let log_text = b"A log line of typical length, with a few words in it.";
+    let logs: Vec<binrpc::LogEntry> = (0..1000u32).map(|id| binrpc::LogEntry {
+        id, kind: 2, time: 1_700_000_000, texts: [binrpc::Text::new(log_text)],
+    }).collect();
+    let mut log_scratch = [std::mem::MaybeUninit::<u8>::uninit(); 16 * 1024];
+    bench("binrpc/encode_log_into 10 log entries (caller scratch)", &mut || {
+        // The entries and text outlive the call; scratch is separate writable
+        // storage and includes room for the response's final NUL.
+        let response = unsafe { nzbget_rs::ffi::nzbget_rs_binrpc_encode_log_into(
+            black_box(logs.as_ptr()), 10, black_box(log_scratch.as_mut_ptr()).cast(), log_scratch.len()) };
+        assert_eq!(response.owned_capacity, 0);
+        black_box(response);
+        black_box(&log_scratch);
+    });
+    bench("binrpc/encode_log 1,000 log entries (owned allocation)", &mut || {
+        // The large-response fallback uses the same owned response builder.
+        let response = unsafe { nzbget_rs::ffi::nzbget_rs_binrpc_encode_log(black_box(logs.as_ptr()), logs.len()) };
+        black_box(&response);
+        unsafe { nzbget_rs::ffi::nzbget_rs_free(response); }
     });
     bench("urlcoord/dnzb_header 3 lines", &mut || {
         for line in [

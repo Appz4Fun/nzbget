@@ -24,7 +24,33 @@ REFERENCE = "1f762c4e"
 BUILD = Path(sys.argv[1]).resolve()
 ROUNDS = sys.argv[2] if len(sys.argv) > 2 else "3000"
 
-old_src = subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/remote/BinRpc.cpp"], cwd=ROOT, text=True)
+def without_rust(src):
+    """The source as the build without Rust compiles it: the branches of
+    `#ifdef NZBGET_USE_RUST` dropped for their `#else`, `#ifndef` kept;
+    other conditionals stay."""
+    out, stack = [], []
+    for line in src.splitlines(keepends=True):
+        word = line.strip()
+        active = all(kind == "other" or on for kind, on in stack)
+        if word in ("#ifdef NZBGET_USE_RUST", "#ifndef NZBGET_USE_RUST"):
+            stack.append(["ours", word.startswith("#ifndef")])
+        elif word.startswith("#if"):
+            stack.append(["other", True])
+            if active:
+                out.append(line)
+        elif word == "#else" and stack and stack[-1][0] == "ours":
+            stack[-1][1] = not stack[-1][1]
+        elif word == "#endif" and stack:
+            kind, _ = stack.pop()
+            if kind == "other" and active:
+                out.append(line)
+        elif active:
+            out.append(line)
+    return "".join(out)
+
+
+# the pre-port C++, without any Rust branch of the reference commit
+old_src = without_rust(subprocess.check_output(["git", "show", f"{REFERENCE}:daemon/remote/BinRpc.cpp"], cwd=ROOT, text=True))
 new_src = (ROOT / "daemon/remote/BinRpc.cpp").read_text()
 
 
@@ -44,7 +70,7 @@ def function(src, name):
 def extract(src):
     # the command classes, the helpers and the four list commands
     parts = [src[src.index("class BinCommand\n{"):src.index("BinRpcProcessor::BinRpcProcessor()")]]
-    helper = "#ifdef NZBGET_USE_RUST\n// The trailing data of a list response"
+    helper = "#ifdef NZBGET_USE_RUST\n// The entries of one kind of a list response"
     i = src.index(helper) if helper in src else src.index("//*****************************************************************\n// Commands")
     parts.append(src[i:src.index("void PauseUnpauseBinCommand::Execute()")])
     for name in ("ListBinCommand", "LogBinCommand", "PostQueueBinCommand", "HistoryBinCommand"):
@@ -167,11 +193,14 @@ static std::string Text(int max)
 	return s;
 }
 
+// a few entries, now and then more than the batches' room on the stack
+static int Count(int few, int many) { return below(12) == 0 ? below(many) : below(few); }
+
 static void Fill(QueueMock& queue)
 {
 	queue.GetQueue()->clear();
 	queue.GetHistory()->clear();
-	for (int n = below(5); n > 0; n--)
+	for (int n = Count(5, 45); n > 0; n--)
 	{
 		auto nzb = std::make_unique<NzbInfo>();
 		nzb->SetKind(below(5) ? NzbInfo::nkNzb : NzbInfo::nkUrl);
@@ -185,8 +214,8 @@ static void Fill(QueueMock& queue)
 		nzb->SetRemainingSize((int64)next() >> below(40));
 		nzb->SetPausedSize((int64)next() >> below(40));
 		nzb->SetRemainingParCount(below(20));
-		for (int p = below(3); p > 0; p--) nzb->GetParameters()->SetParameter(Text(6).c_str(), Text(6).c_str());
-		for (int f = below(4); f > 0; f--)
+		for (int p = Count(3, 20); p > 0; p--) nzb->GetParameters()->SetParameter(Text(6).c_str(), Text(6).c_str());
+		for (int f = Count(4, 25); f > 0; f--)
 		{
 			auto file = std::make_unique<FileInfo>();
 			file->SetSubject(Text(12).c_str());
@@ -209,7 +238,7 @@ static void Fill(QueueMock& queue)
 		}
 		queue.GetQueue()->Add(std::move(nzb), false);
 	}
-	for (int n = below(5); n > 0; n--)
+	for (int n = Count(5, 45); n > 0; n--)
 	{
 		int kind = below(3);
 		if (kind < 2)
@@ -237,8 +266,24 @@ static void Fill(QueueMock& queue)
 	}
 	GuardedMessageList messages = g_Log->GuardMessages();
 	messages->clear();
-	for (int n = below(6); n > 0; n--)
+	for (int n = Count(6, 70); n > 0; n--)
 		messages->emplace_back(1000 + n, (Message::EKind)below(5), (time_t)below(100000), Text(14).c_str());
+    // Exercise the known-owner fast path and first-match fallback when a
+    // file points at another queue entry.
+    if (queue.GetQueue()->size() > 1)
+    {
+        for (NzbInfo* nzb : queue.GetQueue())
+        {
+            for (FileInfo* file : nzb->GetFileList())
+            {
+                if (below(4) == 0)
+                {
+                    file->SetNzbInfo(queue.GetQueue()->at(below(queue.GetQueue()->size())).get());
+                }
+            }
+        }
+    }
+
 }
 
 template <class Req> static std::string Request(int type, Req& request)

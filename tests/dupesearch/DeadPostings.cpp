@@ -23,9 +23,10 @@
 #include <boost/test/unit_test.hpp>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include "DeadPostings.h"
+#include "FileSystem.h"
 
-namespace fs = std::filesystem;
 
 namespace
 {
@@ -73,6 +74,45 @@ BOOST_AUTO_TEST_CASE(DeadPostingsExpireTest)
 	// expired entries are dropped when something is added
 	dead.Add(Posting::MakeSketch(Ids("b", 100)), then + DeadPostings::DeadTtlSec + 10);
 	BOOST_CHECK(!dead.IsDead(posting, then + 5));
+}
+
+
+BOOST_AUTO_TEST_CASE(DeadPostingsTimeBoundsTest)
+{
+	const time_t low = std::numeric_limits<time_t>::is_signed ?
+		std::numeric_limits<time_t>::lowest() : 1;
+	const time_t high = std::numeric_limits<time_t>::max();
+	const time_t now = 1000000;
+	for (bool save : {false, true})
+	{
+		DeadPostings expired;
+		expired.Add(Posting::Sketch{1}, low, save);
+		BOOST_CHECK(expired.IsDead(Posting::Sketch{1}, low + DeadPostings::DeadTtlSec - 1));
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, low + DeadPostings::DeadTtlSec));
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, high));
+		expired.Add(Posting::Sketch{2}, high, save);
+		BOOST_CHECK(!expired.IsDead(Posting::Sketch{1}, low + 1));
+
+		DeadPostings future;
+		future.Add(Posting::Sketch{3}, high, save);
+		// Future entries retain the existing lookup behavior until pruning.
+		BOOST_CHECK(future.IsDead(Posting::Sketch{3}, low));
+		future.Add(Posting::Sketch{4}, low, save);
+		BOOST_CHECK(!future.IsDead(Posting::Sketch{3}, high));
+
+		DeadPostings exactExpiry;
+		exactExpiry.Add(Posting::Sketch{9}, now, save);
+		exactExpiry.Add(Posting::Sketch{10}, now + DeadPostings::DeadTtlSec, save);
+		BOOST_CHECK(!exactExpiry.IsDead(Posting::Sketch{9}, now));
+
+		DeadPostings boundaries;
+		boundaries.Add(Posting::Sketch{5}, now + 24 * 3600, save);
+		boundaries.Add(Posting::Sketch{6}, now, save);
+		BOOST_CHECK(boundaries.IsDead(Posting::Sketch{5}, now));
+		boundaries.Add(Posting::Sketch{7}, now + 24 * 3600 + 1, save);
+		boundaries.Add(Posting::Sketch{8}, now, save);
+		BOOST_CHECK(!boundaries.IsDead(Posting::Sketch{7}, now + 24 * 3600 + 1));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(DeadPostingsPersistTest)
@@ -165,6 +205,37 @@ BOOST_AUTO_TEST_CASE(DeadPostingsRobustLoadTest)
 	BOOST_CHECK(!loaded.IsDead(future));
 	BOOST_CHECK(!loaded.IsDead(Posting::Sketch{ 0, 12, 99 }));
 	fs::remove(path);
+}
+
+// Persisted C-string number fields keep their historical NUL/sign/delimiter
+// behavior, and one malformed hash rejects the entire record.
+BOOST_AUTO_TEST_CASE(DeadPostingsStateFieldsTest)
+{
+    fs::path path = fs::temp_directory_path() / fs::make_unique_filename();
+    time_t now = time(nullptr);
+    std::string stamp = std::to_string((long long)now);
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << stamp << "\t3,1,3,2,\tignored\n";
+        std::string nulStamp = stamp + std::string("\0tail", 5);
+        std::string nulHashes = std::string("9\0tail,7", 8);
+        file << nulStamp << '\t' << nulHashes << "\t\n";
+        file << stamp << "\t12,x7,99\t\n";
+        file << stamp << "\t,77\t\n";
+    }
+    DeadPostings dead;
+    dead.SetStatePath(path.string());
+    dead.Load();
+    BOOST_CHECK(dead.IsDead(Posting::Sketch{1}, now));
+    BOOST_CHECK(dead.IsDead(Posting::Sketch{7}, now));
+    BOOST_CHECK(!dead.IsDead(Posting::Sketch{12}, now));
+    BOOST_CHECK(!dead.IsDead(Posting::Sketch{77}, now));
+    dead.Add(Posting::Sketch{42}, now);
+    std::ifstream file(path, std::ios::binary);
+    std::string saved((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    BOOST_CHECK_EQUAL(saved, stamp + "\t1,2,3\t\n" + stamp + "\t7,9\t\n" + stamp + "\t42\t\n");
+    file.close();
+    fs::remove(path);
 }
 
 BOOST_AUTO_TEST_CASE(PostingSketchOfFileTest)
