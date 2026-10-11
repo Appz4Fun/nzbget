@@ -33,6 +33,10 @@
 #include "Options.h"
 #include "Util.h"
 #include "FileSystem.h"
+#ifdef NZBGET_USE_RUST
+#include <exception>
+#include "nzbget_rs.h"
+#endif
 
 class ParRenamerRepairer final : public Par2::Par2Repairer
 {
@@ -46,6 +50,199 @@ private:
 };
 
 
+#ifdef NZBGET_USE_RUST
+void ParRenamer::Execute()
+{
+	// rust/src/parrenamer.rs; an exception in a callback ends the run and is
+	// rethrown here, after the members got what was done until then
+	struct Context
+	{
+		ParRenamer* self;
+		std::exception_ptr error;
+		int renamedOnError;
+
+		int Fail()
+		{
+			error = std::current_exception();
+			return -1;
+		}
+	} context{this, nullptr, 0};
+
+	NzbgetRsParRenamerEnv env{};
+	env.ctx = &context;
+	env.stopped = [](void* ctx) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { return c.self->IsStopped() ? 1 : 0; } catch (...) { return c.Fail(); }
+	};
+	env.progress = [](void* ctx, const char* label, int stage) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			c.self->m_progressLabel = label;
+			c.self->m_stageProgress = stage;
+			c.self->UpdateProgress();
+			return 0;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.message = [](void* ctx, int kind, const char* text) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			c.self->PrintMessage(kind == 0 ? Message::mkInfo : kind == 1 ? Message::mkWarning : Message::mkError, "%s", text);
+			return 0;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.debug = [](void* ctx, [[maybe_unused]] const char* text) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { debug("%s", text); return 0; } catch (...) { return c.Fail(); }
+	};
+	env.listDir = [](void* ctx, const char* dir, void* sink, void (*add)(void*, const char*)) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			DirBrowser dirBrowser(dir);
+			while (const char* filename = dirBrowser.Next())
+			{
+				add(sink, filename);
+			}
+			return 0;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.dirExists = [](void* ctx, const char* path) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { return FileSystem::DirectoryExists(path) ? 1 : 0; } catch (...) { return c.Fail(); }
+	};
+	env.fileExists = [](void* ctx, const char* path) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { return FileSystem::FileExists(path) ? 1 : 0; } catch (...) { return c.Fail(); }
+	};
+	env.fileSize = [](void* ctx, const char* path, int64_t* size) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { *size = FileSystem::FileSize(path); return 0; } catch (...) { return c.Fail(); }
+	};
+	env.read = [](void* ctx, const char* path, uint8_t* buf, size_t len) noexcept -> int64_t
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			DiskFile file;
+			if (!file.Open(path, DiskFile::omRead))
+			{
+				return -2;
+			}
+			int readBytes = (int)file.Read(buf, len);
+			if (readBytes != (int)len && file.Error())
+			{
+				return -3;
+			}
+			file.Close();
+			return readBytes;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.loadPar = [](void* ctx, const char* path, void* sink,
+		void (*add)(void*, int, const char*, const char*)) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			ParRenamerRepairer repairer;
+			if (!repairer.LoadPacketsFromFile(path) || FileSystem::FileSize(path) == 0)
+			{
+				return 0;
+			}
+			for (std::pair<const Par2::MD5Hash, Par2::Par2RepairerSourceFile*>& entry : repairer.sourcefilemap)
+			{
+				Par2::Par2RepairerSourceFile* sourceFile = entry.second;
+				if (!sourceFile || !sourceFile->GetDescriptionPacket())
+				{
+					add(sink, 1, nullptr, nullptr);
+					continue;
+				}
+				std::string filename = Par2::DescriptionPacket::TranslateFilenameFromPar2ToLocal(
+					c.self->m_nout, c.self->m_nout, Par2::nlNormal, sourceFile->GetDescriptionPacket()->FileName());
+				std::string hash = sourceFile->GetDescriptionPacket()->Hash16k().print();
+				add(sink, 0, filename.c_str(), hash.c_str());
+			}
+			return 1;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.findMainPars = [](void* ctx, const char* dir, void* sink, void (*add)(void*, const char*)) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try
+		{
+			ParParser::ParFileList parFileList;
+			ParParser::FindMainPars(dir, &parFileList);
+			for (std::string& parFilename : parFileList)
+			{
+				add(sink, parFilename.c_str());
+			}
+			return 0;
+		}
+		catch (...) { return c.Fail(); }
+	};
+	env.registerParred = [](void* ctx, const char* name) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { c.self->RegisterParredFile(name); return 0; } catch (...) { return c.Fail(); }
+	};
+	env.rename = [](void* ctx, const char* src, const char* dst) noexcept -> int
+	{
+		// RenameFile counts in m_renamedCount, the count Rust keeps: the
+		// rename is reported, the member restored (a rename counted before
+		// an exception is added back after the run)
+		Context& c = *static_cast<Context*>(ctx);
+		int renamedCount = c.self->m_renamedCount;
+		try
+		{
+			c.self->RenameFile(src, dst);
+			bool renamed = c.self->m_renamedCount != renamedCount;
+			c.self->m_renamedCount = renamedCount;
+			return renamed ? 1 : 0;
+		}
+		catch (...)
+		{
+			c.renamedOnError = c.self->m_renamedCount - renamedCount;
+			c.self->m_renamedCount = renamedCount;
+			return c.Fail();
+		}
+	};
+	env.ignoredExt = [](void* ctx, const char* name) noexcept -> int
+	{
+		Context& c = *static_cast<Context*>(ctx);
+		try { return Util::MatchFileExt(name, g_Options->GetParIgnoreExt(), ",;") ? 1 : 0; } catch (...) { return c.Fail(); }
+	};
+	env.fold = ParParser::FilenameFold;
+
+	NzbgetRsParRenamerState state{m_fileCount, m_curFile, m_renamedCount, m_hasMissedFiles, m_hasDamagedParFiles, m_detectMissing};
+	nzbget_rs_par_renamer_execute(&env, &state, m_infoName, m_destDir, PATH_SEPARATOR);
+	m_fileCount = state.fileCount;
+	m_curFile = state.curFile;
+	m_renamedCount = state.renamedCount + context.renamedOnError;
+	m_hasMissedFiles = state.hasMissedFiles != 0;
+	m_hasDamagedParFiles = state.hasDamagedParFiles != 0;
+	m_detectMissing = state.detectMissing != 0;
+
+	if (context.error)
+	{
+		std::rethrow_exception(context.error);
+	}
+}
+
+#else
 void ParRenamer::Execute()
 {
 	m_progressLabel.Format("Checking renamed files for %s", *m_infoName);
@@ -84,6 +281,8 @@ void ParRenamer::Execute()
 		}
 	}
 }
+
+#endif
 
 void ParRenamer::BuildDirList(const char* destDir)
 {

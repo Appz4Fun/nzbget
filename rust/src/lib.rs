@@ -19,6 +19,7 @@ pub mod manifest;
 pub mod nntp;
 pub mod options;
 pub mod parparser;
+pub mod parrenamer;
 pub mod paths;
 pub mod rarreader;
 pub mod rarrenamer;

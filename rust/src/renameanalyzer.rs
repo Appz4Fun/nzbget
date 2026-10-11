@@ -13,7 +13,7 @@ const MAGIC: &[u8; 8] = b"PAR2\0PKT";
 const LIMIT: i32 = 16 * 1024;
 
 /// Par2::MD5Hash::print: the bytes from last to first, upper-case hex.
-fn print(hash: &[u8]) -> [u8; 33] {
+pub(crate) fn print(hash: &[u8]) -> [u8; 33] {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = [0; 33];
     for (pair, b) in out[..32].as_chunks_mut::<2>().0.iter_mut().zip(hash.iter().rev()) {
