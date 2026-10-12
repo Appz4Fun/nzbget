@@ -11,6 +11,8 @@ node tests/webui/settings-list-health.js http://127.0.0.1:17689/
 node tests/webui/settings-phone-navigation.js http://127.0.0.1:17689/
 node tests/webui/settings-titles.js http://127.0.0.1:17689/
 node tests/webui/settings-locales.js http://127.0.0.1:17689/
+node tests/webui/settings-compact-tiles.js http://127.0.0.1:17689/
+node tests/webui/settings-health-startup.js http://127.0.0.1:17689/
 ```
 
 Checks cover both themes at desktop and phone widths, compact option height,
@@ -36,3 +38,12 @@ the first phone screen. Desktop retains the full menu in both themes.
 
 The title check returns repeatedly from Paths to all five static Settings pages
 and verifies their localized headings in English, German, and Turkish.
+
+The compact-tiles check exercises both themes at 1920, 1280, 1024, 390, and 320 pixels.
+It verifies three/two/one column placement, labels above controls, source-order tabbing, full-width main tabs, keyboard
+help, retained unsaved values, the discard guard, and escaped extension summaries.
+Set `NZBGET_UI_CAPTURE_DIR` to an existing directory to capture sanitized desktop
+JPEGs from the fixture; never use production values for those pictures.
+
+The health-startup check holds the actual read-only health RPC reply until
+Settings loads, then releases it and verifies the report arrives without errors.

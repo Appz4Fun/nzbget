@@ -50,7 +50,7 @@ const assert = require('node:assert/strict');
       const row = page.locator('#S_ActivityAnimation').locator('xpath=ancestor::div[contains(@class,"control-group")]');
       assert.equal(await row.locator('.help-block').isVisible(), false, 'Help initially compact');
       const height = await row.evaluate(e => e.getBoundingClientRect().height);
-      assert(height <= (width === 390 ? 105 : 65), 'Compact row has bounded height');
+      assert(height <= 105, 'Label-above-control tile has bounded height');
       await row.locator('.config-help-toggle').press('Space');
       assert.equal(await row.locator('.help-block').isVisible(), true);
       assert.equal(await row.locator('.config-help-toggle').getAttribute('aria-expanded'), 'true');
