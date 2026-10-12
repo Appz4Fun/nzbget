@@ -4,7 +4,7 @@ Brief explanation of the goal, link issues covered (partially or fully resolved)
 
 ## AI assistance
 
-- [ ] This PR involved AI assistance (see [AI Policy](https://github.com/nzbgetcom/nzbget/blob/develop/docs/AI_POLICY.md))
+- [ ] This PR involved AI assistance
 
 If checked, briefly note which tool(s) were used and for which parts of the work.
 
