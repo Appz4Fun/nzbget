@@ -189,6 +189,43 @@ class PublisherTests(unittest.TestCase):
         with patch.dict("os.environ", {"GITHUB_TOKEN": "bot-token"}, clear=True), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(publish.main(["--set-pr-status", "failure", "--controller-sha", BASE, "--pr", "7", "--expected-head-sha", HEAD]), 2)
 
+    def test_identity_helper_without_proof_root_preserves_sanitized_failure_outputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workflow = Path(temp) / "github-output"
+            api = StatusAPI(actor="github-actions[bot]")
+            diagnostics = io.StringIO()
+            with patch.object(publish, "GitHub", return_value=api), patch.dict("os.environ", {"BENCH_GITHUB_ACTOR": "xbmc4lyfe", "BENCH_GITHUB_TOKEN": "synthetic-helper-secret"}), contextlib.redirect_stderr(diagnostics):
+                result = publish.main(["--verify-identity-only", "--github-output", str(workflow)])
+            self.assertEqual(result, 2)
+            self.assertEqual(dict(line.split("=", 1) for line in workflow.read_text().splitlines()),
+                             {"status": "HOLD", "ready": "false", "published": "false"})
+            self.assertNotIn("synthetic-helper-secret", diagnostics.getvalue())
+            self.assertEqual(api.writes, [])
+
+    def test_helper_failure_without_proof_root_cannot_modify_raw_links_or_named_proof(self):
+        for alias in ("named", "symlink", "hardlink"):
+            with self.subTest(alias=alias), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                proof = root / "proof"
+                proof.mkdir()
+                raw = proof / "manifest.json"
+                original = b"retained helper-adjacent raw proof\n"
+                raw.write_bytes(original)
+                if alias == "named":
+                    workflow = raw
+                else:
+                    workflow = root / "github-output"
+                    if alias == "symlink":
+                        workflow.symlink_to(raw)
+                    else:
+                        os.link(raw, workflow)
+                api = StatusAPI(actor="github-actions[bot]")
+                with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(publish.main(["--verify-identity-only", "--github-output", str(workflow)]), 2)
+                self.assertEqual(raw.read_bytes(), original)
+                self.assertEqual(workflow.read_bytes(), original)
+                self.assertEqual(api.writes, [])
+
     def test_status_head_changed_after_identity_recheck_cannot_write_old_or_new_head(self):
         class Moving(StatusAPI):
             def __init__(self):

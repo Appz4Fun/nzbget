@@ -532,8 +532,9 @@ class RawProofProtection:
     redirection. This does not claim custody against a hostile concurrent
     filesystem writer. Raw creation itself is anchored to an open directory.
     """
-    def __init__(self, output_dir):
+    def __init__(self, output_dir, metadata_only=False):
         self.output_dir = output_dir
+        self.metadata_only = metadata_only
         self.entries = set()
         self.resolved = set()
         self.inodes = set()
@@ -564,6 +565,16 @@ class RawProofProtection:
             return True
         try:
             absolute = path if path.is_absolute() else Path.cwd() / path
+            if self.metadata_only:
+                # Identity/list helpers have no owned proof directory. Their
+                # diagnostics may create or append an ordinary metadata file,
+                # but must never follow a link or modify a multiply-linked file.
+                try:
+                    metadata = absolute.lstat()
+                except FileNotFoundError:
+                    metadata = None
+                if metadata is not None and (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1):
+                    return True
             entry = absolute.parent.resolve() / absolute.name
             if absolute in self.entries or entry in self.entries or absolute.resolve() in self.resolved:
                 return True
@@ -747,6 +758,10 @@ def main(argv=None):
             # Establish the persistent guard before initialization, API or
             # status checks can fail; exception diagnostics use this same guard.
             raw_protection = RawProofProtection(args.output_dir)
+        elif not manages_outputs and args.github_output:
+            # Production identity/discovery callers request GITHUB_OUTPUT but
+            # no owned proof root. Protect that diagnostic namespace separately.
+            raw_protection = RawProofProtection(Path(args.github_output).parent, metadata_only=True)
         if manages_outputs:
             initialize_owned_outputs(args.output_dir)
             owned_outputs_ready = args.output_dir is not None
