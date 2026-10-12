@@ -452,7 +452,9 @@ dependencies = [
 name = "nzbget-observe"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
 ]

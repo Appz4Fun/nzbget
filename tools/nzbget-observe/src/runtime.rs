@@ -10,6 +10,7 @@ pub struct Rpc {
     url: Url,
     user: String,
     password: String,
+    failure_metadata: std::cell::RefCell<Option<serde_json::Value>>,
 }
 impl Rpc {
     pub fn new(url: &str, user: String, password: String) -> Result<Self, &'static str> {
@@ -29,6 +30,7 @@ impl Rpc {
             url,
             user,
             password,
+            failure_metadata: std::cell::RefCell::new(None),
         })
     }
     fn call(
@@ -50,8 +52,33 @@ impl Rpc {
             return Err("RPC HTTP status is not successful");
         }
         let bytes = bounded_read(response, RESPONSE_LIMIT)?;
-        let envelope: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|_| "RPC JSON is invalid")?;
+        let envelope: serde_json::Value = match serde_json::from_slice(&bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                // Malformed JSON cannot be reliably redacted. Retain only a
+                // bounded fingerprint and parser location, never its payload.
+                let category = match error.classify() {
+                    serde_json::error::Category::Io => "io",
+                    serde_json::error::Category::Syntax => "syntax",
+                    serde_json::error::Category::Data => "data",
+                    serde_json::error::Category::Eof => "eof",
+                };
+                let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
+                let sha256: String = digest
+                    .as_ref()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                if matches!(method, "status" | "listgroups") {
+                    *self.failure_metadata.borrow_mut() = Some(serde_json::json!({
+                        "method":method,"request_id":id,"response_bytes":bytes.len(),
+                        "response_sha256":sha256,"parse_category":category,
+                        "line":error.line(),"column":error.column()
+                    }));
+                }
+                return Err("RPC JSON is invalid");
+            }
+        };
         if envelope["id"].as_u64() != Some(id)
             || envelope.get("error").is_some_and(|e| !e.is_null())
         {
@@ -63,9 +90,13 @@ impl Rpc {
             .ok_or("RPC result is missing")
     }
     pub fn snapshot(&self, elapsed: u64) -> Result<Sample, &'static str> {
+        self.failure_metadata.borrow_mut().take();
         let status = self.call("status", serde_json::json!([]), 1)?;
         let groups = self.call("listgroups", serde_json::json!([0]), 2)?;
         crate::normalize(&status, &groups, elapsed)
+    }
+    pub fn take_failure_metadata(&self) -> Option<serde_json::Value> {
+        self.failure_metadata.borrow_mut().take()
     }
 }
 
@@ -105,55 +136,165 @@ pub fn bounded_read(r: impl Read, limit: usize) -> Result<Vec<u8>, &'static str>
 
 pub struct Evidence {
     pub directory: PathBuf,
+    #[cfg(unix)]
+    directory_handle: std::fs::File,
     next: usize,
 }
+
+#[cfg(unix)]
+fn open_directory_at(
+    parent: &std::fs::File,
+    name: &std::ffi::CStr,
+) -> std::io::Result<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    // The returned descriptor is fresh, owned once, and closed by File. No
+    // component symlink is followed; names remain alive for the syscall.
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+}
+
+#[cfg(unix)]
+fn private_parent(path: &Path) -> Result<std::fs::File, &'static str> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, OpenOptionsExt},
+    };
+    let anchor = if path.is_absolute() { "/" } else { "." };
+    let mut directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(anchor)
+        .map_err(|_| "cannot anchor evidence parent")?;
+    for component in path.components() {
+        let name = match component {
+            std::path::Component::RootDir | std::path::Component::CurDir => continue,
+            std::path::Component::Normal(name) => name.as_bytes(),
+            std::path::Component::ParentDir => b"..",
+            _ => return Err("invalid evidence parent component"),
+        };
+        let name = std::ffi::CString::new(name).map_err(|_| "invalid evidence parent component")?;
+        directory = match open_directory_at(&directory, &name) {
+            Ok(opened) => opened,
+            Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
+                if unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) } != 0
+                    && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST)
+                {
+                    return Err("cannot create private evidence parent");
+                }
+                open_directory_at(&directory, &name)
+                    .map_err(|_| "cannot open private evidence parent")?
+            }
+            Err(_) => return Err("evidence parent must use real directories without symlinks"),
+        };
+    }
+    let metadata = directory
+        .metadata()
+        .map_err(|_| "cannot validate evidence parent")?;
+    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
+        return Err("evidence parent must be owned by the watcher and not writable by other users");
+    }
+    Ok(directory)
+}
+
 impl Evidence {
     pub fn new(parent: &Path) -> Result<Self, &'static str> {
-        if !cfg!(unix) {
-            return Err("private evidence directories require a Unix host");
+        #[cfg(not(unix))]
+        {
+            let _ = parent;
+            Err("private evidence directories require a Unix host")
         }
-        std::fs::create_dir_all(parent).map_err(|_| "cannot create evidence parent")?;
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| "system clock predates Unix epoch")?
-            .as_nanos();
-        let directory = parent.join(format!("run-{nonce}-{}", std::process::id()));
-        let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::MetadataExt;
+            let parent_handle = private_parent(parent)?;
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "system clock predates Unix epoch")?
+                .as_nanos();
+            let name = format!("run-{nonce}-{}", std::process::id());
+            let directory = parent.join(&name);
+            let name = std::ffi::CString::new(name).map_err(|_| "invalid run directory")?;
+            if unsafe { libc::mkdirat(parent_handle.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+                return Err("cannot create private evidence directory");
+            }
+            let directory_handle = open_directory_at(&parent_handle, &name)
+                .map_err(|_| "cannot anchor private run directory")?;
+            let metadata = directory_handle
+                .metadata()
+                .map_err(|_| "cannot validate private run directory")?;
+            if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
+                return Err("run directory is not private to the watcher");
+            }
+            Ok(Self {
+                directory,
+                directory_handle,
+                next: 0,
+            })
         }
-        builder
-            .create(&directory)
-            .map_err(|_| "cannot create private evidence directory")?;
-        Ok(Self { directory, next: 0 })
     }
     pub fn save(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
         if bytes.len() > RESPONSE_LIMIT {
             return Err("evidence exceeds byte limit");
         }
-        let pending = self.directory.join("pending.json");
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
+        #[cfg(not(unix))]
+        {
+            Err("private evidence requires a Unix host")
+        }
         #[cfg(unix)]
         {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            use std::os::fd::{AsRawFd, FromRawFd};
+            let directory_fd = self.directory_handle.as_raw_fd();
+            let pending = c"pending.json";
+            let fd = unsafe {
+                libc::openat(
+                    directory_fd,
+                    pending.as_ptr(),
+                    libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_EXCL
+                        | libc::O_NOFOLLOW
+                        | libc::O_CLOEXEC,
+                    0o600,
+                )
+            };
+            if fd < 0 {
+                return Err("cannot create pending evidence");
+            }
+            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+            file.write_all(bytes)
+                .and_then(|()| file.sync_all())
+                .map_err(|_| "evidence write failed; partial evidence preserved")?;
+            let destination = std::ffi::CString::new(format!("evidence-{}.json", self.next))
+                .map_err(|_| "invalid evidence slot")?;
+            if unsafe {
+                libc::renameat(
+                    directory_fd,
+                    pending.as_ptr(),
+                    directory_fd,
+                    destination.as_ptr(),
+                )
+            } != 0
+            {
+                return Err("evidence rotation failed; pending evidence preserved");
+            }
+            self.directory_handle
+                .sync_all()
+                .map_err(|_| "evidence directory sync failed")?;
+            self.next = (self.next + 1) % 8;
+            Ok(())
         }
-        let mut file = options
-            .open(&pending)
-            .map_err(|_| "cannot create pending evidence")?;
-        file.write_all(bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|_| "evidence write failed; partial evidence preserved")?;
-        std::fs::rename(
-            pending,
-            self.directory.join(format!("evidence-{}.json", self.next)),
-        )
-        .map_err(|_| "evidence rotation failed; pending evidence preserved")?;
-        self.next = (self.next + 1) % 8;
-        Ok(())
     }
 }
 
@@ -194,6 +335,13 @@ mod tests {
         let parent =
             std::env::temp_dir().join(format!("observe-evidence-test-{}", std::process::id()));
         std::fs::create_dir_all(&parent).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // This case supplies a trusted existing parent, independently of
+            // the worker's inherited umask; unsafe parents are not supported.
+            std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         std::fs::write(parent.join("keep"), b"original").unwrap();
         let mut e = Evidence::new(&parent).unwrap();
         for i in 0..10 {
@@ -227,5 +375,49 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evidence_rotation_cannot_follow_replaced_run_or_ancestor_symlinks() {
+        use std::os::unix::fs::symlink;
+        for replace_parent in [false, true] {
+            let base = std::env::temp_dir().join(format!(
+                "observe-evidence-anchor-{}-{replace_parent}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&base).unwrap();
+            let parent = base.join("output");
+            let outside = base.join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            let mut evidence = Evidence::new(&parent).unwrap();
+            let original_run = evidence.directory.clone();
+            let run_name = original_run.file_name().unwrap();
+            let moved = base.join("moved");
+            let (pinned_run, decoy) = if replace_parent {
+                std::fs::rename(&parent, &moved).unwrap();
+                let decoy = outside.join(run_name);
+                std::fs::create_dir(&decoy).unwrap();
+                symlink(&outside, &parent).unwrap();
+                (moved.join(run_name), decoy)
+            } else {
+                std::fs::rename(&original_run, &moved).unwrap();
+                symlink(&outside, &original_run).unwrap();
+                (moved.clone(), outside.clone())
+            };
+            let victim = decoy.join("evidence-0.json");
+            std::fs::write(&victim, b"untouched outside sentinel").unwrap();
+            evidence.save(b"private capture").unwrap();
+            assert_eq!(
+                std::fs::read(&victim).unwrap(),
+                b"untouched outside sentinel"
+            );
+            assert_eq!(
+                std::fs::read(pinned_run.join("evidence-0.json")).unwrap(),
+                b"private capture"
+            );
+            drop(evidence);
+            std::fs::remove_dir_all(&base).unwrap();
+        }
     }
 }

@@ -171,13 +171,24 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             success: number(g, "SuccessArticles")?,
             failed: number(g, "FailedArticles")?,
             progress: number(g, "PostStageProgress")?,
+            // The API reports DOWNLOADING only while article workers exist.
+            // Pause/quota prevent their next transfer, not an in-flight one.
             active: fetch
-                || (download && ((!download_paused && !quota) || force_priority))
+                || download
                 || (post && (!post_paused || force_priority || !cooperative_post_pause)),
             // Script workers update private labels rather than numeric stage
             // progress. Static download counters do not measure their work.
-            progress_observable: download
-                || (post && !matches!(stage, "EXECUTING_SCRIPT" | "QS_EXECUTING")),
+            progress_observable: matches!(
+                stage,
+                "DOWNLOADING"
+                    | "LOADING_PARS"
+                    | "VERIFYING_SOURCES"
+                    | "VERIFYING_REPAIRED"
+                    | "REPAIRING"
+                    | "RENAMING"
+                    | "UNPACKING"
+                    | "STREAM_REPAIRING"
+            ),
         });
     }
     let daemon = [
@@ -348,7 +359,7 @@ mod tests {
         }
         let mut st = status();
         st["DownloadPaused"] = json!(true);
-        assert!(!normalize(&st, &json!([group()]), 0).unwrap().jobs[0].active);
+        assert!(normalize(&st, &json!([group()]), 0).unwrap().jobs[0].active);
     }
 
     // Canonical daemon contracts: NzbInfo::GetForcePriority uses >=900;
@@ -357,11 +368,11 @@ mod tests {
     #[test]
     fn force_priority_stalls_survive_global_pause_and_quota() {
         let cases = [
-            ("DOWNLOADING", 899, true, false, false, 0),
+            ("DOWNLOADING", 899, true, false, false, 1),
             ("DOWNLOADING", 900, true, false, false, 1),
             ("DOWNLOADING", 901, false, true, false, 1),
             ("DOWNLOADING", 900, true, true, false, 1),
-            ("DOWNLOADING", -100, false, true, false, 0),
+            ("DOWNLOADING", -100, false, true, false, 1),
             ("DOWNLOADING", -100, false, false, false, 1),
             ("UNPACKING", 899, false, false, true, 1),
             ("UNPACKING", 900, false, false, true, 1),
@@ -435,10 +446,10 @@ mod tests {
             ("VERIFYING_REPAIRED", 0),
             ("EXECUTING_SCRIPT", 0),
             ("UNPACKING", 1),
-            ("MOVING", 1),
+            ("MOVING", 0),
             ("RENAMING", 1),
-            ("POST_UNPACK_RENAMING", 1),
-            ("POST_DOWNLOAD_RENAMING", 1),
+            ("POST_UNPACK_RENAMING", 0),
+            ("POST_DOWNLOAD_RENAMING", 0),
             ("STREAM_REPAIRING", 1),
             ("QS_EXECUTING", 0),
         ] {
@@ -534,6 +545,41 @@ mod tests {
                     .observe(&normalize(&st, &json!([g]), 120).unwrap(), 60)
                     .is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn inflight_ordinary_articles_keep_their_stall_window_across_pause_and_quota() {
+        for flag in ["DownloadPaused", "QuotaReached"] {
+            let g = group();
+            let mut st = status();
+            let mut detector = Detector::default();
+            detector.observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60);
+            st[flag] = json!(true);
+            st["UpTimeSec"] = json!(160);
+            let s = normalize(&st, &json!([g]), 60).unwrap();
+            assert!(s.jobs[0].active);
+            let alerts = detector.observe(&s, 60);
+            assert_eq!(alerts.len(), 1, "inflight article during {flag}");
+            assert_eq!(alerts[0].no_progress_secs, 60);
+        }
+    }
+
+    #[test]
+    fn move_cleanup_and_post_renames_do_not_claim_unexported_numeric_progress() {
+        for stage in ["MOVING", "POST_DOWNLOAD_RENAMING", "POST_UNPACK_RENAMING"] {
+            let mut g = group();
+            g["Status"] = json!(stage);
+            g["RemainingSizeHi"] = json!(0);
+            g["RemainingSizeLo"] = json!(0);
+            let mut st = status();
+            let mut detector = Detector::default();
+            detector.observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60);
+            st["UpTimeSec"] = json!(160);
+            let s = normalize(&st, &json!([g]), 60).unwrap();
+            assert!(s.jobs[0].active);
+            assert!(!s.jobs[0].progress_observable, "{stage}");
+            assert!(detector.observe(&s, 60).is_empty());
         }
     }
 

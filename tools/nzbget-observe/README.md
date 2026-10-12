@@ -65,20 +65,20 @@ never written. Keep stdout retention bounded if collecting it with another tool.
 The default trigger is **300 seconds of unchanged observed progress for an
 actively running job with observable progress**. Download progress uses remaining bytes and successful or
 failed article counts; post-processing also uses stage progress. Queued, paused,
-finished and unrecognized stages do not trigger. Global download pause/quota
-suppress ordinary article downloads. Post-processing pause suppresses ordinary
-PAR stages that explicitly wait on it. Already-running unpack, move, rename, and
-post-processing stream repair remain observed because the daemon does not pause
-that work. Running article downloads and cooperative
-post-processing jobs with force priority (900 or higher) remain observed through
-their corresponding global flags. Priority is read
+finished and unrecognized stages do not trigger. `DOWNLOADING` reports existing
+article workers: download pause/quota prevent their next transfer but do not stop
+an in-flight transfer, which remains observed. Post-processing pause suppresses
+ordinary PAR stages that explicitly wait on it; force-priority PAR jobs (900 or
+higher) remain observed. Already-running unpack, ordinary PAR/RAR rename, and
+post-processing stream repair continue through the post pause. Priority is read
 from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
 the observation unknown. Individually paused or queued jobs remain inactive even
 at force priority. URL `FETCHING`, `EXECUTING_SCRIPT`, and `QS_EXECUTING` remain
-visible as running stages regardless of these global flags, but do not trigger:
-the replies expose no URL received-byte progress or numeric script progress.
+visible as running stages regardless of these global flags, but do not trigger.
+`MOVING` (including cleanup), `POST_DOWNLOAD_RENAMING`, and
+`POST_UNPACK_RENAMING` also remain active without a usable numeric progress signal.
 Their static article/post counters cannot distinguish useful work from a stall.
-A paused script-output reader does not suspend the child. These stages have
+A paused script-output reader does not suspend the child. These unsupported stages have
 `progress_observable: false`; no private progress-label text is retained.
 Early concurrent live stream repair can remain `PP_QUEUED` and is outside this
 counter detector's scope; `STREAM_REPAIRING` denotes post-processing repair.
@@ -96,11 +96,22 @@ acting.
 
 ## Bounded evidence
 
-Each run creates a private subdirectory inside `--output`. A 20-sample memory ring
+Each run creates a private subdirectory inside `--output`. Directory components
+must be real directories without symlinks; the output parent must belong to the
+watcher and must not be group/world writable. New directories use mode 0700.
+Evidence writes and rotation use an opened directory descriptor, with no-follow
+relative operations, so renaming an ancestor cannot redirect writes outside the
+original run. Files use mode 0600. A 20-sample memory ring
 provides the preceding context. An alert captures that context, RPC collection
 wall time and local Linux observations. At most eight evidence files are retained
 per run, each limited to one MiB; new alerts replace the oldest slot atomically.
 A failed write stops the watcher and can retain one additional partial file.
+Alert evidence is persisted before fallible stdout writes. A malformed JSON reply
+captures only bounded private failure metadata in the same eight-slot store:
+the allowlisted method/request ID, byte length/SHA-256, parser category, line and
+column. This metadata is not recoverable raw-response evidence. Malformed JSON
+cannot be reliably redacted, so raw replies remain excluded; names, paths,
+passwords, article IDs and private labels are never retained.
 Completed
 run directories are retained for the operator to remove or archive. Alerts do not
 launch an automatic profiler or execute shell commands.

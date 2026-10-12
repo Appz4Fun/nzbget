@@ -179,28 +179,37 @@ fn run(config: Config) -> Result<(), &'static str> {
             .as_secs();
         match observation {
             Ok(sample) => {
-                if failure.take().is_some() {
-                    emit(&json!({"event":"observation_recovered","unix_secs":unix_secs}))?;
-                }
+                let recovered = failure.take().is_some();
                 let alerts = detector.observe(&sample, config.threshold);
                 let record = json!({"event":"sample","schema_version":1,"unix_secs":unix_secs,
                     "rpc_collection_ms":collection_ms,"sample":sample,"linux":linux_observations(&config)});
-                emit(&record)?;
                 if window.len() == 20 {
                     window.pop_front();
                 }
-                window.push_back(record);
+                window.push_back(record.clone());
                 if !alerts.is_empty() {
                     let capture = json!({"schema_version":1,"event":"symptom","alerts":alerts,"window":window});
                     let bytes =
                         serde_json::to_vec(&capture).map_err(|_| "evidence encoding failed")?;
                     evidence.save(&bytes)?;
+                }
+                if recovered {
+                    emit(&json!({"event":"observation_recovered","unix_secs":unix_secs}))?;
+                }
+                emit(&record)?;
+                if !alerts.is_empty() {
                     emit(&json!({"event":"symptom","unix_secs":unix_secs,"alerts":alerts}))?;
                 }
             }
             Err(reason) => {
                 detector.reset();
                 window.clear();
+                if let Some(metadata) = rpc.take_failure_metadata() {
+                    let record = json!({"schema_version":1,"event":"observation_failure","unix_secs":unix_secs,"metadata":metadata});
+                    let bytes = serde_json::to_vec(&record)
+                        .map_err(|_| "failure evidence encoding failed")?;
+                    evidence.save(&bytes)?;
+                }
                 if failure != Some(reason) {
                     emit(
                         &json!({"event":"observation_unknown","unix_secs":unix_secs,"reason":reason}),
