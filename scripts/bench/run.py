@@ -173,6 +173,7 @@ def capture_file(kind, path, *, max_bytes, deadline, cancelled=None):
     data = bytearray()
     status = None
     eof = reaped = False
+    failure = None
     try:
         # Active cleanup precedes allocation. Deferred ALRM/CHLD delivery cannot
         # raise between a kernel PID/FD allocation and its Python assignment.
@@ -222,9 +223,10 @@ def capture_file(kind, path, *, max_bytes, deadline, cancelled=None):
             raise CaptureFailure("unavailable")
         return value
     finally:
-        failure = None
-        while pid is not None or reader is not None or writer is not None:
+        while True:
             try:
+                if pid is None and reader is None and writer is None:
+                    break
                 if pid is not None and not reaped:
                     reap_capture(pid)
                 with capture_custody():

@@ -1032,6 +1032,64 @@ for fd in held:
             module.os.kill = real_kill
         self.assertFalse(attempts)
 
+    @unittest.skipUnless(LINUX, "cleanup-entry probes require Linux child state")
+    def test_caller_alarm_at_cleanup_entry_cannot_escape_live_custody(self):
+        for phase in ("entry", "condition"):
+            with self.subTest(phase=phase):
+                ready = self.root / f"cleanup-{phase}"
+                helper = self.script(f"""import importlib.util,inspect,json,os,signal,sys,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=runner.capture_file_bytes
+def capture(*args):
+    Path({str(ready)!r}).write_text(str(os.getpid()))
+    time.sleep(.2)
+    return original(*args)
+runner.capture_file_bytes=capture
+class CallerAlarm(RuntimeError): pass
+def alarm(number,frame): raise CallerAlarm('caller')
+signal.signal(signal.SIGALRM,alarm)
+lines,first=inspect.getsourcelines(runner.capture_file)
+start=next(i for i,line in enumerate(lines) if line.strip()=='finally:')
+conditions=[first+i for i,line in enumerate(lines) if i>start and (line.strip().startswith('while pid is not None') or line.strip().startswith('if pid is None and reader is None'))]
+entries=[first+i for i,line in enumerate(lines) if i>start and line.strip()=='failure = None']
+condition=conditions[0]
+entry=entries[0] if entries else condition
+target=entry if {phase!r}=='entry' else condition
+observed={{}}
+def trace(frame,event,arg):
+    if frame.f_code is runner.capture_file.__code__ and event=='line' and frame.f_lineno==target and not observed:
+        observed.update(pid=frame.f_locals.get('pid'),fds=[frame.f_locals.get('reader'),frame.f_locals.get('writer')])
+        os.kill(os.getpid(),signal.SIGALRM)
+    return trace
+error=None
+try:
+    sys.settrace(trace)
+    runner.digest_file(__file__,deadline=time.monotonic()+1,cancelled=lambda: Path({str(ready)!r}).exists())
+except CallerAlarm: error='caller'
+finally: sys.settrace(None)
+held=[]
+for fd in observed.get('fds',[]):
+    if fd is not None:
+        try: os.fstat(fd);held.append(fd)
+        except OSError: pass
+pid=observed.get('pid')
+live=False
+if pid:
+    try: live=os.waitpid(pid,os.WNOHANG)[0]==0
+    except ChildProcessError: pass
+print(json.dumps({{'error':error,'held':held,'live':live}}))
+if live:
+    os.kill(pid,signal.SIGKILL)
+    os.waitpid(pid,0)
+for fd in held: os.close(fd)
+""", f"cleanup-{phase}.py")
+                result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"error": "caller", "held": [], "live": False})
+
     @unittest.skipUnless(LINUX, "caller timer/state observations require the worker")
     def test_capture_child_keeps_caller_action_timer_schedule_and_mask(self):
         fixture = self.root / "caller-fixture"
