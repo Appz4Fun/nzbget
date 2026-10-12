@@ -749,10 +749,22 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
             [&](const Posting::Sketch& k) { return Posting::SameSketch(sketch,k); })) continue;
         if ((!ReleaseName::Readable(posting.info.mainName) || ReleaseName::SameRelease(job.name,posting.info.mainName)) && whole(posting.info)) return;
     }
+    auto memberAvailable = [&](int id) {
+        GuardedDownloadQueue queue = DownloadQueue::Guard();
+        NzbInfo* currentPick = FindNzb(queue, job.nzbId);
+        return currentPick && PlacementAvailable(queue, currentPick, FindNzb(queue, id), true);
+    };
     for (const auto& member : job.members)
     {
+        // Ineligible members must not consume the posting's probe slot. Queue
+        // ownership can change during parsing or NNTP, so check it again after.
+        if (!memberAvailable(member.first)) continue;
         NzbSummary info;
-        if (NzbReader::Parse(DupeUtil::ReadAll(member.second),info) && whole(info)) return;
+        if (NzbReader::Parse(DupeUtil::ReadAll(member.second),info) && whole(info))
+        {
+            if (memberAvailable(member.first)) return;
+            probed.erase(info.Fingerprint());
+        }
     }
     if (IsStopped() || budget.Spent() || Util::CurrentTime()>=deadline) return;
     std::vector<Newznab::Params> queries;
