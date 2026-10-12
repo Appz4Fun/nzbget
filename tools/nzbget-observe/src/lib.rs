@@ -123,13 +123,15 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
         let lo = u32::try_from(number(g, "RemainingSizeLo")?).map_err(|_| "invalid size word")?;
         let stage = g["Status"].as_str().ok_or("missing job stage")?;
         // listgroups exports NzbInfo::GetPriority as MaxPriority. The daemon's
-        // GetForcePriority threshold is 900; URL fetching instead uses UrlForce.
+        // GetForcePriority threshold is 900.
         let force_priority = g["MaxPriority"]
             .as_i64()
             .and_then(|p| i32::try_from(p).ok())
             .ok_or("missing or invalid priority RPC field")?
             >= 900;
-        let download = matches!(stage, "DOWNLOADING" | "FETCHING");
+        // FETCHING has no exported received-byte progress. Preserve its stage
+        // as inactive rather than interpreting its static article counters.
+        let download = stage == "DOWNLOADING";
         let post = matches!(
             stage,
             "LOADING_PARS"
@@ -147,7 +149,17 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
         );
         let inactive = matches!(
             stage,
-            "QUEUED" | "PP_QUEUED" | "QS_QUEUED" | "PAUSED" | "PP_FINISHED"
+            "QUEUED" | "PP_QUEUED" | "QS_QUEUED" | "PAUSED" | "PP_FINISHED" | "FETCHING"
+        );
+        // RepairController and PostScript wait on PostPaused. Other running
+        // stages continue; the scheduler's pause only prevents their starts.
+        let cooperative_post_pause = matches!(
+            stage,
+            "LOADING_PARS"
+                | "VERIFYING_SOURCES"
+                | "VERIFYING_REPAIRED"
+                | "REPAIRING"
+                | "EXECUTING_SCRIPT"
         );
         jobs.push(Job {
             id,
@@ -160,9 +172,8 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             success: number(g, "SuccessArticles")?,
             failed: number(g, "FailedArticles")?,
             progress: number(g, "PostStageProgress")?,
-            active: (download
-                && ((!download_paused && !quota) || (stage == "DOWNLOADING" && force_priority)))
-                || (post && (!post_paused || force_priority)),
+            active: (download && ((!download_paused && !quota) || force_priority))
+                || (post && (!post_paused || force_priority || !cooperative_post_pause)),
         });
     }
     let daemon = [
@@ -347,7 +358,7 @@ mod tests {
             ("DOWNLOADING", 900, true, true, false, 1),
             ("DOWNLOADING", -100, false, true, false, 0),
             ("DOWNLOADING", -100, false, false, false, 1),
-            ("UNPACKING", 899, false, false, true, 0),
+            ("UNPACKING", 899, false, false, true, 1),
             ("UNPACKING", 900, false, false, true, 1),
             ("REPAIRING", 901, true, true, true, 1),
             ("QUEUED", 900, true, true, true, 0),
@@ -355,7 +366,7 @@ mod tests {
             ("PAUSED", 900, true, true, true, 0),
             ("PP_FINISHED", 900, true, true, true, 0),
             ("NEW_STAGE", 900, true, true, true, 0),
-            // URL downloads use UrlForce, not NzbInfo's force priority.
+            // URL downloads lack an exported received-byte progress counter.
             ("FETCHING", 900, true, false, false, 0),
         ];
         for (stage, priority, download_pause, quota, post_pause, count) in cases {
@@ -406,6 +417,63 @@ mod tests {
         let mut g = group();
         g.as_object_mut().unwrap().remove("MaxPriority");
         assert!(normalize(&status(), &json!([g]), 0).is_err());
+    }
+
+    #[test]
+    fn running_post_stages_use_their_actual_cooperative_pause_contract() {
+        // RepairController and PostScript explicitly wait on PostPaused.
+        // Already-running unpack/move/rename/live-repair/queue-script work does not.
+        for (stage, count) in [
+            ("LOADING_PARS", 0),
+            ("VERIFYING_SOURCES", 0),
+            ("REPAIRING", 0),
+            ("VERIFYING_REPAIRED", 0),
+            ("EXECUTING_SCRIPT", 0),
+            ("UNPACKING", 1),
+            ("MOVING", 1),
+            ("RENAMING", 1),
+            ("POST_UNPACK_RENAMING", 1),
+            ("POST_DOWNLOAD_RENAMING", 1),
+            ("STREAM_REPAIRING", 1),
+            ("QS_EXECUTING", 1),
+        ] {
+            let mut g = group();
+            g["Status"] = json!(stage);
+            let mut st = status();
+            let mut detector = Detector::default();
+            assert!(detector
+                .observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60)
+                .is_empty());
+            st["PostPaused"] = json!(true);
+            st["UpTimeSec"] = json!(160);
+            let alerts = detector.observe(&normalize(&st, &json!([g]), 60).unwrap(), 60);
+            assert_eq!(alerts.len(), count, "running {stage} during PostPaused");
+        }
+    }
+
+    #[test]
+    fn url_fetching_without_observable_byte_progress_cannot_be_a_stall() {
+        for priority in [0, 900] {
+            let mut g = group();
+            g["Status"] = json!("FETCHING");
+            g["MaxPriority"] = json!(priority);
+            g["RemainingSizeHi"] = json!(0);
+            g["RemainingSizeLo"] = json!(0);
+            g["SuccessArticles"] = json!(0);
+            let mut st = status();
+            let mut detector = Detector::default();
+            detector.observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60);
+            st["UpTimeSec"] = json!(160);
+            let s = normalize(&st, &json!([g.clone()]), 60).unwrap();
+            assert_eq!(s.jobs[0].stage, "FETCHING");
+            assert!(detector.observe(&s, 60).is_empty());
+            st["DownloadPaused"] = json!(true);
+            st["QuotaReached"] = json!(true);
+            st["UpTimeSec"] = json!(220);
+            assert!(detector
+                .observe(&normalize(&st, &json!([g]), 120).unwrap(), 60)
+                .is_empty());
+        }
     }
 
     #[test]

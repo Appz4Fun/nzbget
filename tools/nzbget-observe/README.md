@@ -63,14 +63,19 @@ never written. Keep stdout retention bounded if collecting it with another tool.
 The default trigger is **300 seconds of unchanged observed progress for an
 actively running job**. Download progress uses remaining bytes and successful or
 failed article counts; post-processing also uses stage progress. Queued, paused,
-finished and unrecognized stages do not trigger. Global download pause/quota and
-post-processing pause suppress ordinary jobs. Running article downloads and
+finished and unrecognized stages do not trigger. Global download pause/quota
+suppress ordinary article downloads. Post-processing pause suppresses ordinary
+PAR and post-script stages that explicitly wait on it. Already-running unpack,
+move, rename, live stream repair, and queue-script stages remain observed because
+the daemon does not pause that work. Running article downloads and cooperative
 post-processing jobs with force priority (900 or higher) remain observed through
-these global flags, matching the daemon's force-mode behavior. Priority is read
+their corresponding global flags. Priority is read
 from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
 the observation unknown. Individually paused or queued jobs remain inactive even
-at force priority. URL fetching retains global download-pause/quota suppression;
-the daemon's separate `UrlForce` setting is not observed by this tool.
+at force priority. URL `FETCHING` remains visible but does not trigger: the daemon
+does not export received-byte progress for URL transfers in these replies, so
+unchanged article/post counters cannot distinguish a progressing fetch from a
+stalled one. Download pause/quota flags do not establish in-flight URL inactivity.
 Stage changes, any counter
 change, detected daemon restart, and observation failures reset the window.
 Restart detection uses uptime regression or an uptime increase more than ten
