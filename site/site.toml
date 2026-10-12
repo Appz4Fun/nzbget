@@ -22,6 +22,10 @@ title = "Get started"
 pages = ["install", "quick-start"]
 
 [[nav]]
+title = "Settings"
+pages = ["settings", "settings-basics", "settings-downloads", "settings-automation", "settings-processing", "settings-extensions", "settings-maintenance"]
+
+[[nav]]
 title = "Features"
 pages = ["features", "duplicates", "duplicate-fleets", "dupesearch", "kodi", "nzbhydra2", "post-processing", "automation", "performance"]
 

@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <limits>
 #include "DupeStreamRepair.h"
 #include "DupeArticleFallback.h"
 #include "FileSystem.h"
@@ -195,21 +196,101 @@ std::vector<int> DupeStreamRepair::SelectPatchParts(const StreamRangeList& donor
 std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donorRanges,
 	const StreamRangeList& holes, int probeCount)
 {
-	// candidates: parts whose estimated range - and the neighbors', to absorb
-	// estimation error - lies entirely inside already-downloaded regions
-	std::vector<int> candidates;
-	for (size_t i = 0; i < donorRanges.size(); i++)
+	if (probeCount <= 0 || donorRanges.empty())
 	{
-		bool clear = true;
-		size_t from = i > 0 ? i - 1 : 0;
-		size_t to = std::min(donorRanges.size() - 1, i + 1);
-		for (size_t j = from; j <= to && clear; j++)
+		return {};
+	}
+
+	struct RangeProperties
+	{
+		bool SafeEnds = true;
+		bool Ordered = true;
+	};
+	// Classify in one pass, continuing endpoint checks even after finding
+	// unordered or zero-size ranges: a later unsafe end requires the old scan.
+	auto classify = [](const StreamRangeList& ranges) -> RangeProperties
+	{
+		RangeProperties properties;
+		int64 previousEnd = 0;
+		for (size_t i = 0; i < ranges.size(); i++)
 		{
-			clear = !IntersectsAny(donorRanges[j], holes);
+			const StreamRange& range = ranges[i];
+			if ((range.Size > 0 && range.Offset > std::numeric_limits<int64>::max() - range.Size) ||
+				(range.Size < 0 && range.Offset < std::numeric_limits<int64>::min() - range.Size))
+			{
+				return {false, false};
+			}
+			if (range.Size <= 0 || (i > 0 && previousEnd > range.Offset))
+			{
+				properties.Ordered = false;
+			}
+			previousEnd = range.End();
 		}
-		if (clear)
+		return properties;
+	};
+	RangeProperties donorProperties;
+	RangeProperties holeProperties;
+	if (!holes.empty())
+	{
+		donorProperties = classify(donorRanges);
+		if (donorProperties.SafeEnds)
 		{
-			candidates.push_back((int)i);
+			holeProperties = classify(holes);
+		}
+	}
+	bool safeEnds = donorProperties.SafeEnds && holeProperties.SafeEnds;
+
+	// Candidates use original article indices and their immediate neighbors.
+	std::vector<int> candidates;
+	candidates.reserve(donorRanges.size());
+	if (safeEnds)
+	{
+		std::vector<char> intersects(donorRanges.size());
+		// Only positive, ordered, disjoint ranges permit a forward sweep.
+		if (donorProperties.Ordered && holeProperties.Ordered)
+		{
+			size_t holeIndex = 0;
+			for (size_t i = 0; i < donorRanges.size(); i++)
+			{
+				while (holeIndex < holes.size() && holes[holeIndex].End() <= donorRanges[i].Offset)
+				{
+					holeIndex++;
+				}
+				intersects[i] = holeIndex < holes.size() && RangesIntersect(donorRanges[i], holes[holeIndex]);
+			}
+		}
+		else
+		{
+			for (size_t i = 0; i < donorRanges.size(); i++)
+			{
+				intersects[i] = IntersectsAny(donorRanges[i], holes);
+			}
+		}
+		for (size_t i = 0; i < donorRanges.size(); i++)
+		{
+			if (!intersects[i] && (i == 0 || !intersects[i - 1]) &&
+				(i + 1 == donorRanges.size() || !intersects[i + 1]))
+			{
+				candidates.push_back((int)i);
+			}
+		}
+	}
+	else
+	{
+		// Preserve short-circuit checks when an endpoint is unrepresentable.
+		for (size_t i = 0; i < donorRanges.size(); i++)
+		{
+			bool clear = true;
+			size_t from = i > 0 ? i - 1 : 0;
+			size_t to = std::min(donorRanges.size() - 1, i + 1);
+			for (size_t j = from; j <= to && clear; j++)
+			{
+				clear = !IntersectsAny(donorRanges[j], holes);
+			}
+			if (clear)
+			{
+				candidates.push_back((int)i);
+			}
 		}
 	}
 
@@ -220,6 +301,7 @@ std::vector<int> DupeStreamRepair::SelectProbeParts(const StreamRangeList& donor
 
 	// spread the probes evenly across the candidate list
 	std::vector<int> probes;
+	probes.reserve(probeCount);
 	for (int k = 0; k < probeCount; k++)
 	{
 		probes.push_back(candidates[candidates.size() * (2 * k + 1) / (2 * probeCount)]);

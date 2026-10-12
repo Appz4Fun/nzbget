@@ -598,6 +598,34 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 		height: calc(100vh - var(--navbar-space, 72px));
 		padding-top: 0;
 	}
+
+	/* Desktop sections use the full window beside a stable left navigation rail. */
+	.config__container {
+		justify-content: flex-start;
+	}
+
+	.config__aside {
+		flex: 0 0 240px;
+		min-width: 0;
+	}
+
+	.config__main {
+		flex: 1 1 0;
+		min-width: 0;
+		max-width: none;
+		width: auto;
+	}
+
+	.config-status {
+		max-width: none;
+	}
+
+	#StatisticsTab {
+		box-sizing: border-box;
+		max-width: none;
+		width: 100%;
+		margin: 0;
+	}
 }
 
 @media (max-width: 768px) {
@@ -2500,6 +2528,13 @@ label,
 	text-shadow: none;
 }
 
+/* Keep the phone menu scrollable so the open section stays near the header. */
+.phone #ConfigNav {
+	max-height: min(30vh, 220px);
+	overflow-y: auto;
+	scroll-padding-block: var(--space-2);
+}
+
 /* phones: bigger rows to tap (style.css sets 18px text here) */
 .phone #ConfigNav.nav-list > li > a {
 	min-height: 40px;
@@ -2951,6 +2986,62 @@ td:hover span.none-category {
 	margin-bottom: 15px;
 	padding-bottom: 12px;
 }
+
+/* Dense Settings rows with help available individually or through View. */
+#ConfigContent div.control-group,
+#ConfigContent div.control-group.multiset,
+#ConfigContent.hide-help-block div.control-group {
+	position: relative;
+	margin-bottom: 6px;
+	padding-bottom: 8px;
+}
+
+#ConfigContent .control-group.config-has-help > .controls {
+	padding-right: 32px;
+}
+
+#ConfigContent .config-help-toggle {
+	position: absolute;
+	top: 4px;
+	right: 0;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	box-shadow: none;
+	color: var(--label-secondary);
+}
+
+#ConfigContent .config-help-toggle .material-icon { font-size: 18px; }
+#ConfigContent .control-group.config-has-help .help-block { display: none; }
+#ConfigContent .control-group.help-expanded .help-block { display: block; }
+#ConfigContent .help-block pre.help-desc,
+#ConfigContent .config-static .controls { font-family: var(--font-sans); }
+
+#ConfigContent .config-list-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	margin: 0 0 6px;
+	padding: 8px 12px;
+	font-weight: 400;
+}
+
+.config-list-name { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.config-list-host { flex: 2 1 180px; min-width: 0; overflow-wrap: anywhere; color: var(--label-secondary); }
+.config-list-status,
+.config-list-connections { font-size: 12px; color: var(--label-secondary); }
+.config-list-health { color: var(--yellow-text); font-size: 12px; }
+#ConfigContent .config-list-edit { margin: 0 0 0 auto; flex: 0 0 auto; }
+#ConfigContent:not(.search) .config-list-detail.list-closed { display: none !important; }
+.phone #ConfigContent .config-list-row { gap: 6px 12px; }
+.phone #ConfigContent .config-list-name { flex-basis: calc(100% - 90px); }
+.phone #ConfigContent .config-list-host { flex-basis: 100%; }
+.phone #ConfigContent .config-list-edit { min-height: 40px; }
+.phone #ConfigContent .config-help-toggle { width: 36px; height: 40px; top: 0; }
+.phone #ConfigContent .control-group.config-has-help > .controls { padding-right: 40px; }
 
 .uneditable-mulitline-input {
 	display: inline-block;

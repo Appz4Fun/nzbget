@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "byte-preserving audited public export",
+  "original_attempt": "001",
+  "capture_provenance": "retrospective publication of successful outputs captured after validation; not prospectively crash-safe",
+  "new_timing_runs": 0,
+  "production_status": "HOLD unchanged",
+  "sha256": {
+    "README.md": "ca4d86adda17fdf5546dd62d20ab67b7c7b04706f64e45ac8fe3dd6a54bea165",
+    "verify.py": "e7fae18c44f7814be2d218e5b4ab7277c14b9effc695d173511b19231ca395ac",
+    "proof.html": "628df50a9d61c85f2dc7dae8bc6351db544690e8a748352705db5ac2fcc427bd",
+    "results.json": "8c333dd1264b9a68c8baf6ec48a5bcae28a03b4ddddfa941df6d32963db550bc",
+    "manifest.json": "988d62f0b79014675ca8415e63ad902c0c1a226fe57db79aac5d20761b29fc17",
+    "proof-of-concept.zip": "c5a78af28eb2d7868774e1484ef092af93b9c3a2665f72ee00d0b6bd5824c600",
+    "original-evidence-manifest.json": "61b9a6885b95561d395a3a01cf67c2a082143e98f26c55d7158838f6b7801c52",
+    "test_verify.py": "d0334fc241f048e4bfdbac10cb19a4c3d44cc7383112a01182505085173f272e",
+    "negative-route-check.json": "95da5a556322362d455b42b4724076376f54d3641b541e118c9aaa08383fcdae",
+    "source-snapshot.zip": "d83f53e9691f6286e6b68e32914c9d3739e19e5a673dfe3c50355eed9c1985e8",
+    "source-snapshot-manifest.json": "1dc259e2ddcbc9547b69eac300f00e848ab63d135e18ada40249b408c111275c",
+    "index.html": "830f78f372dad11f5acd9ad1b8d431191e88e0383d91a53038801b864fa188bd"
+  },
+  "qualification": "HOLD",
+  "qualification_reason": "Exact integer elapsed times and prospective qualifying duration floor unavailable; historical archive integrity only",
+  "negative_capture_provenance": "Existing original134-byte capture recovered read-only; no new run or prospective custody claim",
+  "execution_environment_unavailable": [
+    "cpu_machine_configuration",
+    "os_kernel",
+    "compiler_version",
+    "exact_compile_flags",
+    "separate_process_zero_exit_receipts"
+  ],
+  "prospective_plan_custody": "UNVERIFIED: original pre-run plan and prospective digest absent from public packet",
+  "publication_view": "index.html derived context; original proof.html bytes preserved"
+}

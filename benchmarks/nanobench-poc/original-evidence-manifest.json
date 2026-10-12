@@ -1,0 +1,21 @@
+{
+  "sha256": {
+    "README.md": "910d59db86ff3074ca15728a84c630dfb2e4464f9abaa9eb100c0ea7ef155c0c",
+    "caller.cpp": "22acaa8178f24656c8416c5b95f69cfa69d0a7581ecec73ba3d7cdfb40e4c716",
+    "caller.cpp.in": "d1d6665651f4c7ea8fa74ee8322b18ac07e4f98f446c5094742bbb70f58a62db",
+    "nanobench.h": "2cfcdd57044fd0ee11d1be2b5dc545781b05c36049613c0089a73b332afd8c4d",
+    "build.py": "d1dad407098fcd8e7762c027ebdbaae5c389f16cb117d573e03fca6e3b7190fb",
+    "run.py": "8af3eaf403a98bb1755714ca28fdbf2d7e1251a1b3acf7b142ee6a1b1320aea2",
+    "original-recorder.py": "f545fc3b2c293359b634507775d6aeb3ac46227f3a7317506572947ff4dc439b",
+    "check_recorder.py": "d83d22748d316f82597b93160e9997b36a71cfe7238faf63d41e06fb8b0e8dac",
+    "results.json": "8c333dd1264b9a68c8baf6ec48a5bcae28a03b4ddddfa941df6d32963db550bc",
+    "manifest.json": "988d62f0b79014675ca8415e63ad902c0c1a226fe57db79aac5d20761b29fc17",
+    "proof.html": "628df50a9d61c85f2dc7dae8bc6351db544690e8a748352705db5ac2fcc427bd"
+  },
+  "archive_sha256": "c5a78af28eb2d7868774e1484ef092af93b9c3a2665f72ee00d0b6bd5824c600",
+  "timing_attempts": 1,
+  "timed_comparisons": 21,
+  "timed_samples": 4368,
+  "control_bounded": 14,
+  "production_status": "HOLD unchanged"
+}

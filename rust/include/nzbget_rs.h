@@ -972,19 +972,97 @@ int nzbget_rs_binrpc_size_ok(const unsigned char* base, size_t len, const uint32
 	uint32_t* expected, uint32_t* received);
 NzbgetRsBuf nzbget_rs_binrpc_bool_response(int success, const char* text);
 int nzbget_rs_binrpc_trailing_ok(int64_t len, int64_t max);
-// The trailing data of a list response (List, Log, PostQueue, History).
-// entry appends ints (host order) written big-endian, puts each string's
-// length with its NUL into the field fields[i] names, then the strings with
-// their NULs, padded with zeros to 4 bytes counted in field padField. Fields
-// not given values are 0. take returns the bytes (free with nzbget_rs_free)
-// and frees the buffer; free frees an untaken one. NULL buffers do nothing.
-typedef struct NzbgetRsBinBuf NzbgetRsBinBuf;
-NzbgetRsBinBuf* nzbget_rs_binrpc_buf_new(void);
-void nzbget_rs_binrpc_buf_free(NzbgetRsBinBuf* buf);
-size_t nzbget_rs_binrpc_buf_len(const NzbgetRsBinBuf* buf);
-NzbgetRsBuf nzbget_rs_binrpc_buf_take(NzbgetRsBinBuf* buf);
-void nzbget_rs_binrpc_entry(NzbgetRsBinBuf* buf, const uint32_t* ints, size_t nints, const char* const* strings,
-	const size_t* fields, size_t nstrings, size_t padField);
+// Default single-entry decoder retained for BuildFileList; outputs may be uninitialized.
+int nzbget_rs_binrpc_read_entry(const char* data, size_t len, size_t* at, uint32_t* ints, size_t nints,
+	const size_t* fields, size_t* starts, size_t nfields);
+// The entries of a list response (List, Log, PostQueue, History), one
+// struct per entry, ints in host order, strings as bytes and a length
+// (without the NUL; a NULL string needs length 0). The C++ collects a
+// response's entries under its locks and one encode call makes the trailing
+// data: each entry's ints big-endian, the lengths (with their NULs) in the
+// fields of its strings, the strings with their NULs, zeros to 4 bytes
+// counted in its last length, as the wire has them; ints an entry doesn't
+// set are 0. The bytes are allocated once (free with nzbget_rs_free); no
+// bytes, or more than INT_MAX, come back empty (NULL data, length 0).
+// The strings are read during the call only. Read the same entries back
+// with read_nzbs, read_params and read_files: up to max entries from *at
+// of len bytes into out (which may be uninitialized), *at moved past them;
+// fewer than max (the number read) when an entry or a string, up to its
+// NUL, doesn't fit in len. The strings point into data and end at their
+// NULs (their len is not set: 0). The listings are the client's printed
+// lines of up to count entries (each with its newline, as a string; free
+// with nzbget_rs_free): [INFO] text for a log message (nothing for an
+// unknown kind), [id] name, stage, n% for a post-processing job, [id] name
+// (...) for an NZB, URL or hidden item of the history (nothing for other
+// kinds; unknown stages and statuses have no text); they end at an entry
+// that doesn't fit in len.
+typedef struct
+{
+	const char* data;
+	size_t len;
+} NzbgetRsBinText;
+typedef struct
+{
+	uint32_t id, kind, sizeLo, sizeHi, remainingSizeLo, remainingSizeHi, pausedSizeLo, pausedSizeHi, pausedCount,
+		remainingParCount, priority, match;
+	NzbgetRsBinText filename, name, destDir, category, queuedFilename;
+} NzbgetRsBinNzb;
+typedef struct
+{
+	uint32_t nzbIndex; // counts from 1
+	NzbgetRsBinText name, value;
+} NzbgetRsBinParam;
+typedef struct
+{
+	uint32_t id, nzbIndex, sizeLo, sizeHi, remainingSizeLo, remainingSizeHi, paused, filenameConfirmed, activeDownloads,
+		match;
+	NzbgetRsBinText subject, filename;
+} NzbgetRsBinFile;
+typedef struct
+{
+	uint32_t id, kind, time;
+	NzbgetRsBinText text;
+} NzbgetRsBinLog;
+typedef struct
+{
+	uint32_t id, stage, stageProgress, fileProgress, startTime, stageTime;
+	NzbgetRsBinText filename, name, destDir, progressLabel;
+} NzbgetRsBinPost;
+typedef struct
+{
+	uint32_t id, kind, time, sizeLo, sizeHi, fileCount, parStatus, scriptStatus, urlStatus;
+	NzbgetRsBinText name;
+} NzbgetRsBinHistory;
+NzbgetRsBuf nzbget_rs_binrpc_encode_list(const NzbgetRsBinNzb* nzbs, size_t nzbCount, const NzbgetRsBinParam* params,
+	size_t paramCount, const NzbgetRsBinFile* files, size_t fileCount);
+NzbgetRsBuf nzbget_rs_binrpc_encode_log(const NzbgetRsBinLog* log, size_t count);
+NzbgetRsBuf nzbget_rs_binrpc_encode_post_queue(const NzbgetRsBinPost* jobs, size_t count);
+NzbgetRsBuf nzbget_rs_binrpc_encode_history(const NzbgetRsBinHistory* history, size_t count);
+// Small responses can borrow caller scratch. ownedCapacity == 0 means
+// borrowed (never pass it to nzbget_rs_free); otherwise free
+// NzbgetRsBuf {data, len, ownedCapacity}. Null or insufficient scratch uses
+// one owned allocation. capacity must include the final NUL. The scratch
+// buffer must stay alive until the response is sent, and must not overlap
+// any input array/string. Oversized responses still return empty data.
+typedef struct
+{
+    char* data;
+    size_t len, ownedCapacity;
+} NzbgetRsBinResponse;
+NzbgetRsBinResponse nzbget_rs_binrpc_encode_list_into(const NzbgetRsBinNzb* nzbs, size_t nzbCount,
+    const NzbgetRsBinParam* params, size_t paramCount, const NzbgetRsBinFile* files, size_t fileCount,
+    char* scratch, size_t capacity);
+NzbgetRsBinResponse nzbget_rs_binrpc_encode_log_into(const NzbgetRsBinLog* log, size_t count, char* scratch, size_t capacity);
+NzbgetRsBinResponse nzbget_rs_binrpc_encode_post_queue_into(const NzbgetRsBinPost* jobs, size_t count,
+    char* scratch, size_t capacity);
+NzbgetRsBinResponse nzbget_rs_binrpc_encode_history_into(const NzbgetRsBinHistory* history, size_t count,
+    char* scratch, size_t capacity);
+size_t nzbget_rs_binrpc_read_nzbs(const char* data, size_t len, size_t* at, NzbgetRsBinNzb* out, size_t max);
+size_t nzbget_rs_binrpc_read_params(const char* data, size_t len, size_t* at, NzbgetRsBinParam* out, size_t max);
+size_t nzbget_rs_binrpc_read_files(const char* data, size_t len, size_t* at, NzbgetRsBinFile* out, size_t max);
+NzbgetRsBuf nzbget_rs_binrpc_log_listing(const char* data, size_t len, uint32_t count);
+NzbgetRsBuf nzbget_rs_binrpc_post_queue_listing(const char* data, size_t len, uint32_t count);
+NzbgetRsBuf nzbget_rs_binrpc_history_listing(const char* data, size_t len, uint32_t count);
 // EditQueue's trailing data (text, ids, names). edit_sizes: 1 when the
 // client's counts and lengths are non-negative, nrIds <= 10000000, nrNames <=
 // namesLen and nrIds*4 + textLen + namesLen == dataLen. edit_split: 1 when
@@ -998,24 +1076,6 @@ int nzbget_rs_binrpc_edit_sizes(int32_t nrIds, int32_t nrNames, int32_t namesLen
 int nzbget_rs_binrpc_edit_split(const char* data, size_t len, size_t textLen, size_t nrIds, size_t nrNames,
 	uint32_t* ids);
 int nzbget_rs_binrpc_is_url(const char* content);
-// The remote client's side (RemoteClient.cpp). read_entry: one list-response
-// entry at *at: 1 with nints big-endian ints in ints (host order), the start
-// of each of nfields strings in starts (string k's length in ints[fields[k]],
-// each ending with a NUL within the data) and *at past the entry (the header
-// and those lengths); 0 (outputs untouched) when the entry or a string
-// doesn't fit in len. log_line: "[INFO] text" and so on for Message::EKind,
-// 0 for an unknown kind. post_queue_line: "[id] name, stage, n%".
-// history_line: "[id] name (...)" for an NZB, URL or hidden entry, 0 for
-// other kinds; unknown stages and statuses have no text. Lines are freed
-// with nzbget_rs_free; NULL outputs aren't written, NULL strings are empty.
-// read_entry requires at and nonempty arrays; ints and starts are writable
-// arrays and may be uninitialized. NULL arrays are allowed for zero counts.
-int nzbget_rs_binrpc_read_entry(const char* data, size_t len, size_t* at, uint32_t* ints, size_t nints,
-	const size_t* fields, size_t* starts, size_t nfields);
-int nzbget_rs_binrpc_log_line(uint32_t kind, const char* text, NzbgetRsBuf* line);
-NzbgetRsBuf nzbget_rs_binrpc_post_queue_line(uint32_t id, uint32_t stage, uint32_t progress, const char* infoName);
-int nzbget_rs_binrpc_history_line(uint32_t id, uint32_t kind, const char* nicename, uint32_t fileCount, uint32_t sizeHi,
-	uint32_t sizeLo, uint32_t parStatus, uint32_t scriptStatus, uint32_t urlStatus, NzbgetRsBuf* line);
 // NzbFile (rust/src/nzbfile.rs), under the C library's ctype: classes are
 // isspace/isdigit's classes of bytes 0..255 (masks space and digit), lower
 // is tolower's table of -128..255 at index 0, charSigned whether char is
@@ -1132,6 +1192,13 @@ int nzbget_rs_dupe_candidate(const char* title, size_t titleLen, uint64_t bytes,
     const char* name, size_t nameLen, uint64_t size);
 int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* mainName, size_t mainLen,
     const NzbgetRsDupeIdentityInput* mine, const NzbgetRsDupeIdentityInput* theirs);
+
+// Dead-posting persistence line parser (rust/src/deadpostings.rs).
+// data points to len bytes, or is null with len zero. visit receives one complete
+// sorted unique sketch, borrowed only during the callback. visit must not throw.
+// False means the entire line is invalid; no partial callback is made.
+bool nzbget_rs_deadpostings_parse(const uint8_t* data, size_t len, void* context,
+	void (*visit)(void* context, int64_t stamp, const uint32_t* hashes, size_t count));
 
 #ifdef __cplusplus
 }
