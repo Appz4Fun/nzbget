@@ -582,3 +582,174 @@ fn valid_rpc_error_preserves_metadata_without_private_error_message() {
     );
     assert!(record["metadata"].get("message").is_none());
 }
+
+#[test]
+fn connection_refusal_and_timeout_preserve_private_transport_categories() {
+    for timeout in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/jsonrpc", listener.local_addr().unwrap());
+        let deadline = Instant::now() + FIXTURE_BUDGET;
+        let server = if timeout {
+            Some(std::thread::spawn(move || {
+                let mut stream = accept_before(&listener, deadline).unwrap();
+                let request = read_request(&mut stream, deadline);
+                assert_eq!(request["method"], "status");
+                std::thread::sleep(Duration::from_millis(3300));
+                drop(stream);
+            }))
+        } else {
+            drop(listener);
+            None
+        };
+        let output = std::env::temp_dir().join(format!(
+            "observe-transport-{timeout}-{}",
+            std::process::id()
+        ));
+        let result = output_before(
+            std::process::Command::new(env!("CARGO_BIN_EXE_nzbget-observe"))
+                .args([
+                    "--url",
+                    &url,
+                    "--samples",
+                    "1",
+                    "--output",
+                    output.to_str().unwrap(),
+                ])
+                .env("NZBGET_OBSERVE_USER", "private-transport-user")
+                .env("NZBGET_OBSERVE_PASSWORD", "private-transport-secret")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap(),
+            deadline,
+        )
+        .unwrap();
+        if let Some(server) = server {
+            join_before(server, deadline).unwrap();
+        }
+        assert!(!result.status.success());
+        let files = evidence_files(&output);
+        assert_eq!(
+            files.len(),
+            1,
+            "transport failure must survive in private evidence"
+        );
+        let bytes = std::fs::read(&files[0]).unwrap();
+        let record: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(record["metadata"]["method"], "status");
+        assert_eq!(record["metadata"]["request_id"], 1);
+        assert_eq!(
+            record["metadata"]["failure_category"],
+            if timeout {
+                "transport_timeout"
+            } else {
+                "transport_connect"
+            }
+        );
+        assert!(record["metadata"]["http_status"].is_null());
+        assert!(record["metadata"]["response_sha256"].is_null());
+        for data in [&bytes, &result.stdout, &result.stderr] {
+            let text = String::from_utf8_lossy(data);
+            for secret in ["private-transport-user", "private-transport-secret", &url] {
+                assert!(!text.contains(secret));
+            }
+        }
+        std::fs::remove_dir_all(output).unwrap();
+    }
+}
+
+#[test]
+fn unknown_normalization_captures_bounded_last_reply_identity_without_private_fields() {
+    for (label, stage, progress, paused) in [
+        ("stage", "private-normalization-stage", 0, false),
+        ("progress", "REPAIRING", 1001, false),
+        ("par-pause", "REPAIRING", 0, true),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/jsonrpc", listener.local_addr().unwrap());
+        let deadline = Instant::now() + FIXTURE_BUDGET;
+        let group = json!({"NZBID":7,"Status":stage,"RemainingSizeHi":0,"RemainingSizeLo":123,
+            "SuccessArticles":2,"FailedArticles":0,"PostStageProgress":progress,"MaxPriority":0,
+            "NZBName":"private-normalization-name","DestDir":"private-normalization-path",
+            "Password":"private-normalization-secret","ArticleID":"private-normalization-article"});
+        let body = json!({"id":2,"result":[group]}).to_string();
+        let expected = ring::digest::digest(&ring::digest::SHA256, body.as_bytes());
+        let expected_hex: String = expected
+            .as_ref()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let expected_len = body.len();
+        let server = std::thread::spawn(move || {
+            for index in 1..=2 {
+                let mut stream = accept_before(&listener, deadline).unwrap();
+                let request = read_request(&mut stream, deadline);
+                assert_eq!(
+                    request["method"],
+                    if index == 1 { "status" } else { "listgroups" }
+                );
+                let reply = if index == 1 {
+                    json!({"id":1,"result":{"UpTimeSec":100,"DownloadPaused":false,"PostPaused":paused,"QuotaReached":false}}).to_string()
+                } else {
+                    body.clone()
+                };
+                stream
+                    .set_write_timeout(Some(remaining(deadline).unwrap()))
+                    .unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                )
+                .unwrap();
+            }
+        });
+        let output = std::env::temp_dir().join(format!(
+            "observe-normalization-{label}-{}",
+            std::process::id()
+        ));
+        let result = output_before(
+            std::process::Command::new(env!("CARGO_BIN_EXE_nzbget-observe"))
+                .args([
+                    "--url",
+                    &url,
+                    "--samples",
+                    "1",
+                    "--output",
+                    output.to_str().unwrap(),
+                ])
+                .env_remove("NZBGET_OBSERVE_USER")
+                .env_remove("NZBGET_OBSERVE_PASSWORD")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap(),
+            deadline,
+        )
+        .unwrap();
+        join_before(server, deadline).unwrap();
+        assert!(!result.status.success());
+        let files = evidence_files(&output);
+        assert_eq!(files.len(), 1);
+        let bytes = std::fs::read(&files[0]).unwrap();
+        assert!(bytes.len() < 2048);
+        let record: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(record["metadata"]["method"], "listgroups");
+        assert_eq!(record["metadata"]["request_id"], 2);
+        assert_eq!(record["metadata"]["http_status"], 200);
+        assert_eq!(
+            record["metadata"]["failure_category"],
+            "normalization_unknown"
+        );
+        assert_eq!(record["metadata"]["response_bytes"], expected_len);
+        assert_eq!(record["metadata"]["response_sha256"], expected_hex);
+        for data in [&bytes, &result.stdout, &result.stderr] {
+            let text = String::from_utf8_lossy(data);
+            assert!(!text.contains("private-normalization-"));
+            assert!(!text.contains(&url));
+        }
+        assert!(String::from_utf8_lossy(&result.stdout).contains("observation_unknown"));
+        std::fs::remove_dir_all(output).unwrap();
+    }
+}

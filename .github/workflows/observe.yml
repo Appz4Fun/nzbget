@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  format:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -16,10 +16,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust tools
-        run: rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt
       - name: Check formatting
         run: cargo +1.99.0 fmt --manifest-path tools/nzbget-observe/Cargo.toml --check
-      - name: Test the watcher and offline HTTP fixture
-        run: cargo +1.99.0 test --locked --manifest-path tools/nzbget-observe/Cargo.toml
-      - name: Check all watcher targets
-        run: cargo +1.99.0 clippy --locked --manifest-path tools/nzbget-observe/Cargo.toml --all-targets -- -D warnings

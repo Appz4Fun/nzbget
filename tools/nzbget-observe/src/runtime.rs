@@ -5,6 +5,12 @@ use std::path::{Path, PathBuf};
 
 pub const RESPONSE_LIMIT: usize = 1024 * 1024;
 
+struct Reply {
+    result: serde_json::Value,
+    http_status: u16,
+    bytes: Vec<u8>,
+}
+
 pub struct Rpc {
     client: reqwest::blocking::Client,
     url: Url,
@@ -38,26 +44,47 @@ impl Rpc {
         method: &str,
         params: serde_json::Value,
         id: u64,
-    ) -> Result<serde_json::Value, &'static str> {
+    ) -> Result<Reply, &'static str> {
         let mut request = self.client.post(self.url.clone()).json(&serde_json::json!({
             "version":"1.1", "id":id, "method":method, "params":params
         }));
         if !self.user.is_empty() {
             request = request.basic_auth(&self.user, Some(&self.password));
         }
-        let response = request
-            .send()
-            .map_err(|_| "RPC transport failed or timed out")?;
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(error) => {
+                let category = if error.is_timeout() {
+                    "transport_timeout"
+                } else if error.is_connect() {
+                    "transport_connect"
+                } else if error.is_request() {
+                    "transport_request"
+                } else {
+                    "transport_other"
+                };
+                // Never retain reqwest's formatted error, which can contain URL
+                // or connection details. No HTTP reply or bounded body exists.
+                self.record_failure(method, id, None, category, None);
+                return Err("RPC transport failed or timed out");
+            }
+        };
         let status = response.status();
         let bytes = match bounded_read(response, RESPONSE_LIMIT) {
             Ok(bytes) => bytes,
             Err(reason) => {
-                self.record_failure(method, id, status.as_u16(), "body_unavailable", None);
+                self.record_failure(method, id, Some(status.as_u16()), "body_unavailable", None);
                 return Err(reason);
             }
         };
         if !status.is_success() {
-            self.record_failure(method, id, status.as_u16(), "http_error", Some(&bytes));
+            self.record_failure(
+                method,
+                id,
+                Some(status.as_u16()),
+                "http_error",
+                Some(&bytes),
+            );
             return Err("RPC HTTP status is not successful");
         }
         let envelope: serde_json::Value = match serde_json::from_slice(&bytes) {
@@ -71,7 +98,13 @@ impl Rpc {
                     serde_json::error::Category::Data => "data",
                     serde_json::error::Category::Eof => "eof",
                 };
-                self.record_failure(method, id, status.as_u16(), "invalid_json", Some(&bytes));
+                self.record_failure(
+                    method,
+                    id,
+                    Some(status.as_u16()),
+                    "invalid_json",
+                    Some(&bytes),
+                );
                 if let Some(metadata) = self.failure_metadata.borrow_mut().as_mut() {
                     metadata["parse_category"] = category.into();
                     metadata["line"] = error.line().into();
@@ -81,23 +114,40 @@ impl Rpc {
             }
         };
         if envelope.get("error").is_some_and(|e| !e.is_null()) {
-            self.record_failure(method, id, status.as_u16(), "rpc_error", Some(&bytes));
+            self.record_failure(method, id, Some(status.as_u16()), "rpc_error", Some(&bytes));
             return Err("RPC error or response ID mismatch");
         }
         if envelope["id"].as_u64() != Some(id) {
-            self.record_failure(method, id, status.as_u16(), "id_mismatch", Some(&bytes));
+            self.record_failure(
+                method,
+                id,
+                Some(status.as_u16()),
+                "id_mismatch",
+                Some(&bytes),
+            );
             return Err("RPC error or response ID mismatch");
         }
-        envelope
-            .get("result")
-            .cloned()
-            .ok_or("RPC result is missing")
+        let Some(result) = envelope.get("result").cloned() else {
+            self.record_failure(
+                method,
+                id,
+                Some(status.as_u16()),
+                "rpc_result_missing",
+                Some(&bytes),
+            );
+            return Err("RPC result is missing");
+        };
+        Ok(Reply {
+            result,
+            http_status: status.as_u16(),
+            bytes,
+        })
     }
     fn record_failure(
         &self,
         method: &str,
         id: u64,
-        status: u16,
+        status: Option<u16>,
         category: &str,
         bytes: Option<&[u8]>,
     ) {
@@ -113,7 +163,19 @@ impl Rpc {
         self.failure_metadata.borrow_mut().take();
         let status = self.call("status", serde_json::json!([]), 1)?;
         let groups = self.call("listgroups", serde_json::json!([0]), 2)?;
-        crate::normalize(&status, &groups, elapsed)
+        let result = crate::normalize(&status.result, &groups.result, elapsed);
+        if result.is_err() {
+            // Bind an unknown projection to the last actual bounded RPC reply,
+            // without retaining stage strings or hashing successful polls.
+            self.record_failure(
+                "listgroups",
+                2,
+                Some(groups.http_status),
+                "normalization_unknown",
+                Some(&groups.bytes),
+            );
+        }
+        result
     }
     pub fn take_failure_metadata(&self) -> Option<serde_json::Value> {
         self.failure_metadata.borrow_mut().take()

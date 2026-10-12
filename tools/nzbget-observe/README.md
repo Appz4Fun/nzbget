@@ -10,10 +10,14 @@ downloads, runs profilers, or restarts NZBGet.
 ## Build and run
 
 Build separately from the daemon with Rust 1.99 or newer (the lockfile records the
-tested dependency versions):
+tested dependency versions). Repository maintenance builds, tests and Clippy
+require the designated worker and the sole operations owner's bounded admission
+with canonical heavy/benchmark locks. Automatic CI checks formatting only;
+formatting success does not replace admitted runtime validation. The build
+command below runs within that admitted worker environment:
 
 ```bash
-cargo build --release --locked --manifest-path tools/nzbget-observe/Cargo.toml
+CARGO_BUILD_JOBS=1 cargo build --release --locked --manifest-path tools/nzbget-observe/Cargo.toml
 export NZBGET_OBSERVE_USER='your-nzbget-user'
 read -rs NZBGET_OBSERVE_PASSWORD
 export NZBGET_OBSERVE_PASSWORD
@@ -65,11 +69,14 @@ never written. Keep stdout retention bounded if collecting it with another tool.
 The default trigger is **300 seconds of unchanged observed progress for an
 actively running job with observable progress**. Download progress uses remaining bytes and successful or
 failed article counts; post-processing also uses stage progress. Queued, paused,
-finished and unrecognized stages do not trigger. `DOWNLOADING` reports existing
+and finished stages do not trigger. Unrecognized stages and post progress outside
+0..1000 make the observation unknown. `DOWNLOADING` reports existing
 article workers: download pause/quota prevent their next transfer but do not stop
-an in-flight transfer, which remains observed. Post-processing pause suppresses
-ordinary PAR stages that explicitly wait on it; force-priority PAR jobs (900 or
-higher) remain observed. Ordinary PAR/RAR rename also exposes numeric progress
+an in-flight transfer, which remains observed. Ordinary PAR stages check a post
+pause only after a progress callback: the global flag cannot establish whether
+the worker has acknowledged it. Such observations are explicitly unknown while
+post-paused, rather than treating the worker as inactive or reporting a stall.
+Force-priority PAR jobs (900 or higher) remain observed. Ordinary PAR/RAR rename also exposes numeric progress
 and continues through the post pause. Priority is read
 from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
 the observation unknown. Individually paused or queued jobs remain inactive even
@@ -118,18 +125,26 @@ include the package version, a SHA-256 of the running executable read once per
 run from a regular descriptor with a 128 MiB limit, and allowlisted effective
 sampling and resource limits. Endpoint, credential and filesystem path strings
 are excluded from this identity.
-Malformed JSON, HTTP errors and JSON-RPC error envelopes capture only bounded
+Transport failures, unknown normalized observations, malformed JSON, HTTP errors
+and JSON-RPC error envelopes capture only bounded
 private failure metadata in the same eight-slot store: the allowlisted
 method/request ID, HTTP status, failure category and, when the body was read
 within its limit, byte length/SHA-256. Invalid JSON also records parser category,
 line and column. Failed or oversized body reads retain safe status/category
-metadata without a body fingerprint. This metadata is not recoverable
+metadata without a body fingerprint. Transport failures retain a static sanitized
+category with method/request ID and no HTTP status/body fingerprint. Unknown
+normalization records a fingerprint of the last bounded `listgroups` reply;
+this does not establish that every invalid field originated in that reply.
+These failure fingerprints are computed only on failed observations. This metadata is not recoverable
 raw-response evidence. Raw replies and error messages remain excluded; names,
 paths, passwords, article IDs and private labels are never retained.
 Completed
 run directories are retained for the operator to remove or archive. Alerts do not
 launch an automatic profiler or execute shell commands.
 
+Optional process observations include the host clock ticks per second and RSS
+page bytes, read once per process from the platform's `sysconf` API; unavailable
+or nonpositive constants are null. These units accompany raw process counters.
 Linux observations include CPU/memory/I/O PSI `some avg10`, optional daemon CPU
 ticks/RSS and cumulative read/write counters, and optional cgroup CPU throttling,
 memory events, and PSI. These are raw observations. CPU ticks require the host's

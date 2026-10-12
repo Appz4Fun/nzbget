@@ -154,28 +154,33 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             stage,
             "QUEUED" | "PP_QUEUED" | "QS_QUEUED" | "PAUSED" | "PP_FINISHED"
         );
-        // RepairController waits on PostPaused. PostScript can block its output
-        // reader, but that does not suspend the child process.
+        // RepairController checks PostPaused only after a progress callback.
+        // Without an exported acknowledgement, the global flag cannot prove
+        // that a running ordinary PAR operation has actually suspended.
         let cooperative_post_pause = matches!(
             stage,
             "LOADING_PARS" | "VERIFYING_SOURCES" | "VERIFYING_REPAIRED" | "REPAIRING"
         );
+        if !(download || fetch || post || inactive) {
+            return Err("unsupported job stage");
+        }
+        let progress = number(g, "PostStageProgress")?;
+        if progress > 1000 {
+            return Err("post stage progress is outside daemon range");
+        }
+        if post_paused && !force_priority && cooperative_post_pause {
+            return Err("ordinary PAR pause acknowledgement is not observable");
+        }
         jobs.push(Job {
             id,
-            stage: if download || fetch || post || inactive {
-                stage.into()
-            } else {
-                "UNKNOWN".into()
-            },
+            stage: stage.into(),
             remaining: (u64::from(hi) << 32) | u64::from(lo),
             success: number(g, "SuccessArticles")?,
             failed: number(g, "FailedArticles")?,
-            progress: number(g, "PostStageProgress")?,
+            progress,
             // The API reports DOWNLOADING only while article workers exist.
             // Pause/quota prevent their next transfer, not an in-flight one.
-            active: fetch
-                || download
-                || (post && (!post_paused || force_priority || !cooperative_post_pause)),
+            active: fetch || download || post,
             // Script workers update private labels rather than numeric stage
             // progress. Static download counters do not measure their work.
             progress_observable: matches!(
@@ -333,6 +338,70 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_par_pause_acknowledgement_is_unknown_without_an_exported_signal() {
+        for stage in [
+            "LOADING_PARS",
+            "VERIFYING_SOURCES",
+            "VERIFYING_REPAIRED",
+            "REPAIRING",
+        ] {
+            let mut g = group();
+            g["Status"] = json!(stage);
+            let mut st = status();
+            let before = normalize(&st, &json!([g.clone()]), 0).unwrap();
+            assert!(before.jobs[0].active);
+            st["PostPaused"] = json!(true);
+            for priority in [0, 899] {
+                g["MaxPriority"] = json!(priority);
+                assert!(
+                    normalize(&st, &json!([g.clone()]), 60).is_err(),
+                    "{stage} priority {priority}"
+                );
+            }
+            for priority in [900, 901] {
+                g["MaxPriority"] = json!(priority);
+                let mut detector = Detector::default();
+                detector.observe(&before, 60);
+                let after = normalize(&st, &json!([g.clone()]), 60).unwrap();
+                assert!(after.jobs[0].active);
+                assert_eq!(detector.observe(&after, 60).len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_stage_is_unknown_instead_of_a_valid_inactive_job() {
+        for stage in ["NEW_STAGE", "DOWNLODING", "", "UNKNOWN"] {
+            let mut g = group();
+            g["Status"] = json!(stage);
+            assert!(normalize(&status(), &json!([g]), 0).is_err(), "{stage}");
+        }
+    }
+
+    #[test]
+    fn post_progress_rejects_values_outside_the_daemon_clamp() {
+        for progress in [
+            json!(1001),
+            json!(5001),
+            json!(u64::MAX),
+            json!(-1),
+            json!(0.5),
+        ] {
+            let mut g = group();
+            g["PostStageProgress"] = progress;
+            assert!(normalize(&status(), &json!([g]), 0).is_err());
+        }
+        for progress in [0, 1, 999, 1000] {
+            let mut g = group();
+            g["PostStageProgress"] = json!(progress);
+            assert_eq!(
+                normalize(&status(), &json!([g]), 0).unwrap().jobs[0].progress,
+                progress
+            );
+        }
+    }
+
+    #[test]
     fn normalization_preserves_large_counters_and_drops_private_fields() {
         let s = normalize(&status(), &json!([group()]), 0).unwrap();
         assert_eq!(s.jobs[0].remaining, 4_294_967_299);
@@ -349,8 +418,8 @@ mod tests {
     }
 
     #[test]
-    fn queued_paused_and_unknown_stages_are_not_stalls() {
-        for stage in ["QUEUED", "PP_QUEUED", "PAUSED", "PP_FINISHED", "NEW_STAGE"] {
+    fn known_queued_paused_and_finished_stages_are_inactive() {
+        for stage in ["QUEUED", "PP_QUEUED", "PAUSED", "PP_FINISHED"] {
             let mut g = group();
             g["Status"] = json!(stage);
             assert!(!normalize(&status(), &json!([g]), 0).unwrap().jobs[0].active);
@@ -379,7 +448,6 @@ mod tests {
             ("PP_QUEUED", 900, true, true, true, 0),
             ("PAUSED", 900, true, true, true, 0),
             ("PP_FINISHED", 900, true, true, true, 0),
-            ("NEW_STAGE", 900, true, true, true, 0),
             // URL downloads lack an exported received-byte progress counter.
             ("FETCHING", 900, true, false, false, 0),
         ];
@@ -460,8 +528,19 @@ mod tests {
                 .is_empty());
             st["PostPaused"] = json!(true);
             st["UpTimeSec"] = json!(160);
-            let alerts = detector.observe(&normalize(&st, &json!([g]), 60).unwrap(), 60);
-            assert_eq!(alerts.len(), count, "running {stage} during PostPaused");
+            let observation = normalize(&st, &json!([g]), 60);
+            if matches!(
+                stage,
+                "LOADING_PARS" | "VERIFYING_SOURCES" | "VERIFYING_REPAIRED" | "REPAIRING"
+            ) {
+                assert_eq!(
+                    observation.unwrap_err(),
+                    "ordinary PAR pause acknowledgement is not observable"
+                );
+            } else {
+                let alerts = detector.observe(&observation.unwrap(), 60);
+                assert_eq!(alerts.len(), count, "running {stage} during PostPaused");
+            }
         }
     }
 

@@ -93,6 +93,24 @@ fn counters(path: impl AsRef<std::path::Path>, allowed: &[&str]) -> Value {
     Value::Object(result)
 }
 
+fn process_units() -> (Option<u64>, Option<u64>) {
+    static UNITS: std::sync::OnceLock<(Option<u64>, Option<u64>)> = std::sync::OnceLock::new();
+    *UNITS.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            let positive = |value| u64::try_from(value).ok().filter(|v| *v > 0);
+            (
+                positive(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }),
+                positive(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            (None, None)
+        }
+    })
+}
+
 fn linux_observations(config: &Config) -> Value {
     let psi = |base: &std::path::Path| {
         let mut values = serde_json::Map::new();
@@ -132,7 +150,9 @@ fn linux_observations(config: &Config) -> Value {
         );
         match (before, stat()) {
             (Some((start, cpu)), Some((end, _))) if start == end => {
-                json!({"pid":pid,"start_ticks":start,"cpu":cpu,"io":io})
+                let (clock_ticks_per_second, rss_page_bytes) = process_units();
+                json!({"pid":pid,"start_ticks":start,"cpu":cpu,"io":io,
+                    "clock_ticks_per_second":clock_ticks_per_second,"rss_page_bytes":rss_page_bytes})
             }
             _ => Value::Null,
         }
@@ -254,6 +274,19 @@ mod tests {
     fn parse(args: &[&str]) -> Result<Config, &'static str> {
         Config::parse(args.iter().map(|s| (*s).to_owned()))
     }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_counter_units_bind_host_sysconf_values() {
+        let config = parse(&["--pid", &std::process::id().to_string()]).unwrap();
+        let record = linux_observations(&config);
+        let process = &record["process"];
+        let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        assert!(ticks > 0 && page > 0);
+        assert_eq!(process["clock_ticks_per_second"], ticks);
+        assert_eq!(process["rss_page_bytes"], page);
+    }
+
     #[test]
     fn cli_accepts_bounded_sampling_and_rejects_invalid_or_mutating_options() {
         let c = parse(&[
