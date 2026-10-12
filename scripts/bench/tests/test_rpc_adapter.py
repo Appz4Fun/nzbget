@@ -228,6 +228,75 @@ class RpcAdapterTests(unittest.TestCase):
             self.assertEqual((output / "unrelated.txt").read_text(), "preserve")
             self.assertEqual((output / "source.raw").read_text(), "retained original proof")
 
+    def retained_archive_alias_case(self, archive_name, topology, malformed):
+        # Existing archive bytes are controlled lifecycle inputs, not measured
+        # RPC proof. The current input pair is unrelated to the retained graph.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            output = root / "out"
+            output.mkdir()
+            archive = output / archive_name
+            marker = output / "adapter-status.json"
+            backing_name = {"source.raw": "samples.jsonl", "source-manifest.raw": "manifest.json",
+                            "legacy-evidence.json": "adapter-status.json"}[archive_name]
+            intermediate = output / backing_name
+            raw = b'{"adapter":"rpc","status":"READY","retained_raw":"controlled fixture"}\n'
+            links = []
+            marker.write_bytes(raw)
+            if topology == "hardlink":
+                intermediate.write_bytes(raw)
+                os.link(intermediate, archive)
+                backing = intermediate
+            elif topology == "leaf_symlink":
+                intermediate.write_bytes(raw)
+                archive.symlink_to(backing_name)
+                links.append((archive, archive.readlink()))
+                backing = intermediate
+            else:
+                real = root / "real"
+                real.mkdir()
+                sibling = root / "retained-sibling"
+                sibling.mkdir()
+                backing = sibling / "raw.dat"
+                backing.write_bytes(raw)
+                intermediate.unlink(missing_ok=True)
+                intermediate.symlink_to("../real", target_is_directory=True)
+                outer = root / "outer"
+                outer.symlink_to(intermediate / ".." / "retained-sibling/raw.dat")
+                archive.symlink_to("../outer")
+                links.extend((path, path.readlink()) for path in (intermediate, outer, archive))
+            metadata = root / "current-manifest.json"
+            source = root / "current-source.jsonl"
+            metadata.write_text(json.dumps(manifest()))
+            current_raw = b'{"malformed":' if malformed else jsonl(samples())
+            source.write_bytes(current_raw)
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                  "--source", str(source), "--output-dir", str(output)],
+                                 capture_output=True, text=True, timeout=2)
+            self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+            self.assertTrue(backing.exists(), "retained raw backing was deleted")
+            self.assertEqual(backing.read_bytes(), raw, "retained raw backing bytes were deleted or rewritten")
+            self.assertEqual(archive.read_bytes(), raw)
+            for link, target in links:
+                self.assertTrue(link.is_symlink(), "retained traversal entry was deleted")
+                self.assertEqual(link.readlink(), target)
+            if topology == "hardlink":
+                self.assertTrue(intermediate.samefile(archive), "retained inode alias was removed")
+            self.assertEqual(source.read_bytes(), current_raw)
+            self.assertIn("HOLD", run.stdout + run.stderr, "unsafe import must report HOLD without overwriting retained data")
+
+    def test_retained_archive_aliases_survive_unrelated_invalid_import(self):
+        for archive_name in ("source.raw", "source-manifest.raw", "legacy-evidence.json"):
+            for topology in ("leaf_symlink", "target_traversal", "hardlink"):
+                with self.subTest(archive=archive_name, topology=topology):
+                    self.retained_archive_alias_case(archive_name, topology, malformed=True)
+
+    def test_retained_archive_aliases_survive_valid_hold_reimport(self):
+        for archive_name in ("source.raw", "source-manifest.raw", "legacy-evidence.json"):
+            for topology in ("leaf_symlink", "target_traversal", "hardlink"):
+                with self.subTest(archive=archive_name, topology=topology):
+                    self.retained_archive_alias_case(archive_name, topology, malformed=False)
+
     def test_hardlinked_output_alias_does_not_modify_input(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
