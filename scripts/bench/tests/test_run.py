@@ -670,11 +670,93 @@ raise SystemExit(runner.main())
                 finally:
                     module.os.read = real_read
 
+    @unittest.skipUnless(LINUX, "pidfd custody is Linux-only")
+    def test_stale_recursive_identity_cannot_signal_unowned_sibling(self):
+        # Controlled stale-set substitution model, not forced kernel PID reuse.
+        foreign = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(3)"],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.children.append(foreign)
+        wrapper = self.script(f"""import importlib.util,signal
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+runner.stop_children({{ {foreign.pid} }},signal.SIGTERM)
+""", "stale-identity.py")
+        result = subprocess.run(wrapper, capture_output=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            foreign.wait(timeout=.1)
+
+    @unittest.skipUnless(LINUX, "pidfd custody is Linux-only")
+    def test_direct_owned_child_uses_pidfd_and_refusal_has_no_numeric_fallback(self):
+        spec = importlib.util.spec_from_file_location("runner_pidfd", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(3)"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.children.append(child)
+        kill, pidfd_open = module.os.kill, module.os.pidfd_open
+        def forbidden(*args):
+            raise AssertionError("numeric kill must not be used for descendant custody")
+        def refused(*args):
+            raise PermissionError("controlled pidfd refusal")
+        try:
+            module.os.kill = forbidden
+            module.os.pidfd_open = refused
+            with self.assertRaises(PermissionError):
+                module.stop_children({child.pid}, signal.SIGTERM)
+            self.assertIsNone(child.poll())
+            module.os.pidfd_open = pidfd_open
+            module.stop_children({child.pid}, signal.SIGTERM)
+            self.assertEqual(child.wait(timeout=2), -signal.SIGTERM)
+        finally:
+            module.os.kill, module.os.pidfd_open = kill, pidfd_open
+
+    @unittest.skipUnless(LINUX, "final launch admission is Linux-only")
+    def test_final_capture_cancellation_and_deadline_prevent_payload_spawn(self):
+        for reason in ("cancel", "deadline"):
+            with self.subTest(reason=reason):
+                marker, metadata, attempted = [self.root / f"admission-{reason}-{name}" for name in ("marker", "json", "attempted")]
+                wrapper = self.script(f"""import importlib.util,os,signal,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=runner.capture_artifacts
+first=[True]
+def capture(*args,**kwargs):
+    records=original(*args,**kwargs)
+    if first[0]:
+        first[0]=False
+        {'os.kill(os.getpid(),signal.SIGTERM)' if reason=='cancel' else 'time.sleep(1.1)'}
+    return records
+runner.capture_artifacts=capture
+popen=runner.subprocess.Popen
+def launch(command,*args,**kwargs):
+    if command[0]=={shutil.which('touch')!r}:
+        Path({str(attempted)!r}).touch()
+    return popen(command,*args,**kwargs)
+runner.subprocess.Popen=launch
+raise SystemExit(runner.main())
+""", f"admission-{reason}.py")
+                command=self.command("build", [shutil.which("touch"), str(marker)],
+                                     ("--timeout-seconds","1","--metadata",str(metadata),"--testbed","fixture-worker"))
+                command[0:2]=wrapper
+                result=subprocess.run(command,capture_output=True,timeout=5)
+                self.assertEqual(result.returncode, 143 if reason=="cancel" else 124, result.stderr)
+                self.assertFalse(attempted.exists(), "payload Popen was reached after invalid admission")
+                self.assertFalse(marker.exists())
+                proof=json.loads(metadata.read_text())
+                self.assertFalse(proof["command_started"])
+                self.assertEqual(proof["qualification"],"HOLD")
+                self.assertTrue(self.available("i7-heavy.lock"))
+                self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
     @unittest.skipUnless(LINUX, "native validation/cancellation tests are Linux-only")
     def test_cli_header_cancellation_preserves_signal_status_and_releases_locks(self):
-        for phase in (1, 2):
-            with self.subTest(phase=phase):
-                executable, ready, completed = [self.root / f"header-{phase}-{name}" for name in ("native", "ready", "completed")]
+        for phase, stale in ((1, False), (1, True), (2, True)):
+            with self.subTest(phase=phase, stale=stale):
+                executable, ready, completed = [self.root / f"header-{phase}-{stale}-{name}" for name in ("native", "ready", "completed")]
                 shutil.copyfile(shutil.which("true"), executable)
                 executable.chmod(0o755)
                 wrapper = self.script(f"""import importlib.util,os,time
@@ -698,7 +780,10 @@ def read(fd,count):
 runner.os.read=read
 raise SystemExit(runner.main())
 """, f"header-cancel-{phase}.py")
-                command = self.command("time", [str(executable)])
+                metadata = self.root / f"header-{phase}-{stale}-receipt.json"
+                if stale:
+                    metadata.write_text('{"qualification":"PASS","stale":true}')
+                command = self.command("time", [str(executable)], ("--metadata", str(metadata), "--testbed", "fixture-worker"))
                 command[0:2] = wrapper
                 child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.children.append(child)
@@ -707,6 +792,12 @@ raise SystemExit(runner.main())
                 _, error = child.communicate(timeout=.5)
                 self.assertEqual(child.returncode, 143, error)
                 self.assertFalse(completed.exists())
+                self.assertTrue(metadata.exists(), "interrupted header must replace/create receipt")
+                proof = json.loads(metadata.read_text())
+                self.assertEqual(proof["exit_code"],143)
+                self.assertFalse(proof["command_started"])
+                self.assertEqual(proof["qualification"],"HOLD")
+                self.assertNotIn("stale",proof)
                 self.assertTrue(self.available("i7-heavy.lock"))
                 self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
 

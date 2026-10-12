@@ -641,11 +641,25 @@ def descendants():
 
 
 def stop_children(pids, sig):
-    for pid in pids:
+    # Recursive snapshots are visibility only: a payload may reap a grandchild
+    # and allow its numeric PID to be reused. Only our direct kernel children
+    # remain unrecycled until our own waitpid under the single-thread/default
+    # SIGCHLD/no-external-reaper custodian contract. No wait occurs between this
+    # ownership proof and acquiring/sending through the stable pidfd identity.
+    owned = set()
+    for task in Path(f"/proc/{os.getpid()}/task").iterdir():
+        owned.update(int(value) for value in (task / "children").read_text().split())
+    for pid in owned:
+        descriptor = None
         try:
-            os.kill(pid, sig)
+            descriptor = os.pidfd_open(pid)
+            signal.pidfd_send_signal(descriptor, sig)
         except ProcessLookupError:
             pass
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+    # A syscall refusal propagates into fail-closed custody, never numeric kill.
 
 
 def emergency_reap():
@@ -722,6 +736,18 @@ def supervise(args, command, env, locks, parent_pipe, result_pipe, cancellation_
         fields.update(command_started=False, duration_ns=0, checkout_sha=checkout_before,
                       checkout_sha_before=checkout_before, checkout_sha_after=checkout_identity(deadline, cancelled))
         send_result(result_pipe, mark_drift(fields))
+        return
+    # This is the final admission decision, after all capture cleanup. A signal
+    # arriving after this check is handled as supervised interruption; Python
+    # check-to-Popen is not an atomic cancellation/spawn kernel transaction.
+    if cancelled() or time.monotonic() >= deadline:
+        was_cancelled = bool(interrupted[0] or parent_gone[0])
+        fields.update(command_started=False, duration_ns=0, qualification="HOLD",
+                      exit_code=128 + (interrupted[0] or signal.SIGTERM) if was_cancelled else 124,
+                      outcome="interrupted" if was_cancelled else "timeout",
+                      checkout_sha=checkout_before, checkout_sha_before=checkout_before,
+                      checkout_sha_after=None)
+        send_result(result_pipe, fields)
         return
     start = time.monotonic()
     child = subprocess.Popen(command, env=env, start_new_session=True, pass_fds=tuple(locks))
@@ -891,12 +917,18 @@ def main(argv=None):
     interrupted = CLI_INTERRUPTED if __name__ == "__main__" else [0]
     own_cli_signals(interrupted)
     proof = None
+    command = list(args.command)
     try:
+        # Resolve only invocation lookup here; this is descriptive, unvalidated
+        # proof so a cancelled header capture invalidates a stale success receipt.
+        # Protect the actual PATH-selected executable before any metadata write.
+        invocation = shutil.which(command[0])
+        if invocation is not None:
+            command[0] = str(Path(invocation).absolute())
+        metadata_destination_safe(args, command)
+        if args.metadata:
+            proof = provenance(args, command, Path(command[0]))
         if interrupted[0]:
-            command = list(args.command)
-            if args.metadata:
-                metadata_destination_safe(args, command)
-                proof = provenance(args, command, Path(command[0]))
             raise InterruptedError
         command, executable = prepare_command(args, cancelled=lambda: bool(interrupted[0]))
         if not sys.platform.startswith("linux"):
@@ -919,7 +951,7 @@ def main(argv=None):
         # Do not echo exception paths/arguments, which may carry private values.
         if isinstance(error, CaptureFailure) and error.code == "cancelled" and interrupted[0]:
             result = {"exit_code": 128 + interrupted[0], "outcome": "interrupted",
-                      "duration_ns": 0, "command_started": False}
+                      "duration_ns": 0, "command_started": False, "qualification": "HOLD"}
         else:
             message = str(error) if isinstance(error, ValueError) else type(error).__name__
             print(f"runner: {message}", file=sys.stderr)
