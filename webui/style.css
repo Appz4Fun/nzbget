@@ -79,7 +79,7 @@ body {
 }
 
 .config-status {
-    max-width: 1024px;
+    max-width: none;
 }
 
 .table-fixed {
@@ -1869,7 +1869,7 @@ ul.help > li {
 }
 
 #StatisticsTab {
-    max-width: 1280px;
+    max-width: none;
     padding: 5px;
     margin: auto;
 }
@@ -1998,7 +1998,9 @@ ul.help > li {
 }
 
 .config__main {
-    max-width: 960px;
+    max-width: none;
+    min-width: 0;
+    flex: 1;
     width: 100%;
     padding: 0 15px;
     overflow: auto;
@@ -2083,7 +2085,7 @@ ul.help > li {
 
 @media (min-width: 1280px) {
     .config__container {
-        justify-content: center;
+        justify-content: flex-start;
     }
 }
 
