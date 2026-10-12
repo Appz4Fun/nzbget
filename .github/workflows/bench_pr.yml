@@ -128,13 +128,17 @@ jobs:
             --expected-base-sha "$BASE_SHA" --expected-head-sha "$HEAD_SHA" \
             --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --testbed "$TESTBED" \
             --output-dir benchmark-validated --github-output "$GITHUB_OUTPUT"
-      - name: Retain validation and HOLD diagnostics
+      - name: Retain raw evidence, validation and HOLD diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: paired-caller-validation-${{ inputs.pr_number }}-${{ github.run_id }}
           if-no-files-found: ignore
+          retention-days: 30
           path: |
+            benchmark-validated/manifest.json
+            benchmark-validated/samples.jsonl
+            benchmark-validated/collection-receipt.json
             benchmark-validated/summary.json
             benchmark-validated/qualification.json
             benchmark-validated/bencher.json
@@ -203,6 +207,22 @@ jobs:
             --expected-base-sha "$BASE_SHA" --expected-head-sha "$HEAD_SHA" \
             --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --testbed "$TESTBED" \
             --output-dir benchmark-publish --github-output "$GITHUB_OUTPUT"
+      - name: Retain raw evidence and publication diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paired-caller-publication-${{ inputs.pr_number }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            benchmark-publish/manifest.json
+            benchmark-publish/samples.jsonl
+            benchmark-publish/collection-receipt.json
+            benchmark-publish/summary.json
+            benchmark-publish/qualification.json
+            benchmark-publish/bencher.json
+            benchmark-publish/selected-bencher.json
+            benchmark-publish/report.md
       - name: Report inactive publication
         if: steps.preflight.outputs.ready != 'true'
         run: echo '::notice::Bencher publication unavailable; no project, credentials, testbed or services were provisioned'

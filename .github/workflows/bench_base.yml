@@ -164,6 +164,23 @@ jobs:
             --output-dir benchmark-published \
             --publish
 
+      - name: Preserve raw evidence and publication diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: canonical-publication-${{ needs.canonical.outputs.sha }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            benchmark-published/manifest.json
+            benchmark-published/samples.jsonl
+            benchmark-published/collection-receipt.json
+            benchmark-published/summary.json
+            benchmark-published/qualification.json
+            benchmark-published/bencher.json
+            benchmark-published/selected-bencher.json
+            benchmark-published/report.md
+
       - name: Explain unavailable publication
         if: ${{ steps.config.outputs.ready != 'true' }}
         run: |
