@@ -428,6 +428,70 @@ def check_aliases(output, inputs):
             if (target == resolved or target in resolved.parents or
                     (target.exists() and resolved.exists() and target.samefile(resolved))):
                 raise AliasError("input/output artifact alias; refusing mutation")
+    return RetainedArchiveProtection(output, destination, budget)
+
+
+class RetainedArchiveProtection:
+    """Preserve retained archive entries, targets, traversals and inode aliases.
+
+    The inventory is refreshed before mutations, retaining earlier protected
+    identities too. Incomplete inventory or exhausted traversal budgets refuse
+    mutation rather than falling through to an unguarded cleanup/report path.
+    """
+
+    def __init__(self, output, destination, budget):
+        self.output = output
+        self.destination = destination
+        self.budget = budget
+        self.paths = set()
+        self.inodes = set()
+        self.trees = set()
+        self.refresh()
+
+    @staticmethod
+    def inode(path, follow=True):
+        try:
+            info = os.stat(path, follow_symlinks=follow)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        return info.st_dev, info.st_ino
+
+    def refresh(self):
+        try:
+            cache = {}
+            destination, _ = bounded_path(self.output, self.budget, cache)
+            if destination != self.destination:
+                raise AliasError("output location changed; refusing mutation")
+            for name in ARCHIVED:
+                archive = destination / name
+                if not (archive.exists() or archive.is_symlink()):
+                    continue
+                target, entries = bounded_path(archive, self.budget, cache)
+                self.paths.update((archive, target, *entries))
+                for path in (archive, target, *entries):
+                    for follow in (False, True):
+                        identity = self.inode(path, follow)
+                        if identity is not None:
+                            self.inodes.add(identity)
+                if target.is_dir():
+                    self.trees.add(target)
+        except (OSError, RuntimeError) as error:
+            raise AliasError("retained raw archive inventory unavailable; refusing mutation") from error
+
+    def guard(self, names):
+        self.refresh()
+        cache = {}
+        try:
+            for name in names:
+                entry = self.destination / name
+                target, traversed = bounded_path(entry, self.budget, cache)
+                identities = {self.inode(entry, False), self.inode(target)} - {None}
+                if (entry in self.paths or target in self.paths or identities & self.inodes or
+                        any(tree == target or tree in target.parents for tree in self.trees) or
+                        any(path in self.paths and path.is_symlink() for path in traversed)):
+                    raise AliasError(f"{name}: mutation would touch retained raw archive evidence")
+        except (OSError, RuntimeError) as error:
+            raise AliasError("retained raw archive protection unavailable; refusing mutation") from error
 
 
 def reject_archive_reuse(output):
@@ -435,12 +499,22 @@ def reject_archive_reuse(output):
         raise EvidenceError("output contains an immutable archive; use a fresh output directory")
 
 
-def clear_derived(output):
+def clear_derived(output, protection=None):
+    if protection is None:
+        raise AliasError("retained raw archive inventory unavailable; refusing cleanup")
+    refused = []
     if output.is_dir():
         for name in DERIVED:
+            try:
+                protection.guard((name,))
+            except AliasError as error:
+                refused.append(str(error))
+                continue
             artifact = output / name
             if artifact.is_file() or artifact.is_symlink():
                 artifact.unlink()
+    if refused:
+        raise AliasError("derived cleanup refused: " + "; ".join(refused))
 
 
 def main(argv=None):
@@ -451,9 +525,10 @@ def main(argv=None):
     parser.add_argument("--metadata", action="append", type=Path, default=[])
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args(argv)
+    protection = None
     try:
         try:
-            check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
+            protection = check_aliases(args.output_dir, [args.manifest, *args.source, *args.metadata])
         except (OSError, RuntimeError) as error:
             raise AliasError("cannot safely resolve input/output aliases; refusing mutation") from error
         reject_archive_reuse(args.output_dir)
@@ -486,9 +561,10 @@ def main(argv=None):
         else:
             contents["report.md"] += ("\nLegacy HOLD archive metadata SHA256: `" + hashes["metadata_sha256"] +
                                       "`. Original source and metadata bytes/hashes are retained in adapter-evidence.json.\n")
-        clear_derived(args.output_dir)
+        clear_derived(args.output_dir, protection)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         for name, content in contents.items():
+            protection.guard((name,))
             # Exclusive creation also prevents overwriting an archive that
             # appears after the reuse preflight. Never truncate preserved raw
             # evidence, including during a failed write or concurrent import.
@@ -501,9 +577,9 @@ def main(argv=None):
         return 2
     except (ValueError, OSError, UnicodeError, csv.Error, TypeError, OverflowError, RecursionError) as error:
         try:
-            clear_derived(args.output_dir)
-        except OSError:
-            pass
+            clear_derived(args.output_dir, protection)
+        except (OSError, AliasError, RuntimeError) as refusal:
+            error = f"{error}; {refusal}"
         print(f"postprocess adapter: {error}", file=sys.stderr)
         return 2
 

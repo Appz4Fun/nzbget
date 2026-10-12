@@ -459,6 +459,82 @@ class PostprocessAdapterTests(unittest.TestCase):
         for name in ("qualification.json", "summary.json", "bencher.json", "report.md"):
             self.assertFalse((self.output / name).exists(), "derived qualification must be invalidated")
 
+    def test_retained_archive_aliases_survive_unrelated_import_rejection(self):
+        # Retained raw namespace is a literal contract, independent of which
+        # name or metadata shape a current implementation happens to accept.
+        archived_names = ("manifest.json", "samples.jsonl", "adapter-evidence.json", "legacy-metadata.json")
+        modes = ("summary-target", "report-target", "qualification-hardlink",
+                 "intermediate", "intermediate-dotdot", "intermediate-escape", "derived-to-raw")
+        for archive_name in archived_names:
+            for mode in modes:
+                with self.subTest(archive=archive_name, mode=mode):
+                    case = self.root / (archive_name.replace(".", "-") + "-" + mode)
+                    case.mkdir()
+                    output = case / "out"
+                    output.mkdir()
+                    archive = output / archive_name
+                    raw_bytes = b'{"status":"PASS","original_raw":"sole retained bytes"}\n'
+                    protected = []
+                    if mode in {"summary-target", "report-target"}:
+                        backing = output / ("summary.json" if mode == "summary-target" else "report.md")
+                        backing.write_bytes(raw_bytes)
+                        archive.symlink_to(backing.name)
+                        protected = [archive, backing]
+                    elif mode == "qualification-hardlink":
+                        backing = output / "qualification.json"
+                        backing.write_bytes(raw_bytes)
+                        os.link(backing, archive)
+                        protected = [archive, backing]
+                    elif mode == "derived-to-raw":
+                        archive.write_bytes(raw_bytes)
+                        backing = output / "report.md"
+                        backing.symlink_to(archive.name)
+                        protected = [archive, backing]
+                    else:
+                        real = case / "real"
+                        real.mkdir()
+                        intermediate = output / "summary.json"
+                        intermediate.symlink_to(real, target_is_directory=True)
+                        backing = real / "raw"
+                        target = Path("summary.json/raw")
+                        if mode == "intermediate-dotdot":
+                            target = Path("summary.json/../real/raw")
+                        elif mode == "intermediate-escape":
+                            elsewhere = case / "elsewhere"
+                            elsewhere.mkdir()
+                            backing = elsewhere / "raw"
+                            target = Path("summary.json/../elsewhere/raw")
+                        backing.write_bytes(raw_bytes)
+                        archive.symlink_to(target)
+                        protected = [archive, intermediate, backing]
+                    entry_states = {p: (p.lstat().st_dev, p.lstat().st_ino, p.lstat().st_nlink,
+                                        p.readlink() if p.is_symlink() else None) for p in protected}
+                    before_names = {p.name for p in output.iterdir()}
+                    metadata = case / "new-metadata.json"
+                    metadata.write_text('{"historical":true}\n')
+                    source = case / "unrelated-new.csv"
+                    # Both valid HOLD inputs and malformed new inputs must
+                    # leave the old raw aliases untouched on output reuse.
+                    source.write_text(ARTICLE if mode in {"summary-target", "intermediate", "derived-to-raw"}
+                                      else "bad,header\n")
+                    source_before, metadata_before = source.read_bytes(), metadata.read_bytes()
+                    result = subprocess.run([sys.executable, str(ADAPTER), "--format", "article-crc",
+                                             "--manifest", str(metadata), "--source", str(source),
+                                             "--output-dir", str(output)], capture_output=True, text=True, timeout=2)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertNotIn(result.stdout.strip(), {"PASS", "READY"})
+                    self.assertEqual(backing.read_bytes(), raw_bytes, "retained raw backing bytes were mutated")
+                    self.assertEqual(archive.read_bytes(), raw_bytes, "retained archive no longer reaches its bytes")
+                    for path, state in entry_states.items():
+                        after = path.lstat()
+                        self.assertEqual((after.st_dev, after.st_ino, after.st_nlink,
+                                          path.readlink() if path.is_symlink() else None), state,
+                                         "retained raw entry, traversal, or hardlink inode changed")
+                    self.assertEqual({p.name for p in output.iterdir()}, before_names,
+                                     "unsafe cleanup or new HOLD/PASS exports changed the protected namespace")
+                    self.assertEqual(source.read_bytes(), source_before)
+                    self.assertEqual(metadata.read_bytes(), metadata_before)
+
     def test_hostile_manifest_types_rejected(self):
         for updates in ({"comparison": {"baseline": [], "candidate": "rust_candidate"}},
                         {"fixtures": [{"id": "x", "sha256": "a" * 64, "scope": {}}]}):
