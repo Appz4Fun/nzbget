@@ -79,3 +79,125 @@ isolated-kernel timing. A Rust language benefit must be established against the
 fair optimized C++ caller; avoiding the original's allocations alone cannot
 establish that benefit. Held candidates must not be deployed as performance
 improvements.
+
+## Retained all-Rust native allocator timing supplement
+
+The instrumented allocation suite is retained separately. To measure native
+latency without allocator-counter overhead, compile the companion with both
+C++ new/delete overrides/counters and malloc/calloc/realloc/free linker wrappers
+removed. `--uninstrumented` adds a harness-only preprocessing flag; the actual
+production object uses the same CMake flags and links the same Rust archive.
+Allocation columns are `NA` and the analyzer reports null allocation data,
+never zero allocations. Run build/parity under heavy EX then benchmark SH:
+
+```
+python3 rust/tests/streamcompare_differential.py build --uninstrumented --extended-fixtures --fixtures-only --tag native
+```
+
+After releasing both build locks, run the prebuilt timer under benchmark EX alone:
+
+```
+taskset -c 0 evidence/release-native/caller bench > evidence/release-native/raw.csv
+python3 rust/tests/streamcompare_analyze.py evidence/release-native/raw.csv > evidence/release-native/summary.json
+```
+
+The extended set keeps all original ten fixtures and adds three tiny single-probe
+cases (no holes with 64 bytes, one hole leaving 64 bytes, one hole leaving 63
+bytes) plus medium sparse/dense geometry with 2, 4 and 8 accumulated probes.
+Each medium case has 32 contiguous 800000-byte donors and 64 ordered disjoint
+holes spaced 400000 bytes apart, with size 1000 or 380000. These are synthetic
+representative geometries covering the fetched-batch caller's probe-count range,
+not a measured production distribution. All inputs are built outside timing.
+`caller fixtures` checks exact old/actual/fair results for all extended fixtures
+without rerunning the already-passed exhaustive/random correctness suites.
+
+Only empty/no-probe fixtures bypass Rust in the C++ method. In the retained all-Rust candidate, all nonempty-probe
+fixtures called the actual RequiredCompareFloor method and FFI. Source and linked
+ELF evidence establish VerifyDonor -> RequiredCompareFloor ->
+nzbget_rs_stream_compare_floor, and an offline debugger trace can confirm FFI
+reach for each fixture. VerifyDonor itself performs fetches and is not executed
+by this offline benchmark; its network/disk work is outside this scoped routine's
+latency. Kernel-only metrics do not qualify the conversion. A statistically
+slower native complete caller against either control is a HOLD gate; an interval
+spanning 1 is a tie/inconclusive result, not a demonstrated improvement.
+
+
+## Fixed hybrid candidate on fresh base0dd7
+
+The all-Rust candidate is held. One prospective hybrid candidate keeps native
+C++ accounting for nonempty probes with fewer than4096 holes, and dispatches
+to Rust only for at least4096 holes. No-probe calls remain base-only C++, and
+no-hole calls sum raw donor sizes in C++ before the size dispatch. This boundary
+was chosen from prior4096-hole native wins before any hybrid timing; no new
+threshold or layout tuning is permitted. The small C++ algorithm reuses the
+fair native control's geometry, raw base sum, lazy-safe unsigned endpoint
+classifier, union and reusable exact subtraction buffers. SubtractCovered and
+the original non-Rust RequiredCompareFloor fallback stay unchanged.
+
+Correctness adds a route-only linker wrapper (not used for timing) which counts
+calls to the actual FFI and requires0 below the boundary and1 at/above it for
+nonempty probes. Its small_clear assertion failed against the held all-Rust
+candidate before implementation. Boundary parity covers4095/4096/4097 with
+2/4/8 probes, duplicates and reversed order, sparse/dense/unordered holes,
+raw overlapping sums, zero/reversed ranges, thresholds63/64/65, base floors
+16383/16384/16385, and endpoints that remain unevaluated after full coverage.
+120 directed cases and128 deterministic large-hole cases complement the
+existing100000 low-hole fuzz cases and3969 exhaustive cases. Both C++ and Rust
+routes are exercised, rather than assuming low-hole fuzz reaches Rust.
+
+Remote correctness replay, under heavyEX then benchmarkSH with max3 jobs:
+
+```
+python3 rust/tests/streamcompare_differential.py build --sanitize --uninstrumented --extended-fixtures --route-check --tag hybrid --rounds 100000
+python3 rust/tests/streamcompare_differential.py build --sanitize --uninstrumented --extended-fixtures --fallback --tag hybrid --rounds 100000
+python3 rust/tests/streamcompare_differential.py build --sanitize --uninstrumented --extended-fixtures --mutation --tag hybrid
+python3 rust/tests/streamcompare_differential.py build --sanitize --uninstrumented --extended-fixtures --mutation-threshold --tag hybrid
+```
+
+Also run the C++64-to65 threshold mutation with `--mutation-cpp-threshold`;
+mutations run the numeric mode, which executes CheckBoundaries before fuzz.
+Route checking is rejected for fallback or timing modes. The legacy harness
+implementation column `rust` means the complete candidate; in hybrid mode its
+active route can be C++, as the correctness route oracle demonstrates. The independent peer
+predeclared52 native full-caller cases: existing19, six large4/8-probe cases,
+and27 matched4095/4096/4097 boundary sparse/dense/unordered cases with2/4/8
+probes. Boundary cases keep2001 donors/decoded1600800000 across hole counts,
+spacing390625, and probe indexes100+floor(i*1800/(P-1)). Below4096 measures the
+active C++ route; at/above4096 measures the active Rust route. Source is frozen
+and signed before independent timing and review. Production ownership stays
+C++, no dependencies are removed, and the final verdict is HOLD if any
+statistically resolved slowdown against original or fair optimized C++ remains.
+
+
+## Renewed architectural repair after f72 HOLD
+
+The human renewed work after the held hybrid. Dispatch4096 and Rust/ABI bytes
+remain fixed. Root-cause inspection found the f72 public method paid six saved
+registers, a200-byte frame and stack-canary loads/checks even for empty/tiny
+calls; every adverse fair-control case used C++ with no FFI entry. This identifies
+avoidable common-path work, not a complete attribution of every diagnostic
+nanosecond. No alignment, padding, threshold or host tuning is used.
+
+Owned storage is now isolated in noinline private exceptional helpers. Exact
+subtraction clears contents but reuses both vector capacities across probes;
+unordered lists up to the existing eight-range linear limit use a constructed
+std::array scratch prefix. Larger unordered inputs use one vector copy. Pure
+ordered interval accounting remains inline and borrows original storage. Raw
+sums, lazy endpoints, probe order/duplicates and the exact non-Rust fallback
+remain unchanged. Correctness supplements cover7/8/9 scratch boundaries.
+
+`--allocation-regression` uses a separate allocator-instrumented executable.
+The old f72 source failed with unordered1allocation and exact5initial/12repeated
+allocations; the fix passes with0and5/5. These are allocation work observations,
+not latency qualification. Actual/fallback sanitizer replay compares original,
+verbatim old fair control and the equally improved all-C++ control on every
+case. `streamcompare_improved_control.inc` mechanically copies production
+helpers/caller with only class rename and Rust dispatch removed, inheriting the
+exact Reference base/total/intersection helpers. It adds no timed wrapper.
+
+Rust sources and Cargo inputs are unchanged; prior Rust233-pass/clippy/bench
+receipts remain applicable, while CPP parity and daemon/CTest are rerun. CPP
+threshold mutation now targets two active return checks rather than the prior
+three. Independent fail-closed qualification owns all new timing and compares
+both fair controls without waiving any resolved loss. Earlier data, controls,
+failed runs and source branches remain retained.

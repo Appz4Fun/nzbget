@@ -24,6 +24,12 @@ for fixture in fixtures:
         med = statistics.median(ratios)
         boot = sorted(statistics.median(rng.choices(ratios,k=len(ratios))) for _ in range(10000))
         result[control+'_over_rust'] = {'median': med, 'bootstrap_95_percent_interval': [boot[249],boot[9750]], 'paired_samples':len(ratios)}
+    if all(r['allocations'] == 'NA' and r['allocated_bytes'] == 'NA' for r in cases):
+        result['allocation_instrumentation'] = False
+        result['allocations'] = result['allocated_bytes'] = None
+        report.append(result)
+        continue
+    result['allocation_instrumentation'] = True
     result['allocations'] = {name: sorted({int(r['allocations']) for r in cases if r['implementation']==name}) for name in entries}
     result['allocated_bytes'] = {name: sorted({int(r['allocated_bytes']) for r in cases if r['implementation']==name}) for name in entries}
     report.append(result)

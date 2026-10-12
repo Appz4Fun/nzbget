@@ -3,6 +3,7 @@
 #include "DupeStreamRepair.h"
 #include "nzbget_rs.h"
 #include <chrono>
+#include <array>
 #include <bit>
 #include <cstdio>
 #include <cstdlib>
@@ -10,7 +11,9 @@
 #include <random>
 #include <limits>
 #include "streamcompare_reference.inc"
+#include "streamcompare_improved_control.inc"
 
+#ifndef STREAMCOMPARE_UNINSTRUMENTED
 static bool counting = false;
 static size_t allocations = 0, allocatedBytes = 0;
 extern "C" void* __real_malloc(size_t);
@@ -28,6 +31,19 @@ void operator delete(void* p) noexcept { __real_free(p); }
 void operator delete[](void* p) noexcept { __real_free(p); }
 void operator delete(void* p, size_t) noexcept { __real_free(p); }
 void operator delete[](void* p, size_t) noexcept { __real_free(p); }
+
+#endif
+
+#ifdef STREAMCOMPARE_ROUTE_CHECK
+static size_t rustRouteCalls=0;
+extern "C" int64_t __real_nzbget_rs_stream_compare_floor(int64_t, const NzbgetRsStreamCompareRange*, size_t,
+    const NzbgetRsStreamCompareRange*, size_t, const int32_t*, size_t);
+extern "C" int64_t __wrap_nzbget_rs_stream_compare_floor(int64_t decoded, const NzbgetRsStreamCompareRange* holes,
+    size_t holeCount, const NzbgetRsStreamCompareRange* donors, size_t donorCount, const int32_t* probes, size_t probeCount) {
+    ++rustRouteCalls;
+    return __real_nzbget_rs_stream_compare_floor(decoded,holes,holeCount,donors,donorCount,probes,probeCount);
+}
+#endif
 
 using Fn = int64(*)(int64, const StreamRangeList&, const StreamRangeList&, const std::vector<int>&);
 __attribute__((noinline)) static int64 Original(int64 d, const StreamRangeList& h, const StreamRangeList& r, const std::vector<int>& p)
@@ -118,10 +134,22 @@ __attribute__((noinline)) static int64 Control(int64 decoded, const StreamRangeL
 struct Fixture { const char* name; int64 decoded; StreamRangeList holes, donors; std::vector<int> probes; };
 static void Check(const Fixture& f) {
     auto old=Original(f.decoded,f.holes,f.donors,f.probes);
+#ifdef STREAMCOMPARE_ROUTE_CHECK
+    rustRouteCalls=0;
+#endif
     auto rs=Rust(f.decoded,f.holes,f.donors,f.probes);
+#ifdef STREAMCOMPARE_ROUTE_CHECK
+    const size_t expected=!f.probes.empty() && f.holes.size()>=4096 ? 1 : 0;
+    if(rustRouteCalls!=expected) {
+        std::fprintf(stderr,"Route mismatch %s holes=%zu probes=%zu expected=%zu actual=%zu\n",
+            f.name,f.holes.size(),f.probes.size(),expected,rustRouteCalls);
+        std::abort();
+    }
+#endif
     auto cpp=Control(f.decoded,f.holes,f.donors,f.probes);
-    if (old!=rs || old!=cpp) {
-        std::fprintf(stderr,"Mismatch %s old=%lld rust=%lld cpp=%lld decoded=%lld\n",f.name,(long long)old,(long long)rs,(long long)cpp,(long long)f.decoded);
+    auto improved=ImprovedControl::RequiredCompareFloor(f.decoded,f.holes,f.donors,f.probes);
+    if (old!=rs || old!=cpp || old!=improved) {
+        std::fprintf(stderr,"Mismatch %s old=%lld rust=%lld cpp=%lld improved=%lld decoded=%lld\n",f.name,(long long)old,(long long)rs,(long long)cpp,(long long)improved,(long long)f.decoded);
         for(auto h:f.holes) std::fprintf(stderr,"hole %lld %lld\n",(long long)h.Offset,(long long)h.Size);
         for(auto d:f.donors) std::fprintf(stderr,"donor %lld %lld\n",(long long)d.Offset,(long long)d.Size);
         std::abort();
@@ -144,7 +172,93 @@ static std::vector<Fixture> Fixtures() {
         fs.push_back(f);
         if (!dense) { std::reverse(f.holes.begin(),f.holes.end()); f.name="large_unordered";fs.push_back(f); }
     }
+#ifdef STREAMCOMPARE_EXTENDED_FIXTURES
+    fs.push_back({"tiny_clear64",100,{},{{0,64}},{0}});
+    fs.push_back({"tiny_one_hole64",100000,{{0,36}},{{0,100}},{0}});
+    fs.push_back({"tiny_unreachable63",100000,{{0,36}},{{0,99}},{0}});
+    for (bool dense: {false,true}) {
+        for (int count: {2,4,8}) {
+            const char* name = dense ? (count==2 ? "normal_dense2" : count==4 ? "normal_dense4" : "normal_dense8")
+                                    : (count==2 ? "normal_sparse2" : count==4 ? "normal_sparse4" : "normal_sparse8");
+            Fixture f{name,25600000,{}, {}, {}};
+            for(int i=0;i<32;++i)f.donors.push_back({i*800000LL,800000});
+            for(int i=0;i<64;++i)f.holes.push_back({i*400000LL,dense?380000LL:1000LL});
+            for(int i=0;i<count;++i)f.probes.push_back(i*31/(count-1));
+            fs.push_back(f);
+        }
+    }
+#endif
     return fs;
+}
+// Bounded parity corpus across both dispatch routes. Original/control/actual
+// arithmetic is defined, including endpoints the original never evaluates.
+static void CheckBoundaries() {
+    for(int count: {4095,4096,4097}) {
+        for(int probeCount: {2,4,8}) {
+            for(int shape=0;shape<3;++shape) {
+                Fixture f{"dispatch_boundary",1600800000,{}, {}, {}};
+                for(int i=0;i<2001;++i)f.donors.push_back({i*800000LL,800000});
+                for(int i=0;i<count;++i)f.holes.push_back({i*390625LL,shape==1?390000LL:1000LL});
+                if(shape==2)std::reverse(f.holes.begin(),f.holes.end());
+                for(int i=0;i<probeCount;++i)f.probes.push_back(100+i*1800/(probeCount-1));
+                Check(f);
+                // Repeated indexes remain repeated and retain caller order.
+                f.probes.back()=f.probes.front();Check(f);
+                std::reverse(f.probes.begin(),f.probes.end());Check(f);
+            }
+        }
+        for(int64 available: {63,64,65}) {
+            Fixture f{"dispatch_threshold",100000,{{0,36}},{{0,36+available}},{0}};
+            for(int i=1;i<count;++i)f.holes.push_back({100000+i,0});
+            Check(f);
+        }
+        for(int64 decoded: {16383,16384,16385}) {
+            Fixture f{"dispatch_base",decoded,{},{{0,800000}},{0}};
+            for(int i=0;i<count;++i)f.holes.push_back({100000+i,0});
+            Check(f);
+        }
+        Fixture overlap{"dispatch_raw_overlap",count*30+100LL,{},{{0,1000000}},{0}};
+        for(int i=0;i<count;++i)overlap.holes.push_back({0,30});
+        Check(overlap);
+        Fixture zero{"dispatch_zero_split",100000,{{50,0}},{{0,100}},{0}};
+        for(int i=1;i<count;++i)zero.holes.push_back({100000+i,0});
+        Check(zero);
+        Fixture reversed{"dispatch_negative",100000,{{200,-100}},{{0,300},{100,-20}},{0,1,0}};
+        for(int i=1;i<count;++i)reversed.holes.push_back({100000+i,0});
+        Check(reversed);
+        Fixture covered{"dispatch_lazy_overflow",100000,{{0,200}},{{0,100}},{0}};
+        for(int i=1;i<count;++i)covered.holes.push_back({std::numeric_limits<int64>::max(),1});
+        Check(covered);
+        covered.name="dispatch_lazy_negative_overflow";
+        covered.holes[1]={std::numeric_limits<int64>::min(),-1};
+        Check(covered);
+        Fixture unusedPositive{"dispatch_unused_positive_donor",100000,{},{{std::numeric_limits<int64>::max(),100}},{0}};
+        Fixture unusedNegative{"dispatch_unused_negative_donor",100000,{},{{std::numeric_limits<int64>::min(),-100}},{0}};
+        for(int i=0;i<count;++i) {
+            unusedPositive.holes.push_back({0,1});
+            unusedNegative.holes.push_back({std::numeric_limits<int64>::min(),0});
+        }
+        Check(unusedPositive);Check(unusedNegative);
+    }
+    for(int count: {7,8,9}) {
+        Fixture f{"scratch_boundary",100000,{},{{0,1024},{1024,1024}},{1,0,1}};
+        for(int i=0;i<count;++i)f.holes.push_back({i*100LL,i%3?30:0});
+        std::reverse(f.holes.begin(),f.holes.end());Check(f);
+        f.holes[0]={50,200};f.holes[1]={50,200};Check(f);
+        f.holes[2]={200,-100};Check(f);
+    }
+    std::puts("Scratch parity: 9 directed 7/8/9-hole zero/overlap/duplicate/reversed cases");
+    std::mt19937_64 random(0xCA1B409620261011ULL);
+    for(int k=0;k<128;++k) {
+        const int count=4095+k%3;
+        Fixture f{"dispatch_random",1600000000,{}, {}, {}};
+        for(int i=0;i<32;++i)f.donors.push_back({(int64)(random()%1600000000),(int64)(random()%800000)});
+        for(int i=0;i<count;++i)f.holes.push_back({i*390625LL,(int64)(random()%390625)});
+        if(k%2)std::shuffle(f.holes.begin(),f.holes.end(),random);
+        for(int i=0;i<2+k%7;++i)f.probes.push_back(random()%32);
+        Check(f);
+    }
+    std::puts("Dispatch parity: 120 directed boundary/adversarial cases and 128 deterministic large-hole cases");
 }
 static volatile int64 sink=0;
 static double Time(Fn fn,const Fixture& f,size_t iterations) {
@@ -153,8 +267,44 @@ static double Time(Fn fn,const Fixture& f,size_t iterations) {
     sink=x;
     return std::chrono::duration<double,std::nano>(std::chrono::steady_clock::now()-start).count()/iterations;
 }
+#ifndef STREAMCOMPARE_UNINSTRUMENTED
+static size_t ActualAllocations(const Fixture& f) {
+    allocations=allocatedBytes=0;counting=true;
+    sink=DupeStreamRepair::RequiredCompareFloor(f.decoded,f.holes,f.donors,f.probes);
+    counting=false;
+    return allocations;
+}
+static void AllocationRegressions() {
+    bool pass=true;
+    Fixture unordered{"small_unordered",100000,{{400,600},{210,100},{0,200}},{{0,500},{500,500}},{0,1}};
+    Check(unordered);
+    const size_t small=ActualAllocations(unordered);
+    if(small!=0) {
+        std::fprintf(stderr,"Allocation regression small_unordered expected=0 actual=%zu\n",small);pass=false;
+    }
+    Fixture exact{"reversed_reuse",100000,{{200,-100},{250,0}},{{0,300},{100,-20}},{0}};
+    Check(exact);const size_t first=ActualAllocations(exact);
+    exact.probes={0,1,0};Check(exact);const size_t repeated=ActualAllocations(exact);
+    if(repeated!=first) {
+        std::fprintf(stderr,"Allocation regression reversed_reuse first=%zu repeated=%zu\n",first,repeated);pass=false;
+    }
+    std::printf("Allocation regression counts: unordered=%zu exact_first=%zu exact_repeated=%zu\n",small,first,repeated);
+    std::fflush(stdout);
+    if(!pass)std::abort();
+}
+#endif
 int main(int argc,char** argv) {
-    auto fs=Fixtures();for(const auto& f:fs)Check(f);
+#ifndef STREAMCOMPARE_UNINSTRUMENTED
+    if(argc>1 && std::string(argv[1])=="allocation-regression") { AllocationRegressions(); return 0; }
+#endif
+    if(argc>1 && std::string(argv[1])=="boundaries") { CheckBoundaries(); return 0; }
+    auto fs=Fixtures();
+    const bool fixturesOnly=argc>1 && std::string(argv[1])=="fixtures";
+    for(const auto& f:fs) {
+        if(fixturesOnly) { std::printf("Fixture %s holes=%zu donors=%zu probes=%zu\n",f.name,f.holes.size(),f.donors.size(),f.probes.size()); std::fflush(stdout); }
+        Check(f);
+    }
+    if(fixturesOnly)return 0;
     if(argc>1 && std::string(argv[1])=="bench") {
         std::puts("fixture,sample,position,implementation,iterations,ns,allocations,allocated_bytes");
         Fn funcs[]={Reference::RequiredCompareFloor,Control,DupeStreamRepair::RequiredCompareFloor};const char* names[]={"original","control","rust"};
@@ -166,13 +316,20 @@ int main(int argc,char** argv) {
                 for(int pos=0;pos<3;++pos) {
                     int index=sample%2==0 ? (pos+sample/2)%3 : (2-pos+sample/2)%3;
                     double ns=Time(funcs[index],f,counts[index]);
+#ifdef STREAMCOMPARE_UNINSTRUMENTED
+                    // No allocator overrides/wrappers exist in this executable.
+                    // Allocation data is unavailable, never a measured zero.
+                    std::printf("%s,%d,%d,%s,%zu,%.6f,NA,NA\n",f.name,sample,pos,names[index],counts[index],ns);
+#else
                     allocations=allocatedBytes=0;counting=true;
                     sink=funcs[index](f.decoded,f.holes,f.donors,f.probes);counting=false;
                     std::printf("%s,%d,%d,%s,%zu,%.6f,%zu,%zu\n",f.name,sample,pos,names[index],counts[index],ns,allocations,allocatedBytes);
+#endif
                 }
             }
         }
     } else {
+        CheckBoundaries();
         size_t rounds=argc>1?std::strtoull(argv[1],nullptr,10):100000;
         for(int64 bytes: {0,63,64,65,16384,16385}) Check({"threshold",100000,{},{{0,bytes}},{0}});
         Check({"max",std::numeric_limits<int64>::max(),{{std::numeric_limits<int64>::max()-20,20}},{{std::numeric_limits<int64>::max()-100,100}},{0}});

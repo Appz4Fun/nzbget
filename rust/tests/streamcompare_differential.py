@@ -18,13 +18,23 @@ ROOT = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser()
 p.add_argument('build', type=Path)
 p.add_argument('--sanitize', action='store_true')
+p.add_argument('--uninstrumented', action='store_true')
+p.add_argument('--extended-fixtures', action='store_true')
+p.add_argument('--fixtures-only', action='store_true')
+p.add_argument('--route-check', action='store_true')
+p.add_argument('--allocation-regression', action='store_true')
 p.add_argument('--mutation', action='store_true')
 p.add_argument('--mutation-threshold', action='store_true')
+p.add_argument('--mutation-cpp-threshold', action='store_true')
 p.add_argument('--fallback', action='store_true')
 p.add_argument('--bench', action='store_true')
 p.add_argument('--rounds', default='100000')
 p.add_argument('--tag', default='')
 a = p.parse_args()
+assert not (a.route_check and a.fallback), 'Rust-route oracle needs the Rust-enabled production adapter'
+assert not (a.route_check and a.bench), 'route instrumentation is correctness-only'
+assert sum((a.mutation, a.mutation_threshold, a.mutation_cpp_threshold)) <= 1, 'choose one mutation'
+assert not (a.allocation_regression and (a.uninstrumented or a.bench or a.fallback)), 'allocation oracle needs native allocator counters, not timing/fallback'
 build = a.build.resolve()
 commands = json.loads((build / 'compile_commands.json').read_text())
 entry = next(e for e in commands if e['file'].endswith('/daemon/queue/DupeStreamRepair.cpp'))
@@ -48,7 +58,7 @@ if a.sanitize:
     flags += ['-O1', '-g', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']
 else:
     flags += ['-O3']
-name = ('sanitized' if a.sanitize else 'release') + ('-mutant' if a.mutation else '') + ('-threshold-mutant' if a.mutation_threshold else '') + ('-fallback' if a.fallback else '')
+name = ('sanitized' if a.sanitize else 'release') + ('-mutant' if a.mutation else '') + ('-threshold-mutant' if a.mutation_threshold else '') + ('-cpp-threshold-mutant' if a.mutation_cpp_threshold else '') + ('-fallback' if a.fallback else '')
 if a.tag:
     assert a.tag.replace('-', '').isalnum(), 'tag must be alphanumeric/hyphen'
     name += '-' + a.tag
@@ -62,9 +72,19 @@ if a.mutation:
     assert text.count(needle) == 1
     source = out / 'DupeStreamRepair-mutant.cpp'
     source.write_text(text.replace(needle, 'probeParts.data(), probeParts.size()) + 1;'))
+if a.mutation_cpp_threshold:
+    text = source.read_text()
+    start = text.index('int64 DupeStreamRepair::RequiredCompareFloor(')
+    stop = text.index('#else', start)
+    active = text[start:stop]
+    needle = 'achievable >= 64'
+    assert active.count(needle) == 2
+    source = out / 'DupeStreamRepair-cpp-threshold-mutant.cpp'
+    source.write_text(text[:start] + active.replace(needle, 'achievable >= 65') + text[stop:])
 obj = out / 'DupeStreamRepair.o'
 cpp = ROOT / 'rust/tests/streamcompare_caller.cpp'
 ref = ROOT / 'rust/tests/streamcompare_reference.inc'
+improved_ref = ROOT / 'rust/tests/streamcompare_improved_control.inc'
 archive = next(build.glob('rust/**/release/libnzbget_rs.a'))
 if a.mutation_threshold:
     text = (ROOT / 'rust/src/streamcompare.rs').read_text()
@@ -79,22 +99,26 @@ if a.mutation_threshold:
 run = lambda cmd: subprocess.run([str(c) for c in cmd], cwd=ROOT, check=True)
 run([args[0], *flags, '-c', source, '-o', obj])
 binary = out / 'caller'
-link = [args[0], *flags, cpp, obj, *([] if a.fallback else [archive]), '-Wl,--gc-sections',
-        '-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free', '-ldl', '-lpthread', '-lm', '-lrt', '-o', binary]
+harness_flags = (['-DSTREAMCOMPARE_ROUTE_CHECK'] if a.route_check else []) + (['-DSTREAMCOMPARE_UNINSTRUMENTED'] if a.uninstrumented else []) + (['-DSTREAMCOMPARE_EXTENDED_FIXTURES'] if a.extended_fixtures else [])
+link = [args[0], *flags, *harness_flags, cpp, obj, *([] if a.fallback else [archive]), '-Wl,--gc-sections',
+        *(['-Wl,--wrap=nzbget_rs_stream_compare_floor'] if a.route_check else []),
+        *([] if a.uninstrumented else ['-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free']),
+        '-ldl', '-lpthread', '-lm', '-lrt', '-o', binary]
 run(link)
-manifest = {'reference': 'c2316ef5e5ac7d5fb1c309e52de9e40dbc76c63e', 'compile_flags': flags,
+manifest = {'reference': 'c2316ef5e5ac7d5fb1c309e52de9e40dbc76c63e', 'compile_flags': flags, 'harness_flags': harness_flags,
+            'allocation_instrumentation': not a.uninstrumented,
             'link_command': [str(v) for v in link],
-            'sha256': {str(v): hashlib.sha256(v.read_bytes()).hexdigest() for v in (source, cpp, ref, archive, binary)}}
+            'sha256': {str(v): hashlib.sha256(v.read_bytes()).hexdigest() for v in (source, cpp, ref, improved_ref, archive, binary)}}
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
 if a.bench:
     with (out / 'raw.csv').open('w') as f:
         subprocess.run([binary, 'bench'], cwd=ROOT, stdout=f, check=True)
     print(out / 'raw.csv')
-elif a.mutation or a.mutation_threshold:
+elif a.mutation or a.mutation_threshold or a.mutation_cpp_threshold:
     result = subprocess.run([binary, a.rounds], cwd=ROOT, capture_output=True, text=True)
     print(result.stdout, end='')
     print(result.stderr, end='')
     assert result.returncode != 0 and 'Mismatch' in result.stderr, 'mutation did not fail at parity oracle'
     print('Mutation rejected by complete production caller parity oracle')
 else:
-    run([binary, a.rounds])
+    run([binary, 'allocation-regression' if a.allocation_regression else 'fixtures' if a.fixtures_only else a.rounds])
