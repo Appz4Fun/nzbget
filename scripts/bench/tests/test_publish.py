@@ -470,6 +470,63 @@ class PublisherTests(unittest.TestCase):
                 self.assertIn("HOLD", (output / "report.md").read_text())
                 self.assertEqual(api.statuses[0]["state"], "failure")
 
+    def test_missing_token_cannot_append_workflow_diagnostics_to_raw_or_its_alias(self):
+        for alias in ("raw", "target", "hardlink"):
+            with self.subTest(alias=alias), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / "results"
+                output.mkdir()
+                original = b"retained proof before unavailable authentication\n"
+                raw = output / "manifest.json"
+                if alias == "target":
+                    workflow = output / "qualification.json"
+                    workflow.write_bytes(original)
+                    raw.symlink_to(workflow.name)
+                else:
+                    raw.write_bytes(original)
+                    workflow = raw
+                    if alias == "hardlink":
+                        workflow = Path(temp) / "workflow-output"
+                        os.link(raw, workflow)
+                with patch.dict("os.environ", {}, clear=True), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    result = publish.main(self.publication_arguments(output) + ["--github-output", str(workflow)])
+                self.assertEqual(result, 2)
+                self.assertEqual(raw.read_bytes(), original)
+                self.assertEqual(workflow.read_bytes(), original)
+                self.assertIn("HOLD", (output / "report.md").read_text())
+
+    def test_early_pending_guard_failure_cannot_append_to_retained_raw(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            original = b"retained proof before rejected pending identity\n"
+            raw = output / "manifest.json"
+            raw.write_bytes(original)
+            workflow = Path(temp) / "workflow-output"
+            os.link(raw, workflow)
+            api = StatusAPI(actor="github-actions[bot]")
+            with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = publish.main(self.publication_arguments(output) + ["--github-output", str(workflow)])
+            self.assertEqual(result, 2)
+            self.assertEqual(raw.read_bytes(), original)
+            self.assertEqual(workflow.read_bytes(), original)
+            self.assertEqual(api.writes, [])
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+
+    def test_output_initialization_failure_still_protects_raw_workflow_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            real = Path(temp) / "real"
+            real.mkdir()
+            original = b"proof behind rejected output directory link\n"
+            raw = real / "manifest.json"
+            raw.write_bytes(original)
+            output = Path(temp) / "output-link"
+            output.symlink_to(real, target_is_directory=True)
+            with patch.dict("os.environ", {}, clear=True), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = publish.main(self.publication_arguments(output) + ["--github-output", str(raw)])
+            self.assertEqual(result, 2)
+            self.assertEqual(raw.read_bytes(), original)
+            self.assertTrue(output.is_symlink())
+
     def test_intermediate_symlink_entries_inside_raw_targets_are_protected(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "results"

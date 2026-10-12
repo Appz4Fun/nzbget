@@ -743,35 +743,38 @@ def main(argv=None):
     manages_outputs = not (args.verify_identity_only or args.verify_archive_only or args.list_prs or args.set_pr_status)
     api = None
     try:
+        if args.output_dir is not None:
+            # Establish the persistent guard before initialization, API or
+            # status checks can fail; exception diagnostics use this same guard.
+            raw_protection = RawProofProtection(args.output_dir)
         if manages_outputs:
             initialize_owned_outputs(args.output_dir)
             owned_outputs_ready = args.output_dir is not None
         api = GitHub(os.environ.get("BENCH_GITHUB_TOKEN", ""))
         if args.list_prs:
             prs = list_lifecycle_prs(api, args.repository, args.controller_sha, args.pr)
-            write_outputs(args.github_output, {"prs": json.dumps(prs, separators=(",", ":"))})
+            write_outputs(args.github_output, {"prs": json.dumps(prs, separators=(",", ":"))}, raw_protection)
             print(json.dumps({"prs": prs}))
             return 0
         if args.set_pr_status:
             result = update_pr_status(api, args.repository, args.pr, args.controller_sha, args.set_pr_status,
                                       args.status_intent, args.expected_head_sha)
-            write_outputs(args.github_output, {"status_written": str(result["written"]).lower(), "status": result["status"]})
+            write_outputs(args.github_output, {"status_written": str(result["written"]).lower(), "status": result["status"]}, raw_protection)
             print(json.dumps(result))
             return 0
         if args.verify_archive_only:
             guard = archive_guard(api, args.repository, args.pr_number)
-            write_outputs(args.github_output, {"ready": str(guard["ready"]).lower(), "actor": guard["actor"]})
+            write_outputs(args.github_output, {"ready": str(guard["ready"]).lower(), "actor": guard["actor"]}, raw_protection)
             print(json.dumps(guard))
             return 0
         if args.verify_identity_only:
-            write_outputs(args.github_output, {"actor": verified_github_actor(api), "ready": "true"})
+            write_outputs(args.github_output, {"actor": verified_github_actor(api), "ready": "true"}, raw_protection)
             print("GitHub identity verified: xbmc4lyfe")
             return 0
         require(args.repository == "Appz4Fun/nzbget", "evidence must belong to Appz4Fun/nzbget")
         if args.publish and args.mode == "pr":
             update_pr_status(api, args.repository, args.pr, args.controller_sha, "pending", expected_head=args.expected_head_sha)
         if manages_outputs:
-            raw_protection = RawProofProtection(args.output_dir) if args.output_dir is not None else None
             clear_owned_outputs(args.output_dir, raw_protection)
         require(args.mode and args.output_dir and args.testbed, "mode, output directory and stable testbed are required")
         for value in (args.evidence_sha, args.expected_base_sha, args.controller_sha):
@@ -827,6 +830,7 @@ def main(argv=None):
         if owned_outputs_ready and not hold_derived_outputs(args.output_dir, message, raw_protection):
             print("HOLD: derived diagnostic outputs could not all be updated safely", file=sys.stderr)
         try:
+            require(not args.github_output or raw_protection is not None, "raw proof guardian is unavailable for workflow diagnostics")
             write_outputs(args.github_output, {"status": "HOLD", "ready": "false", "published": "false"}, raw_protection)
         except (PublicationError, OSError):
             print("HOLD: workflow output could not be updated without changing raw proof", file=sys.stderr)
