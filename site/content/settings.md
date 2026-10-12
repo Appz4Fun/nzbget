@@ -39,7 +39,7 @@ Use **Search in settings** to find an option name or description. Select an opti
 Option help starts collapsed. The question-mark button beside a row opens that option's help. The **View** menu can show help for all rows. With a keyboard, use Tab to reach a button and Enter or Space to activate it.
 
 <figure class="settings-figure">
-<a class="settings-shot" href="assets/settings/option-help.jpg" aria-label="Open full-size picture: option help"><img src="assets/settings/option-help.jpg" width="1280" height="1000" loading="lazy" alt="Expanded help for one browser preference"></a>
+<a class="settings-shot" href="assets/settings/option-help.jpg" aria-label="Open full-size picture: option help"><img src="assets/settings/option-help.jpg" width="1280" height="1100" loading="lazy" alt="Expanded help for one browser preference"></a>
 <figcaption>Help opens beside the option you are editing. Open the picture to inspect the full section.</figcaption>
 </figure>
 
@@ -51,6 +51,15 @@ Option help starts collapsed. The question-mark button beside a row opens that o
 4. Check **Status** and the **Messages** tab after the reload.
 
 Web-interface preferences belong to this browser. Server and extension settings belong to the daemon's configuration. See [Maintenance](settings-maintenance.md#system) before backing up or restoring that file.
+
+## Use the available desktop width
+
+On desktop, the section menu stays at the left edge while the open section fills the remaining width. Wider windows give lists, editors, and Status panels more room. Statistics also uses the available width.
+
+<figure class="settings-figure">
+<a class="settings-shot" href="assets/settings/desktop-wide.jpg" aria-label="Open full-size picture: Wide desktop Settings with a left section menu and compact categories"><img src="assets/settings/desktop-wide.jpg" width="1920" height="1080" loading="lazy" alt="Wide desktop Settings with a left section menu and compact categories"></a>
+<figcaption>The dark desktop view uses the space beside the section menu. Open the picture to inspect the full section.</figcaption>
+</figure>
 
 ## Use Settings on a phone
 
