@@ -37,8 +37,9 @@ Do not expose secret values or provision a new paid/cloud testbed as a fallback.
 ## Build first, then run prebuilt programs
 
 Heavy work runs on the configured remote testbed. Build commands acquire
-`i7-heavy.lock` exclusively, then `nzbget-rust-benchmark.lock` shared, both under
-the process temporary directory. Use at most three build jobs. Timing acquires
+`i7-heavy.lock` exclusively, then `nzbget-rust-benchmark.lock` shared, both in the
+fixed canonical worker lock directory, independent of per-job `TMPDIR`. Use at
+most three build jobs. Timing acquires
 only the benchmark lock exclusively, executes a prebuilt program, and never
 subsequently compiles or requests the heavy lock. Release between bounded suites.
 Cargo command-line `--config` overrides, including inline values and config
