@@ -5,7 +5,7 @@ eyebrow = "Get started"
 lede = "Five settings get RustyGet downloading. Three more turn on the duplicate fleet features that set it apart."
 +++
 
-Open the web interface at `http://<host>:6789` and go to **Settings**. Click **Save all changes** after each section, then reload when prompted.
+Open the web interface at `http://<host>:6789` and go to **Settings**. Finish your edits, click **Save all changes**, then reload when prompted. The [illustrated Settings guides](settings.md) cover every section.
 
 ## Set up the basics
 

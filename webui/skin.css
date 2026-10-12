@@ -2500,6 +2500,13 @@ label,
 	text-shadow: none;
 }
 
+/* Keep the phone menu scrollable so the open section stays near the header. */
+.phone #ConfigNav {
+	max-height: min(30vh, 220px);
+	overflow-y: auto;
+	scroll-padding-block: var(--space-2);
+}
+
 /* phones: bigger rows to tap (style.css sets 18px text here) */
 .phone #ConfigNav.nav-list > li > a {
 	min-height: 40px;

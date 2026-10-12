@@ -8,6 +8,8 @@ the daemon.
 node tests/webui/settings-density.js http://127.0.0.1:17689/
 node tests/webui/settings-lists.js http://127.0.0.1:17689/
 node tests/webui/settings-list-health.js http://127.0.0.1:17689/
+node tests/webui/settings-phone-navigation.js http://127.0.0.1:17689/
+node tests/webui/settings-titles.js http://127.0.0.1:17689/
 node tests/webui/settings-locales.js http://127.0.0.1:17689/
 ```
 
@@ -27,3 +29,10 @@ scheduler command parameters are excluded from summaries.
 
 The health check simulates option warnings and errors in read-only RPC responses
 and verifies their counts remain visible on all three collapsed list types.
+
+The phone-navigation check bounds the section menu, reaches every section by
+keyboard, keeps the focused link in view, and checks that categories appear in
+the first phone screen. Desktop retains the full menu in both themes.
+
+The title check returns repeatedly from Paths to all five static Settings pages
+and verifies their localized headings in English, German, and Turkish.
