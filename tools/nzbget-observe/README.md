@@ -69,14 +69,19 @@ finished and unrecognized stages do not trigger. `DOWNLOADING` reports existing
 article workers: download pause/quota prevent their next transfer but do not stop
 an in-flight transfer, which remains observed. Post-processing pause suppresses
 ordinary PAR stages that explicitly wait on it; force-priority PAR jobs (900 or
-higher) remain observed. Already-running unpack, ordinary PAR/RAR rename, and
-post-processing stream repair continue through the post pause. Priority is read
+higher) remain observed. Ordinary PAR/RAR rename also exposes numeric progress
+and continues through the post pause. Priority is read
 from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
 the observation unknown. Individually paused or queued jobs remain inactive even
 at force priority. URL `FETCHING`, `EXECUTING_SCRIPT`, and `QS_EXECUTING` remain
 visible as running stages regardless of these global flags, but do not trigger.
 `MOVING` (including cleanup), `POST_DOWNLOAD_RENAMING`, and
 `POST_UNPACK_RENAMING` also remain active without a usable numeric progress signal.
+`STREAM_REPAIRING` can perform productive ordinary donor work without exporting
+byte progress; its numeric stage progress applies only to an optional subphase.
+`UNPACKING` conflates ordinary unpack (numeric progress) with DirectUnpack, which
+only updates private labels. These replies cannot reliably distinguish the two.
+Both stages remain active with `progress_observable: false`.
 Their static article/post counters cannot distinguish useful work from a stall.
 A paused script-output reader does not suspend the child. These unsupported stages have
 `progress_observable: false`; no private progress-label text is retained.
@@ -89,7 +94,7 @@ seconds shorter than the monotonic observation interval. Small clock differences
 are tolerated; this is not a process-identity guarantee.
 Duplicate alerts are suppressed until progress or state changes.
 
-This is a symptom, not proof of a hang. A long-running repair or unpack step can
+This is a symptom, not proof of a hang. A long-running repair or rename step can
 make useful work without updating these counters. A job that never becomes active
 is outside this first detector's scope. Read the suggested next check before
 acting.

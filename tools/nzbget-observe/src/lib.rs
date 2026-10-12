@@ -186,8 +186,6 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
                     | "VERIFYING_REPAIRED"
                     | "REPAIRING"
                     | "RENAMING"
-                    | "UNPACKING"
-                    | "STREAM_REPAIRING"
             ),
         });
     }
@@ -374,8 +372,8 @@ mod tests {
             ("DOWNLOADING", 900, true, true, false, 1),
             ("DOWNLOADING", -100, false, true, false, 1),
             ("DOWNLOADING", -100, false, false, false, 1),
-            ("UNPACKING", 899, false, false, true, 1),
-            ("UNPACKING", 900, false, false, true, 1),
+            ("UNPACKING", 899, false, false, true, 0),
+            ("UNPACKING", 900, false, false, true, 0),
             ("REPAIRING", 901, true, true, true, 1),
             ("QUEUED", 900, true, true, true, 0),
             ("PP_QUEUED", 900, true, true, true, 0),
@@ -445,12 +443,12 @@ mod tests {
             ("REPAIRING", 0),
             ("VERIFYING_REPAIRED", 0),
             ("EXECUTING_SCRIPT", 0),
-            ("UNPACKING", 1),
+            ("UNPACKING", 0),
             ("MOVING", 0),
             ("RENAMING", 1),
             ("POST_UNPACK_RENAMING", 0),
             ("POST_DOWNLOAD_RENAMING", 0),
-            ("STREAM_REPAIRING", 1),
+            ("STREAM_REPAIRING", 0),
             ("QS_EXECUTING", 0),
         ] {
             let mut g = group();
@@ -579,6 +577,27 @@ mod tests {
             let s = normalize(&st, &json!([g]), 60).unwrap();
             assert!(s.jobs[0].active);
             assert!(!s.jobs[0].progress_observable, "{stage}");
+            assert!(detector.observe(&s, 60).is_empty());
+        }
+    }
+
+    #[test]
+    fn ordinary_stream_repair_and_direct_unpack_cannot_false_stall_on_static_counters() {
+        for stage in ["STREAM_REPAIRING", "UNPACKING"] {
+            let mut g = group();
+            g["Status"] = json!(stage);
+            g["RemainingSizeHi"] = json!(0);
+            g["RemainingSizeLo"] = json!(0);
+            let mut st = status();
+            let mut detector = Detector::default();
+            detector.observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60);
+            st["UpTimeSec"] = json!(160);
+            let s = normalize(&st, &json!([g]), 60).unwrap();
+            assert!(s.jobs[0].active);
+            assert!(
+                !s.jobs[0].progress_observable,
+                "ambiguous or unexported {stage} progress"
+            );
             assert!(detector.observe(&s, 60).is_empty());
         }
     }
