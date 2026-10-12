@@ -4,8 +4,10 @@
 Execution requires Linux for subreaper-backed descendant supervision. Timing
 accepts native prebuilt executables; it never invokes a shell or build tool.
 This resource coordinator is not a sandbox for untrusted programs. Capture uses
-Linux single-threaded custody: callers must not introduce threads, external
-SIGCHLD reapers/SA_NOCLDWAIT, or other raising signal handlers during capture.
+Linux single-threaded custody requires dormant default/ignored ALRM policy.
+Private callers with custom/armed ALRM are rejected before allocation; callers
+must not introduce threads, external SIGCHLD reapers/SA_NOCLDWAIT, change signal
+policy, or raise other signals (including Python's default SIGINT) in custody.
 The CLI owns its benign INT/TERM/HUP and default CHLD handlers. Capture never
 changes caller ALRM handler/timer/restart policy; ALRM/CHLD are briefly masked
 only for allocation, ownership bookkeeping and cleanup, then restored exactly.
@@ -163,9 +165,14 @@ def capture_file(kind, path, *, max_bytes, deadline, cancelled=None):
         raise CaptureFailure("unavailable")
     if not sys.platform.startswith("linux"):
         raise CaptureFailure("unavailable")
-    if len(list(Path("/proc/self/task").iterdir())) != 1 or signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+    handler = signal.getsignal(signal.SIGALRM)
+    if handler is not signal.SIG_DFL and handler is not signal.SIG_IGN:
+        raise CaptureFailure("unavailable")
+    if any(signal.getitimer(signal.ITIMER_REAL)):
         raise CaptureFailure("unavailable")
     if signal.SIGALRM in signal.pthread_sigmask(signal.SIG_BLOCK, set()) or signal.SIGALRM in signal.sigpending():
+        raise CaptureFailure("unavailable")
+    if len(list(Path("/proc/self/task").iterdir())) != 1 or signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
         raise CaptureFailure("unavailable")
     parent_pid = os.getpid()
     libc = ctypes.CDLL(None, use_errno=True)
@@ -250,17 +257,27 @@ def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
     deadline = time.monotonic() + 300 if deadline is None else deadline
     return capture_file("digest", path, max_bytes=max_bytes, deadline=deadline, cancelled=cancelled)
 
-# The executable CLI owns CHLD before its first capture, including an inherited
-# ignored disposition. Imported private callers retain their own disposition.
-if __name__ == "__main__":
+CLI_INTERRUPTED = [0]
+
+
+def own_cli_signals(interrupted):
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
+
+
+# Own benign cancellation handlers before the executable CLI's startup capture.
+# Imported private callers retain their own handlers and restricted admission.
+if __name__ == "__main__":
+    own_cli_signals(CLI_INTERRUPTED)
 
 # Preserve the invocation's implementation identity. Later source changes must
 # not relabel already-loaded code as though it came from the new file.
 RUNNER_ORIGINAL_PATH = Path(__file__)
 RUNNER_PATH = RUNNER_ORIGINAL_PATH.resolve()
 try:
-    INVOCATION_RUNNER_SHA256 = digest_file(RUNNER_PATH, max_bytes=1024 * 1024, deadline=time.monotonic() + 2)
+    INVOCATION_RUNNER_SHA256 = digest_file(RUNNER_PATH, max_bytes=1024 * 1024, deadline=time.monotonic() + 2,
+                                        cancelled=lambda: bool(CLI_INTERRUPTED[0]))
     INVOCATION_RUNNER_ERROR = None
 except (OSError, CaptureFailure) as error:
     INVOCATION_RUNNER_SHA256 = None
@@ -659,13 +676,17 @@ def emergency_reap():
             pass
 
 
-def supervise(args, command, env, locks, parent_pipe, result_pipe):
+def supervise(args, command, env, locks, parent_pipe, result_pipe, cancellation_state=None):
     """Custodian survives CLI death; lock release follows descendant reaping."""
     os.setsid()
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-    interrupted = [0]
+    interrupted = [0] if cancellation_state is None else cancellation_state
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
+    if interrupted[0]:
+        send_result(result_pipe, {"exit_code": 128 + interrupted[0], "outcome": "interrupted",
+                    "duration_ns": 0, "command_started": False, "qualification": "HOLD"})
+        return
     deadline = time.monotonic() + args.timeout_seconds
     parent_gone = [False]
     def cancelled():
@@ -773,7 +794,7 @@ def execute(args, command, env, locks, interrupted):
         os.close(result_read)
         quiescent = False
         try:
-            supervise(args, command, env, locks, parent_read, result_write)
+            supervise(args, command, env, locks, parent_read, result_write, interrupted)
             emergency_reap()
             quiescent = True
         except BaseException:
@@ -867,12 +888,16 @@ def save_metadata(path, proof):
 
 def main(argv=None):
     args = arguments(argv)
-    interrupted = [0]
-    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, lambda number, frame: interrupted.__setitem__(0, number))
+    interrupted = CLI_INTERRUPTED if __name__ == "__main__" else [0]
+    own_cli_signals(interrupted)
     proof = None
     try:
+        if interrupted[0]:
+            command = list(args.command)
+            if args.metadata:
+                metadata_destination_safe(args, command)
+                proof = provenance(args, command, Path(command[0]))
+            raise InterruptedError
         command, executable = prepare_command(args, cancelled=lambda: bool(interrupted[0]))
         if not sys.platform.startswith("linux"):
             raise ValueError("command execution requires the existing Linux worker")
@@ -886,7 +911,7 @@ def main(argv=None):
             result = execute(args, command, env, locks, interrupted)
     except InterruptedError:
         result = {"exit_code": 128 + (interrupted[0] or signal.SIGTERM), "outcome": "interrupted",
-                  "duration_ns": 0, "command_started": False}
+                  "duration_ns": 0, "command_started": False, "qualification": "HOLD"}
     except TimeoutError:
         print("runner: lock acquisition timed out; command was not launched", file=sys.stderr)
         result = {"exit_code": 75, "outcome": "lock_timeout", "duration_ns": 0, "command_started": False}

@@ -892,7 +892,7 @@ raise SystemExit(runner.main())
 
 
     @unittest.skipUnless(LINUX, "native SA_RESTART observation uses Linux libc")
-    def test_caller_native_read_restart_policy_survives_capture_and_rejection(self):
+    def test_rejected_custom_capture_preserves_both_native_restart_policies(self):
         helper = self.script(f"""import ctypes,importlib.util,json,os,signal,time
 spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
 runner=importlib.util.module_from_spec(spec)
@@ -904,7 +904,9 @@ def observe(action,interrupt):
     signal.signal(signal.SIGALRM,lambda number,frame: None)
     signal.siginterrupt(signal.SIGALRM,interrupt)
     if action=='capture':
-        runner.digest_file(__file__,deadline=time.monotonic()+1)
+        try: runner.digest_file(__file__,deadline=time.monotonic()+1)
+        except runner.CaptureFailure as error: assert error.code=='unavailable'
+        else: raise AssertionError('custom policy was accepted')
     elif action=='rejected':
         mask=signal.pthread_sigmask(signal.SIG_BLOCK,{{signal.SIGALRM}})
         try:
@@ -949,70 +951,133 @@ print(json.dumps(results))
                 with self.subTest(policy=policy, action=action):
                     self.assertEqual(rows[str(policy) + "/" + action], rows[str(policy) + "/baseline"])
 
-    @unittest.skipUnless(LINUX, "allocation custody probes use Linux child state")
-    def test_raising_caller_alarm_cannot_leave_allocated_fds_or_capture_child(self):
-        for fault in ("pipe", "fork", "close"):
-            with self.subTest(fault=fault):
-                helper = self.script(f"""import importlib.util,json,os,signal,time
+    @unittest.skipUnless(LINUX, "private ALRM admission observations require Linux")
+    def test_unsupported_alarm_policy_is_rejected_before_task_scan_or_resources(self):
+        for case in ("callable", "raising", "one_shot", "periodic", "interval_model", "blocked", "pending", "pending_model"):
+            with self.subTest(case=case):
+                helper = self.script(f"""import ctypes,importlib.util,json,os,signal,time
+from pathlib import Path
 spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
 runner=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
-parent=os.getpid()
-real_pipe,real_fork,real_close=os.pipe,os.fork,os.close
-allocated,spawned,fired=[],[],[]
-class CallerAlarm(RuntimeError): pass
-def alarm(number,frame): raise CallerAlarm('caller')
-signal.signal(signal.SIGALRM,alarm)
-def pipe():
-    pair=real_pipe()
-    allocated.extend(pair)
-    if {fault!r}=='pipe': os.kill(parent,signal.SIGALRM)
-    return pair
-def fork():
-    pid=real_fork()
-    if pid>0:
-        spawned.append(pid)
-        if {fault!r}=='fork': os.kill(parent,signal.SIGALRM)
-    return pid
-def close(fd):
-    if os.getpid()==parent and {fault!r}=='close' and allocated and fd==allocated[0] and not fired:
-        fired.append(True)
-        os.kill(parent,signal.SIGALRM)
-    return real_close(fd)
-runner.os.pipe,runner.os.fork,runner.os.close=pipe,fork,close
-original_capture=runner.capture_file_bytes
-def capture(*args):
-    if {fault!r}=='fork': time.sleep(.2)
-    return original_capture(*args)
-runner.capture_file_bytes=capture
-error=None
-try: runner.digest_file(__file__,deadline=time.monotonic()+1)
-except CallerAlarm: error='caller'
-finally: runner.os.pipe,runner.os.fork,runner.os.close=real_pipe,real_fork,real_close
-held=[]
-for fd in allocated:
-    try: os.fstat(fd);held.append(fd)
-    except OSError: pass
-live=[]
-for pid in spawned:
-    try:
-        if os.waitpid(pid,os.WNOHANG)[0]==0: live.append(pid)
-    except ChildProcessError: pass
-print(json.dumps({{'error':error,'held_fds':held,'live_child':live}}))
-for pid in live:
-    try: os.kill(pid,signal.SIGKILL)
-    except ProcessLookupError: pass
-    os.waitpid(pid,0)
-for fd in held:
-    try: real_close(fd)
-    except OSError: pass
-""", f"allocation-{fault}.py")
+case={case!r}
+real_timer,real_pending,real_mask=signal.getitimer,signal.sigpending,signal.pthread_sigmask
+initial_mask=real_mask(signal.SIG_BLOCK,set())
+if case in ('callable','raising'):
+    def handler(number,frame):
+        if case=='raising': raise RuntimeError('unsupported caller')
+    signal.signal(signal.SIGALRM,handler)
+elif case in ('one_shot','periodic','interval_model'):
+    signal.signal(signal.SIGALRM,signal.SIG_IGN)
+    if case!='interval_model': signal.setitimer(signal.ITIMER_REAL,5,.5 if case=='periodic' else 0)
+if case in ('blocked','pending'):
+    real_mask(signal.SIG_BLOCK,{{signal.SIGALRM}})
+    if case=='pending': os.kill(os.getpid(),signal.SIGALRM)
+handler_before=signal.getsignal(signal.SIGALRM)
+timer_before=real_timer(signal.ITIMER_REAL)
+mask_before=real_mask(signal.SIG_BLOCK,set())
+pending_before=real_pending()
+if case=='interval_model': runner.signal.getitimer=lambda which: (0,.5) # explicit Linux-unrepresented interval model
+if case=='pending_model': runner.signal.sigpending=lambda: {{signal.SIGALRM}} # pending-only branch model
+def forbidden(*args,**kwargs): raise AssertionError('resource API before policy rejection')
+old_iter=Path.iterdir
+def iterdir(path):
+    if path==Path('/proc/self/task'): forbidden()
+    return old_iter(path)
+Path.iterdir=iterdir
+runner.ctypes.CDLL=forbidden
+runner.os.pipe=forbidden
+runner.os.fork=forbidden
+runner.signal.signal=forbidden
+runner.signal.setitimer=forbidden
+def mask(how,values):
+    if values or how!=signal.SIG_BLOCK: forbidden()
+    return real_mask(how,values)
+runner.signal.pthread_sigmask=mask
+started=time.monotonic()
+code=None
+try: runner.digest_file(__file__,deadline=started+1)
+except runner.CaptureFailure as error: code=error.code
+timer_after=real_timer(signal.ITIMER_REAL)
+state={{'handler':signal.getsignal(signal.SIGALRM) is handler_before,
+        'mask':real_mask(signal.SIG_BLOCK,set())==mask_before,'pending':real_pending()==pending_before,
+        'interval':timer_after[1]==timer_before[1],
+        'delay':abs(timer_after[0]-max(0,timer_before[0]-(time.monotonic()-started)))<.02}}
+print(json.dumps({{'code':code,'state':state}}))
+if signal.SIGALRM in real_pending(): signal.sigwait({{signal.SIGALRM}})
+real_mask(signal.SIG_SETMASK,initial_mask)
+""", f"policy-{case}.py")
                 result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 row = json.loads(result.stdout)
-                self.assertEqual(row["error"], "caller")
-                self.assertEqual(row["held_fds"], [])
-                self.assertEqual(row["live_child"], [])
+                self.assertEqual(row["code"], "unavailable")
+                self.assertTrue(all(row["state"].values()), row)
+
+    @unittest.skipUnless(LINUX, "startup interruption and child state require Linux")
+    def test_real_startup_interrupt_is_carried_to_unstarted_hold_metadata(self):
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=number):
+                ready, completed, marker, metadata = [self.root / f"startup-{number}-{name}" for name in ("ready", "completed", "never", "proof.json")]
+                copy = self.root / f"startup-{number}-runner.py"
+                source = RUNNER.read_text()
+                injection = f"""original_capture_bytes = capture_file_bytes
+def paused_startup(kind, path, limit):
+    if Path(path) == RUNNER_PATH:
+        Path({str(ready)!r}).write_text(str(os.getpid()))
+        time.sleep(.4)
+        Path({str(completed)!r}).touch()
+    return original_capture_bytes(kind, path, limit)
+capture_file_bytes = paused_startup
+"""
+                source = source.replace("try:\n    INVOCATION_RUNNER_SHA256", injection + "try:\n    INVOCATION_RUNNER_SHA256", 1)
+                copy.write_text(source)
+                argv = self.script(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n", f"startup-{number}-payload.py")
+                command = self.command("build", argv, ("--metadata", str(metadata), "--testbed", "fixture-worker"))
+                command[1] = str(copy)
+                child = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.children.append(child)
+                self.wait_file(ready)
+                child.send_signal(number)
+                _, error = child.communicate(timeout=3)
+                self.assertEqual(child.returncode, 128 + number, error)
+                self.assertFalse(marker.exists())
+                self.assertFalse(completed.exists())
+                proof = json.loads(metadata.read_text())
+                self.assertEqual(proof["exit_code"], 128 + number)
+                self.assertEqual(proof["outcome"], "interrupted")
+                self.assertFalse(proof["command_started"])
+                self.assertEqual(proof["qualification"], "HOLD")
+                self.assertEqual(proof["runner_identity_error"], "cancelled")
+                self.assertIsNone(proof["runner_sha256"])
+                self.assertEqual(proof["captures"], {"before": [], "after": []})
+                self.assertNotIn("child_exit_code", proof)
+                with self.assertRaises(ProcessLookupError): os.kill(int(ready.read_text()), 0)
+                self.assertTrue(self.available("i7-heavy.lock"))
+                self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
+    @unittest.skipUnless(LINUX, "supervisor admission and lock custody require Linux")
+    def test_cancel_recorded_before_supervisor_admission_never_launches_payload(self):
+        marker = self.root / "supervisor-never"
+        wrapper = self.script(f"""import importlib.util,signal
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=runner.execute
+def execute(args,command,env,locks,interrupted):
+    interrupted[0]=signal.SIGTERM
+    return original(args,command,env,locks,interrupted)
+runner.execute=execute
+raise SystemExit(runner.main())
+""", "cancel-before-supervise.py")
+        argv = self.script(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n", "supervisor-payload.py")
+        command = self.command("build", argv)
+        command[0:2] = wrapper
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
+        self.assertEqual(result.returncode, 143, result.stderr)
+        self.assertFalse(marker.exists())
+        self.assertTrue(self.available("i7-heavy.lock"))
+        self.assertTrue(self.available("nzbget-rust-benchmark.lock"))
+
 
     def test_already_reaped_capture_pid_is_never_signalled(self):
         spec = importlib.util.spec_from_file_location("runner_reap_order", RUNNER)
@@ -1032,122 +1097,6 @@ for fd in held:
             module.os.kill = real_kill
         self.assertFalse(attempts)
 
-    @unittest.skipUnless(LINUX, "cleanup-entry probes require Linux child state")
-    def test_caller_alarm_at_cleanup_entry_cannot_escape_live_custody(self):
-        for phase in ("entry", "condition"):
-            with self.subTest(phase=phase):
-                ready = self.root / f"cleanup-{phase}"
-                helper = self.script(f"""import importlib.util,inspect,json,os,signal,sys,time
-from pathlib import Path
-spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
-runner=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
-original=runner.capture_file_bytes
-def capture(*args):
-    Path({str(ready)!r}).write_text(str(os.getpid()))
-    time.sleep(.2)
-    return original(*args)
-runner.capture_file_bytes=capture
-class CallerAlarm(RuntimeError): pass
-def alarm(number,frame): raise CallerAlarm('caller')
-signal.signal(signal.SIGALRM,alarm)
-lines,first=inspect.getsourcelines(runner.capture_file)
-start=next(i for i,line in enumerate(lines) if line.strip()=='finally:')
-conditions=[first+i for i,line in enumerate(lines) if i>start and (line.strip().startswith('while pid is not None') or line.strip().startswith('if pid is None and reader is None'))]
-entries=[first+i for i,line in enumerate(lines) if i>start and line.strip()=='failure = None']
-condition=conditions[0]
-entry=entries[0] if entries else condition
-target=entry if {phase!r}=='entry' else condition
-observed={{}}
-def trace(frame,event,arg):
-    if frame.f_code is runner.capture_file.__code__ and event=='line' and frame.f_lineno==target and not observed:
-        observed.update(pid=frame.f_locals.get('pid'),fds=[frame.f_locals.get('reader'),frame.f_locals.get('writer')])
-        os.kill(os.getpid(),signal.SIGALRM)
-    return trace
-error=None
-try:
-    sys.settrace(trace)
-    runner.digest_file(__file__,deadline=time.monotonic()+1,cancelled=lambda: Path({str(ready)!r}).exists())
-except CallerAlarm: error='caller'
-finally: sys.settrace(None)
-held=[]
-for fd in observed.get('fds',[]):
-    if fd is not None:
-        try: os.fstat(fd);held.append(fd)
-        except OSError: pass
-pid=observed.get('pid')
-live=False
-if pid:
-    try: live=os.waitpid(pid,os.WNOHANG)[0]==0
-    except ChildProcessError: pass
-print(json.dumps({{'error':error,'held':held,'live':live}}))
-if live:
-    os.kill(pid,signal.SIGKILL)
-    os.waitpid(pid,0)
-for fd in held: os.close(fd)
-""", f"cleanup-{phase}.py")
-                result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(result.stdout), {"error": "caller", "held": [], "live": False})
-
-    @unittest.skipUnless(LINUX, "caller timer/state observations require the worker")
-    def test_capture_child_keeps_caller_action_timer_schedule_and_mask(self):
-        fixture = self.root / "caller-fixture"
-        fixture.write_bytes(b"caller state")
-        for interval in (0, .5):
-            with self.subTest(interval=interval):
-                spec = importlib.util.spec_from_file_location("runner_caller_state", RUNNER)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                real_signal, real_timer, real_mask, real_fdopen = signal.signal, signal.setitimer, signal.pthread_sigmask, os.fdopen
-                previous_handler = signal.getsignal(signal.SIGALRM)
-                previous_timer = signal.getitimer(signal.ITIMER_REAL)
-                previous_mask = real_mask(signal.SIG_BLOCK, set())
-                parent, delivered = os.getpid(), []
-                handler = lambda number, frame: delivered.append(time.monotonic())
-                identity = fixture.stat()
-                class Reader:
-                    def __init__(self, stream): self.stream, self.delayed = stream, False
-                    def __enter__(self): return self
-                    def __exit__(self, *args): return self.stream.__exit__(*args)
-                    def __getattr__(self, name): return getattr(self.stream, name)
-                    def readinto(self, buffer):
-                        if not self.delayed:
-                            self.delayed = True
-                            time.sleep(.12)
-                        return self.stream.readinto(buffer)
-                def fdopen(fd, *args, **kwargs):
-                    stream = real_fdopen(fd, *args, **kwargs)
-                    observed = os.fstat(fd)
-                    return Reader(stream) if (observed.st_dev, observed.st_ino) == (identity.st_dev, identity.st_ino) else stream
-                def action(*args):
-                    if os.getpid() == parent: self.fail("capture changed caller signal action")
-                    return real_signal(*args)
-                def timer(*args):
-                    if os.getpid() == parent: self.fail("capture changed caller timer")
-                    return real_timer(*args)
-                try:
-                    real_signal(signal.SIGALRM, handler)
-                    real_timer(signal.ITIMER_REAL, .03, interval)
-                    module.signal.signal, module.signal.setitimer, module.os.fdopen = action, timer, fdopen
-                    digest = module.digest_file(fixture, deadline=time.monotonic() + 1)
-                    ended = time.monotonic()
-                    self.assertEqual(digest, hashlib.sha256(b"caller state").hexdigest())
-                    self.assertEqual(len(delivered), 1)
-                    self.assertLess(delivered[0], ended)
-                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-                    self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
-                    remaining, repeat = signal.getitimer(signal.ITIMER_REAL)
-                    self.assertEqual(repeat, interval)
-                    if interval:
-                        self.assertAlmostEqual(remaining, interval - (ended - delivered[0]), delta=.05)
-                    else:
-                        self.assertEqual(remaining, 0)
-                finally:
-                    module.signal.signal, module.signal.setitimer, module.os.fdopen = real_signal, real_timer, real_fdopen
-                    real_timer(signal.ITIMER_REAL, 0)
-                    real_signal(signal.SIGALRM, previous_handler)
-                    real_timer(signal.ITIMER_REAL, *previous_timer)
 
     @unittest.skipUnless(LINUX, "IPC status and process custody require the worker")
     def test_capture_ipc_rejects_partial_oversized_wrong_types_and_child_crashes(self):
