@@ -2155,18 +2155,40 @@ BreakLoop:
 #endif
 
 #ifdef NZBGET_USE_RUST
+namespace
+{
+	// Caller-owned bounded encodings; Reserve allocates bound+1 bytes and
+	// the final NUL supplies CString's logical Length().
+	template <class Write>
+	CString RustEncodedKnownResult(size_t inputLen, size_t expansion, Write write)
+	{
+		if (inputLen > (static_cast<size_t>(std::numeric_limits<int>::max()) - 1) / expansion)
+		{
+			std::abort();
+		}
+		size_t bound = inputLen * expansion;
+		CString result;
+		result.Reserve(static_cast<int>(bound));
+		char* output = static_cast<char*>(result);
+		if (!output || write(output, bound + 1) > bound)
+		{
+			// Includes SIZE_MAX rejection; never request an unbounded retry.
+			std::abort();
+		}
+		return result;
+	}
+
+}
+#endif
+
+#ifdef NZBGET_USE_RUST
 CString WebUtil::Latin1ToUtf8(const char* str)
 {
 	// rust/src/text.rs
-	NzbgetRsBuf buf = nzbget_rs_latin1_to_utf8(str);
-	if (buf.len >= static_cast<size_t>(std::numeric_limits<int>::max()))
-	{
-		nzbget_rs_free(buf);
-		std::abort();
-	}
-	CString result(buf.data, static_cast<int>(buf.len));
-	nzbget_rs_free(buf);
-	return result;
+	size_t inputLen = str ? strlen(str) : 0;
+	return RustEncodedKnownResult(inputLen, 2, [str, inputLen](char* out, size_t cap) {
+		return nzbget_rs_latin1_to_utf8_n(str, inputLen, out, cap);
+	});
 }
 #else
 CString WebUtil::Latin1ToUtf8(const char* str)

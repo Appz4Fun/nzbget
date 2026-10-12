@@ -1,0 +1,5 @@
+f945dadcc62a0b4927158748a54c0c3f8091d9b0645e1a55eb05a5350b5584a3  daemon/util/Util.cpp
+9bae61ea8afa4a8022d12f133d76213d7d797c6665003f13c0a05ba30933612f  rust/include/nzbget_rs.h
+6b3bf8c762f08856d1d0e5479e50bea56f1420bfd22d2079c2efdd7c16e806a6  rust/src/ffi.rs
+d2c2c8d561b0aaa93c2f06e8b0938f981d0a410df96704d2edfe61435e0c0bf2  rust/src/text.rs
+8436902537a79b7b16748aa9d5dda2eecba298bc06e0f56872df83fe2db72c36  rust/tests/text_differential.py

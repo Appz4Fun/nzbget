@@ -1,0 +1,5 @@
+BENCH|JSON ASCII name, actual CString|108.0|89.5|1.21
+BENCH|JSON accented title, actual CString|462.8|392.0|1.18
+BENCH|JSON4KiB, actual CString|6541.9|5070.3|1.29
+BENCH|JSON64KiB, actual CString|101290.6|114128.2|0.89
+BENCH|Latin1 name, actual CString|30.2|78.6|0.38
