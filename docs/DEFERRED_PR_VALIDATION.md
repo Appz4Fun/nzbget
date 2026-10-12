@@ -38,3 +38,43 @@ Source snapshot: `31e197612b3570e55ca9ea525a358e8ccdc06da7`.
   production RPC, or qualify its production overhead.
 - [ ] Normalize the extra trailing blank line in the observer Cargo manifest
   during follow-up; the integration whitespace check reported it.
+
+## PR #80 — native proxy discovery and watcher
+
+Published source: `59f3408a32dc1ba9a6c4f6d72a9cad427be29fae`, with the
+frozen held-member eligibility repair tree
+`14fad1a2ecf575e780b2753d266cbf6798d6818d`.
+
+- [ ] Fix the three unresolved Codex findings: infer whole size per file, pass
+  inferred full data extent to PAR feasibility, and reschedule eligible old
+  history picks after an interrupted SEARCHING checkpoint. These repairs are
+  not implemented in this snapshot.
+- [ ] Validate the included placement-eligibility checks before and after probe
+  work. Only the original held-BAD failure was executed; the repaired code and
+  FORCE, healthy and asynchronous BAD controls remain unexecuted.
+- [ ] Complete the excluded size/PAR regression fixtures alongside their
+  matching implementation. Private proof drivers and unfinished tests were
+  preserved in the owner workspace, not added to this squash.
+- [ ] Revisit slower and inconclusive complete-caller results and incomplete
+  per-call I/O instrumentation. This latest source has not been timed.
+- [ ] Complete integrated correctness checks and current-head review; leave
+  outstanding review discussions truthful. Backend deployment remains held.
+
+## PR #87 — stream repair prototypes
+
+Published source: `5838c33b16d2c35aaa77b457d8500df51d1c7b5d`, updated
+with the coherent hybrid-floor snapshot
+`cdcf844ed22e4df71810b37696a53619e4df4569`.
+
+- [ ] Follow `docs/PR87_DEFERRED_VALIDATION.md`. Dense PatchParts was about
+  24.6% slower than fair C++; the old floor had 12 losing cases. The revised
+  hybrid floor is not qualified: its first process had 741 of 8,784 retained
+  rows below the required 5 ms, invalidating the packet and halting remaining
+  runs. Preserve all results and do not replay that frozen plan.
+- [ ] Validate the integrated hybrid, PatchParts, FFI and all registered
+  benchmarks together. The benchmark-registration merge conflict was resolved
+  by retaining both proxy and stream-compare cases; this composition is unbuilt.
+- [ ] Complete integrated correctness, current-head review and new prospectively
+  approved performance work. Do not infer qualification from source inclusion.
+- [ ] Keep backend deployment held. The separate PAR proposal and private proof
+  tools were not included in this immediate squash.

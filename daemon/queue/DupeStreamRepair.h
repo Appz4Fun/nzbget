@@ -193,6 +193,15 @@ public:
 	static std::string BuildDonorKey(NzbInfo* donorNzb, const char* password);
 
 private:
+#ifdef NZBGET_USE_RUST
+	// Owned scratch belongs to exceptional geometry, not the ordinary caller.
+	[[gnu::noinline]] static int64 RequiredCompareFloorExact(const StreamRangeList& holes,
+		const StreamRangeList& donorRanges, const std::vector<int>& probeParts);
+	[[gnu::noinline]] static int64 RequiredCompareFloorUnordered(const StreamRangeList& holes,
+		const StreamRangeList& donorRanges, const std::vector<int>& probeParts);
+	[[gnu::always_inline]] static inline int64 RequiredCompareFloorAvailable(const StreamRange* ranges,
+		size_t count, const StreamRangeList& donorRanges, const std::vector<int>& probeParts);
+#endif
 	static bool RangesIntersect(const StreamRange& range1, const StreamRange& range2)
 	{
 		return range1.Offset < range2.End() && range2.Offset < range1.End();

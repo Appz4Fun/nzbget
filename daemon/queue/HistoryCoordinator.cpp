@@ -36,6 +36,7 @@
 #include "ServerPool.h"
 #include "DupeProbe.h"
 #include "ParDamage.h"
+#include "DupeSearch.h"
 
 /**
  * Removes old entries from (recent) history
@@ -949,7 +950,11 @@ bool HistoryCoordinator::HistorySetName(HistoryInfo* historyInfo, const char* te
 
 	if (historyInfo->GetKind() == HistoryInfo::hkNzb || historyInfo->GetKind() == HistoryInfo::hkUrl)
 	{
+		std::string previous = historyInfo->GetNzbInfo()->GetName();
 		historyInfo->GetNzbInfo()->SetName(text);
+        if (historyInfo->GetKind()==HistoryInfo::hkNzb && g_DupeSearch &&
+            previous != historyInfo->GetNzbInfo()->GetName())
+            g_DupeSearch->NotifyNameChanged(historyInfo->GetNzbInfo()->GetId());
 	}
 	else if (historyInfo->GetKind() == HistoryInfo::hkDup)
 	{
@@ -990,6 +995,7 @@ void HistoryCoordinator::HistorySetDupeParam(HistoryInfo* historyInfo, DownloadQ
 		switch (action)
 		{
 			case DownloadQueue::eaHistorySetDupeKey:
+                historyInfo->GetNzbInfo()->GetParameters()->SetParameter(DupeSearch::OwnedKeyParam, nullptr);
 				historyInfo->GetNzbInfo()->SetDupeKey(text);
 				break;
 

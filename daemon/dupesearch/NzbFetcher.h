@@ -22,12 +22,15 @@
 #define NZBFETCHER_H
 
 #include <map>
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include "Newznab.h"
 #include "NzbReader.h"
 #include "Posting.h"
+#include "HttpGet.h"
 
 /*
  * Downloads nzb-files from an indexer for the duplicate search. Every
@@ -46,7 +49,8 @@ public:
 		frOk,
 		frFetch,		// the download failed
 		frParse,		// not an nzb-file (an error answer, an empty body, HTML)
-		frRefused		// the indexer is at its grab limit: not asked
+		frRefused,		// the indexer is at its grab limit: not asked
+		frBudget
 	};
 
 	struct Fetched
@@ -56,6 +60,7 @@ public:
 		std::string data;
 		NzbSummary info;
 		bool sameInner = false;
+		bool lenient = false;
 	};
 
 	// what happened to the listings of the postings fetched
@@ -67,25 +72,43 @@ public:
 		int refused = 0;
 		int relisted = 0;			// listings of a fetched posting that weren't needed
 		int listingMismatch = 0;	// postings only an nzb-file of another size was served for
+		int budget = 0;
 		void Add(const Stats& other);
 	};
 
 	static constexpr int CooldownSec = 30 * 60;
 	static constexpr int RetryDelaySec = 2;
 	static constexpr size_t MaxNzbBytes = 64 * 1024 * 1024;
+	class Budget
+	{
+	public:
+		explicit Budget(int maxDonors);
+		~Budget();
+		Budget(const Budget&) = delete;
+		Budget& operator=(const Budget&) = delete;
+		bool Take();
+		bool Spent() const;
+	private:
+		void* m_rust = nullptr;
+		std::atomic<unsigned long long> m_left;
+		bool m_unlimited;
+	};
+	using FetchFunc = std::function<HttpGet::Reply(const std::string&, const std::string&, size_t, long long)>;
+	NzbFetcher() = default;
+	explicit NzbFetcher(FetchFunc fetch) : m_fetch(std::move(fetch)) {}
 
 	/* the file the cooldowns are kept in (empty: not kept) */
 	void SetStatePath(const std::string& path);
 	void Load();
 
 	/* downloads the nzb-file of one listing; the data of an nzb-file is returned only for frOk */
-	Fetched Fetch(const Newznab::Result& listing, time_t deadline, int retries = 1);
+	Fetched Fetch(const Newznab::Result& listing, time_t deadline, int retries = 1, Budget* budget = nullptr);
 
 	/* one nzb-file of a posting: its listings in turn until one serves an
 	 * nzb-file of its listed size. A listing that serves another size (an
 	 * indexer may serve another indexer's nzb-file) is kept only if no
 	 * listing serves the posting itself. */
-	Fetched FetchPosting(const Posting::Group& listings, time_t deadline, Stats& stats);
+	Fetched FetchPosting(const Posting::Group& listings, time_t deadline, Stats& stats, Budget* budget = nullptr);
 
 	bool IsRefused(const std::string& indexer);
 
@@ -94,6 +117,7 @@ private:
 	std::map<std::string, std::unique_ptr<std::mutex>> m_indexerLocks;
 	std::map<std::string, time_t> m_refusedUntil;
 	std::string m_statePath;
+	FetchFunc m_fetch;
 
 	std::mutex& IndexerLock(const std::string& indexer);
 	void Refuse(const std::string& indexer);
