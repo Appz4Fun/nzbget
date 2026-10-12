@@ -1,0 +1,20 @@
+{
+  "checked_on": "2026-10-11",
+  "resolutions": [
+    {
+      "repository": "actions/checkout",
+      "ref": "refs/tags/v6",
+      "sha": "d23441a48e516b6c34aea4fa41551a30e30af803",
+      "type": "commit",
+      "source": "https://api.github.com/repos/actions/checkout/git/ref/tags/v6",
+      "action_name": "Checkout"
+    },
+    {
+      "repository": "actions/download-artifact",
+      "ref": "refs/tags/v4",
+      "sha": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+      "type": "commit",
+      "source": "https://api.github.com/repos/actions/download-artifact/git/ref/tags/v4"
+    }
+  ]
+}

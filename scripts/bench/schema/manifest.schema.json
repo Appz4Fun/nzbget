@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet matched benchmark manifest v1",
+  "$comment": "summarize.py also enforces printable strings, finite JSON, distinct comparison variants, required-variant inclusion and policy order feasibility. A missing complete-caller Rust applicability decision or required current baseline/sample is HOLD, not inferred. not_applicable contradicting declared rust_current is rejected, including variants inherited from comparison. Its nonempty rationale and applicability decision need external reviewed provenance tied to captured source hashes. Kernels need no decision. Runtime qualification requires selected baseline cpp_current or cpp_optimized. Provenance is asserted data requiring independent verification. Qualification is numerical eligibility only. Defaults are prospective and do not reassess historical ports.",
+  "type": "object",
+  "required": ["schema_version", "base_sha", "candidate_sha", "testbed", "toolchain", "fixtures", "comparison"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "base_sha": {"$ref": "#/$defs/sha40"},
+    "candidate_sha": {"$ref": "#/$defs/sha40"},
+    "testbed": {"$ref": "#/$defs/text"},
+    "toolchain": {"type": "object", "minProperties": 1, "maxProperties": 64, "propertyNames": {"$ref": "#/$defs/text"}, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 4096}},
+    "comparison": {"type": "object", "required": ["baseline", "candidate"], "properties": {"baseline": {"$ref": "#/$defs/variant"}, "candidate": {"$ref": "#/$defs/variant"}}},
+    "fixtures": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/fixture"}},
+    "provenance": {"type": "object"},
+    "qualification_policy": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "min_processes": {"type": "integer", "minimum": 2, "maximum": 128, "default": 8},
+        "min_rounds": {"type": "integer", "minimum": 2, "maximum": 50000, "default": 10},
+        "min_each_order": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 2},
+        "max_relative_ci_width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 0.10}
+      }
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "sha40": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "variant": {"enum": ["cpp_current", "cpp_optimized", "rust_current", "rust_candidate"]},
+    "fixture": {
+      "type": "object", "required": ["id", "sha256", "scope"],
+      "properties": {
+        "id": {"$ref": "#/$defs/text"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "scope": {"enum": ["complete_caller", "kernel"]},
+        "role": {"enum": ["changed", "unchanged_control"], "default": "changed"},
+        "rust_preservation_applicability": {"enum": ["required", "not_applicable"]},
+        "provenance": {"type": "object"},
+        "required_variants": {"type": "array", "minItems": 2, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/variant"}}
+      },
+      "if": {"required": ["role"], "properties": {"role": {"const": "unchanged_control"}}},
+      "then": {"required": ["provenance"], "properties": {"provenance": {"type": "object", "minProperties": 1}}},
+      "allOf": [{
+        "if": {"required": ["scope", "rust_preservation_applicability"], "properties": {"scope": {"const": "complete_caller"}, "rust_preservation_applicability": {"const": "not_applicable"}}},
+        "then": {"required": ["provenance"], "properties": {
+          "provenance": {"type": "object", "required": ["rust_preservation_rationale"], "properties": {"rust_preservation_rationale": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S"}}},
+          "required_variants": {"not": {"contains": {"const": "rust_current"}}}
+        }}
+      }]
+    }
+  }
+}

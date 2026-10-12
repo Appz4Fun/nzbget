@@ -1,66 +1,187 @@
-# Continuous benchmarking of the Rust ports with Bencher (https://bencher.dev):
-# every push to the base branch records the benchmarks of rust/benches/ports.rs
-# and sets the thresholds the pull requests are compared with (see
-# rust/benches/README.md for the setup: a Bencher project, the BENCHER_API_KEY
-# secret and the BENCHER_PROJECT variable).
+# Import reviewed measurements from the existing remote testbed. Evidence is
+# data only: this workflow never checks out or executes its source branch.
+# Missing Bencher configuration leaves publication visibly unavailable.
 name: bench base
 
 on:
-  push:
-    branches: [dupe-article-fallback]
   workflow_dispatch:
+    inputs:
+      evidence_sha:
+        description: Signed xbmc4lyfe commit containing reviewed benchmark-results data
+        required: true
+        type: string
+      testbed:
+        description: Stable remote hardware identifier matching the evidence manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bencher-canonical-baseline
+  cancel-in-progress: false
 
 jobs:
-  benchmark_base_branch:
-    name: Track the base branch's benchmarks with Bencher
-    # nothing to do until the project is set up
-    if: ${{ vars.BENCHER_PROJECT != '' }}
-    permissions:
-      contents: read
-      checks: write
+  canonical:
+    name: Resolve the current canonical controller
+    if: >-
+      ${{ github.repository == 'Appz4Fun/nzbget' &&
+          github.ref == 'refs/heads/dupe-article-fallback' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.canonical.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Rust toolchain (the version rust/rust-toolchain.toml pins)
-        working-directory: rust
-        run: |
-          rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
-          rustc --version
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rust/target
-          key: bench-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'rust/rust-toolchain.toml') }}
-          restore-keys: bench-${{ runner.os }}-
-
-      - uses: bencherdev/bencher@main
-
-      - name: Track the base branch's benchmarks with Bencher
+      - name: Require an immutable evidence reference and current default code
+        id: canonical
         env:
-          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
-          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+        shell: bash
         run: |
-          if [ -z "$BENCHER_KEY" ]; then
-            echo "::notice::BENCHER_API_KEY is not set: benchmarks are not tracked"
-            exit 0
-          fi
-          # a port more than 10% slower than the base branch's recent runs is an alert
-          bencher run \
-            ${BENCHER_HOST_URL:+--host "$BENCHER_HOST_URL"} \
-            --project '${{ vars.BENCHER_PROJECT }}' \
-            --key "$BENCHER_KEY" \
-            --branch "$GITHUB_REF_NAME" \
-            --testbed ubuntu-latest \
-            --threshold-measure latency \
-            --threshold-test percentage \
-            --threshold-max-sample-size 16 \
-            --threshold-upper-boundary 0.10 \
-            --thresholds-reset \
-            --adapter json \
-            --github-actions '${{ secrets.GITHUB_TOKEN }}' \
-            --error-on-alert \
-            "cd rust && cargo bench --bench ports"
+          set -euo pipefail
+          [[ "$EVIDENCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          default_branch=$(gh api repos/Appz4Fun/nzbget --jq .default_branch)
+          [[ "$default_branch" == dupe-article-fallback ]]
+          canonical_sha=$(gh api repos/Appz4Fun/nzbget/branches/dupe-article-fallback --jq .commit.sha)
+          [[ "$canonical_sha" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_WORKFLOW_REF" == Appz4Fun/nzbget/.github/workflows/bench_base.yml@refs/heads/dupe-article-fallback ]]
+          printf 'sha=%s\n' "$canonical_sha" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: Validate signed data with canonical code
+    needs: canonical
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.evidence.outputs.ready }}
+      status: ${{ steps.evidence.outputs.status }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.canonical.outputs.sha }}
+          persist-credentials: false
+
+      - name: Download fixed data files and recompute the shared summary
+        id: evidence
+        env:
+          # This job has read-only API access and no publication credentials.
+          BENCH_GITHUB_TOKEN: ${{ github.token }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          CANONICAL_SHA: ${{ needs.canonical.outputs.sha }}
+          BENCH_TESTBED: ${{ inputs.testbed }}
+        run: |
+          python3 scripts/bench/publish.py --mode base \
+            --repository Appz4Fun/nzbget \
+            --evidence-sha "$EVIDENCE_SHA" \
+            --expected-base-sha "$CANONICAL_SHA" \
+            --testbed "$BENCH_TESTBED" \
+            --output-dir benchmark-validated \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Preserve validation and qualification separately
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: canonical-baseline-${{ needs.canonical.outputs.sha }}-${{ github.run_id }}
+          path: |
+            benchmark-validated/manifest.json
+            benchmark-validated/samples.jsonl
+            benchmark-validated/collection-receipt.json
+            benchmark-validated/summary.json
+            benchmark-validated/bencher.json
+            benchmark-validated/qualification.json
+            benchmark-validated/report.md
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish validated baseline history
+    needs: [canonical, validate]
+    if: ${{ needs.validate.outputs.ready == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.canonical.outputs.sha }}
+          persist-credentials: false
+
+      - name: Reject a baseline that became stale during validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANONICAL_SHA: ${{ needs.canonical.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(gh api repos/Appz4Fun/nzbget --jq .default_branch) == dupe-article-fallback ]]
+          [[ $(gh api repos/Appz4Fun/nzbget/branches/dupe-article-fallback --jq .commit.sha) == "$CANONICAL_SHA" ]]
+
+      - name: Diagnose publication configuration without exposing values
+        id: config
+        env:
+          BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          BENCH_TESTBED: ${{ inputs.testbed }}
+        run: |
+          python3 scripts/bench/preflight.py --mode publish \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify the dedicated publication token belongs to xbmc4lyfe
+        id: identity
+        if: ${{ steps.config.outputs.ready == 'true' }}
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+        run: |
+          python3 scripts/bench/publish.py --verify-identity-only \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Install the pinned Bencher CLI
+        if: ${{ steps.config.outputs.ready == 'true' && steps.identity.outputs.ready == 'true' }}
+        uses: bencherdev/bencher@f80847436d7157936b40525db4c2a1064124f04a # v0.6.13
+        with:
+          version: 0.6.13
+
+      - name: Revalidate evidence and publish data only
+        if: ${{ steps.config.outputs.ready == 'true' && steps.identity.outputs.ready == 'true' }}
+        env:
+          BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          CANONICAL_SHA: ${{ needs.canonical.outputs.sha }}
+          BENCH_TESTBED: ${{ inputs.testbed }}
+        run: |
+          python3 scripts/bench/publish.py --mode base \
+            --repository Appz4Fun/nzbget \
+            --evidence-sha "$EVIDENCE_SHA" \
+            --expected-base-sha "$CANONICAL_SHA" \
+            --testbed "$BENCH_TESTBED" \
+            --output-dir benchmark-published \
+            --publish
+
+      - name: Preserve raw evidence and publication diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: canonical-publication-${{ needs.canonical.outputs.sha }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            benchmark-published/manifest.json
+            benchmark-published/samples.jsonl
+            benchmark-published/collection-receipt.json
+            benchmark-published/summary.json
+            benchmark-published/qualification.json
+            benchmark-published/bencher.json
+            benchmark-published/selected-bencher.json
+            benchmark-published/report.md
+
+      - name: Explain unavailable publication
+        if: ${{ steps.config.outputs.ready != 'true' }}
+        run: |
+          printf '%s\n' 'Baseline evidence was validated; Bencher publication is unavailable until the named configuration is supplied.' >> "$GITHUB_STEP_SUMMARY"

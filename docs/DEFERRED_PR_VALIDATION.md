@@ -78,3 +78,27 @@ with the coherent hybrid-floor snapshot
   approved performance work. Do not infer qualification from source inclusion.
 - [ ] Keep backend deployment held. The separate PAR proposal and private proof
   tools were not included in this immediate squash.
+
+## PR #91 — benchmark infrastructure and Criterion
+
+Latest composed source: `0a61ae913d29cb3220a73b78a672a5e5d870a2f4`,
+including the publisher and both authored adapter retention repairs.
+
+- [ ] Follow `docs/PR91_FOLLOW_UP.md`. Validate retained raw evidence against
+  lexical, symlink traversal, target and inode aliases before cleanup or HOLD
+  writes. The final two adapter repairs have syntax and source checks only.
+- [ ] Run the paired adapter regressions and full combined Python suite. The
+  attempted paired run stopped before runner launch when storage fell below
+  its floor; zero tests ran. The earlier full run had 337 passes and two errors
+  out of 339; the subsequent publisher/pipeline component run passed 111 tests.
+- [ ] Review the complete integrated source and adjudicate open GitHub findings
+  honestly. Historical whole-tree review defects and failed runs are retained;
+  no final whole-tree CLEAN or exact-head approval is claimed for this squash.
+- [ ] Validate the inherited runtime Rust changes and Criterion together. The
+  older 502 snapshot's Rust results are historical and cannot qualify newly
+  combined Latin1, proxy and stream-repair code.
+- [ ] Supply the existing Bencher project identity and API key through the
+  approved credential route before activating publishing. Activation remains
+  incomplete; source merge does not imply publishing is enabled.
+- [ ] Preserve backend deployment holds and do not treat unvalidated benchmark
+  infrastructure as proof of a performance improvement.

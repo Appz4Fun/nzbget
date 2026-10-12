@@ -1,66 +1,254 @@
-# Benchmarks of a pull request, compared with the base branch's (bench_base.yml)
-# by Bencher: the report is a comment on the pull request, and a port more than
-# 10% slower is an alert that fails the check. Only pull requests into the
-# base branch are benchmarked: it is the branch with a baseline. Pull requests
-# from forks have no secrets and are skipped.
+# Trusted controller only; PR/evidence code is never executed with credentials.
 name: bench pull request
 
 on:
-  pull_request:
+  push:
     branches: [dupe-article-fallback]
-    types: [opened, reopened, edited, synchronize]
+  pull_request_target:
+    branches: [dupe-article-fallback]
+    types: [opened, reopened, synchronize, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open pull request number in canonical decimal digits
+        required: true
+        type: string
+      evidence_sha:
+        description: Full SHA of signed reviewed collection evidence commit
+        required: true
+        type: string
+      base_sha:
+        description: Full current canonical baseline SHA
+        required: true
+        type: string
+      head_sha:
+        description: Full current pull request head SHA
+        required: true
+        type: string
+      testbed:
+        description: Existing stable collection testbed identifier
+        required: true
+        type: string
 
+permissions:
+  contents: read
+  pull-requests: read
+
+# Each writer job uses the archive's per-PR group. No workflow-level lock
+# nests that group: base pushes fan out to independently serialized writers.
 jobs:
-  benchmark_pr_branch:
-    name: Benchmark the pull request with Bencher
+  targets:
+    name: Discover guarded lifecycle targets
     if: >-
-      ${{ vars.BENCHER_PROJECT != '' &&
-      github.event.pull_request.head.repo.full_name == github.repository }}
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
+      github.repository == 'Appz4Fun/nzbget' &&
+      ((github.event_name != 'pull_request_target' && github.ref == 'refs/heads/dupe-article-fallback') ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.targets.outputs.prs }}
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Rust toolchain (the version rust/rust-toolchain.toml pins)
-        working-directory: rust
-        run: |
-          rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
-          rustc --version
-
-      - uses: actions/cache@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rust/target
-          key: bench-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'rust/rust-toolchain.toml') }}
-          restore-keys: bench-${{ runner.os }}-
-
-      - uses: bencherdev/bencher@main
-
-      - name: Benchmark the pull request with Bencher
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: targets
+        name: Read current same-repository open PR identities
         env:
-          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
-          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          BENCH_GITHUB_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
         run: |
-          if [ -z "$BENCHER_KEY" ]; then
-            echo "::notice::BENCHER_API_KEY is not set: benchmarks are not tracked"
-            exit 0
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            python3 -I scripts/bench/publish.py --list-prs \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/bench/publish.py --list-prs --pr "$INPUT_PR" \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          else
+            python3 -I scripts/bench/publish.py --list-prs --pr "$EVENT_PR" \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
           fi
-          bencher run \
-            ${BENCHER_HOST_URL:+--host "$BENCHER_HOST_URL"} \
-            --project '${{ vars.BENCHER_PROJECT }}' \
-            --key "$BENCHER_KEY" \
-            --branch "$GITHUB_HEAD_REF" \
-            --start-point "$GITHUB_BASE_REF" \
-            --start-point-hash '${{ github.event.pull_request.base.sha }}' \
-            --start-point-clone-thresholds \
-            --start-point-reset \
-            --testbed ubuntu-latest \
-            --adapter json \
-            --github-actions '${{ secrets.GITHUB_TOKEN }}' \
-            --error-on-alert \
-            "cd rust && cargo bench --bench ports"
+
+  lifecycle:
+    name: Invalidate outdated qualification
+    needs: targets
+    if: needs.targets.outputs.prs != '' && needs.targets.outputs.prs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.targets.outputs.prs || '[]') }}
+    concurrency:
+      group: bench-publication-pr-${{ matrix.pr }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify identity and invalidate against fresh live state
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ matrix.pr }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 -I scripts/bench/publish.py --set-pr-status pending --status-intent manual \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --expected-head-sha "$HEAD_SHA"
+          else
+            python3 -I scripts/bench/publish.py --set-pr-status pending --status-intent automatic \
+              --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER"
+          fi
+
+  validate:
+    name: Validate immutable paired caller evidence
+    needs: lifecycle
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.proof.outputs.ready }}
+      status: ${{ steps.proof.outputs.status }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate signed reviewed collection evidence with trusted code
+        id: proof
+        env:
+          BENCH_GITHUB_TOKEN: ${{ github.token }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          TESTBED: ${{ inputs.testbed }}
+        run: |
+          python3 -I scripts/bench/publish.py --mode pr \
+            --repository "$GITHUB_REPOSITORY" --evidence-sha "$EVIDENCE_SHA" \
+            --expected-base-sha "$BASE_SHA" --expected-head-sha "$HEAD_SHA" \
+            --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --testbed "$TESTBED" \
+            --output-dir benchmark-validated --github-output "$GITHUB_OUTPUT"
+      - name: Retain raw evidence, validation and HOLD diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paired-caller-validation-${{ inputs.pr_number }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            benchmark-validated/manifest.json
+            benchmark-validated/samples.jsonl
+            benchmark-validated/collection-receipt.json
+            benchmark-validated/summary.json
+            benchmark-validated/qualification.json
+            benchmark-validated/bencher.json
+            benchmark-validated/selected-bencher.json
+            benchmark-validated/report.md
+      - name: Require paired complete-caller qualification
+        env:
+          QUALIFICATION: ${{ steps.proof.outputs.status }}
+          READY: ${{ steps.proof.outputs.ready }}
+        run: |
+          if [ "$QUALIFICATION" != PASS ] || [ "$READY" != true ]; then
+            echo '::error::HOLD: paired caller evidence does not qualify the runtime replacement'
+            exit 1
+          fi
+
+  publish:
+    name: Publish validated data as xbmc4lyfe
+    needs: validate
+    if: needs.validate.outputs.ready == 'true' && needs.validate.outputs.status == 'PASS'
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.publication.outputs.published }}
+    concurrency:
+      group: bench-publication-pr-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Diagnose existing publication configuration
+        id: preflight
+        env:
+          BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          BENCH_TESTBED: ${{ inputs.testbed }}
+        run: python3 -I scripts/bench/preflight.py --mode publish --github-output "$GITHUB_OUTPUT"
+      - name: Verify dedicated GitHub publication identity
+        if: steps.preflight.outputs.ready == 'true'
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+        run: python3 -I scripts/bench/publish.py --verify-identity-only
+      - name: Install pinned data-only publication CLI
+        if: steps.preflight.outputs.ready == 'true'
+        uses: bencherdev/bencher@f80847436d7157936b40525db4c2a1064124f04a # v0.6.13
+        with:
+          version: 0.6.13
+      - name: Revalidate and publish immutable evidence
+        id: publication
+        if: steps.preflight.outputs.ready == 'true'
+        env:
+          BENCHER_PROJECT: ${{ vars.BENCHER_PROJECT }}
+          BENCHER_HOST_URL: ${{ vars.BENCHER_HOST }}
+          BENCHER_KEY: ${{ secrets.BENCHER_API_KEY }}
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          EVIDENCE_SHA: ${{ inputs.evidence_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          TESTBED: ${{ inputs.testbed }}
+        run: |
+          python3 -I scripts/bench/publish.py --mode pr --publish \
+            --repository "$GITHUB_REPOSITORY" --evidence-sha "$EVIDENCE_SHA" \
+            --expected-base-sha "$BASE_SHA" --expected-head-sha "$HEAD_SHA" \
+            --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --testbed "$TESTBED" \
+            --output-dir benchmark-publish --github-output "$GITHUB_OUTPUT"
+      - name: Retain raw evidence and publication diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paired-caller-publication-${{ inputs.pr_number }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            benchmark-publish/manifest.json
+            benchmark-publish/samples.jsonl
+            benchmark-publish/collection-receipt.json
+            benchmark-publish/summary.json
+            benchmark-publish/qualification.json
+            benchmark-publish/bencher.json
+            benchmark-publish/selected-bencher.json
+            benchmark-publish/report.md
+      - name: Report inactive publication
+        if: steps.preflight.outputs.ready != 'true'
+        run: echo '::notice::Bencher publication unavailable; no project, credentials, testbed or services were provisioned'
+
+  hold:
+    name: Report uncompleted qualification as HOLD
+    needs: [targets, lifecycle, validate, publish]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      needs.targets.outputs.prs != '' && needs.publish.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: bench-publication-pr-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify identity and report HOLD without Bencher credentials
+        env:
+          BENCH_GITHUB_TOKEN: ${{ secrets.BENCHMARK_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          python3 -I scripts/bench/publish.py --set-pr-status failure --status-intent manual \
+            --repository "$GITHUB_REPOSITORY" --controller-sha "$GITHUB_SHA" --pr "$PR_NUMBER" --expected-head-sha "$HEAD_SHA"
+          echo '::error::HOLD: qualification publication did not complete'
+          exit 1

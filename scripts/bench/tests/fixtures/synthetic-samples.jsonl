@@ -1,0 +1,2 @@
+{"case":"tiny-control","variant":"cpp_current","process":0,"round":0,"order":0,"elapsed_ns":10000,"iterations":10,"observable_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+{"case":"tiny-control","variant":"rust_candidate","process":0,"round":0,"order":1,"elapsed_ns":10000,"iterations":10,"observable_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet numerical qualification v1",
+  "$comment": "PASS is numerical eligibility only, not source identity, execution attestation, migration approval or deployment. Complete callers require selected C++ baseline and explicit reviewed Rust-preservation applicability, coupled externally to exact source capture hashes. A missing applicability decision remains null and HOLD. CLI exit0 also includes HOLD. Invalid evidence exits2 and clears previous owned artifacts. External provenance and immutable git/build identities must be verified by trusted consumers. Legacy evidence with missing v1 fields cannot receive synthetic metadata. Existing 10% CI regression alerts are not a migration waiver.",
+  "type": "object",
+  "required": ["schema_version", "base_sha", "candidate_sha", "testbed", "status", "reasons", "cases", "methodology"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "candidate_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "testbed": {"type": "string"},
+    "status": {"enum": ["PASS", "HOLD"]},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "methodology": {"type": "object"},
+    "input_hashes": {
+      "type": "object", "required": ["manifest_sha256", "samples_sha256"],
+      "properties": {
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "samples_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "cases": {"type": "array", "items": {
+      "type": "object", "required": ["case", "scope", "role", "status", "reasons", "ratio"],
+      "properties": {
+        "case": {"type": "string"},
+        "scope": {"enum": ["complete_caller", "kernel"]},
+        "role": {"enum": ["changed", "unchanged_control"]},
+        "rust_preservation_applicability": {"enum": ["required", "not_applicable", null]},
+        "status": {"enum": ["PASS", "HOLD"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "ratio": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["estimate", "lower", "upper"],
+          "properties": {"estimate": {"type": "number", "exclusiveMinimum": 0}, "lower": {"type": "number", "exclusiveMinimum": 0}, "upper": {"type": "number", "exclusiveMinimum": 0}}}]}
+      }
+    }}
+  }
+}

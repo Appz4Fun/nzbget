@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet matched benchmark JSONL row v1",
+  "$comment": "Exactly one object per nonblank JSONL line. The strict parser rejects duplicate keys, NaN and infinity. Runtime validator enforces finite positive normalized latency, known required variants, unique case/variant/process/round, complete matched blocks, contiguous distinct order and equal observable digests. A whole missing variant produces HOLD; a selectively unmatched block is rejected. All raw rows and outliers are retained. Limits: 100000 rows, 128 processes per fixture, 4000000 total bootstrap cluster selections counting every variant history and ratio. Process identifiers assert independence; trusted collection must prove it.",
+  "type": "object",
+  "required": ["case", "variant", "process", "round", "order", "elapsed_ns", "iterations", "observable_digest"],
+  "properties": {
+    "case": {"type": "string", "minLength": 1, "maxLength": 200},
+    "variant": {"enum": ["cpp_current", "cpp_optimized", "rust_current", "rust_candidate"]},
+    "process": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "round": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "order": {"type": "integer", "minimum": 0, "maximum": 3},
+    "elapsed_ns": {"type": "number", "exclusiveMinimum": 0},
+    "iterations": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+    "observable_digest": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+  }
+}

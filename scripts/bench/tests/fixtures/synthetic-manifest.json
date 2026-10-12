@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "testbed": "synthetic-testbed-not-product-evidence",
+  "toolchain": {"cxx": "synthetic-control", "rustc": "synthetic-control"},
+  "fixtures": [{"id": "tiny-control", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "scope": "complete_caller"}],
+  "comparison": {"baseline": "cpp_current", "candidate": "rust_candidate"},
+  "provenance": {"purpose": "test-only controlled values; no measured product performance"}
+}
