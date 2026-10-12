@@ -3125,7 +3125,6 @@ td:hover span.none-category {
 
 @media (min-width: 769px) {
 	.config__aside {
-		flex: 0 0 250px;
 		padding: var(--space-2) var(--space-2) 0 0;
 		border-right: 1px solid var(--separator);
 	}
@@ -3149,7 +3148,6 @@ td:hover span.none-category {
 }
 
 @media (min-width: 769px) and (max-width: 1199px) {
-	.config__aside { flex-basis: 210px; }
 	#ConfigData,
 	#ConfigData > .config-set-insertion { --config-option-columns: 2; }
 }
