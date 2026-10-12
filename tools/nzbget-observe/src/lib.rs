@@ -12,6 +12,8 @@ pub struct Job {
     pub failed: u64,
     pub progress: u64,
     pub active: bool,
+    #[serde(default)]
+    pub progress_observable: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -56,7 +58,7 @@ impl Detector {
             .retain(|id, _| sample.jobs.iter().any(|j| j.id == *id));
         let mut alerts = Vec::new();
         for job in &sample.jobs {
-            if !job.active {
+            if !job.active || !job.progress_observable {
                 self.previous.remove(&job.id);
                 continue;
             }
@@ -129,9 +131,10 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             .and_then(|p| i32::try_from(p).ok())
             .ok_or("missing or invalid priority RPC field")?
             >= 900;
-        // FETCHING has no exported received-byte progress. Preserve its stage
-        // as inactive rather than interpreting its static article counters.
+        // URL transfers keep running independently of the article flags, but
+        // received-byte progress is not exported by these RPC replies.
         let download = stage == "DOWNLOADING";
+        let fetch = stage == "FETCHING";
         let post = matches!(
             stage,
             "LOADING_PARS"
@@ -149,21 +152,17 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
         );
         let inactive = matches!(
             stage,
-            "QUEUED" | "PP_QUEUED" | "QS_QUEUED" | "PAUSED" | "PP_FINISHED" | "FETCHING"
+            "QUEUED" | "PP_QUEUED" | "QS_QUEUED" | "PAUSED" | "PP_FINISHED"
         );
-        // RepairController and PostScript wait on PostPaused. Other running
-        // stages continue; the scheduler's pause only prevents their starts.
+        // RepairController waits on PostPaused. PostScript can block its output
+        // reader, but that does not suspend the child process.
         let cooperative_post_pause = matches!(
             stage,
-            "LOADING_PARS"
-                | "VERIFYING_SOURCES"
-                | "VERIFYING_REPAIRED"
-                | "REPAIRING"
-                | "EXECUTING_SCRIPT"
+            "LOADING_PARS" | "VERIFYING_SOURCES" | "VERIFYING_REPAIRED" | "REPAIRING"
         );
         jobs.push(Job {
             id,
-            stage: if download || post || inactive {
+            stage: if download || fetch || post || inactive {
                 stage.into()
             } else {
                 "UNKNOWN".into()
@@ -172,8 +171,13 @@ pub fn normalize(status: &Value, groups: &Value, elapsed: u64) -> Result<Sample,
             success: number(g, "SuccessArticles")?,
             failed: number(g, "FailedArticles")?,
             progress: number(g, "PostStageProgress")?,
-            active: (download && ((!download_paused && !quota) || force_priority))
+            active: fetch
+                || (download && ((!download_paused && !quota) || force_priority))
                 || (post && (!post_paused || force_priority || !cooperative_post_pause)),
+            // Script workers update private labels rather than numeric stage
+            // progress. Static download counters do not measure their work.
+            progress_observable: download
+                || (post && !matches!(stage, "EXECUTING_SCRIPT" | "QS_EXECUTING")),
         });
     }
     let daemon = [
@@ -240,6 +244,7 @@ mod tests {
                 failed: 0,
                 progress: 0,
                 active: true,
+                progress_observable: true,
             }],
         }
     }
@@ -421,8 +426,8 @@ mod tests {
 
     #[test]
     fn running_post_stages_use_their_actual_cooperative_pause_contract() {
-        // RepairController and PostScript explicitly wait on PostPaused.
-        // Already-running unpack/move/rename/live-repair/queue-script work does not.
+        // RepairController waits on PostPaused. Running unpack/move/rename and
+        // post-processing stream repair continue. Scripts have no numeric progress.
         for (stage, count) in [
             ("LOADING_PARS", 0),
             ("VERIFYING_SOURCES", 0),
@@ -435,7 +440,7 @@ mod tests {
             ("POST_UNPACK_RENAMING", 1),
             ("POST_DOWNLOAD_RENAMING", 1),
             ("STREAM_REPAIRING", 1),
-            ("QS_EXECUTING", 1),
+            ("QS_EXECUTING", 0),
         ] {
             let mut g = group();
             g["Status"] = json!(stage);
@@ -473,6 +478,62 @@ mod tests {
             assert!(detector
                 .observe(&normalize(&st, &json!([g]), 120).unwrap(), 60)
                 .is_empty());
+        }
+    }
+
+    #[test]
+    fn running_scripts_and_fetches_do_not_claim_suspension_from_global_flags() {
+        for stage in ["EXECUTING_SCRIPT", "QS_EXECUTING", "FETCHING"] {
+            for priority in [0, 900] {
+                let mut g = group();
+                g["Status"] = json!(stage);
+                g["MaxPriority"] = json!(priority);
+                let mut st = status();
+                st["DownloadPaused"] = json!(true);
+                st["QuotaReached"] = json!(true);
+                st["PostPaused"] = json!(true);
+                let s = normalize(&st, &json!([g]), 60).unwrap();
+                assert!(
+                    s.jobs[0].active,
+                    "{stage} priority {priority} child remains running"
+                );
+                let output = serde_json::to_value(&s).unwrap();
+                assert_eq!(
+                    output["jobs"][0]["progress_observable"].as_bool(),
+                    Some(false)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn static_script_counters_do_not_generate_false_progress_stalls() {
+        // PostScript's private ProgressLabel is not a numeric progress signal;
+        // completed download counters remain static during script execution.
+        for stage in ["EXECUTING_SCRIPT", "QS_EXECUTING", "FETCHING"] {
+            for paused in [false, true] {
+                let mut g = group();
+                g["Status"] = json!(stage);
+                g["RemainingSizeHi"] = json!(0);
+                g["RemainingSizeLo"] = json!(0);
+                let mut st = status();
+                st["PostPaused"] = json!(paused);
+                let mut detector = Detector::default();
+                assert!(detector
+                    .observe(&normalize(&st, &json!([g.clone()]), 0).unwrap(), 60)
+                    .is_empty());
+                st["UpTimeSec"] = json!(160);
+                assert!(
+                    detector
+                        .observe(&normalize(&st, &json!([g.clone()]), 60).unwrap(), 60)
+                        .is_empty(),
+                    "{stage} paused {paused} has no numeric progress signal"
+                );
+                st["UpTimeSec"] = json!(220);
+                assert!(detector
+                    .observe(&normalize(&st, &json!([g]), 120).unwrap(), 60)
+                    .is_empty());
+            }
         }
     }
 

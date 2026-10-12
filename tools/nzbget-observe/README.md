@@ -56,26 +56,32 @@ Finite runs exit with a failure status if their final RPC observation is unknown
 
 The watcher writes JSON lines to stdout: sanitized samples, newly detected
 symptoms, observation failures, and recovery from observation failures. Exported
-job fields are numeric ID, a recognized stage, progress counters, and activity.
+job fields are numeric ID, a recognized stage, progress counters, activity, and
+`progress_observable`, which identifies stages with a usable counter for this
+detector. Running work can remain active without an observable progress signal.
 Release names, paths, passwords, article IDs, log text, and raw RPC replies are
 never written. Keep stdout retention bounded if collecting it with another tool.
 
 The default trigger is **300 seconds of unchanged observed progress for an
-actively running job**. Download progress uses remaining bytes and successful or
+actively running job with observable progress**. Download progress uses remaining bytes and successful or
 failed article counts; post-processing also uses stage progress. Queued, paused,
 finished and unrecognized stages do not trigger. Global download pause/quota
 suppress ordinary article downloads. Post-processing pause suppresses ordinary
-PAR and post-script stages that explicitly wait on it. Already-running unpack,
-move, rename, live stream repair, and queue-script stages remain observed because
-the daemon does not pause that work. Running article downloads and cooperative
+PAR stages that explicitly wait on it. Already-running unpack, move, rename, and
+post-processing stream repair remain observed because the daemon does not pause
+that work. Running article downloads and cooperative
 post-processing jobs with force priority (900 or higher) remain observed through
 their corresponding global flags. Priority is read
 from `listgroups`' signed `MaxPriority` field; missing or invalid priority makes
 the observation unknown. Individually paused or queued jobs remain inactive even
-at force priority. URL `FETCHING` remains visible but does not trigger: the daemon
-does not export received-byte progress for URL transfers in these replies, so
-unchanged article/post counters cannot distinguish a progressing fetch from a
-stalled one. Download pause/quota flags do not establish in-flight URL inactivity.
+at force priority. URL `FETCHING`, `EXECUTING_SCRIPT`, and `QS_EXECUTING` remain
+visible as running stages regardless of these global flags, but do not trigger:
+the replies expose no URL received-byte progress or numeric script progress.
+Their static article/post counters cannot distinguish useful work from a stall.
+A paused script-output reader does not suspend the child. These stages have
+`progress_observable: false`; no private progress-label text is retained.
+Early concurrent live stream repair can remain `PP_QUEUED` and is outside this
+counter detector's scope; `STREAM_REPAIRING` denotes post-processing repair.
 Stage changes, any counter
 change, detected daemon restart, and observation failures reset the window.
 Restart detection uses uptime regression or an uptime increase more than ten
