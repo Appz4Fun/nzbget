@@ -56,6 +56,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check Settings pictures
+        run: python site/tools/check-settings-captures.py
+
       - name: Build the site
         run: python site/build.py --out "$RUNNER_TEMP/site"
 

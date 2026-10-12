@@ -42,3 +42,12 @@ RSS
 RAR
 GitHub
 Vale
+
+NZB[sS]
+DupeDonors
+ExtendedUnpacker
+ExtendedUnrar
+PermissionFix
+Extended Unpacker
+Extended Unrar
+Permission Fix
