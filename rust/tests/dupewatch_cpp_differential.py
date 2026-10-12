@@ -2,13 +2,16 @@
 """Source-extracted legacy Prepare parity and matched decision-caller timing.
 
 Emit locally with --emit DIR, copy emitted source + this script to an approved
-remote worker, then --build DIR and --run DIR under the shared build/exclusive
-measurement lock respectively. No daemon/network/config operations occur.
+remote worker, then --build DIR and correctness-only --run DIR in a coordinated
+validation slot. Timings additionally require explicit --benchmarks and an
+exclusive measurement slot. No daemon/network/config operations occur.
 The old source prefix is unchanged up to its search-stamp mutation; only queue,
 options, time and scheduling are stubbed. Matched caller timing includes the
 current PrepareNative prefix, real Rust normalization and its real watcher ABI;
-postdecision mutation/save/transport and packed-payload proof are excluded.
-The gating control is counterfactual C++ implementing the same new contract and
+Accepted-tail mutation/save/transport and packed-payload proof are excluded.
+Predecision owned-key edits are modeled faithfully, including persistence request
+counters; this prefix fixture performs no actual disk IO.
+The decision-prefix control is counterfactual C++ implementing the same new contract and
 adapter algorithm, using the real pre-port C++ normalizer. Historical production
 Prepare versus scalar Rust decision timings are non-equivalent context only.
 Snapshot timings supply identical prebuilt snapshots to both policy backends.
@@ -38,6 +41,7 @@ STUB = r'''
 #include <mutex>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 static int64_t clockNow;
 namespace Util { static int64_t CurrentTime() { return clockNow; } static bool EmptyStr(const char* value){return !value || !*value;} }
@@ -50,22 +54,25 @@ struct NzbInfo {
  int id=1,score=0,kind=nkNzb,mode=dmScore,hint=dhNone; EDeleteStatus status=dsNone;
  struct Parameters { bool fleet=false;NzbParameter fleetValue{"1"},owner;
   NzbParameter* Find(const char* name){if(!std::strcmp(name,"DupeFleet"))return fleet?&fleetValue:nullptr;
-   if(!std::strcmp(name,"DupeSearchOwnedKey"))return owner.value.empty()?nullptr:&owner;return nullptr;} } parameters;
+   if(!std::strcmp(name,"DupeSearchOwnedKey"))return owner.value.empty()?nullptr:&owner;return nullptr;}
+  void SetParameter(const char* name,const char* value){if(!std::strcmp(name,"DupeSearchOwnedKey"))owner.value=value?value:"";} } parameters;
  Parameters* GetParameters(){return &parameters;}
- bool success=false,deleting=false,post=false,donor=false; std::string key="Key";
+ bool success=false,deleting=false,post=false,donor=false,changed=false; std::string key="Key";
  std::string name="The.Show.S01E02.2025.1080p.WEB-DL.H264-GRP";
  int GetId()const{return id;} int GetKind()const{return kind;} int GetDupeScore()const{return score;}
  EDeleteStatus GetDeleteStatus()const{return status;} bool IsDupeSuccess()const{return success;}
  bool GetDeleting()const{return deleting;} void* GetPostInfo()const{return post?(void*)this:nullptr;}
  int GetDupeMode()const{return mode;} int GetDupeHint()const{return hint;}
+ void SetDupeKey(const char* value){key=value?value:"";} void SetChanged(bool value){changed=value;}
  const char* GetDupeKey()const{return key.c_str();} const char* GetName()const{return name.c_str();} template<class...T> void PrintMessage(T...)const{}
 };
 struct HistoryInfo { enum {hkNzb}; NzbInfo* item; int GetKind()const{return hkNzb;} NzbInfo* GetNzbInfo()const{return item;} };
 struct Queue:std::vector<NzbInfo*> { NzbInfo* Find(int id){for(auto p:*this)if(p->id==id)return p;return nullptr;} };
 static auto begin(Queue*q){return q->begin();} static auto end(Queue*q){return q->end();}
 struct DownloadQueue { Queue queue;std::vector<HistoryInfo*> history; Queue* GetQueue(){return &queue;}
+ int saveChanged=0,historyChanged=0,save=0;void SaveChanged(){saveChanged++;}void HistoryChanged(){historyChanged++;}void Save(){save++;}
  std::vector<HistoryInfo*>& GetHistory(){return history;} };
-struct Options { bool enabled=true,check=true; bool GetDupeSearch(){return enabled;} bool GetDupeCheck(){return check;}
+struct Options { bool enabled=true,check=true,dry=false;bool GetDupeSearchDryRun(){return dry;} bool GetDupeSearch(){return enabled;} bool GetDupeCheck(){return check;}
  int GetDupeSearchDelay(){return 1;} } options;
 static Options* g_Options=&options;
 static NzbInfo* FindNzb(DownloadQueue*q,int id){if(auto p=q->queue.Find(id))return p;for(auto h:q->history)if(h->item->id==id)return h->item;return nullptr;}
@@ -77,7 +84,8 @@ static std::string EffectiveKey(NzbInfo* n);
 static std::string LowerKey(std::string k){for(char&c:k)if(c>='A'&&c<='Z')c+=32;return k;}
 struct DupeSearch {
  struct Job {};
- struct Searched {int score=0;int64_t time=0;std::string title;bool retryable=false;std::string rawName;}; using Stamp=Searched;std::set<int>m_rankPending; std::map<std::string,Stamp> m_searched;std::mutex m_mutex;
+ struct Searched {int score=0;int64_t time=0;std::string title;bool retryable=false;std::string rawName;}; using Stamp=Searched;std::set<int>m_rankPending; std::map<std::string,Stamp> m_searched;std::map<std::pair<std::string,std::string>,Stamp> m_titleSearched;std::mutex m_mutex;
+ Searched* FindSearch(const std::string&,const std::string&);void RecordSearch(const std::string&,const Searched&);void SetRetryable(const std::string&,const std::string&,bool);
  bool scheduled=false;static std::string MakeDupeKey(const std::string&);static std::string MakeDupeKeyCpp(const std::string&);
  static constexpr const char* OwnedKeyParam="DupeSearchOwnedKey";
  static constexpr int BasePickScore=1000000,SearchWindowSec=21600,PostProcessRetrySec=30;
@@ -152,7 +160,7 @@ static void SeedFair(Fixture& f,int test) {
  }
  f.search.m_searched.clear();
  if(test>=2)f.search.m_searched[LowerKey(key)]={1000000,99,ReleaseName::Normalize(f.pick.name),false,test>=3?f.pick.name:""};
- f.control.m_searched=f.search.m_searched;f.control.m_rankPending=f.search.m_rankPending;
+ f.control.m_searched=f.search.m_searched;f.control.m_titleSearched=f.search.m_titleSearched;f.control.m_rankPending=f.search.m_rankPending;
 }
 static bool ExtraParity() {
  std::vector<std::string> names={"","The.Show.S01E02.2025.1080p.WEB-DL.H264-GRP","[01/17] {tag} Movie.2024.2160p.WEB-DL.DDP5.1.H.265-GRP.mkv",
@@ -166,7 +174,12 @@ static bool ExtraParity() {
   if(f.equivalent()!=f.native()){puts("FAIL equivalent controller normal-state fixture");return false;}
  }
  Fixture f;SeedFair(f,6);
- int caseNumber=0;auto assertSame=[&](int wanted){caseNumber++;int a=f.equivalent(),b=f.native();if(a!=b||a!=wanted){printf("FAIL cache/proxy case %i controller CPP %i Rust %i wanted %i\n",caseNumber,a,b,wanted);return false;}return true;};
+ int caseNumber=0;auto assertSame=[&](int wanted){caseNumber++;
+  NzbInfo before=f.pick;int changed=f.queue.saveChanged,hist=f.queue.historyChanged,saved=f.queue.save;
+  int a=f.equivalent();NzbInfo cppAfter=f.pick;int cppChanged=f.queue.saveChanged,cppHist=f.queue.historyChanged,cppSave=f.queue.save;
+  f.pick=before;f.queue.saveChanged=changed;f.queue.historyChanged=hist;f.queue.save=saved;
+  int b=f.native();
+  if(a!=b||a!=wanted||cppAfter.key!=f.pick.key||cppAfter.parameters.owner.value!=f.pick.parameters.owner.value||cppAfter.changed!=f.pick.changed||cppChanged!=f.queue.saveChanged||cppHist!=f.queue.historyChanged||cppSave!=f.queue.save){printf("FAIL cache/proxy case %i controller CPP %i Rust %i wanted %i or metadata effects\n",caseNumber,a,b,wanted);return false;}return true;};
  // Raw-name change invalidates an existing runtime cache, even with an explicit key.
  f.pick.name="Other.Show.S02E03.2024.720p.WEB.H264-GRP";if(!assertSame(2))return false;
  // Retired history/deleting fleet carriers cannot suppress a plain live pick.
@@ -183,20 +196,61 @@ static bool ExtraParity() {
  f.extra[2].status=NzbInfo::dsManual;if(!assertSame(2))return false;
  f.extra[2].status=NzbInfo::dsCopy;if(!assertSame(2))return false;
  f.extra[2].status=NzbInfo::dsDupe;f.extra[2].deleting=true;if(!assertSame(2))return false;
- // Retarget only a live native-owned key; matching text alone is no ownership.
+ // Retarget native-owned live/history keys; matching text alone is no ownership.
  SeedFair(f,4);
  const std::string oldName=f.pick.name,oldTitle=ReleaseName::Normalize(oldName),oldKey="dupes:"+oldTitle;
  f.pick.key=oldKey;f.peer.key=oldKey;f.peer.score=1000001;
  f.pick.name="Other.Show.S02E03.2024.720p.WEB.H264-GRP";
- f.search.m_searched.clear();f.search.m_searched[LowerKey(oldKey)]={1000000,99,oldTitle,false,oldName};
+ f.search.m_searched.clear();f.search.m_titleSearched.clear();f.control.m_titleSearched.clear();f.search.m_searched[LowerKey(oldKey)]={1000000,99,oldTitle,false,oldName};
  f.control.m_searched=f.search.m_searched;
  if(!assertSame(0))return false;
  f.pick.parameters.owner.value="2:"+oldKey;if(!assertSame(0))return false;
  f.pick.parameters.owner.value="1:stale-key";if(!assertSame(0))return false;
  f.pick.parameters.owner.value="1:"+oldKey;if(!assertSame(2))return false;
+#ifdef NZBGET_MODEL_OWNED_PERSIST
+ if(f.pick.key!="dupes:"+ReleaseName::Normalize(f.pick.name)||f.pick.parameters.owner.value!="1:"+f.pick.key||!f.pick.changed||f.queue.saveChanged!=1){puts("FAIL owned live retarget persistence request");return false;}
+#endif
+ // Fresh historical rename must persist through the real source prefix too.
+ f.pick.key=oldKey;f.pick.parameters.owner.value="1:"+oldKey;f.pick.changed=false;
+ f.search.m_searched.clear();f.search.m_titleSearched.clear();f.control.m_titleSearched.clear();
+ f.search.m_searched[LowerKey(oldKey)]={1000000,99,oldTitle,false,oldName};f.control.m_searched=f.search.m_searched;
  f.queue.queue.erase(std::remove(f.queue.queue.begin(),f.queue.queue.end(),&f.pick),f.queue.queue.end());
  f.queue.history.push_back(&f.historical);f.pick.status=NzbInfo::dsFailure;
+#ifdef NZBGET_MODEL_OWNED_PERSIST
+ if(!assertSame(2))return false;
+ if(f.pick.key!="dupes:"+ReleaseName::Normalize(f.pick.name)||f.pick.parameters.owner.value!="1:"+f.pick.key||!f.pick.changed||f.queue.historyChanged!=1||f.queue.save!=1){puts("FAIL owned history retarget persistence request");return false;}
+ // Proven ownership remains sufficient even if the compatibility cache is absent.
+ f.pick.key=oldKey;f.pick.parameters.owner.value="1:"+oldKey;f.pick.changed=false;
+ f.search.m_searched.clear();f.control.m_searched.clear();f.search.m_titleSearched.clear();f.control.m_titleSearched.clear();
+ if(!assertSame(2))return false;
+ if(f.pick.key!="dupes:"+ReleaseName::Normalize(f.pick.name)||f.pick.parameters.owner.value!="1:"+f.pick.key||!f.pick.changed||f.queue.historyChanged!=2||f.queue.save!=2){puts("FAIL owned history cacheless persistence request");return false;}
+ f.pick.key=oldKey;f.pick.parameters.owner.value="1:"+oldKey;f.pick.changed=false;options.dry=true;
+ if(!assertSame(2))return false;
+ if(f.pick.key!=oldKey||f.pick.parameters.owner.value!="1:"+oldKey||f.pick.changed||f.queue.historyChanged!=2||f.queue.save!=2){puts("FAIL owned history dry-run mutation");return false;}
+ options.dry=false;
+#else
  if(!assertSame(0))return false;
+#endif
+#ifdef NZBGET_MODEL_TITLE_STATE
+ // One client key retains independent completed/retryable states for each title.
+ SeedFair(f,6);const std::string broadKey=LowerKey(f.pick.key),nameA=f.pick.name;
+ const std::string nameB="Other.Show.S02E03.2024.720p.WEB.H264-GRP";
+ const std::string titleA=ReleaseName::Normalize(nameA),titleB=ReleaseName::Normalize(nameB);
+ f.search.RecordSearch(broadKey,{1000000,99,titleA,false,nameA});
+ f.search.RecordSearch(broadKey,{1000000,99,titleB,false,nameB});
+ f.control.m_searched=f.search.m_searched;f.control.m_titleSearched=f.search.m_titleSearched;
+ f.pick.name=nameA;if(!assertSame(0))return false;
+ f.pick.name=nameB;if(!assertSame(0))return false;
+ f.pick.name="Third.Show.S03E04.2023.1080p.WEB.H264-GRP";if(!assertSame(2))return false;
+ // The title map is authoritative even when compatibility/latest storage is absent.
+ f.pick.name=nameA;f.search.m_searched.clear();f.control.m_searched.clear();
+ f.search.m_rankPending.insert(1);f.control.m_rankPending.insert(1);
+ if(!assertSame(2))return false;
+ f.search.SetRetryable(broadKey,titleA,true);f.control.SetRetryable(broadKey,titleA,true);
+ if(!f.search.FindSearch(broadKey,titleA)->retryable||f.search.FindSearch(broadKey,titleB)->retryable){puts("FAIL title-scoped retry helper");return false;}
+ if(!assertSame(2))return false;
+ f.pick.name=nameB;if(!assertSame(0))return false;
+#endif
  // Raw byte keys and extreme times exercise the same watch contract directly.
  const uint32_t live=rsDupeEnabled|rsDupeCheck|rsDupePresent|rsDupeNzb|rsDupeDeleteNone|rsDupeScoreMode;
  const char bytes[]={char(255),'K'};NzbgetRsDupeWatchPeer pick{1,1000000,live,bytes,2};
@@ -329,7 +383,8 @@ struct Fixture {
    (f&(1<<10))?NzbInfo::dsCopy:(f&(1<<11))?NzbInfo::dsGood:NzbInfo::dsFailure;
   pick.post=f&(1<<12);pick.mode=(f&(1<<13))?dmScore:dmOther;pick.donor=f&(1<<14);
   pick.hint=(f&(1<<15))?NzbInfo::dhRedownloadAuto:NzbInfo::dhNone;
-  queue.queue.clear();queue.history.clear();search.m_searched.clear();
+  queue.queue.clear();queue.history.clear();queue.saveChanged=queue.historyChanged=queue.save=0;pick.changed=false;options.dry=false;
+  search.m_searched.clear();search.m_titleSearched.clear();search.m_rankPending.clear();control.m_titleSearched.clear();control.m_rankPending.clear();
   queue.queue.push_back(&peer);
   if(f&(1<<2)){if(f&(1<<4))queue.history.push_back(&historical);else queue.queue.push_back(&pick);}
   if(pt>=0)search.m_searched["key"]={ps,pt};
@@ -444,6 +499,13 @@ def emit(directory, candidate):
     make_stop=current.index('\n}\n',make_start)+3
     exact_keys=current[key_start:key_stop]+'\n'+current[make_start:make_stop]
     stub=re.sub(r'static std::string LowerKey\(std::string k\)\{[^\n]+\}',lambda _:exact_lower,STUB)
+    title_helpers = '#define NZBGET_MODEL_TITLE_STATE 1\n' if 'DupeSearch::Searched* DupeSearch::FindSearch(' in current else ''
+    for marker in ['DupeSearch::Searched* DupeSearch::FindSearch(', 'void DupeSearch::RecordSearch(', 'void DupeSearch::SetRetryable(']:
+        if marker in current:
+            at=current.index(marker);end=current.index('\n}\n',at)+3
+            title_helpers += current[at:end]+'\n'
+    if 'ownedKeyChanged' in native_prefix: title_helpers += '#define NZBGET_MODEL_OWNED_PERSIST 1\n'
+    (directory/'title_state_helpers.cpp').write_text(title_helpers)
     cpp_source=subprocess.check_output(['git','show',f'{NORMALIZER_REFERENCE}:daemon/dupesearch/ReleaseName.cpp'],cwd=root,text=True)
     cpp_header=subprocess.check_output(['git','show',f'{NORMALIZER_REFERENCE}:daemon/dupesearch/ReleaseName.h'],cwd=root,text=True)
     cpp_util=subprocess.check_output(['git','show',f'{NORMALIZER_REFERENCE}:daemon/dupesearch/DupeUtil.h'],cwd=root,text=True)
@@ -461,7 +523,7 @@ def emit(directory, candidate):
     (directory/'cpp_policy_control.cpp').write_text(CPP_POLICY)
     opaque_policy=CPP_POLICY[:CPP_POLICY.index('__attribute__((noinline,pure,nothrow)) int CppWatchMeasure')].replace('static inline int CppWatchPolicy(', 'extern "C" __attribute__((pure,nothrow)) int cpp_opaque_watch(')
     (directory/'cpp_opaque_watch.cpp').write_text('#include <algorithm>\n#include <cstdint>\n#include <cstddef>\n'+declarations+opaque_policy)
-    (directory/'oracle.cpp').write_text('#define NZBGET_USE_RUST\n#include <cstdint>\n#include <cstddef>\n'+declarations+stub+cpp_normalizer+CPP_POLICY+CPP_STAMPED+exact_keys+cpp_keys+prefix+native_prefix+cpp_prefix+DRIVER)
+    (directory/'oracle.cpp').write_text('#define NZBGET_USE_RUST\n#include <cstdint>\n#include <cstddef>\n'+declarations+stub+cpp_normalizer+CPP_POLICY+CPP_STAMPED+exact_keys+cpp_keys+title_helpers+prefix+native_prefix+cpp_prefix+DRIVER)
     (directory/'wrapper.rs').write_text('''mod bytes;mod releasename;mod dupewatch;
 #[no_mangle] pub extern "C" fn rust_decide(flags:u32,score:i32,higher:i32,now:i64,previous_time:i64,previous_score:i32,changed:i32)->i32 {
  let previous=if previous_time<0 {None}else{Some(dupewatch::SearchStamp{score:previous_score,time:previous_time})};
@@ -481,31 +543,36 @@ def emit(directory, candidate):
     with (directory/'wrapper.rs').open('a') as out:out.write('\nuse std::ffi::{c_char,c_int};\n'+exact_ffi)
     for name in ['bytes.rs' ,'releasename.rs','dupewatch.rs']:
         (directory/name).write_bytes(subprocess.check_output(['git','show',f'{current_revision}:rust/src/{name}'],cwd=root))
-    manifest={'baseline':COMMIT,'candidate':current_revision,'normalizer_reference':NORMALIZER_REFERENCE,'control':'counterfactual same-contract C++ controller, identical adapter/cache/prefilter, allocation-free independent source-derived policy, faithful pre-port C++ Normalize','boundary':'decision preparation through backend watch; excludes accepted-job mutation, save, transport, packed-payload proof','fixtures':'explicit nonempty keys; real normalization; 2/4 queued and 0/2 history; cold eligible pick score 0 with lower-score peers; restart cooldown pick score 1000000 with no runtime title cache; warm unchanged raw name and managed pick score 1000000; warm eligible uses an expired normal-score stamp, warm cooldown a recent normal-score stamp. Cold cooldown cache clear is identically included in both timers','files':{name:hashlib.sha256((directory/name).read_bytes()).hexdigest() for name in ['oracle.cpp','wrapper.rs','bytes.rs','releasename.rs','dupewatch.rs','cpp_normalizer_extracted.cpp','cpp_policy_control.cpp','cpp_reference_source.cpp','cpp_reference_header.h','cpp_reference_util.h','cpp_opaque_watch.cpp']}}
+    manifest={'baseline':COMMIT,'candidate':current_revision,'normalizer_reference':NORMALIZER_REFERENCE,'control':'counterfactual same-contract C++ controller, identical adapter/cache/prefilter, allocation-free independent source-derived policy, faithful pre-port C++ Normalize','boundary':'decision prefix through backend watch; models predecision owned-key mutation/persistence requests, excludes actual IO and accepted-job mutation/save/transport/packed-payload proof','fixtures':'explicit nonempty keys; real normalization; 2/4 queued and 0/2 history; cold eligible pick score 0 with lower-score peers; restart cooldown pick score 1000000 with no runtime title cache; warm unchanged raw name and managed pick score 1000000; warm eligible uses an expired normal-score stamp, warm cooldown a recent normal-score stamp. Cold cooldown cache clear is identically included in both timers','files':{name:hashlib.sha256((directory/name).read_bytes()).hexdigest() for name in ['oracle.cpp','wrapper.rs','bytes.rs','releasename.rs','dupewatch.rs','cpp_normalizer_extracted.cpp','cpp_policy_control.cpp','cpp_reference_source.cpp','cpp_reference_header.h','cpp_reference_util.h','cpp_opaque_watch.cpp','title_state_helpers.cpp']}}
     (directory/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print(f'Emitted old prefix {COMMIT[:12]} and matched current caller/FFI {current_revision[:12]}; real Rust normalization; nonempty explicit keys')
 
-def build(directory):
-    subprocess.run([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--edition=2021','--crate-type=staticlib','-O','-Awarnings',str(directory/'wrapper.rs'),'-o',str(directory/'policy.a')],check=True)
-    for name,flags in [('sanitized',['-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer']),('optimized',['-O3'])]:
+def build(directory, benchmarks=False):
+    rust_flags=['--edition=2021','--crate-type=staticlib','-O','-C','codegen-units=1','-Awarnings']
+    subprocess.run([str(pathlib.Path.home()/'.cargo/bin/rustc'),*rust_flags,str(directory/'wrapper.rs'),'-o',str(directory/'policy.a')],check=True)
+    variants=[('sanitized',['-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer'])]
+    if benchmarks: variants.append(('optimized',['-O3']))
+    for name,flags in variants:
         subprocess.run(['g++','-std=c++17',*flags,str(directory/'oracle.cpp'),str(directory/'cpp_opaque_watch.cpp'),str(directory/'policy.a'),'-lpthread','-ldl','-lm','-o',str(directory/name)],check=True)
-    toolchain={'rustc':subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--version'],text=True).strip(),'g++':subprocess.check_output(['g++','--version'],text=True).splitlines()[0],'rust_flags':['--edition=2021','--crate-type=staticlib','-O'],'cpp_optimized_flags':['-std=c++17','-O3'],'cpp_sanitized_flags':['-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer'],'sample_method':'5 fresh process samples; alternate CPP-first and Rust-first by passing --reverse on samples 2 and 4; steady_clock; 2 million calls per identical prebuilt snapshot case; 10000 cold controller or 200000 warm controller calls; volatile checksums; faithful respective normalization inside cold loops; identical cache/prefilter and state; externally held exclusive common benchmark lock released between samples; historical non-equivalent metrics excluded from gating'}
+    toolchain={'rustc':subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/rustc'),'--version'],text=True).strip(),'g++':subprocess.check_output(['g++','--version'],text=True).splitlines()[0],'mode':'benchmark-opt-in' if benchmarks else 'correctness-only','rust_flags':rust_flags,'cpp_optimized_flags':['-std=c++17','-O3'] if benchmarks else None,'cpp_sanitized_flags':['-std=c++17','-O1','-g','-fsanitize=address,undefined','-fno-omit-frame-pointer'],'sample_method':'5 fresh process samples; alternate CPP-first and Rust-first by passing --reverse on samples 2 and 4; steady_clock; 2 million calls per identical prebuilt snapshot case; 10000 cold controller or 200000 warm controller calls; volatile checksums; faithful respective normalization inside cold loops; identical cache/prefilter and state; externally held exclusive common benchmark lock released between samples; historical non-equivalent metrics excluded from gating'}
     (directory/'toolchain.json').write_text(json.dumps(toolchain,indent=2)+'\n')
-    print('Built C++ ASan/UBSan and optimized C++/Rust policy harnesses')
+    print('Built correctness ASan/UBSan harness'+(' and explicit benchmark binary' if benchmarks else '; no timing binary requested'))
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--benchmarks',action='store_true',help='Explicitly opt in to historical prefix/snapshot timings after parity; requires a coordinated measurement slot')
     parser.add_argument('--candidate',default='HEAD',help='Immutable commit or tree to extract (default HEAD, never working-tree files)')
     for mode in ['emit','build','run']:
         parser.add_argument('--'+mode,type=pathlib.Path)
     args=parser.parse_args()
     if args.emit: emit(args.emit.resolve(),args.candidate)
-    if args.build: build(args.build.resolve())
+    if args.build: build(args.build.resolve(),args.benchmarks)
     if args.run:
         directory=args.run.resolve()
         parity=subprocess.check_output([str(directory/'sanitized')],text=True,stderr=subprocess.STDOUT)
         (directory/'parity.log').write_text(parity);print(parity,end='')
-        for index in range(1,6):
-            sample=subprocess.check_output([str(directory/'optimized'),'--bench'],text=True,stderr=subprocess.STDOUT)
+        for index in range(1,6) if args.benchmarks else []:
+            command=[str(directory/'optimized'),'--bench']+(['--reverse'] if index%2==0 else [])
+            sample=subprocess.check_output(command,text=True,stderr=subprocess.STDOUT)
             (directory/f'sample-{index}.log').write_text(sample);print(sample,end='')
 if __name__=='__main__':main()

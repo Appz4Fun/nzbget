@@ -130,6 +130,7 @@ private:
 	std::set<int> m_rankPending;
 	std::map<int, time_t> m_pending;			// nzb id -> when to look at it
 	std::map<std::string, Searched> m_searched;	// lowercase dupe key -> last search
+    std::map<std::pair<std::string, std::string>, Searched> m_titleSearched;
 	// pick id -> fingerprints its search queued; per pick, not per key: a pick sent
 	// again after the user deleted it and its duplicates gets them back (B41)
 	std::map<int, std::set<std::string>> m_sent;
@@ -159,7 +160,7 @@ private:
 	/* a line of the search of pick <nzbId>: in the pick's own log and the global log */
 	void Note(int nzbId, Message::EKind kind, const char* format, ...) PRINTF_SYNTAX(4);
 	std::string PendingDir(int nzbId);
-	void MarkSearching(int nzbId);
+	void MarkSearching(const Job& job);
 	void SavePending(const Job& job, const NzbSummary& pick, const std::vector<NzbFetcher::Fetched>& verified);
 	void RemovePending(int nzbId);
 	void ResumePending();
@@ -171,9 +172,13 @@ private:
 	/* the DupeScore (and a parameter "Name=Value") of a duplicate that sits in history or in the queue */
 	bool SetScore(int id, int score, const std::vector<std::string>& params);
 	void LoadState();
-	void SaveState();
+	bool SaveState();
 	// the key may be searched again (a search that learned nothing)
-	void ForgetSearch(const std::string& dupeKey);
+    // Callers hold m_mutex; the flat map is only the latest-name cache.
+    Searched* FindSearch(const std::string& lowerKey, const std::string& title);
+    void RecordSearch(const std::string& lowerKey, const Searched& searched);
+    void SetRetryable(const std::string& lowerKey, const std::string& title, bool retryable);
+	bool ForgetSearch(const std::string& dupeKey, const std::string& title = "");
 	std::string StatePath();
 };
 

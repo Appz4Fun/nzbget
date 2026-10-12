@@ -288,6 +288,72 @@ BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
 }
 #endif
 
+BOOST_AUTO_TEST_CASE(NativeDataArticleIdsExcludeParityTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>discarded@x</segment>"
+        "<segment number='2' bytes='100'>a-data@x</segment>"
+        "<segment number='1' bytes='100'>z-data@x</segment>"
+        "<segment number='3' bytes='100'>z-data@x</segment></segments></file>"
+        "<file subject='&quot;rel.vol00+25.PAR2&quot;'><segments>";
+    for (int i = 1; i <= 25; i++)
+        xml += "<segment number='" + std::to_string(i) + "' bytes='10'>par-" + std::to_string(i) + "@x</segment>";
+    xml += "</segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 300);
+    const std::vector<std::string> expected = { "a-data@x", "z-data@x" };
+    BOOST_CHECK_EQUAL_COLLECTIONS(info.dataMessageIds.begin(), info.dataMessageIds.end(), expected.begin(), expected.end());
+    BOOST_CHECK_EQUAL(info.messageIds.size(), 27);
+    BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "discarded@x") == info.messageIds.end());
+    const std::string originalFingerprint = info.Fingerprint();
+    const size_t parityId = xml.find("par-1@x");
+    BOOST_REQUIRE(parityId != std::string::npos);
+    xml.replace(parityId, 7, "par-new@x");
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL_COLLECTIONS(info.dataMessageIds.begin(), info.dataMessageIds.end(), expected.begin(), expected.end());
+    BOOST_CHECK_NE(info.Fingerprint(), originalFingerprint);
+
+    // Keep measurable data IDs even when malformed data withholds geometry.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>valid@x</segment>"
+        "<segment number='2' bytes='100'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 0);
+    BOOST_REQUIRE_EQUAL(info.dataMessageIds.size(), 1);
+    BOOST_CHECK_EQUAL(info.dataMessageIds[0], "valid@x");
+}
+
+BOOST_AUTO_TEST_CASE(NativeDataPartGeometryExcludesParityTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='100'>data-1@x</segment>"
+        "<segment number='2' bytes='100'>data-2@x</segment></segments></file>"
+        "<file subject='&quot;rel.vol00+25.par2&quot;'><segments>";
+    for (int i = 1; i <= 25; i++)
+        xml += "<segment number='" + std::to_string(i) + "' bytes='10'>par-" + std::to_string(i) + "@x</segment>";
+    xml += "</segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.listedParts, 27);
+    BOOST_CHECK_EQUAL(info.declaredParts, 175);
+    BOOST_CHECK_EQUAL(info.dataListedParts, 2);
+    BOOST_CHECK_EQUAL(info.dataDeclaredParts, 150);
+    BOOST_CHECK_EQUAL(info.dataMessageIds.size(), 2);
+
+    // Numbered data gaps remain data geometry, independently of PAR parts.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>data-1@x</segment>"
+        "<segment number='3' bytes='100'>data-3@x</segment></segments></file>"
+        "<file subject='&quot;rel.par2&quot;'><segments>"
+        "<segment number='1' bytes='10'>par@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataListedParts, 2);
+    BOOST_CHECK_EQUAL(info.dataDeclaredParts, 3);
+    BOOST_CHECK_EQUAL(info.listedParts, 3);
+    BOOST_CHECK_EQUAL(info.declaredParts, 4);
+}
+
 BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentKeepsLastTest)
 {
     NzbSummary info;

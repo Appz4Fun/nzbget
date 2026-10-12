@@ -171,6 +171,7 @@ public:
                 }
                 sizes[m_name] += segment.bytes;
                 ids.insert(segment.id);
+                if (!IsParName(m_name)) dataIds.insert(segment.id);
                 m_validParts++;
                 if (!IsParName(m_name) && segment.bytes > 0) articleSizes.push_back((uint64_t)segment.bytes);
                 if (segment.bytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - segment.bytes)
@@ -192,6 +193,11 @@ public:
 #endif
             listedParts += m_validParts;
             declaredParts += declared;
+            if (!IsParName(m_name))
+            {
+                dataListedParts += m_validParts;
+                dataDeclaredParts += declared;
+            }
             if (IsParName(m_name) && m_fileBytes > 0 && !m_firstId.empty())
                 parityHeads.push_back({ m_name, m_firstId, m_fileBytes });
 
@@ -221,9 +227,11 @@ public:
 	int dataFiles = 0;
 	bool geometryValid = true;
 	uint64_t listedParts = 0, declaredParts = 0;
+	uint64_t dataListedParts = 0, dataDeclaredParts = 0;
 	std::vector<uint64_t> articleSizes;
 	std::vector<NzbSummary::Head> parityHeads;
 	std::set<std::string> ids;
+	std::set<std::string> dataIds;
 	std::set<std::string> groups;
 	std::map<std::string, std::string> meta;
 
@@ -281,9 +289,12 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
 	summary.poster = reader.poster;
 	summary.meta = reader.meta;
 	summary.messageIds.assign(reader.ids.begin(), reader.ids.end());
+	summary.dataMessageIds.assign(reader.dataIds.begin(), reader.dataIds.end());
 	summary.groups.assign(reader.groups.begin(), reader.groups.end());
     summary.listedParts = reader.listedParts;
     summary.declaredParts = reader.declaredParts;
+    summary.dataListedParts = reader.dataListedParts;
+    summary.dataDeclaredParts = reader.dataDeclaredParts;
     if (!reader.articleSizes.empty())
     {
         std::sort(reader.articleSizes.begin(), reader.articleSizes.end());

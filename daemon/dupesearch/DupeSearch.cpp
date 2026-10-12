@@ -67,6 +67,31 @@ NzbInfo* FindNzb(DownloadQueue* downloadQueue, int nzbId)
 	return nullptr;
 }
 
+bool SavedHistoryBackup(NzbInfo* pick, NzbInfo* candidate)
+{
+    return candidate->GetDeleteStatus() == NzbInfo::dsDupe ||
+        (pick && candidate->GetDeleteStatus() == NzbInfo::dsCopy &&
+         candidate->GetFullContentHash() != pick->GetFullContentHash());
+}
+
+bool PlacementAvailable(DownloadQueue* queue, NzbInfo* pick, NzbInfo* backup, bool wholeBackup = false)
+{
+    if (!backup || backup->GetKind() != NzbInfo::nkNzb || backup->GetDeleting() ||
+        backup->GetDeleteStatus() == NzbInfo::dsManual || backup->GetMarkStatus() == NzbInfo::ksBad ||
+        backup->GetDupeMode() == dmForce) return false;
+    bool inHistory = queue->GetQueue()->Find(backup->GetId()) != backup;
+    if (!inHistory && backup->GetDeleteStatus() == NzbInfo::dsNone &&
+        (!wholeBackup || !backup->GetPostInfo())) return true;
+    if (inHistory && backup->IsDupeSuccess()) return true;
+    NzbParameter* markedAlive = backup->GetParameters()->Find(DupeSearch::AliveParam);
+    // Partial donors can still repair articles and therefore consume the cap;
+    // suppressing discovery needs a backup that can complete a redownload.
+    return (!wholeBackup || !backup->GetPostInfo()) && SavedHistoryBackup(pick, backup) &&
+        FileSystem::FileExists(backup->GetQueuedFilename()) &&
+        (!wholeBackup || backup->CalcHealth() >= backup->CalcCriticalHealth(true)) &&
+        !(g_Options->GetHealthCheck() == Options::hcDupe && markedAlive && atoi(markedAlive->GetValue()) == 0);
+}
+
 
 std::string LowerKey(const std::string& key)
 {
@@ -266,7 +291,7 @@ void DupeSearch::Run()
 			}
 			if (search)
 			{
-				MarkSearching(job.nzbId);
+				MarkSearching(job);
 				Search(job);
 			}
 		}
@@ -426,7 +451,7 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
         (owner && ownerPrefix + key == owner->GetValue() && key.compare(0, 6, "dupes:") == 0);
     std::string title;
     Searched previous;
-    bool havePrevious = false, changedIdentity = false, rankOnly = false, cachedName = false;
+    bool havePrevious = false, changedIdentity = false, rankOnly = false, cachedName = false, rankRequested = false;
     {
         std::lock_guard<std::mutex> guard(m_mutex);
         auto found = m_searched.find(lowerKey);
@@ -439,25 +464,47 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
                 previous.title = key.substr(6);
             cachedName = !previous.title.empty() && previous.rawName == pick->GetName();
         }
-        rankOnly = m_rankPending.erase(nzbId) != 0 && havePrevious;
+        rankRequested = m_rankPending.erase(nzbId) != 0;
     }
     title = cachedName ? previous.title :
         Util::EmptyStr(pick->GetDupeKey()) ? key.substr(6) : ReleaseName::Normalize(pick->GetName());
     changedIdentity = havePrevious && !previous.title.empty() && previous.title != title;
-    if (havePrevious && !changedIdentity && !cachedName && !previous.title.empty())
-    {
-        std::lock_guard<std::mutex> guard(m_mutex);
-        auto found = m_searched.find(lowerKey);
-        if (found != m_searched.end() && found->second.title == title) found->second.rawName = pick->GetName();
-    }
-    if (changedIdentity) rankOnly = false;
+    bool ownedKeyChanged = false;
     // Only rewrite a key this search previously generated; explicit client keys stay.
-    if (changedIdentity && generatedKey && !history && key == "dupes:" + previous.title)
+    if (generatedKey && !Util::EmptyStr(pick->GetDupeKey()) &&
+        key.compare(0, 6, "dupes:") == 0 && key != "dupes:" + title)
     {
         key = "dupes:" + title;
         lowerKey = LowerKey(key);
-        // The key remains a snapshot until the Rust policy accepts the job.
+        ownedKeyChanged = true;
         havePrevious = false;
+    }
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        if (Searched* found = FindSearch(lowerKey, title))
+        {
+            previous = *found;
+            havePrevious = true;
+            changedIdentity = false;
+            if (!previous.title.empty()) previous.rawName = pick->GetName();
+            cachedName = !previous.title.empty();
+            *found = previous;
+            m_searched[lowerKey] = previous;
+            rankOnly = rankRequested && previous.title == title;
+        }
+        else { havePrevious = false; cachedName = false; rankOnly = false; }
+    }
+    if (ownedKeyChanged)
+    {
+        rankOnly = false;
+        if (!g_Options->GetDupeSearchDryRun())
+        {
+            pick->SetDupeKey(key.c_str());
+            pick->GetParameters()->SetParameter(OwnedKeyParam, (ownerPrefix + key).c_str());
+            pick->SetChanged(true);
+            if (history) { downloadQueue->HistoryChanged(); downloadQueue->Save(); }
+            else downloadQueue->SaveChanged();
+        }
     }
     auto flags = [&](NzbInfo* item, bool inHistory) -> uint32_t {
         uint32_t value = rsDupeEnabled | rsDupeCheck | rsDupePresent;
@@ -536,7 +583,7 @@ bool DupeSearch::PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job
     int score = std::max(pick->GetDupeScore(), BasePickScore);
     {
         std::lock_guard<std::mutex> guard(m_mutex);
-        if (!rankOnly) m_searched[lowerKey] = { score, now, title, false, pick->GetName() };
+        if (!rankOnly) RecordSearch(lowerKey, { score, now, title, false, pick->GetName() });
     }
     if (!g_Options->GetDupeSearchDryRun() && !rankOnly) SaveState();
     bool edit = !g_Options->GetDupeSearchDryRun() && !history;
@@ -622,8 +669,7 @@ void DupeSearch::Collect(DownloadQueue* downloadQueue, NzbInfo* nzbInfo, Job& jo
 			addKnown(item);
 			// the same release only: a client's key can be broad (one key for two editions);
 			// a copy (an nzb-file sent again) too, unless it is a copy of the pick
-			bool backup = item->GetDeleteStatus() == NzbInfo::dsDupe ||
-				(item->GetDeleteStatus() == NzbInfo::dsCopy && item->GetFullContentHash() != nzbInfo->GetFullContentHash());
+			bool backup = SavedHistoryBackup(nzbInfo, item);
 			if (item != nzbInfo && backup && LowerKey(EffectiveKey(item)) == lowerKey &&
 				ReleaseName::SameRelease(nzbInfo->GetName(), item->GetName()) &&
 				!Util::EmptyStr(item->GetQueuedFilename()) && !strchr(item->GetQueuedFilename(), '|'))
@@ -667,8 +713,21 @@ void DupeSearch::Expand(const Job& job, const NzbSummary& pick, const std::vecto
         alive=DupeIdentity::Alive(health,pick);
         long long combined=(long long)health.missing+DupeIdentity::UnlistedMissing(health,pick);
         missing=(int)std::min(combined,(long long)std::numeric_limits<int>::max());
-        if (alive>=0.85 && missing>=DonorHealth::MinKnown)
-            doomed=DupeIdentity::ParDoomed(pick,alive,deadline);
+        if (alive>=0.85 && !pick.dataMessageIds.empty() &&
+            !pick.parIndex.messageId.empty() && !pick.recoveryBytes.empty())
+        {
+            // Recovery articles are capacity, never evidence that source data
+            // exists. Sample only retained data IDs for damaged-block estimates.
+            NzbSummary data = pick;
+            data.messageIds = pick.dataMessageIds;
+            data.listedParts = pick.dataListedParts;
+            data.declaredParts = pick.dataDeclaredParts;
+            auto dataHealth = check(data);
+            double dataAlive = DupeIdentity::Alive(dataHealth, data);
+            long long dataMissing = (long long)dataHealth.missing + DupeIdentity::UnlistedMissing(dataHealth, data);
+            if (dataAlive >= 0 && dataMissing >= DonorHealth::MinKnown)
+                doomed = DupeIdentity::ParDoomed(pick, dataAlive, deadline);
+        }
     }
     if (!nzbget_rs_dupe_should_expand(alive,missing,job.failed || doomed,false)) return;
     // Do not spend indexer grabs when a usable whole backup already exists.
@@ -917,7 +976,7 @@ void DupeSearch::Search(const Job& job)
 	bool nothingFetched = fetched.empty() && fetchStats.refused + fetchStats.fetch + notTried > 0;
 	if (queriesFailed || nothingFetched)
 	{
-		ForgetSearch(job.dupeKey);
+		ForgetSearch(job.dupeKey, ReleaseName::Normalize(job.name));
 		Note(job.nzbId, Message::mkInfo, "DupeSearch: %s: %s, the key may be searched again", job.name.c_str(),
 			allFailed ? "no indexer answered" : queriesFailed ? "an indexer query failed and nothing came back" :
 			"no posting could be fetched");
@@ -1031,6 +1090,16 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		int oldScore = 0;		// a member's score before: never raised unless it is whole
 	};
 	std::map<size_t, Placed> placed;
+    std::map<size_t, double> deferred;
+    auto slotsUsed = [&]() {
+        GuardedDownloadQueue queue = DownloadQueue::Guard();
+        NzbInfo* currentPick = FindNzb(queue, job.nzbId);
+        return (int)std::count_if(placed.begin(), placed.end(), [&](const auto& item) {
+            return !item.second.member && item.second.valid && item.second.entry.score > DonorScore::Dead &&
+                (item.second.id < 0 ? g_Options->GetDupeSearchDryRun() :
+                 PlacementAvailable(queue, currentPick, FindNzb(queue, item.second.id)));
+        });
+    };
 	DonorScore::Ranks ranks;
 	int base = DonorScore::Base(job.score);
 
@@ -1158,13 +1227,10 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 						ranks.Release(score);
 						ranks.Use(donor.entry.score);
 						rescoreFailed++;
+                        donor.valid = false;
 						Note(job.nzbId, Message::mkWarning, "DupeSearch: could not rescore %s: keeps score %i", verified[i].listing.title.c_str(),
 							base + donor.entry.score);
 					}
-				}
-				else if (cap > 0 && added >= cap)
-				{
-					overCap++;
 				}
 				else if (isDead)
 				{
@@ -1175,7 +1241,10 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 				}
 				else
 				{
-					place(i, alive, "checked");
+                    // A healthy answer may arrive before a fast donor's dead
+                    // answer. Retain it until all checks settle the cap slots.
+                    if (cap > 0 && slotsUsed() >= cap) deferred[i] = alive;
+                    else place(i, alive, "checked");
 				}
 			});
 	}
@@ -1185,6 +1254,14 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		return;
 	}
 
+    for (auto it = deferred.begin(); it != deferred.end();)
+    {
+        if (cap > 0 && slotsUsed() >= cap) { ++it; continue; }
+        auto entry = *it;
+        it = deferred.erase(it);
+        place(entry.first, entry.second, "checked");
+    }
+
 	// whatever no check reported on (no servers, a failed check) is added unchecked
 	for (size_t i : std::set<size_t>(todo))
 	{
@@ -1193,7 +1270,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		{
 			continue;
 		}
-		if (cap > 0 && added >= cap)
+		if (cap > 0 && slotsUsed() >= cap)
 		{
 			overCap++;
 			continue;
@@ -1282,11 +1359,13 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		return;
 	}
 
+    auto rerank = [&]() {
 	// once every check is in, the scores in order of wholeness
 	std::vector<size_t> order2;
 	std::vector<DonorScore::Entry> entries;
 	for (auto& entry : placed)
 	{
+        if (!entry.second.valid) continue;
 		order2.push_back(entry.first);
 		entries.push_back(entry.second.entry);
 	}
@@ -1332,6 +1411,19 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
 		}
 	}
 
+    };
+    rerank();
+    // A final failed score edit can invalidate another occupied slot. Keep
+    // measured candidates until that decision and attempt each at most once.
+    while (!deferred.empty() && (cap <= 0 || slotsUsed() < cap))
+    {
+        auto entry = *deferred.begin();
+        deferred.erase(deferred.begin());
+        place(entry.first, entry.second, "checked");
+        rerank();
+    }
+    overCap += (int)deferred.size();
+
 	if (pickCheck.joinable())
 	{
 		pickCheck.join();
@@ -1360,29 +1452,31 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
     bool usableBackup = false;
     {
         GuardedDownloadQueue queue = DownloadQueue::Guard();
+        NzbInfo* currentPick = FindNzb(queue, job.nzbId);
         usableBackup=std::any_of(placed.begin(),placed.end(),[&](const auto& item) {
             if (!item.second.valid || item.second.entry.score<=DonorScore::Dead || item.second.entry.alive<0.999) return false;
             if (item.second.id<0) return g_Options->GetDupeSearchDryRun();
-            NzbInfo* backup=FindNzb(queue,item.second.id);
-            return backup && !backup->GetDeleting() && backup->GetDeleteStatus()!=NzbInfo::dsManual;
+            return PlacementAvailable(queue, currentPick, FindNzb(queue, item.second.id), true);
         });
     }
     bool retryWanted=!job.rankOnly;
     if (job.rankOnly)
     {
         std::lock_guard<std::mutex> guard(m_mutex);
-        auto state=m_searched.find(LowerKey(job.dupeKey));
-        retryWanted=state!=m_searched.end() && state->second.retryable;
+        Searched* state = FindSearch(LowerKey(job.dupeKey), ReleaseName::Normalize(job.name));
+        retryWanted = state && state->retryable;
     }
     if (usableBackup)
     {
         { std::lock_guard<std::mutex> guard(m_mutex);
-          auto state=m_searched.find(LowerKey(job.dupeKey));
-          if (state!=m_searched.end()) state->second.retryable=false; }
+          SetRetryable(LowerKey(job.dupeKey), ReleaseName::Normalize(job.name), false); }
         if (!g_Options->GetDupeSearchDryRun()) SaveState();
     }
     bool rankIncomplete = job.rankOnly && !uncheckedMembers.empty();
     bool retryDiscovery = retryWanted && !usableBackup;
+    // A rename/deletion may make this pick ineligible for scheduling, but must
+    // not falsely complete the original title's unfulfilled discovery stamp.
+    if (retryDiscovery && !IsStopped()) ForgetSearch(job.dupeKey, ReleaseName::Normalize(job.name));
     if ((retryDiscovery || rankIncomplete) && !IsStopped())
     {
         GuardedDownloadQueue queue=DownloadQueue::Guard();
@@ -1397,7 +1491,6 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
                 // inconclusive backup; otherwise rank-only retries can starve it.
                 { std::lock_guard<std::mutex> guard(m_mutex);
                   m_rankPending.erase(job.nzbId); }
-                ForgetSearch(job.dupeKey);
             }
             else
             {
@@ -1406,6 +1499,7 @@ void DupeSearch::Place(const Job& job, const NzbSummary& pick, std::vector<NzbFe
                 std::lock_guard<std::mutex> guard(m_mutex);
                 m_rankPending.insert(job.nzbId);
             }
+            if (!retryDiscovery) MarkSearching(job);
             Schedule(job.nzbId,Util::CurrentTime()+900);
             if (!retryDiscovery)
                 current->PrintMessage(Message::mkInfo, "DupeSearch: %s: retrying backup health in 15 minutes", job.name.c_str());
@@ -1606,16 +1700,19 @@ void RemoveDir(const std::string& dir)
 
 }
 
-void DupeSearch::MarkSearching(int nzbId)
+void DupeSearch::MarkSearching(const Job& job)
 {
 	if (g_Options->GetDupeSearchDryRun())
 	{
 		return;
 	}
-	std::string dir = PendingDir(nzbId);
+	std::string dir = PendingDir(job.nzbId);
 	RemoveDir(dir);
 	CString errmsg;
-	if (!FileSystem::ForceDirectories(dir.c_str(), errmsg) || !DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "phase", "searching\n"))
+	if (!FileSystem::ForceDirectories(dir.c_str(), errmsg) ||
+        !DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "pick-title", ReleaseName::Normalize(job.name)) ||
+        !DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "pick-key", LowerKey(job.dupeKey)) ||
+        !DupeUtil::WriteAtomic(dir + PATH_SEPARATOR + "phase", job.rankOnly ? "ranking\n" : "searching\n"))
 	{
 		warn("Could not save the DupeSearch state to %s", dir.c_str());
 	}
@@ -1675,9 +1772,12 @@ void DupeSearch::ResumePending()
 			return;
 		}
 		std::string dir = PendingDir(nzbId);
-		bool fetched = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "phase") == "fetched\n";
+        std::string phase = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "phase");
+		bool fetched = phase == "fetched\n";
+        bool ranking = phase == "ranking\n";
 
 		Job job;
+        bool stateErased = false;
 		{
 			GuardedDownloadQueue downloadQueue = DownloadQueue::Guard();
 			NzbInfo* nzbInfo = FindNzb(downloadQueue, nzbId);
@@ -1686,13 +1786,36 @@ void DupeSearch::ResumePending()
 				Collect(downloadQueue, nzbInfo, job);
 				job.score = std::max(nzbInfo->GetDupeScore(), BasePickScore);
 			}
+			else if (nzbInfo && ranking)
+            {
+                std::string key = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-key");
+                std::string title = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-title");
+                std::lock_guard<std::mutex> guard(m_mutex);
+                if (key == LowerKey(EffectiveKey(nzbInfo)) && title == ReleaseName::Normalize(nzbInfo->GetName()))
+                    if (Searched* stamp = FindSearch(key, title))
+                        if (stamp->title == title) m_rankPending.insert(nzbId);
+                m_pending[nzbId] = Util::CurrentTime() + g_Options->GetDupeSearchDelay();
+                m_cond.notify_all();
+            }
 			else if (nzbInfo)
 			{
 				// the search itself was cut off: it runs again
 				std::lock_guard<std::mutex> guard(m_mutex);
-				m_searched.erase(LowerKey(EffectiveKey(nzbInfo)));
+                // A rename/key edit during the interrupted search must not
+                // invalidate another edition's completed suppression stamp.
+                std::string key = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-key");
+                std::string title = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-title");
+                if (!key.empty() && !title.empty())
+                    stateErased = m_titleSearched.erase({key, title}) != 0;
+                // Unknown old checkpoints cannot name an edition to invalidate.
+                std::string cacheKey = key.empty() ? LowerKey(EffectiveKey(nzbInfo)) : key;
+                auto latest = m_searched.find(cacheKey);
+                if (latest != m_searched.end() && (latest->second.title.empty() ||
+                    (!key.empty() && !title.empty() && latest->second.title == title)))
+                { m_searched.erase(latest); stateErased = true; }
 			}
 		}
+        if (stateErased && !g_Options->GetDupeSearchDryRun() && !SaveState()) continue;
 		if (!fetched || job.nzbId == 0)
 		{
 			RemoveDir(dir);
@@ -1710,8 +1833,22 @@ void DupeSearch::ResumePending()
             DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-posting") != pick.Fingerprint())
         {
             Note(job.nzbId, Message::mkInfo, "DupeSearch: saved search identity changed; searching the current pick again");
+            std::string oldKey = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-key");
+            std::string oldTitle = DupeUtil::ReadAll(dir + PATH_SEPARATOR + "pick-title");
+            if (!oldKey.empty() && !oldTitle.empty())
+            {
+                if (!ForgetSearch(oldKey, oldTitle)) continue;
+            }
+            else
+            {
+                bool erased = false;
+                { std::lock_guard<std::mutex> guard(m_mutex);
+                  auto latest = m_searched.find(LowerKey(job.dupeKey));
+                  if (latest != m_searched.end() && latest->second.title.empty())
+                  { m_searched.erase(latest); erased = true; } }
+                if (erased && !g_Options->GetDupeSearchDryRun() && !SaveState()) continue;
+            }
             RemoveDir(dir);
-            ForgetSearch(job.dupeKey);
             Schedule(job.nzbId, Util::CurrentTime() + g_Options->GetDupeSearchDelay());
             continue;
         }
@@ -1808,45 +1945,72 @@ void DupeSearch::LoadState()
             searched.retryable=retry=="1" || searched.title.empty();
 			if (now - searched.time < StateTtlSec)
 			{
-				m_searched[key] = searched;
+				RecordSearch(key, searched);
 			}
 		}
 	}
 }
 
-void DupeSearch::ForgetSearch(const std::string& dupeKey)
+DupeSearch::Searched* DupeSearch::FindSearch(const std::string& lowerKey, const std::string& title)
+{
+    auto exact = m_titleSearched.find({lowerKey, title});
+    if (exact != m_titleSearched.end()) return &exact->second;
+    auto latest = m_searched.find(lowerKey);
+    return latest != m_searched.end() && (latest->second.title.empty() || latest->second.title == title) ?
+        &latest->second : nullptr;
+}
+
+void DupeSearch::RecordSearch(const std::string& lowerKey, const Searched& searched)
+{
+    m_searched[lowerKey] = searched;
+    if (!searched.title.empty()) m_titleSearched[{lowerKey, searched.title}] = searched;
+}
+
+void DupeSearch::SetRetryable(const std::string& lowerKey, const std::string& title, bool retryable)
+{
+    if (Searched* searched = FindSearch(lowerKey, title)) searched->retryable = retryable;
+    auto latest = m_searched.find(lowerKey);
+    if (latest != m_searched.end() && (latest->second.title.empty() || latest->second.title == title))
+        latest->second.retryable = retryable;
+}
+
+bool DupeSearch::ForgetSearch(const std::string& dupeKey, const std::string& title)
 {
 	{
 		std::lock_guard<std::mutex> guard(m_mutex);
 #ifdef NZBGET_USE_RUST
-        auto found=m_searched.find(LowerKey(dupeKey));
-        if (found!=m_searched.end()) found->second.retryable=true;
+        std::string lowerKey = LowerKey(dupeKey);
+        auto latest = m_searched.find(lowerKey);
+        SetRetryable(lowerKey, title.empty() && latest != m_searched.end() ? latest->second.title : title, true);
 #else
 		m_searched.erase(LowerKey(dupeKey));
 #endif
 	}
 	if (!g_Options->GetDupeSearchDryRun())
 	{
-		SaveState();
+		return SaveState();
 	}
+    return true;
 }
 
-void DupeSearch::SaveState()
+bool DupeSearch::SaveState()
 {
 	std::ostringstream text;
 	{
 		std::lock_guard<std::mutex> guard(m_mutex);
 		time_t now = Util::CurrentTime();
-		for (const auto& entry : m_searched)
-		{
-			if (now - entry.second.time < StateTtlSec)
-			{
-				text << entry.first << '\t' << entry.second.score << '\t' << (long long)entry.second.time << '\t' << entry.second.title << '\t' << (entry.second.retryable ? 1 : 0) << "\t\n";
-			}
-		}
+        auto append = [&](const std::string& key, const Searched& searched) {
+            if (now - searched.time < StateTtlSec)
+                text << key << '\t' << searched.score << '\t' << (long long)searched.time << '\t' << searched.title << '\t' << (searched.retryable ? 1 : 0) << "\t\n";
+        };
+        for (const auto& entry : m_titleSearched) append(entry.first.first, entry.second);
+        for (const auto& entry : m_searched)
+            if (!m_titleSearched.count({entry.first, entry.second.title})) append(entry.first, entry.second);
 	}
 	if (!DupeUtil::WriteAtomic(StatePath(), text.str()))
 	{
 		warn("Could not save the DupeSearch state to %s", StatePath().c_str());
+        return false;
 	}
+    return true;
 }

@@ -57,6 +57,9 @@ struct NzbSummary
 	long long dataBytes = 0;
 	int dataFiles = 0;
 	std::vector<Head> heads;					// first parts of the largest data files
+	std::vector<std::string> dataMessageIds;	// sorted unique valid non-PAR IDs, including partial data
+	uint64_t dataListedParts = 0;
+	uint64_t dataDeclaredParts = 0;
 
 	/* identifies the posting: a hash of its message-ids */
 	std::string Fingerprint() const;
