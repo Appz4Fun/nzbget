@@ -457,5 +457,128 @@ fn closed_stdout_cannot_discard_an_already_detected_alert_capture() {
     assert_eq!(record["event"], "symptom");
     assert_eq!(record["alerts"][0]["job_id"], 7);
     assert_eq!(record["window"].as_array().unwrap().len(), 2);
+    assert_eq!(record["observer"]["version"], "0.1.0");
+    let hash = record["observer"]["executable_sha256"]
+        .as_str()
+        .expect("executed observer identity");
+    assert_eq!(hash.len(), 64);
+    assert!(hash.bytes().all(|b| b.is_ascii_hexdigit()));
+    let executable = std::fs::read(env!("CARGO_BIN_EXE_nzbget-observe")).unwrap();
+    let expected = ring::digest::digest(&ring::digest::SHA256, &executable);
+    let expected_hex: String = expected
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        hash, expected_hex,
+        "identity binds the actual CLI executable"
+    );
+    assert_eq!(record["observer"]["sampling"]["interval_secs"], 10);
+    assert_eq!(record["observer"]["sampling"]["stall_secs"], 10);
+    assert_eq!(record["observer"]["sampling"]["samples"], 2);
+    assert_eq!(record["observer"]["limits"]["response_bytes"], 1024 * 1024);
     std::fs::remove_dir_all(output).unwrap();
+}
+
+fn failed_reply_capture(status: u16, body: String, label: &str) -> (Value, std::process::Output) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/jsonrpc", listener.local_addr().unwrap());
+    let deadline = Instant::now() + FIXTURE_BUDGET;
+    let server = std::thread::spawn(move || {
+        let mut stream = accept_before(&listener, deadline).unwrap();
+        let request = read_request(&mut stream, deadline);
+        assert_eq!(request["method"], "status");
+        stream
+            .set_write_timeout(Some(remaining(deadline).unwrap()))
+            .unwrap();
+        write!(
+            stream,
+            "HTTP/1.1 {status} Failure\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    });
+    let output = std::env::temp_dir().join(format!("observe-reply-{label}-{}", std::process::id()));
+    let result = output_before(
+        std::process::Command::new(env!("CARGO_BIN_EXE_nzbget-observe"))
+            .args([
+                "--url",
+                &url,
+                "--samples",
+                "1",
+                "--output",
+                output.to_str().unwrap(),
+            ])
+            .env_remove("NZBGET_OBSERVE_USER")
+            .env_remove("NZBGET_OBSERVE_PASSWORD")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap(),
+        deadline,
+    )
+    .unwrap();
+    join_before(server, deadline).unwrap();
+    assert!(!result.status.success());
+    let files = evidence_files(&output);
+    assert_eq!(
+        files.len(),
+        1,
+        "failed reply requires bounded private metadata"
+    );
+    let bytes = std::fs::read(&files[0]).unwrap();
+    assert!(bytes.len() < 2048);
+    let record: Value = serde_json::from_slice(&bytes).unwrap();
+    for data in [&bytes, &result.stdout, &result.stderr] {
+        assert!(!String::from_utf8_lossy(data).contains("secret-failure-payload"));
+    }
+    std::fs::remove_dir_all(output).unwrap();
+    (record, result)
+}
+
+#[test]
+fn http_error_replies_preserve_status_fingerprints_without_body_secrets() {
+    for status in [401, 403, 500] {
+        let (record, result) = failed_reply_capture(
+            status,
+            "secret-failure-payload".into(),
+            &format!("http-{status}"),
+        );
+        assert_eq!(record["metadata"]["method"], "status");
+        assert_eq!(record["metadata"]["request_id"], 1);
+        assert_eq!(record["metadata"]["http_status"], status);
+        assert_eq!(record["metadata"]["failure_category"], "http_error");
+        assert_eq!(record["metadata"]["response_bytes"], 22);
+        assert_eq!(
+            record["metadata"]["response_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("observation_unknown"));
+    }
+}
+
+#[test]
+fn valid_rpc_error_preserves_metadata_without_private_error_message() {
+    let (record, _) = failed_reply_capture(
+        200,
+        json!({"id":1,"error":{"code":-32000,"message":"secret-failure-payload"}}).to_string(),
+        "rpc",
+    );
+    assert_eq!(record["metadata"]["method"], "status");
+    assert_eq!(record["metadata"]["request_id"], 1);
+    assert_eq!(record["metadata"]["http_status"], 200);
+    assert_eq!(record["metadata"]["failure_category"], "rpc_error");
+    assert_eq!(
+        record["metadata"]["response_sha256"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert!(record["metadata"].get("message").is_none());
 }

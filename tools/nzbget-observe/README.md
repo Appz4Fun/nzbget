@@ -111,12 +111,21 @@ provides the preceding context. An alert captures that context, RPC collection
 wall time and local Linux observations. At most eight evidence files are retained
 per run, each limited to one MiB; new alerts replace the oldest slot atomically.
 A failed write stops the watcher and can retain one additional partial file.
-Alert evidence is persisted before fallible stdout writes. A malformed JSON reply
-captures only bounded private failure metadata in the same eight-slot store:
-the allowlisted method/request ID, byte length/SHA-256, parser category, line and
-column. This metadata is not recoverable raw-response evidence. Malformed JSON
-cannot be reliably redacted, so raw replies remain excluded; names, paths,
-passwords, article IDs and private labels are never retained.
+Every newly created output component and run entry syncs its containing directory
+before construction succeeds; failed syncs stop the watcher and preserve created
+entries. Alert evidence is persisted before fallible stdout writes. Captures
+include the package version, a SHA-256 of the running executable read once per
+run from a regular descriptor with a 128 MiB limit, and allowlisted effective
+sampling and resource limits. Endpoint, credential and filesystem path strings
+are excluded from this identity.
+Malformed JSON, HTTP errors and JSON-RPC error envelopes capture only bounded
+private failure metadata in the same eight-slot store: the allowlisted
+method/request ID, HTTP status, failure category and, when the body was read
+within its limit, byte length/SHA-256. Invalid JSON also records parser category,
+line and column. Failed or oversized body reads retain safe status/category
+metadata without a body fingerprint. This metadata is not recoverable
+raw-response evidence. Raw replies and error messages remain excluded; names,
+paths, passwords, article IDs and private labels are never retained.
 Completed
 run directories are retained for the operator to remove or archive. Alerts do not
 launch an automatic profiler or execute shell commands.

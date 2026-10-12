@@ -163,6 +163,12 @@ fn run(config: Config) -> Result<(), &'static str> {
     let user = std::env::var("NZBGET_OBSERVE_USER").unwrap_or_default();
     let password = std::env::var("NZBGET_OBSERVE_PASSWORD").unwrap_or_default();
     let rpc = Rpc::new(&config.url, user, password)?;
+    let observer = json!({"version":env!("CARGO_PKG_VERSION"),
+        "executable_sha256":nzbget_observe::runtime::executable_sha256()?,
+        "sampling":{"interval_secs":config.interval,"stall_secs":config.threshold,"samples":config.samples},
+        "limits":{"response_bytes":nzbget_observe::runtime::RESPONSE_LIMIT,"evidence_bytes":nzbget_observe::runtime::RESPONSE_LIMIT,
+            "jobs":128,"window_samples":20,"captures_per_run":8,"http_timeout_seconds":3},
+        "process_observation_enabled":config.pid.is_some(),"cgroup_observation_enabled":config.cgroup.is_some()});
     let mut evidence = Evidence::new(&config.output)?;
     let started = Instant::now();
     let mut detector = Detector::default();
@@ -188,7 +194,7 @@ fn run(config: Config) -> Result<(), &'static str> {
                 }
                 window.push_back(record.clone());
                 if !alerts.is_empty() {
-                    let capture = json!({"schema_version":1,"event":"symptom","alerts":alerts,"window":window});
+                    let capture = json!({"schema_version":1,"event":"symptom","observer":observer,"alerts":alerts,"window":window});
                     let bytes =
                         serde_json::to_vec(&capture).map_err(|_| "evidence encoding failed")?;
                     evidence.save(&bytes)?;
@@ -205,7 +211,7 @@ fn run(config: Config) -> Result<(), &'static str> {
                 detector.reset();
                 window.clear();
                 if let Some(metadata) = rpc.take_failure_metadata() {
-                    let record = json!({"schema_version":1,"event":"observation_failure","unix_secs":unix_secs,"metadata":metadata});
+                    let record = json!({"schema_version":1,"event":"observation_failure","observer":observer,"unix_secs":unix_secs,"metadata":metadata});
                     let bytes = serde_json::to_vec(&record)
                         .map_err(|_| "failure evidence encoding failed")?;
                     evidence.save(&bytes)?;

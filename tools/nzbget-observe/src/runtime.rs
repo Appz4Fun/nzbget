@@ -48,10 +48,18 @@ impl Rpc {
         let response = request
             .send()
             .map_err(|_| "RPC transport failed or timed out")?;
-        if !response.status().is_success() {
+        let status = response.status();
+        let bytes = match bounded_read(response, RESPONSE_LIMIT) {
+            Ok(bytes) => bytes,
+            Err(reason) => {
+                self.record_failure(method, id, status.as_u16(), "body_unavailable", None);
+                return Err(reason);
+            }
+        };
+        if !status.is_success() {
+            self.record_failure(method, id, status.as_u16(), "http_error", Some(&bytes));
             return Err("RPC HTTP status is not successful");
         }
-        let bytes = bounded_read(response, RESPONSE_LIMIT)?;
         let envelope: serde_json::Value = match serde_json::from_slice(&bytes) {
             Ok(value) => value,
             Err(error) => {
@@ -63,31 +71,43 @@ impl Rpc {
                     serde_json::error::Category::Data => "data",
                     serde_json::error::Category::Eof => "eof",
                 };
-                let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
-                let sha256: String = digest
-                    .as_ref()
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
-                if matches!(method, "status" | "listgroups") {
-                    *self.failure_metadata.borrow_mut() = Some(serde_json::json!({
-                        "method":method,"request_id":id,"response_bytes":bytes.len(),
-                        "response_sha256":sha256,"parse_category":category,
-                        "line":error.line(),"column":error.column()
-                    }));
+                self.record_failure(method, id, status.as_u16(), "invalid_json", Some(&bytes));
+                if let Some(metadata) = self.failure_metadata.borrow_mut().as_mut() {
+                    metadata["parse_category"] = category.into();
+                    metadata["line"] = error.line().into();
+                    metadata["column"] = error.column().into();
                 }
                 return Err("RPC JSON is invalid");
             }
         };
-        if envelope["id"].as_u64() != Some(id)
-            || envelope.get("error").is_some_and(|e| !e.is_null())
-        {
+        if envelope.get("error").is_some_and(|e| !e.is_null()) {
+            self.record_failure(method, id, status.as_u16(), "rpc_error", Some(&bytes));
+            return Err("RPC error or response ID mismatch");
+        }
+        if envelope["id"].as_u64() != Some(id) {
+            self.record_failure(method, id, status.as_u16(), "id_mismatch", Some(&bytes));
             return Err("RPC error or response ID mismatch");
         }
         envelope
             .get("result")
             .cloned()
             .ok_or("RPC result is missing")
+    }
+    fn record_failure(
+        &self,
+        method: &str,
+        id: u64,
+        status: u16,
+        category: &str,
+        bytes: Option<&[u8]>,
+    ) {
+        if !matches!(method, "status" | "listgroups") {
+            return;
+        }
+        *self.failure_metadata.borrow_mut() = Some(serde_json::json!({
+            "method":method,"request_id":id,"http_status":status,"failure_category":category,
+            "response_bytes":bytes.map(<[u8]>::len),"response_sha256":bytes.map(sha256)
+        }));
     }
     pub fn snapshot(&self, elapsed: u64) -> Result<Sample, &'static str> {
         self.failure_metadata.borrow_mut().take();
@@ -134,6 +154,52 @@ pub fn bounded_read(r: impl Read, limit: usize) -> Result<Vec<u8>, &'static str>
     Ok(bytes)
 }
 
+pub fn sha256(bytes: &[u8]) -> String {
+    ring::digest::digest(&ring::digest::SHA256, bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Hash the running executable once from its opened, bounded regular descriptor.
+pub fn executable_sha256() -> Result<String, &'static str> {
+    #[cfg(target_os = "linux")]
+    let path = PathBuf::from("/proc/self/exe");
+    #[cfg(not(target_os = "linux"))]
+    let path = std::env::current_exe().map_err(|_| "cannot locate running executable")?;
+    let mut file = std::fs::File::open(path).map_err(|_| "cannot open running executable")?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "cannot inspect running executable")?;
+    const LIMIT: u64 = 128 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return Err("running executable must be a bounded regular file");
+    }
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = [0u8; 65536];
+    let mut total = 0u64;
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| "cannot hash running executable")?;
+        if count == 0 {
+            break;
+        }
+        total += count as u64;
+        if total > LIMIT {
+            return Err("running executable exceeds byte limit");
+        }
+        context.update(&buffer[..count]);
+    }
+    Ok(context
+        .finish()
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
 pub struct Evidence {
     pub directory: PathBuf,
     #[cfg(unix)]
@@ -164,7 +230,10 @@ fn open_directory_at(
 }
 
 #[cfg(unix)]
-fn private_parent(path: &Path) -> Result<std::fs::File, &'static str> {
+fn private_parent(
+    path: &Path,
+    sync: &impl Fn(&std::fs::File) -> std::io::Result<()>,
+) -> Result<std::fs::File, &'static str> {
     use std::os::fd::AsRawFd;
     use std::os::unix::{
         ffi::OsStrExt,
@@ -192,6 +261,7 @@ fn private_parent(path: &Path) -> Result<std::fs::File, &'static str> {
                 {
                     return Err("cannot create private evidence parent");
                 }
+                sync(&directory).map_err(|_| "cannot sync evidence parent entry")?;
                 open_directory_at(&directory, &name)
                     .map_err(|_| "cannot open private evidence parent")?
             }
@@ -209,16 +279,22 @@ fn private_parent(path: &Path) -> Result<std::fs::File, &'static str> {
 
 impl Evidence {
     pub fn new(parent: &Path) -> Result<Self, &'static str> {
+        Self::new_with_sync(parent, &std::fs::File::sync_all)
+    }
+    fn new_with_sync(
+        parent: &Path,
+        sync: &impl Fn(&std::fs::File) -> std::io::Result<()>,
+    ) -> Result<Self, &'static str> {
         #[cfg(not(unix))]
         {
-            let _ = parent;
+            let _ = (parent, sync);
             Err("private evidence directories require a Unix host")
         }
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
             use std::os::unix::fs::MetadataExt;
-            let parent_handle = private_parent(parent)?;
+            let parent_handle = private_parent(parent, sync)?;
             let nonce = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|_| "system clock predates Unix epoch")?
@@ -229,6 +305,7 @@ impl Evidence {
             if unsafe { libc::mkdirat(parent_handle.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
                 return Err("cannot create private evidence directory");
             }
+            sync(&parent_handle).map_err(|_| "cannot sync run directory entry")?;
             let directory_handle = open_directory_at(&parent_handle, &name)
                 .map_err(|_| "cannot anchor private run directory")?;
             let metadata = directory_handle
@@ -301,6 +378,55 @@ impl Evidence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_sync_failure_prevents_a_durable_run_success() {
+        let base = std::env::temp_dir().join(format!("observe-sync-fault-{}", std::process::id()));
+        std::fs::create_dir(&base).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        for fail_at in 1..=4 {
+            let anchor = base.join(format!("case-{fail_at}"));
+            std::fs::create_dir(&anchor).unwrap();
+            let first = anchor.join("new-parent");
+            let parent = first.join("output");
+            let calls = std::cell::Cell::new(0);
+            let result = Evidence::new_with_sync(&parent, &|directory| {
+                let index = calls.get() + 1;
+                calls.set(index);
+                // Each newly created entry must sync its containing descriptor,
+                // in creation order, including the final private run entry.
+                let expected = match index {
+                    1 => &anchor,
+                    2 => &first,
+                    3 => &parent,
+                    _ => panic!("unexpected sync"),
+                };
+                let expected = std::fs::metadata(expected).unwrap();
+                let actual = directory.metadata().unwrap();
+                assert_eq!(
+                    (actual.dev(), actual.ino()),
+                    (expected.dev(), expected.ino())
+                );
+                if index == fail_at {
+                    Err(std::io::Error::other("injected directory sync failure"))
+                } else {
+                    directory.sync_all()
+                }
+            });
+            assert_eq!(calls.get(), fail_at.min(3));
+            assert_eq!(result.is_err(), fail_at <= 3);
+            // Retain created entries on failure; never hide an incomplete run.
+            assert!(first.is_dir());
+            if fail_at >= 2 {
+                assert!(parent.is_dir());
+            }
+            if fail_at >= 3 {
+                assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 1);
+            }
+        }
+        std::fs::remove_dir_all(base).unwrap();
+    }
     #[test]
     fn endpoint_rejects_credential_leaks_and_insecure_remote_transport() {
         for good in [
