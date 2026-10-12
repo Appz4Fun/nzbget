@@ -1,0 +1,22 @@
+{
+  "JSON ASCII": {
+    "bytes_excluding_NUL": 61,
+    "sha256": "dbf28ebe6075e171f784c24adff7fedcc84878f162b6aed9cf62c68f08368900"
+  },
+  "JSON accented": {
+    "bytes_excluding_NUL": 42,
+    "sha256": "30b8ccc4625bf0c4e773066f46927b81079e05656e4dfe60a3012b6f3869fb92"
+  },
+  "JSON 4 KiB": {
+    "bytes_excluding_NUL": 4161,
+    "sha256": "9c575f1e0fa9b8fca9ab320df24c678d6b972d8e337ee3e3611e47aa83707989"
+  },
+  "JSON 64 KiB": {
+    "bytes_excluding_NUL": 65554,
+    "sha256": "fd0669fbf452edc3dfade23f64ca0881f523cfa57e57cc527cd03c3249326800"
+  },
+  "Latin1 name": {
+    "bytes_excluding_NUL": 41,
+    "sha256": "4ad14713f97d961212afa85bd5ddd8716eef420fc010d59992e9f7ac7c2ba1dd"
+  }
+}

@@ -1,0 +1,4 @@
+BENCH|JsonEncode, release name, 70 ASCII bytes (per call)|107.6|67.7|1.59
+BENCH|JsonEncode, title with 12 accented chars (UTF-8) (per call)|457.6|120.9|3.78
+BENCH|JsonEncode, script log, 4 KiB with newlines and quotes (per call)|6446.0|6107.6|1.06
+BENCH|JsonEncode, 64 KiB log/body (per call)|99105.1|97097.8|1.02

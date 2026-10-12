@@ -1,0 +1,55 @@
+{
+  "baseline": "c2316ef5e5ac7d5fb1c309e52de9e40dbc76c63e",
+  "runtime_patch_sha256": "5c9e5af53f1c108114db050892259d7f6a26cc7df17dee1bdab43893b76532b2",
+  "runtime_source_manifest_sha256": "30c54ba5f0b8d6897dba7da23b9f3efc4ca25bb8769c34e91efa9e755341cf5f",
+  "review": {
+    "model": "Astra",
+    "effort": "high",
+    "verdict": "CLEAN",
+    "runtime_patch_sha256": "5c9e5af53f1c108114db050892259d7f6a26cc7df17dee1bdab43893b76532b2"
+  },
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cpp_flags": "-O3 -DNDEBUG -std=c++20 -fno-rtti -ffunction-sections -fdata-sections -Wno-unused-function -fstack-protector-strong",
+  "cpp_defines": "-DBOOST_CONTAINER_DYN_LINK -DBOOST_CONTAINER_NO_LIB -DBOOST_JSON_DYN_LINK -DBOOST_JSON_NO_LIB -DHAVE_CONFIG_H -DNZBGET_USE_RUST -DPARPAR_ENABLE_HASHER_MD5CRC -DPARPAR_INVERT_SUPPORT -DPARPAR_SLIM_GF16 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES",
+  "cpu_model": "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz",
+  "ssse3": true,
+  "cpu": 2,
+  "process_pairs": 9,
+  "rounds": 21,
+  "schedule": "chrt idle, nice 19; exclusive common lock per process",
+  "reference_commit": "78dcb9380c9cd2b29babb21a4aeab7516e6a382d",
+  "binary_sha256": {
+    "latin-whole-driver.o": "5d9c097cb6ed6b0577694976b768a17d0cf6f809f4648c285fbca451bc816c44",
+    "latin-whole-before": "188e795b7dd6c6ca4f839ea444dd3508ac0cba7813da32e6885fba9cb8454a8e",
+    "latin-whole-after": "566e081e0f16fbdb0e6ffca16474c7383088ab3b82795644f2a50670ce9dcf4f",
+    "liblatin-whole-reference.so": "d2eb5eb491d4d75d0da215a9f5cceae79d723d3f564fa1cb1c8029ae982688ef",
+    "liblatin-whole-before.so": "62fd70e3dea1a8c389e35ab7bac7e7f6d3c22458245674ab6301dd0a5e960d49",
+    "liblatin-whole-after.so": "a169bb10d92dd674d1121f1c776fecfcadff41ee757280999484d6a06c57939a"
+  },
+  "archive_sha256": {
+    "default": "87dccb8b080aad25ff0b3e5ff86664f8c5266babf877916c22e465496d4e041d",
+    "candidate": "d10b7be6b533665a7d81017227696edb509b7a63e0f1efc706bd7b4879d1de19"
+  },
+  "tests": {
+    "latest_release_passed": 211,
+    "latest_release_ignored": 1,
+    "integration_passed": 1,
+    "scoped_rust_asan_passed": 9,
+    "rust_mutations_caught": 10,
+    "cpp_mutations_caught": 2,
+    "ctest_passed": 11,
+    "text_cases_per_configuration": 1600000,
+    "actual_cstring_random_cases": 50000,
+    "scoped_gate_base": "d0a652a700e0acc4f51e48b9aceef72b341023e5",
+    "latest_build_base": "c2316ef5e5ac7d5fb1c309e52de9e40dbc76c63e"
+  },
+  "prior_provenance": {
+    "ready-native": "Retired mixed JSON/Latin e0c5a79e on 2f0840a2, recovered Rust-before archive 73feb2; JSON 4 KiB replacement rejected.",
+    "latin-native": "Latin-only min-of-21 at d0a652a7; embedded CPP glue, not final caller claim.",
+    "latin-ci": "Latin-only raw embedded-glue layout at d0a652a7; not final caller claim.",
+    "latin-standin": "Original min-only stand-in/inlined control at d0a652a7; tight margin retained.",
+    "current": "Exact out-of-line CPP wrappers at c2316ef5; equivalent external DSO boundaries and locally bound internal functions; final claim.",
+    "ready-standin": "Retired mixed-candidate original inlined controls, preserved for audit only."
+  }
+}

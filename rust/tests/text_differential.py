@@ -57,6 +57,8 @@ harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
                  "namespace\n{\n\t// Classify the byte")
 harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
                  "namespace\n{\n\t// Numeric XML references")
+harness += block((ROOT / "daemon/util/Util.cpp").read_text(),
+                 "namespace\n{\n\t// Caller-owned bounded encodings")
 harness += r'''
 static unsigned state = 0x7e57da7a;
 static unsigned next() { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; }
@@ -85,6 +87,21 @@ static void check(const std::string& in) {
         CString c = w ? WebUtil::UrlEncode(in.c_str()) : WebUtil::Latin1ToUtf8(in.c_str());
         NzbgetRsBuf r = w ? nzbget_rs_url_encode(in.c_str()) : nzbget_rs_latin1_to_utf8(in.c_str());
         if (strlen(c.p) != r.len || memcmp(c.p, r.data, r.len + 1)) fail(w ? "UrlEncode" : "Latin1ToUtf8", in);
+        if (!w) {
+            size_t input_len = strlen(in.c_str());
+            size_t len = strlen(c.p);
+            CString direct = RustEncodedKnownResult(input_len, 2, [&](char* out, size_t cap) {
+                return nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, out, cap);
+            });
+            if (strlen(direct.p) != len || memcmp(c.p, direct.p, len + 1)) fail("known Latin1", in);
+            for (size_t cap : {size_t(0), len, len + 1, 2 * input_len + 1}) {
+                std::vector<char> buffer(cap + 2, '#');
+                size_t n = nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, buffer.data() + 1, cap);
+                if (n != len || buffer.front() != '#' || buffer.back() != '#' ||
+                    (cap > n && memcmp(c.p, buffer.data() + 1, n + 1))) fail("known Latin1 capacity", in);
+            }
+            if (nzbget_rs_latin1_to_utf8_n(in.c_str(), input_len, nullptr, SIZE_MAX) != len) fail("known Latin1 measure", in);
+        }
         nzbget_rs_free(r);
     }
 }
