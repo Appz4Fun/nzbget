@@ -687,6 +687,54 @@ class RpcAdapterTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 self.assertEqual(source.read_bytes(), raw)
 
+    def test_cli_accepts_digest_changes_between_matched_rounds_and_processes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = samples()
+            for row in rows:
+                row["observable_digest"] = ("d" if row["round"] == 0 else "e") * 64
+            rows += [{**row, "process": 8,
+                      "observable_digest": ("f" if row["round"] == 0 else "a") * 64}
+                     for row in samples()]
+            metadata = root / "manifest.json"
+            source = root / "source.jsonl"
+            output = root / "out"
+            metadata.write_text(json.dumps(manifest()))
+            raw = jsonl(rows)
+            source.write_bytes(raw)
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                  "--source", str(source), "--output-dir", str(output)],
+                                 capture_output=True, text=True, timeout=2)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            status = json.loads((output / "adapter-status.json").read_text())
+            self.assertEqual(status["status"], "HOLD", "controlled records cannot qualify native performance")
+            self.assertEqual((output / "source.raw").read_bytes(), raw)
+            if (ADAPTER.parent.parent / "summarize.py").exists():
+                exported = [json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()]
+                self.assertEqual(exported, rows)
+                self.assertEqual(status["exported_rows"], 12)
+            else:
+                self.assertIn("summarize.py unavailable", " ".join(status["reasons"]))
+
+    def test_cli_refuses_different_variant_digests_inside_one_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata = root / "manifest.json"
+            source = root / "source.jsonl"
+            output = root / "out"
+            metadata.write_text(json.dumps(manifest()))
+            rows = samples()
+            rows[1]["observable_digest"] = "e" * 64
+            raw = jsonl(rows)
+            source.write_bytes(raw)
+            run = subprocess.run([sys.executable, str(ADAPTER), "--manifest", str(metadata),
+                                  "--source", str(source), "--output-dir", str(output)],
+                                 capture_output=True, text=True, timeout=2)
+            self.assertEqual(run.returncode, 2)
+            self.assertIn("mismatched observable digests", run.stderr)
+            self.assertFalse(output.exists())
+            self.assertEqual(source.read_bytes(), raw)
+
 
 if __name__ == "__main__":
     unittest.main()

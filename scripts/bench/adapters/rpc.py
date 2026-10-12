@@ -147,9 +147,9 @@ def check_rows(rows, fixtures):
         orders.add(order)
         blocks.setdefault(block, set()).add(variant)
         variants.setdefault(case, set()).add(variant)
-        if case in digests and digests[case] != digest.lower():
+        if block in digests and digests[block] != digest.lower():
             raise ValueError("mismatched observable digests")
-        digests[case] = digest.lower()
+        digests[block] = digest.lower()
     reasons = []
     for case, (_, required) in fixtures.items():
         present = variants.get(case, set())
