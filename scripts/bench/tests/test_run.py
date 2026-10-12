@@ -645,25 +645,27 @@ raise SystemExit(runner.main())
                 spec.loader.exec_module(module)
                 args = module.arguments(["--mode", "time", "--", str(executable)])
                 real_read = os.read
-                cancelled, completed, descriptors = [False], [], []
+                ready, completed = self.root / f"{action}-ready", self.root / f"{action}-completed"
+                identity = executable.stat()
                 previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
                 def slow_read(descriptor, count):
-                    descriptors.append(descriptor)
-                    if action == "cancel": cancelled[0] = True
-                    time.sleep(1)
-                    completed.append(True)
+                    observed = os.fstat(descriptor)
+                    if (observed.st_dev, observed.st_ino) == (identity.st_dev, identity.st_ino):
+                        ready.write_text(str(os.getpid()))
+                        time.sleep(1)
+                        completed.touch()
                     return real_read(descriptor, count)
                 started = time.monotonic()
                 try:
                     module.os.read = slow_read
                     with self.assertRaises(module.CaptureFailure) as error:
                         module.prepare_command(args, deadline=started + .08,
-                                               cancelled=lambda: cancelled[0])
+                                               cancelled=lambda: action == "cancel" and ready.exists())
                     self.assertEqual(error.exception.code, "deadline" if action == "deadline" else "cancelled")
                     self.assertLess(time.monotonic() - started, .5)
-                    self.assertFalse(completed)
-                    self.assertEqual(len(descriptors), 1)
-                    with self.assertRaises(OSError): os.fstat(descriptors[0])
+                    self.assertFalse(completed.exists())
+                    self.assertTrue(ready.exists())
+                    with self.assertRaises(ProcessLookupError): os.kill(int(ready.read_text()), 0)
                     self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
                 finally:
                     module.os.read = real_read
@@ -682,12 +684,12 @@ runner=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 original=runner.os.read
 identity=Path({str(executable)!r}).stat()
-calls=0
+counter=Path({str(ready) + '-count'!r})
 def read(fd,count):
-    global calls
     observed=os.fstat(fd)
     if count==4 and (observed.st_dev,observed.st_ino)==(identity.st_dev,identity.st_ino):
-        calls+=1
+        calls=int(counter.read_text())+1 if counter.exists() else 1
+        counter.write_text(str(calls))
         if calls=={phase}:
             Path({str(ready)!r}).touch()
             time.sleep(1)
@@ -747,7 +749,7 @@ spec.loader.exec_module(runner)
 real_fdopen=runner.os.fdopen
 fixture=Path({str(fixture)!r})
 identity=(fixture.stat().st_dev,fixture.stat().st_ino)
-opened=0
+opened=Path({str(events) + '-opened'!r})
 class Reader:
     def __init__(self,stream): self.stream,self.delayed=stream,False
     def __enter__(self): return self
@@ -761,12 +763,12 @@ class Reader:
             with Path({str(events)!r}).open('a') as event: event.write('completed\\n')
         return self.stream.readinto(buffer)
 def fdopen(fd,*args,**kwargs):
-    global opened
     stream=real_fdopen(fd,*args,**kwargs)
     value=os.fstat(fd)
     if (value.st_dev,value.st_ino)==identity:
-        opened+=1
-        if {phase!r}!='after' or opened==2: return Reader(stream)
+        count=int(opened.read_text())+1 if opened.exists() else 1
+        opened.write_text(str(count))
+        if {phase!r}!='after' or count==2: return Reader(stream)
     return stream
 runner.os.fdopen=fdopen
 raise SystemExit(runner.main())
@@ -844,6 +846,7 @@ raise SystemExit(runner.main())
         module.DEFAULT_CAPTURE_MAX_BYTES = 128
         real_fdopen = os.fdopen
         reads = []
+        observed_reads = self.root / "reads"
         class Reader:
             def __init__(self, stream): self.stream = stream
             def __enter__(self): return self
@@ -851,6 +854,7 @@ raise SystemExit(runner.main())
             def __getattr__(self, name): return getattr(self.stream, name)
             def readinto(self, buffer):
                 reads.append(1)
+                with observed_reads.open("a") as observation: observation.write("read\n")
                 if len(reads) <= 8:
                     with fixture.open("ab") as writer: writer.write(b"x" * 64)
                 return self.stream.readinto(buffer)
@@ -860,9 +864,10 @@ raise SystemExit(runner.main())
             with self.assertRaises(ValueError): module.digest_file(fixture)
         finally:
             module.os.fdopen = real_fdopen
-        self.assertLessEqual(len(reads), 3)
+        self.assertGreaterEqual(len(observed_reads.read_text().splitlines()), 1)
+        self.assertLessEqual(len(observed_reads.read_text().splitlines()), 3)
 
-    def test_capture_alarm_restores_prior_handler_and_timer_after_failure(self):
+    def test_capture_failure_keeps_caller_handler_and_timer(self):
         spec = importlib.util.spec_from_file_location("runner_alarm_restore", RUNNER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -885,481 +890,381 @@ raise SystemExit(runner.main())
             signal.signal(signal.SIGALRM, previous_handler)
             signal.setitimer(signal.ITIMER_REAL, *previous_timer)
 
-    def test_prior_timer_compensation_starts_at_remaining_time_sample(self):
-        spec = importlib.util.spec_from_file_location("runner_timer_sample", RUNNER)
+
+    @unittest.skipUnless(LINUX, "native SA_RESTART observation uses Linux libc")
+    def test_caller_native_read_restart_policy_survives_capture_and_rejection(self):
+        helper = self.script(f"""import ctypes,importlib.util,json,os,signal,time
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+libc=ctypes.CDLL(None,use_errno=True)
+libc.read.argtypes=[ctypes.c_int,ctypes.c_void_p,ctypes.c_size_t]
+libc.read.restype=ctypes.c_ssize_t
+def observe(action,interrupt):
+    signal.signal(signal.SIGALRM,lambda number,frame: None)
+    signal.siginterrupt(signal.SIGALRM,interrupt)
+    if action=='capture':
+        runner.digest_file(__file__,deadline=time.monotonic()+1)
+    elif action=='rejected':
+        mask=signal.pthread_sigmask(signal.SIG_BLOCK,{{signal.SIGALRM}})
+        try:
+            try:
+                runner.digest_file(__file__,deadline=time.monotonic()+1)
+            except runner.CaptureFailure: pass
+        finally: signal.pthread_sigmask(signal.SIG_SETMASK,mask)
+    read,write=os.pipe()
+    pid=os.fork()
+    if pid==0:
+        os.close(read)
+        time.sleep(.03)
+        os.kill(os.getppid(),signal.SIGALRM)
+        time.sleep(.06)
+        os.write(write,b'x')
+        os._exit(0)
+    os.close(write)
+    try:
+        buffer=ctypes.create_string_buffer(1)
+        ctypes.set_errno(0)
+        count=libc.read(read,buffer,1)
+        row={{'count':count,'errno':ctypes.get_errno(),'bytes':buffer.raw.hex()}}
+    finally:
+        os.waitpid(pid,0)
+        os.close(read)
+    return row
+results={{}}
+for policy in (False,True):
+    for action in ('baseline','capture','rejected'):
+        results[str(policy)+'/'+action]=observe(action,policy)
+print(json.dumps(results))
+""", "native-restart.py")
+        result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = json.loads(result.stdout)
+        self.assertEqual(rows["False/baseline"]["count"], 1)
+        self.assertEqual(rows["False/baseline"]["bytes"], "78")
+        self.assertEqual(rows["True/baseline"]["count"], -1)
+        self.assertEqual(rows["True/baseline"]["errno"], 4)
+        for policy in (False, True):
+            for action in ("capture", "rejected"):
+                with self.subTest(policy=policy, action=action):
+                    self.assertEqual(rows[str(policy) + "/" + action], rows[str(policy) + "/baseline"])
+
+    @unittest.skipUnless(LINUX, "allocation custody probes use Linux child state")
+    def test_raising_caller_alarm_cannot_leave_allocated_fds_or_capture_child(self):
+        for fault in ("pipe", "fork", "close"):
+            with self.subTest(fault=fault):
+                helper = self.script(f"""import importlib.util,json,os,signal,time
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+parent=os.getpid()
+real_pipe,real_fork,real_close=os.pipe,os.fork,os.close
+allocated,spawned,fired=[],[],[]
+class CallerAlarm(RuntimeError): pass
+def alarm(number,frame): raise CallerAlarm('caller')
+signal.signal(signal.SIGALRM,alarm)
+def pipe():
+    pair=real_pipe()
+    allocated.extend(pair)
+    if {fault!r}=='pipe': os.kill(parent,signal.SIGALRM)
+    return pair
+def fork():
+    pid=real_fork()
+    if pid>0:
+        spawned.append(pid)
+        if {fault!r}=='fork': os.kill(parent,signal.SIGALRM)
+    return pid
+def close(fd):
+    if os.getpid()==parent and {fault!r}=='close' and allocated and fd==allocated[0] and not fired:
+        fired.append(True)
+        os.kill(parent,signal.SIGALRM)
+    return real_close(fd)
+runner.os.pipe,runner.os.fork,runner.os.close=pipe,fork,close
+original_capture=runner.capture_file_bytes
+def capture(*args):
+    if {fault!r}=='fork': time.sleep(.2)
+    return original_capture(*args)
+runner.capture_file_bytes=capture
+error=None
+try: runner.digest_file(__file__,deadline=time.monotonic()+1)
+except CallerAlarm: error='caller'
+finally: runner.os.pipe,runner.os.fork,runner.os.close=real_pipe,real_fork,real_close
+held=[]
+for fd in allocated:
+    try: os.fstat(fd);held.append(fd)
+    except OSError: pass
+live=[]
+for pid in spawned:
+    try:
+        if os.waitpid(pid,os.WNOHANG)[0]==0: live.append(pid)
+    except ChildProcessError: pass
+print(json.dumps({{'error':error,'held_fds':held,'live_child':live}}))
+for pid in live:
+    try: os.kill(pid,signal.SIGKILL)
+    except ProcessLookupError: pass
+    os.waitpid(pid,0)
+for fd in held:
+    try: real_close(fd)
+    except OSError: pass
+""", f"allocation-{fault}.py")
+                result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                row = json.loads(result.stdout)
+                self.assertEqual(row["error"], "caller")
+                self.assertEqual(row["held_fds"], [])
+                self.assertEqual(row["live_child"], [])
+
+    def test_already_reaped_capture_pid_is_never_signalled(self):
+        spec = importlib.util.spec_from_file_location("runner_reap_order", RUNNER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        handler = lambda number, frame: None
-        checked = [False]
-        def delayed_check():
-            if not checked[0]:
-                checked[0] = True
-                time.sleep(.15)
-            return False
+        pid = os.fork()
+        if pid == 0: os._exit(0)
+        os.waitpid(pid, 0)  # actual kernel ECHILD from this point onwards
+        real_kill = os.kill
+        attempts = []
+        def kill(target, number):
+            attempts.append(target)  # never signal a potentially reused PID
         try:
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 30, .5)
-            started = time.monotonic()
-            with module.capture_alarm(started + 5, delayed_check):
-                time.sleep(.05)
-            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-            expected = 30 - (time.monotonic() - started)
-            self.assertAlmostEqual(remaining, expected, delta=.03)
-            self.assertEqual(interval, .5)
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            module.os.kill = kill
+            module.reap_capture(pid)
         finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            module.os.kill = real_kill
+        self.assertFalse(attempts)
 
-    def test_natural_caller_expiration_before_disarm_is_delivered_once(self):
-        for interval, stage in ((0, "timer"), (.5, "timer"), (0, "pending"), (.5, "pending")):
-            with self.subTest(interval=interval, stage=stage):
-                spec = importlib.util.spec_from_file_location("runner_natural_expiry", RUNNER)
+    @unittest.skipUnless(LINUX, "caller timer/state observations require the worker")
+    def test_capture_child_keeps_caller_action_timer_schedule_and_mask(self):
+        fixture = self.root / "caller-fixture"
+        fixture.write_bytes(b"caller state")
+        for interval in (0, .5):
+            with self.subTest(interval=interval):
+                spec = importlib.util.spec_from_file_location("runner_caller_state", RUNNER)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                real_timer, real_arm, real_pending = signal.getitimer, signal.setitimer, signal.sigpending
+                real_signal, real_timer, real_mask, real_fdopen = signal.signal, signal.setitimer, signal.pthread_sigmask, os.fdopen
                 previous_handler = signal.getsignal(signal.SIGALRM)
-                previous_timer = real_timer(signal.ITIMER_REAL)
-                previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-                delivered, sampled, pending = [], [], []
-                handler = lambda number, frame: delivered.append(number)
-                def expire():
-                    time.sleep(.06)  # actual OS expiry while entry masks ALRM
-                    pending.append(signal.SIGALRM in real_pending())
-                def timer(which):
-                    result = real_timer(which)
-                    if result[0] > 0 and not sampled:
-                        sampled.append(result)
-                        if stage == "timer": expire()
-                    return result
-                def pending_snapshot():
-                    result = real_pending()
-                    if stage == "pending" and sampled and not pending: expire()
-                    return result
-                def arm(which, value, repeat=0):
-                    # Lengthen only a requested overdue rearm in this probe:
-                    # kernel coalescing must not hide a duplicate caller alarm.
-                    if pending and 0 < value <= .00001:
-                        value = .01
-                    return real_arm(which, value, repeat)
+                previous_timer = signal.getitimer(signal.ITIMER_REAL)
+                previous_mask = real_mask(signal.SIG_BLOCK, set())
+                parent, delivered = os.getpid(), []
+                handler = lambda number, frame: delivered.append(time.monotonic())
+                identity = fixture.stat()
+                class Reader:
+                    def __init__(self, stream): self.stream, self.delayed = stream, False
+                    def __enter__(self): return self
+                    def __exit__(self, *args): return self.stream.__exit__(*args)
+                    def __getattr__(self, name): return getattr(self.stream, name)
+                    def readinto(self, buffer):
+                        if not self.delayed:
+                            self.delayed = True
+                            time.sleep(.12)
+                        return self.stream.readinto(buffer)
+                def fdopen(fd, *args, **kwargs):
+                    stream = real_fdopen(fd, *args, **kwargs)
+                    observed = os.fstat(fd)
+                    return Reader(stream) if (observed.st_dev, observed.st_ino) == (identity.st_dev, identity.st_ino) else stream
+                def action(*args):
+                    if os.getpid() == parent: self.fail("capture changed caller signal action")
+                    return real_signal(*args)
+                def timer(*args):
+                    if os.getpid() == parent: self.fail("capture changed caller timer")
+                    return real_timer(*args)
                 try:
-                    signal.signal(signal.SIGALRM, handler)
-                    signal.setitimer(signal.ITIMER_REAL, .03, interval)
-                    module.signal.getitimer = timer
-                    module.signal.setitimer = arm
-                    module.signal.sigpending = pending_snapshot
-                    with self.assertRaises(module.CaptureFailure) as failure:
-                        with module.capture_alarm(time.monotonic() + 1, None):
-                            self.fail("naturally pending caller expiry reached capture body")
-                    time.sleep(.03)
-                    self.assertEqual(failure.exception.code, "unavailable")
-                    self.assertEqual(pending, [True])
-                    self.assertEqual(delivered, [signal.SIGALRM])
+                    real_signal(signal.SIGALRM, handler)
+                    real_timer(signal.ITIMER_REAL, .03, interval)
+                    module.signal.signal, module.signal.setitimer, module.os.fdopen = action, timer, fdopen
+                    digest = module.digest_file(fixture, deadline=time.monotonic() + 1)
+                    ended = time.monotonic()
+                    self.assertEqual(digest, hashlib.sha256(b"caller state").hexdigest())
+                    self.assertEqual(len(delivered), 1)
+                    self.assertLess(delivered[0], ended)
                     self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-                    self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
-                    remaining, restored_interval = real_timer(signal.ITIMER_REAL)
-                    self.assertEqual(restored_interval, interval)
+                    self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
+                    remaining, repeat = signal.getitimer(signal.ITIMER_REAL)
+                    self.assertEqual(repeat, interval)
                     if interval:
-                        self.assertGreater(remaining, .3)
-                        self.assertLessEqual(remaining, interval)
+                        self.assertAlmostEqual(remaining, interval - (ended - delivered[0]), delta=.05)
                     else:
                         self.assertEqual(remaining, 0)
                 finally:
-                    module.signal.getitimer = real_timer
-                    module.signal.setitimer = real_arm
-                    module.signal.sigpending = real_pending
-                    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-                    signal.setitimer(signal.ITIMER_REAL, 0)
-                    if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-                    signal.signal(signal.SIGALRM, previous_handler)
-                    signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                    module.signal.signal, module.signal.setitimer, module.os.fdopen = real_signal, real_timer, real_fdopen
+                    real_timer(signal.ITIMER_REAL, 0)
+                    real_signal(signal.SIGALRM, previous_handler)
+                    real_timer(signal.ITIMER_REAL, *previous_timer)
 
-    def test_one_shot_suspended_by_capture_delivers_one_deferred_expiration(self):
-        spec = importlib.util.spec_from_file_location("runner_deferred_expiry", RUNNER)
+    @unittest.skipUnless(LINUX, "IPC status and process custody require the worker")
+    def test_capture_ipc_rejects_partial_oversized_wrong_types_and_child_crashes(self):
+        for case in ("partial", "oversize", "type", "error_type", "extra", "crash", "failed_success"):
+            with self.subTest(case=case):
+                helper = self.script(f"""import importlib.util,json,os,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+parent=os.getpid()
+real_write=os.write
+before=len(list(Path('/proc/self/fd').iterdir()))
+def write(fd,data):
+    if os.getpid()!=parent:
+        case={case!r}
+        if case=='crash': os._exit(7)
+        if case=='partial': data=b'{{"value":"'
+        elif case=='oversize': data=b'x'*513
+        elif case=='type': data=b'{{"value":[]}}'
+        elif case=='error_type': data=b'{{"error_code":[]}}'
+        elif case=='extra': data=json.dumps({{'value':'0'*64,'extra':1}}).encode()
+        result=real_write(fd,data)
+        if case=='failed_success': os._exit(7)
+        return result
+    return real_write(fd,data)
+runner.os.write=write
+code=None
+try: runner.digest_file(__file__,deadline=time.monotonic()+1)
+except runner.CaptureFailure as error: code=error.code
+runner.os.write=real_write
+try: os.waitpid(-1,os.WNOHANG);gone=False
+except ChildProcessError: gone=True
+print(json.dumps({{'code':code,'gone':gone,'fds':len(list(Path('/proc/self/fd').iterdir()))-before}}))
+""", f"ipc-{case}.py")
+                result = subprocess.run(helper, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=4)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"code": "unavailable", "gone": True, "fds": 0})
+
+    @unittest.skipUnless(LINUX, "PDEATHSIG and subreaper observations require Linux")
+    def test_capture_parent_death_before_timeout_setup_reaps_child_and_preserves_lock_custody(self):
+        for phase in ("before_prctl", "after_prctl"):
+            with self.subTest(phase=phase):
+                ready = self.root / f"death-{phase}"
+                lock = self.locks / "i7-heavy.lock"
+                parent = self.script(f"""import ctypes,fcntl,importlib.util,os,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('runner',{str(RUNNER)!r})
+runner=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+original=runner.ctypes.CDLL
+class Libc:
+    def __init__(self,*args,**kwargs): self.libc=original(*args,**kwargs)
+    def prctl(self,*args):
+        if {phase!r}=='before_prctl':
+            Path({str(ready)!r}).write_text(str(os.getpid()))
+            time.sleep(.3)
+        result=self.libc.prctl(*args)
+        if {phase!r}=='after_prctl':
+            Path({str(ready)!r}).write_text(str(os.getpid()))
+            time.sleep(.3)
+        return result
+runner.ctypes.CDLL=Libc
+fd=os.open({str(lock)!r},os.O_CREAT|os.O_RDWR,0o600)
+fcntl.flock(fd,fcntl.LOCK_EX)
+runner.digest_file(__file__,deadline=time.monotonic()+1)
+""", f"death-parent-{phase}.py")
+                watcher = self.script(f"""import ctypes,fcntl,json,os,signal,subprocess,time
+from pathlib import Path
+libc=ctypes.CDLL(None,use_errno=True)
+assert libc.prctl(36,1,0,0,0)==0
+parent=subprocess.Popen({parent!r})
+deadline=time.monotonic()+3
+leaf=None
+statuses={{}}
+held=False
+try:
+    while not Path({str(ready)!r}).exists():
+        if time.monotonic()>=deadline: raise RuntimeError('child setup did not start')
+        time.sleep(.005)
+    leaf=int(Path({str(ready)!r}).read_text())
+    parent.kill()
+    parent.wait(timeout=2)
+    if {phase!r}=='before_prctl':
+        with Path({str(lock)!r}).open('a+') as probe:
+            try: fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError: held=True
+    while True:
+        try: pid,status=os.waitpid(-1,os.WNOHANG)
+        except ChildProcessError: break
+        if pid: statuses[pid]=os.waitstatus_to_exitcode(status)
+        elif time.monotonic()>=deadline: raise RuntimeError('capture did not exit')
+        else: time.sleep(.005)
+    with Path({str(lock)!r}).open('a+') as probe: fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    children=Path('/proc/self/task/'+str(os.getpid())+'/children').read_text().strip()
+    print(json.dumps({{'status':statuses.get(leaf),'held':held,'children':children,'parent':parent.returncode}}))
+finally:
+    if parent.poll() is None: parent.kill();parent.wait()
+    if leaf is not None:
+        try: waited,status=os.waitpid(leaf,os.WNOHANG)
+        except ChildProcessError: waited=leaf
+        if not waited:
+            try: os.kill(leaf,signal.SIGKILL)
+            except ProcessLookupError: pass
+    while True:
+        try: os.waitpid(-1,0)
+        except ChildProcessError: break
+""", f"death-watcher-{phase}.py")
+                result = subprocess.run(watcher, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                row = json.loads(result.stdout)
+                self.assertEqual(row["parent"], -signal.SIGKILL)
+                self.assertEqual(row["status"], 0 if phase == "before_prctl" else -signal.SIGKILL)
+                self.assertEqual(row["children"], "")
+                if phase == "before_prctl": self.assertTrue(row["held"])
+                self.assertTrue(self.available("i7-heavy.lock"))
+
+    @unittest.skipUnless(LINUX, "caller/child mask observations require Linux")
+    def test_child_timeout_overrides_inherited_action_and_blocked_mask(self):
+        fixture, child_state = self.root / "fixture", self.root / "child-state"
+        fixture.write_bytes(b"bounded")
+        spec = importlib.util.spec_from_file_location("runner_timeout_state", RUNNER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        original = module.capture_file_bytes
         previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        delivered = []
-        try:
-            signal.signal(signal.SIGALRM, lambda number, frame: delivered.append(number))
-            signal.setitimer(signal.ITIMER_REAL, .03)
-            with module.capture_alarm(time.monotonic() + 1, None):
-                time.sleep(.06)
-                self.assertFalse(delivered)
-            time.sleep(.03)
-            self.assertEqual(delivered, [signal.SIGALRM])
-            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0, 0))
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-
-    def test_disabled_periodic_caller_timer_and_pending_signal_remain_unowned(self):
-        spec = importlib.util.spec_from_file_location("runner_disabled_periodic", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_arm = signal.setitimer
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-        changed, delivered = [], []
-        def arm(*args):
-            changed.append(args)
-            return real_arm(*args)
-        try:
-            signal.signal(signal.SIGALRM, lambda number, frame: delivered.append(number))
-            real_arm(signal.ITIMER_REAL, 0, .5)
-            disabled_state = signal.getitimer(signal.ITIMER_REAL)
-            os.kill(os.getpid(), signal.SIGALRM)  # explicitly manual, not natural expiry
-            module.signal.setitimer = arm
-            with self.assertRaises(module.CaptureFailure) as failure:
-                with module.capture_alarm(time.monotonic() + 1, None):
-                    self.fail("disabled caller timer reached capture body")
-            self.assertEqual(failure.exception.code, "unavailable")
-            self.assertFalse(changed)
-            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), disabled_state)
-            self.assertIn(signal.SIGALRM, signal.sigpending())
-            self.assertIn(signal.SIGALRM, signal.pthread_sigmask(signal.SIG_BLOCK, set()))
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-            self.assertEqual(delivered, [signal.SIGALRM])
-        finally:
-            module.signal.setitimer = real_arm
-            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            real_arm(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-            signal.signal(signal.SIGALRM, previous_handler)
-            real_arm(signal.ITIMER_REAL, *previous_timer)
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-
-    def test_disabled_timer_state_survives_signal_after_pending_snapshot(self):
-        spec = importlib.util.spec_from_file_location("runner_disabled_race", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_pending = signal.sigpending
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-        delivered, sent = [], []
-        def pending():
-            result = real_pending()
-            if not sent:
-                sent.append(True)
-                os.kill(os.getpid(), signal.SIGALRM)  # manual signal after snapshot
-            return result
+        parent = os.getpid()
+        def read(*args):
+            child_state.write_text(json.dumps({"pid": os.getpid(),
+                "blocked": signal.SIGALRM in signal.pthread_sigmask(signal.SIG_BLOCK, set()),
+                "handler": callable(signal.getsignal(signal.SIGALRM)),
+                "armed": signal.getitimer(signal.ITIMER_REAL)[0] > 0}))
+            time.sleep(1)
+            return original(*args)
         try:
-            handler = lambda number, frame: delivered.append(number)
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 0, .5)
-            disabled_state = signal.getitimer(signal.ITIMER_REAL)
-            module.signal.sigpending = pending
-            with self.assertRaises(module.CaptureFailure) as failure:
-                with module.capture_alarm(time.monotonic() + 1, None):
-                    self.fail("pending signal reached capture body")
-            self.assertEqual(failure.exception.code, "unavailable")
-            self.assertEqual(delivered, [signal.SIGALRM])
-            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), disabled_state)
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            signal.signal(signal.SIGALRM, signal.SIG_IGN)
+            module.capture_file_bytes = read
+            with self.assertRaises(module.CaptureFailure) as error:
+                module.digest_file(fixture, deadline=time.monotonic() + .1)
+            self.assertEqual(error.exception.code, "deadline")
+            row = json.loads(child_state.read_text())
+            self.assertNotEqual(row["pid"], parent)
+            self.assertEqual({key: row[key] for key in ("blocked", "handler", "armed")},
+                             {"blocked": False, "handler": True, "armed": True})
+            with self.assertRaises(ProcessLookupError): os.kill(row["pid"], 0)
+            self.assertIs(signal.getsignal(signal.SIGALRM), signal.SIG_IGN)
             self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
         finally:
-            module.signal.sigpending = real_pending
-            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in real_pending(): signal.sigwait({signal.SIGALRM})
+            module.capture_file_bytes = original
             signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
-    def test_prior_timer_compensation_excludes_delay_before_actual_disarm(self):
-        spec = importlib.util.spec_from_file_location("runner_disarm_epoch", RUNNER)
+    @unittest.skipUnless(LINUX, "thread scope checks require Linux task enumeration")
+    def test_capture_fails_closed_with_other_threads_or_private_ignored_sigchld(self):
+        import threading
+        spec = importlib.util.spec_from_file_location("runner_scope", RUNNER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        real_arm = signal.setitimer
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        delayed = []
-        def arm(which, value, interval=0):
-            if value == 0 and not delayed:
-                delayed.append(True)
-                time.sleep(.15)
-            return real_arm(which, value, interval)
+        stopped = threading.Event()
+        thread = threading.Thread(target=stopped.wait)
+        thread.start()
         try:
-            signal.signal(signal.SIGALRM, lambda number, frame: None)
-            real_arm(signal.ITIMER_REAL, 30, .5)
-            started = time.monotonic()
-            module.signal.setitimer = arm
-            with module.capture_alarm(started + 1, None): time.sleep(.05)
-            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-            expected = 30 - (time.monotonic() - started)
-            self.assertAlmostEqual(remaining, expected, delta=.03)
-            self.assertEqual(interval, .5)
+            with self.assertRaises(module.CaptureFailure) as error: module.digest_file(RUNNER)
+            self.assertEqual(error.exception.code, "unavailable")
         finally:
-            module.signal.setitimer = real_arm
-            real_arm(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous_handler)
-            real_arm(signal.ITIMER_REAL, *previous_timer)
+            stopped.set()
+            thread.join(timeout=1)
+        previous = signal.getsignal(signal.SIGCHLD)
+        try:
+            signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+            with self.assertRaises(module.CaptureFailure): module.digest_file(RUNNER)
+            self.assertIs(signal.getsignal(signal.SIGCHLD), signal.SIG_IGN)
+        finally:
+            signal.signal(signal.SIGCHLD, previous)
 
-    def test_alarm_firing_during_arming_restores_previous_handler_and_timer(self):
-        spec = importlib.util.spec_from_file_location("runner_alarm_arming", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_timer, real_clock = signal.setitimer, time.monotonic
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        handler = lambda number, frame: None
-        clock, armed = [0.0], [False]
-        def timer(which, value, interval=0):
-            result = real_timer(which, value, interval)
-            if value > 0 and not armed[0]:
-                armed[0] = True
-                real_timer(which, 0)  # safely disable the real repeating RED alarm
-                clock[0] = 11.0
-                signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
-            return result
-        try:
-            signal.signal(signal.SIGALRM, handler)
-            real_timer(signal.ITIMER_REAL, 30, .5)
-            module.signal.setitimer = timer
-            module.time.monotonic = lambda: clock[0]
-            with self.assertRaises(ValueError):
-                with module.capture_alarm(10, None):
-                    self.fail("arming failure reached capture body")
-            self.assertTrue(armed[0])
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-            self.assertGreater(remaining, 0)
-            self.assertEqual(interval, .5)
-        finally:
-            module.signal.setitimer = real_timer
-            module.time.monotonic = real_clock
-            real_timer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous_handler)
-            real_timer(signal.ITIMER_REAL, *previous_timer)
-
-    def test_alarm_after_descriptor_acquisition_closes_owned_descriptor(self):
-        fixture = self.root / "fixture"
-        fixture.write_bytes(b"controlled bytes")
-        spec = importlib.util.spec_from_file_location("runner_descriptor_boundary", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_clock = time.monotonic
-        previous_trace = sys.gettrace()
-        clock, acquired = [0.0], []
-        def trace(frame, event, arg):
-            descriptor = frame.f_locals.get("descriptor")
-            if frame.f_code is module.digest_file.__code__ and event == "line" and descriptor is not None and not acquired:
-                acquired.append(descriptor)
-                clock[0] = 11.0
-                signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
-            return trace
-        try:
-            module.time.monotonic = lambda: clock[0]
-            sys.settrace(trace)
-            with self.assertRaises(ValueError): module.digest_file(fixture, deadline=10)
-            sys.settrace(previous_trace)
-            self.assertEqual(len(acquired), 1)
-            with self.assertRaises(OSError): os.fstat(acquired[0])
-        finally:
-            sys.settrace(previous_trace)
-            module.time.monotonic = real_clock
-            for descriptor in acquired:
-                try: os.close(descriptor)
-                except OSError: pass
-
-    def test_alarm_before_open_returns_closes_allocated_descriptor(self):
-        fixture = self.root / "fixture"
-        fixture.write_bytes(b"controlled bytes")
-        spec = importlib.util.spec_from_file_location("runner_open_return", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_open, real_clock = os.open, time.monotonic
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-        clock, acquired = [0.0], []
-        def opener(*args, **kwargs):
-            descriptor = real_open(*args, **kwargs)
-            acquired.append(descriptor)
-            clock[0] = 11.0
-            os.kill(os.getpid(), signal.SIGALRM)
-            return descriptor
-        try:
-            module.os.open = opener
-            module.time.monotonic = lambda: clock[0]
-            with self.assertRaises(ValueError): module.digest_file(fixture, deadline=10)
-            self.assertEqual(len(acquired), 1)
-            with self.assertRaises(OSError): os.fstat(acquired[0])
-            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
-        finally:
-            module.os.open = real_open
-            module.time.monotonic = real_clock
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-            for descriptor in acquired:
-                try: os.close(descriptor)
-                except OSError: pass
-
-    def test_alarm_during_disarm_cannot_interrupt_restoration(self):
-        spec = importlib.util.spec_from_file_location("runner_alarm_disarm", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_timer, real_clock = signal.setitimer, time.monotonic
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-        handler = lambda number, frame: None
-        clock, armed, fired = [0.0], [False], [False]
-        def timer(which, value, interval=0):
-            if value == 0 and armed[0] and not fired[0]:
-                fired[0] = True
-                clock[0] = 11.0
-                os.kill(os.getpid(), signal.SIGALRM)
-            result = real_timer(which, value, interval)
-            if value > 0: armed[0] = True
-            return result
-        try:
-            signal.signal(signal.SIGALRM, handler)
-            real_timer(signal.ITIMER_REAL, 30, .5)
-            module.signal.setitimer = timer
-            module.time.monotonic = lambda: clock[0]
-            with module.capture_alarm(10, None): pass
-            self.assertTrue(fired[0])
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-            self.assertGreater(remaining, 0)
-            self.assertEqual(interval, .5)
-            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
-        finally:
-            module.signal.setitimer = real_timer
-            module.time.monotonic = real_clock
-            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            real_timer(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-            signal.signal(signal.SIGALRM, previous_handler)
-            real_timer(signal.ITIMER_REAL, *previous_timer)
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-
-    def test_blocked_pending_caller_alarm_is_preserved_and_capture_fails_closed(self):
-        spec = importlib.util.spec_from_file_location("runner_blocked_alarm", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
-        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-        delivered = []
-        handler = lambda number, frame: delivered.append(number)
-        try:
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 30, .5)
-            os.kill(os.getpid(), signal.SIGALRM)
-            with self.assertRaises(module.CaptureFailure) as failure:
-                with module.capture_alarm(time.monotonic() + 10, None):
-                    self.fail("blocked caller alarm reached capture body")
-            self.assertEqual(failure.exception.code, "unavailable")
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-            self.assertIn(signal.SIGALRM, signal.pthread_sigmask(signal.SIG_BLOCK, set()))
-            self.assertIn(signal.SIGALRM, signal.sigpending())
-            self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[1], .5)
-            self.assertFalse(delivered)
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-            signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-
-    def test_alarm_entering_restoration_mask_still_restores_state(self):
-        spec = importlib.util.spec_from_file_location("runner_restore_mask", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_mask, real_clock = signal.pthread_sigmask, time.monotonic
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        previous_mask = real_mask(signal.SIG_BLOCK, set())
-        clock, exiting, fired = [0.0], [False], [False]
-        handler = lambda number, frame: None
-        def mask(how, values):
-            if how == signal.SIG_BLOCK and exiting[0] and not fired[0]:
-                fired[0] = True
-                clock[0] = 11.0
-                os.kill(os.getpid(), signal.SIGALRM)
-            return real_mask(how, values)
-        try:
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 30, .5)
-            module.signal.pthread_sigmask = mask
-            module.time.monotonic = lambda: clock[0]
-            with self.assertRaises(module.CaptureFailure):
-                with module.capture_alarm(10, None): exiting[0] = True
-            self.assertTrue(fired[0])
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-            self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[1], .5)
-            self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
-        finally:
-            module.signal.pthread_sigmask = real_mask
-            module.time.monotonic = real_clock
-            real_mask(signal.SIG_BLOCK, {signal.SIGALRM})
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-            signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-            real_mask(signal.SIG_SETMASK, previous_mask)
-
-    @unittest.skipUnless(LINUX, "queued caller signal probe uses Linux pselect")
-    def test_queued_caller_alarm_after_entry_mask_restores_original_mask(self):
-        spec = importlib.util.spec_from_file_location("runner_entry_mask", RUNNER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        real_mask = signal.pthread_sigmask
-        previous_mask = real_mask(signal.SIG_BLOCK, set())
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        fired, observed = [False], []
-        class CallerAlarm(RuntimeError): pass
-        def handler(number, frame):
-            observed.append(real_mask(signal.SIG_BLOCK, set()))
-            raise CallerAlarm("queued caller alarm")
-        # pselect temporarily unmasks the real pending OS signal, then restores
-        # the blocked mask before Python dispatches its queued raising handler.
-        libc = ctypes.CDLL(None, use_errno=True)
-        empty = ctypes.create_string_buffer(128)  # Linux sigset_t
-        libc.sigemptyset.argtypes = [ctypes.c_void_p]
-        libc.sigemptyset(ctypes.byref(empty))
-        class Timespec(ctypes.Structure):
-            _fields_ = [("seconds", ctypes.c_long), ("nanoseconds", ctypes.c_long)]
-        timeout = Timespec(0, 1000000)
-        libc.pselect.argtypes = [ctypes.c_int] + [ctypes.c_void_p] * 5
-        def mask(how, values):
-            result = real_mask(how, values)
-            if how == signal.SIG_BLOCK and signal.SIGALRM in values and not fired[0]:
-                fired[0] = True
-                os.kill(os.getpid(), signal.SIGALRM)
-                libc.pselect(0, None, None, None, ctypes.byref(timeout), ctypes.byref(empty))
-                self.fail("queued OS alarm was not dispatched")
-            return result
-        try:
-            signal.signal(signal.SIGALRM, handler)
-            signal.setitimer(signal.ITIMER_REAL, 30, .5)
-            module.signal.pthread_sigmask = mask
-            with self.assertRaises(CallerAlarm):
-                with module.capture_alarm(time.monotonic() + 10, None):
-                    self.fail("entry exception reached capture body")
-            self.assertEqual(len(observed), 1)
-            self.assertIn(signal.SIGALRM, observed[0])
-            self.assertEqual(real_mask(signal.SIG_BLOCK, set()), previous_mask)
-            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
-            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-            self.assertGreater(remaining, 0)
-            self.assertEqual(interval, .5)
-        finally:
-            module.signal.pthread_sigmask = real_mask
-            real_mask(signal.SIG_BLOCK, {signal.SIGALRM})
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
-            signal.signal(signal.SIGALRM, previous_handler)
-            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
-            real_mask(signal.SIG_SETMASK, previous_mask)
 
     @unittest.skipUnless(LINUX, "capture policy tests are Linux-only")
     def test_capture_byte_policy_holds_oversized_input_before_launch(self):

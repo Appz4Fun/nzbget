@@ -3,7 +3,12 @@
 
 Execution requires Linux for subreaper-backed descendant supervision. Timing
 accepts native prebuilt executables; it never invokes a shell or build tool.
-This resource coordinator is not a sandbox for untrusted programs.
+This resource coordinator is not a sandbox for untrusted programs. Capture uses
+Linux single-threaded custody: callers must not introduce threads, external
+SIGCHLD reapers/SA_NOCLDWAIT, or other raising signal handlers during capture.
+The CLI owns its benign INT/TERM/HUP and default CHLD handlers. Capture never
+changes caller ALRM handler/timer/restart policy; ALRM/CHLD are briefly masked
+only for allocation, ownership bookkeeping and cleanup, then restored exactly.
 """
 import argparse
 import ctypes
@@ -38,142 +43,215 @@ class CaptureFailure(ValueError):
         self.code = code
 
 
+CAPTURE_IPC_MAX_BYTES = 512
+CAPTURE_ERRORS = {"deadline", "cancelled", "byte_limit", "non_regular", "changed_during_read", "unavailable"}
+
+
+def capture_file_bytes(kind, path, max_bytes):
+    """Fixed trusted work executed only in a disposable capture child."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise CaptureFailure("non_regular")
+        if kind == "header":
+            return os.read(descriptor, 4).hex()
+        if before.st_size > max_bytes:
+            raise CaptureFailure("byte_limit")
+        digest = hashlib.sha256()
+        total = 0
+        buffer = bytearray(65536)
+        with os.fdopen(descriptor, "rb", buffering=0, closefd=False) as stream:
+            while True:
+                count = stream.readinto(memoryview(buffer)[:min(len(buffer), max_bytes - total + 1)])
+                if count is None:
+                    raise CaptureFailure("unavailable")
+                if count == 0:
+                    break
+                total += count
+                if total > max_bytes:
+                    raise CaptureFailure("byte_limit")
+                digest.update(memoryview(buffer)[:count])
+        after = os.fstat(descriptor)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+        if identity(before) != identity(after):
+            raise CaptureFailure("changed_during_read")
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
 @contextmanager
-def capture_alarm(deadline, cancelled):
-    """Interrupt capture in the custodian's main thread; restore prior alarms."""
+def capture_custody():
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    try:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM, signal.SIGCHLD})
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+def reap_capture(pid):
+    """Check kernel ownership before kill; never signal an already-reaped PID."""
+    if not isinstance(pid, int) or pid <= 0:
+        raise CaptureFailure("unavailable")
+    failure = None
+    finished = False
+    while not finished:
+        try:
+            with capture_custody():
+                try:
+                    waited, status = os.waitpid(pid, os.WNOHANG)
+                    finished = waited == pid
+                except ChildProcessError:
+                    finished = True
+                if not finished:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+        except BaseException as error:
+            failure = error
+        if not finished:
+            try:
+                time.sleep(POLL_SECONDS)
+            except BaseException as error:
+                failure = error
+    if failure is not None:
+        raise failure
+
+
+def capture_child(kind, path, max_bytes, deadline, parent_pid, libc, reader, writer):
+    """Disposable process owns its timeout state and all inherited descriptors."""
+    try:
+        if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+            raise CaptureFailure("unavailable")
+        if os.getppid() != parent_pid:
+            return
+        os.close(reader)
+        def expired(number, frame):
+            raise CaptureFailure("deadline")
+        signal.signal(signal.SIGALRM, expired)
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise CaptureFailure("deadline")
+        signal.setitimer(signal.ITIMER_REAL, remaining)
+        try:
+            payload = {"value": capture_file_bytes(kind, path, max_bytes)}
+        except CaptureFailure as error:
+            payload = {"error_code": error.code}
+        except BaseException:
+            payload = {"error_code": "unavailable"}
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        data = json.dumps(payload, separators=(",", ":")).encode()
+        if len(data) <= CAPTURE_IPC_MAX_BYTES:
+            os.write(writer, data)
+    except BaseException:
+        pass
+
+
+def capture_file(kind, path, *, max_bytes, deadline, cancelled=None):
+    """Bound fixed file work; preserve parent handler, timer and restart policy."""
     def check():
         if cancelled is not None and cancelled():
             raise CaptureFailure("cancelled")
         if time.monotonic() >= deadline:
             raise CaptureFailure("deadline")
-
-    def interrupt(number, frame):
-        try:
-            check()
-        except BaseException:
-            # Prevent a repeating alarm from interrupting exception cleanup.
-            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            raise
-
-    # Query without mutation before activating cleanup. A queued caller handler
-    # may raise after the blocking syscall succeeds but before it returns.
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
-    previous_handler = None
-    previous_timer = None
-    caller_pending = False
-    caller_timer_armed = False
-    timer_suspended = False
-    installed = False
-    entered = time.monotonic()
+    check()
+    if kind not in {"digest", "header"}:
+        raise CaptureFailure("unavailable")
+    if not sys.platform.startswith("linux"):
+        raise CaptureFailure("unavailable")
+    if len(list(Path("/proc/self/task").iterdir())) != 1 or signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+        raise CaptureFailure("unavailable")
+    if signal.SIGALRM in signal.pthread_sigmask(signal.SIG_BLOCK, set()) or signal.SIGALRM in signal.sigpending():
+        raise CaptureFailure("unavailable")
+    parent_pid = os.getpid()
+    libc = ctypes.CDLL(None, use_errno=True)
+    reader = writer = pid = None
+    data = bytearray()
+    status = None
+    eof = reaped = False
     try:
-        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        # Active cleanup precedes allocation. Deferred ALRM/CHLD delivery cannot
+        # raise between a kernel PID/FD allocation and its Python assignment.
+        with capture_custody():
+            reader, writer = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    capture_child(kind, path, max_bytes, deadline, parent_pid, libc, reader, writer)
+                finally:
+                    os._exit(0)
+            os.close(writer)
+            writer = None
+            os.set_blocking(reader, False)
+        while not (eof and reaped):
+            check()
+            if select.select([reader], [], [], min(POLL_SECONDS, max(0, deadline - time.monotonic())))[0]:
+                block = os.read(reader, CAPTURE_IPC_MAX_BYTES + 1 - len(data))
+                if not block:
+                    eof = True
+                else:
+                    data.extend(block)
+                    if len(data) > CAPTURE_IPC_MAX_BYTES:
+                        raise CaptureFailure("unavailable")
+            if not reaped:
+                with capture_custody():
+                    try:
+                        waited, status = os.waitpid(pid, os.WNOHANG)
+                        reaped = waited == pid
+                    except ChildProcessError:
+                        reaped = True
+                        status = None
         check()
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        timer_sampled = time.monotonic()
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        caller_timer_armed = previous_timer[0] > 0
-        previous_pending = signal.sigpending()
-        caller_pending = signal.SIGALRM in previous_pending
-        if signal.SIGALRM in previous_mask or caller_pending:
+        if status != 0:
             raise CaptureFailure("unavailable")
-        # An expiry can advance the timer after the nonmutating snapshot.
-        # Restore the actual suspended state, never a stale expired one-shot.
-        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
-        timer_suspended = True
-        timer_sampled = time.monotonic()
-        caller_pending = signal.SIGALRM in signal.sigpending()
-        # An expiration pending during suspension still belongs to the caller.
-        # Preserve it and fail closed rather than claim interruptible capture.
-        if caller_pending:
-            raise CaptureFailure("unavailable")
-        signal.signal(signal.SIGALRM, interrupt)
-        installed = True
-        tick = min(POLL_SECONDS, max(deadline - entered, 0.000001))
-        signal.setitimer(signal.ITIMER_REAL, tick, tick)
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-        yield check
-    finally:
-        # If an alarm raises while entering this mask, interrupt() has already
-        # blocked subsequent delivery; the nested finally still restores state.
         try:
-            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-        finally:
+            payload = json.loads(data)
+        except (ValueError, UnicodeError):
+            raise CaptureFailure("unavailable") from None
+        if not isinstance(payload, dict):
+            raise CaptureFailure("unavailable")
+        if set(payload) == {"error_code"} and isinstance(payload["error_code"], str) and payload["error_code"] in CAPTURE_ERRORS:
+            raise CaptureFailure(payload["error_code"])
+        value = payload.get("value")
+        pattern = r"[0-9a-f]{64}" if kind == "digest" else r"(?:[0-9a-f]{2}){0,4}"
+        if set(payload) != {"value"} or not isinstance(value, str) or not re.fullmatch(pattern, value):
+            raise CaptureFailure("unavailable")
+        return value
+    finally:
+        failure = None
+        while pid is not None or reader is not None or writer is not None:
             try:
-                if timer_suspended:
-                    signal.setitimer(signal.ITIMER_REAL, 0)
-                if installed:
-                    # Discard only this capture's pending alarm before restoring
-                    # the caller's handler (which may be SIG_DFL).
-                    if signal.SIGALRM in signal.sigpending():
-                        signal.sigwait({signal.SIGALRM})
-                if previous_handler is not None:
-                    signal.signal(signal.SIGALRM, previous_handler)
-                if timer_suspended and (previous_timer[0] > 0 or caller_timer_armed and caller_pending and previous_timer[1] > 0):
-                    # Linux restarts an expired periodic timer upon delivery of
-                    # its pending signal. Preserve that next interval, without
-                    # creating a second expiration for an expired one-shot.
-                    remaining = (max(0.000001, previous_timer[0] - (time.monotonic() - timer_sampled))
-                                 if previous_timer[0] > 0 else previous_timer[1])
-                    signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
-                elif timer_suspended and previous_timer[1] > 0:
-                    # Preserve a disabled timer's configured interval without
-                    # activating it (Darwin retains this zero-remaining state).
-                    signal.setitimer(signal.ITIMER_REAL, 0, previous_timer[1])
-            finally:
-                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                if pid is not None and not reaped:
+                    reap_capture(pid)
+                with capture_custody():
+                    if pid is not None:
+                        pid = None
+                    if reader is not None:
+                        os.close(reader)
+                        reader = None
+                    if writer is not None:
+                        os.close(writer)
+                        writer = None
+            except BaseException as error:
+                # Preserve the exception, but finish custody before propagating.
+                failure = error
+        if failure is not None:
+            raise failure
 
 
 def digest_file(path, *, max_bytes=None, deadline=None, cancelled=None):
-    """Hash regular, stable bytes only; never return an incomplete digest."""
     max_bytes = DEFAULT_CAPTURE_MAX_BYTES if max_bytes is None else max_bytes
     deadline = time.monotonic() + 300 if deadline is None else deadline
-    with capture_alarm(deadline, cancelled) as check:
-        descriptor = None
-        try:
-            acquisition_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            try:
-                descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-            finally:
-                # Ownership is recorded before a pending alarm can raise.
-                signal.pthread_sigmask(signal.SIG_SETMASK, acquisition_mask)
-            before = os.fstat(descriptor)
-            if not stat.S_ISREG(before.st_mode):
-                raise CaptureFailure("non_regular")
-            if before.st_size > max_bytes:
-                raise CaptureFailure("byte_limit")
-            digest = hashlib.sha256()
-            total = 0
-            buffer = bytearray(65536)
-            with os.fdopen(descriptor, "rb", buffering=0, closefd=False) as stream:
-                while True:
-                    check()
-                    count = stream.readinto(memoryview(buffer)[:min(len(buffer), max_bytes - total + 1)])
-                    check()
-                    if count is None:
-                        raise CaptureFailure("unavailable")
-                    if count == 0:
-                        break
-                    total += count
-                    if total > max_bytes:
-                        raise CaptureFailure("byte_limit")
-                    digest.update(memoryview(buffer)[:count])
-            after = os.fstat(descriptor)
-            check()
-            identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
-            if identity(before) != identity(after):
-                raise CaptureFailure("changed_during_read")
-            return digest.hexdigest()
-        finally:
-            close_mask = None
-            try:
-                close_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-            finally:
-                try:
-                    if descriptor is not None:
-                        os.close(descriptor)
-                finally:
-                    if close_mask is not None:
-                        signal.pthread_sigmask(signal.SIG_SETMASK, close_mask)
+    return capture_file("digest", path, max_bytes=max_bytes, deadline=deadline, cancelled=cancelled)
+
+# The executable CLI owns CHLD before its first capture, including an inherited
+# ignored disposition. Imported private callers retain their own disposition.
+if __name__ == "__main__":
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
 # Preserve the invocation's implementation identity. Later source changes must
 # not relabel already-loaded code as though it came from the new file.
@@ -313,32 +391,9 @@ def prepare_command(args, *, deadline=None, cancelled=None):
         if timing_forbidden(resolved_name):
             raise ValueError("timing requires a prebuilt native measurement program")
         deadline = time.monotonic() + args.timeout_seconds if deadline is None else deadline
-        with capture_alarm(deadline, cancelled) as check:
-            descriptor = None
-            try:
-                acquisition_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-                try:
-                    descriptor = os.open(executable, os.O_RDONLY | os.O_NONBLOCK)
-                finally:
-                    signal.pthread_sigmask(signal.SIG_SETMASK, acquisition_mask)
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                    raise ValueError("timing requires an executable regular file")
-                check()
-                header = os.read(descriptor, 4)
-                check()
-                if header != b"\x7fELF":
-                    raise ValueError("timing requires a prebuilt native ELF executable")
-            finally:
-                close_mask = None
-                try:
-                    close_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
-                finally:
-                    try:
-                        if descriptor is not None:
-                            os.close(descriptor)
-                    finally:
-                        if close_mask is not None:
-                            signal.pthread_sigmask(signal.SIG_SETMASK, close_mask)
+        header = capture_file("header", executable, max_bytes=4, deadline=deadline, cancelled=cancelled)
+        if header != "7f454c46":
+            raise ValueError("timing requires a prebuilt native ELF executable")
     # argv[0] selects cargo/rustc inside the rustup multicall binary. Hash the
     # resolved binary, but preserve the original executable alias for exec.
     command[0] = str(invocation)
