@@ -1,0 +1,5 @@
+{
+  "exit": 1,
+  "stdout": "PREFLIGHT original 0 0 1\n",
+  "stderr": "FAIL preflight active caller or allocation boundary failed\n"
+}
