@@ -54,6 +54,18 @@ the command lifecycle, including descendant cleanup, rather than capture time.
 The invocation's runner-source hash has a separate startup bound of 1 MiB and
 two seconds.
 
+Capture runs in a disposable Linux child. The private capture helper requires
+a single-threaded parent with default SIGCHLD handling, dormant default or
+ignored SIGALRM, and no blocked or pending SIGALRM. It rejects custom alarm
+handlers and configured timers before allocating resources, preserving the
+parent's alarm handler, timer and native restart policy. Private callers must
+keep those policies stable, avoid external child reapers, and avoid other
+raising signal handlers while capture owns resources. The executable CLI
+installs recording INT/TERM/HUP handlers before startup capture and carries
+that cancellation into command admission; an interrupted startup does not
+launch the command. This is a cooperative capture contract, not a guarantee
+for arbitrary imported callers or signal policies.
+
 `--capture-max-bytes` sets the byte budget per captured artifact: 256 MiB by
 default, configurable up to 8 GiB. Hashing rejects nonregular files, oversized or
 growing reads, and files whose identity changes during the read. It never emits
