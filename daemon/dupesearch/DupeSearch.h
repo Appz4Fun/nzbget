@@ -52,6 +52,7 @@ public:
 	~DupeSearch() override;
 	void Run() override;
 	void Stop() override;
+    void NotifyNameChanged(int nzbId);
 
 	// seconds a key is not searched again, unless a higher-scored pick arrives
 	static constexpr int SearchWindowSec = 6 * 3600;
@@ -73,6 +74,7 @@ public:
 	// the measured share alive (percent) of a duplicate in history this search
 	// ranked but didn't add (a client's own backup, an earlier donor)
 	static constexpr const char* HealthParam = "DupeHealth";
+    static constexpr const char* OwnedKeyParam = "DupeSearchOwnedKey";
 
 	/* "dupes:" + the normalized title: the duplicate key of a download that has none */
 	static std::string MakeDupeKey(const std::string& name);
@@ -86,18 +88,23 @@ private:
 	{
 	public:
 		DupeSearch* m_owner;
-		void Update(Subject* caller, void* aspect) override { m_owner->DownloadQueueUpdate(aspect); }
+		void Update(Subject* caller, void* aspect) override { m_owner->DownloadQueueUpdate(static_cast<DownloadQueue*>(caller), aspect); }
 	};
 
 	struct Searched
 	{
 		int score = 0;
 		time_t time = 0;
+		std::string title;
+		bool retryable = false;
+        std::string rawName; // Runtime-only normalization cache; never inferred from disk.
 	};
 
 	struct Job
 	{
 		int nzbId = 0;
+		bool failed = false;
+		bool rankOnly = false;
 		std::string name;
 		std::string dupeKey;
 		std::string category;
@@ -120,16 +127,23 @@ private:
 	DeadPostings m_dead;
 	std::mutex m_mutex;
 	std::condition_variable m_cond;
+	std::set<int> m_rankPending;
 	std::map<int, time_t> m_pending;			// nzb id -> when to look at it
 	std::map<std::string, Searched> m_searched;	// lowercase dupe key -> last search
+    std::map<std::pair<std::string, std::string>, Searched> m_titleSearched;
 	// pick id -> fingerprints its search queued; per pick, not per key: a pick sent
 	// again after the user deleted it and its duplicates gets them back (B41)
 	std::map<int, std::set<std::string>> m_sent;
 
-	void DownloadQueueUpdate(void* aspect);
+	void DownloadQueueUpdate(DownloadQueue* downloadQueue, void* aspect);
 	void Schedule(int nzbId, time_t due);
 	void ScanQueue();
 	bool Prepare(DownloadQueue* downloadQueue, int nzbId, Job& job);
+	bool PrepareNative(DownloadQueue* downloadQueue, int nzbId, Job& job);
+	void Expand(const Job& job, const NzbSummary& pick, const std::vector<Newznab::Result>& prior,
+        const std::vector<Posting::Sketch>& known, time_t deadline, NzbFetcher::Budget& budget,
+		std::vector<NzbFetcher::Fetched>& fetched, std::set<std::string>& attempted, NzbFetcher::Stats& stats, Newznab::SearchStats& queryStats,
+		int& results, int& candidates, int& postings);
 	void Search(const Job& job);
 	/* health checks, adds and ranks the verified postings and the key's duplicates in history */
 	void Place(const Job& job, const NzbSummary& pick, std::vector<NzbFetcher::Fetched>& verified,
@@ -146,8 +160,8 @@ private:
 	/* a line of the search of pick <nzbId>: in the pick's own log and the global log */
 	void Note(int nzbId, Message::EKind kind, const char* format, ...) PRINTF_SYNTAX(4);
 	std::string PendingDir(int nzbId);
-	void MarkSearching(int nzbId);
-	void SavePending(const Job& job, const std::vector<NzbFetcher::Fetched>& verified);
+	void MarkSearching(const Job& job);
+	void SavePending(const Job& job, const NzbSummary& pick, const std::vector<NzbFetcher::Fetched>& verified);
 	void RemovePending(int nzbId);
 	void ResumePending();
 	/* why the search may no longer add duplicates for the pick (deleted by the user,
@@ -158,9 +172,13 @@ private:
 	/* the DupeScore (and a parameter "Name=Value") of a duplicate that sits in history or in the queue */
 	bool SetScore(int id, int score, const std::vector<std::string>& params);
 	void LoadState();
-	void SaveState();
+	bool SaveState();
 	// the key may be searched again (a search that learned nothing)
-	void ForgetSearch(const std::string& dupeKey);
+    // Callers hold m_mutex; the flat map is only the latest-name cache.
+    Searched* FindSearch(const std::string& lowerKey, const std::string& title);
+    void RecordSearch(const std::string& lowerKey, const Searched& searched);
+    void SetRetryable(const std::string& lowerKey, const std::string& title, bool retryable);
+	bool ForgetSearch(const std::string& dupeKey, const std::string& title = "");
 	std::string StatePath();
 };
 

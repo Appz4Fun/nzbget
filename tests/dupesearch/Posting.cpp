@@ -25,6 +25,9 @@
 #include "DupeIdentity.h"
 #include "Posting.h"
 #include "Util.h"
+#include "NzbFetcher.h"
+#include <thread>
+#include <atomic>
 #include <stdexcept>
 
 namespace
@@ -201,6 +204,249 @@ BOOST_AUTO_TEST_CASE(NativeIdentityFetchExceptionTest)
     BOOST_CHECK_EQUAL(found.bytes, 1000);
 }
 #endif
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetChargesRetriesTest)
+{
+    NzbFetcher::Budget budget(1);
+    int calls = 0;
+    NzbFetcher fetcher([&](const std::string&, const std::string&, size_t, long long) {
+        calls++;
+        HttpGet::Reply reply;
+        reply.ok = true;
+        reply.status = 200;
+        reply.body = "<html>indexer error</html>";
+        return reply;
+    });
+    auto listing = Listing("http://fake.invalid/one", 1, 0, 1);
+    fetcher.Fetch(listing, Util::CurrentTime() + 20, 3, &budget);
+    BOOST_CHECK_EQUAL(calls, 3);
+    BOOST_CHECK(budget.Spent());
+}
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetCooldownIsFreeTest)
+{
+    NzbFetcher::Budget budget(1);
+    int calls = 0;
+    NzbFetcher fetcher([&](const std::string&, const std::string&, size_t, long long) {
+        calls++;
+        HttpGet::Reply reply;
+        reply.status = 403;
+        return reply;
+    });
+    auto listing = Listing("http://fake.invalid/two", 1, 0, 1, "limited");
+    fetcher.Fetch(listing, Util::CurrentTime() + 10, 0, &budget);
+    BOOST_CHECK_EQUAL(fetcher.Fetch(listing, Util::CurrentTime() + 10, 0, &budget).reason, NzbFetcher::frRefused);
+    BOOST_CHECK_EQUAL(calls, 1);
+    BOOST_CHECK(budget.Take());
+    BOOST_CHECK(budget.Take());
+    BOOST_CHECK(!budget.Take());
+}
+
+BOOST_AUTO_TEST_CASE(NativeFetchBudgetConcurrentTest)
+{
+    NzbFetcher::Budget budget(1);
+    std::atomic<int> admitted{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 16; i++) threads.emplace_back([&]() { if (budget.Take()) admitted++; });
+    for (auto& thread : threads) thread.join();
+    BOOST_CHECK_EQUAL(admitted.load(), 3);
+    BOOST_CHECK(budget.Spent());
+    NzbFetcher::Budget unlimited(0);
+    for (int i = 0; i < 100; i++) BOOST_REQUIRE(unlimited.Take());
+    BOOST_CHECK(!unlimited.Spent());
+}
+
+#ifdef NZBGET_USE_RUST
+BOOST_AUTO_TEST_CASE(NativePartialNzbHealthTest)
+{
+    NzbSummary info;
+    std::string xml="<nzb><file subject='&quot;rel.part01.rar&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='10000'>a@x</segment>"
+        "<segment number='2' bytes='10000'>b@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml,info));
+    BOOST_CHECK_EQUAL(info.listedParts,2);
+    BOOST_CHECK_EQUAL(info.declaredParts,150);
+    BOOST_CHECK_EQUAL(info.articleBytes,10000);
+    BOOST_CHECK_EQUAL(DupeIdentity::WholeBytes(info),1500000);
+    DonorHealth::Health health;
+    health.present=13;
+    NzbSummary fractional;
+    fractional.listedParts=3;
+    fractional.declaredParts=10;
+    BOOST_CHECK_CLOSE(DupeIdentity::Alive(health,fractional),13.0/43.0,0.00001);
+    BOOST_CHECK_EQUAL(DupeIdentity::UnlistedMissing(health,fractional),30);
+    health.present=5;health.error=5;
+    fractional.listedParts=1;fractional.declaredParts=2;
+    BOOST_CHECK_CLOSE(DupeIdentity::Alive(health,fractional),0.25,0.00001);
+    health.present=0;health.error=2;
+    BOOST_CHECK_EQUAL(DupeIdentity::Alive(health,fractional),-1);
+    fractional.listedParts=5; fractional.declaredParts=150;
+    health.present=5; health.missing=0; health.error=0;
+    BOOST_CHECK(DupeIdentity::IsDead(health,fractional,10));
+    fractional.declaredParts=5;
+    BOOST_CHECK(!DupeIdentity::IsDead(health,fractional,10));
+}
+#endif
+
+BOOST_AUTO_TEST_CASE(NativeDataArticleIdsExcludeParityTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>discarded@x</segment>"
+        "<segment number='2' bytes='100'>a-data@x</segment>"
+        "<segment number='1' bytes='100'>z-data@x</segment>"
+        "<segment number='3' bytes='100'>z-data@x</segment></segments></file>"
+        "<file subject='&quot;rel.vol00+25.PAR2&quot;'><segments>";
+    for (int i = 1; i <= 25; i++)
+        xml += "<segment number='" + std::to_string(i) + "' bytes='10'>par-" + std::to_string(i) + "@x</segment>";
+    xml += "</segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 300);
+    const std::vector<std::string> expected = { "a-data@x", "z-data@x" };
+    BOOST_CHECK_EQUAL_COLLECTIONS(info.dataMessageIds.begin(), info.dataMessageIds.end(), expected.begin(), expected.end());
+    BOOST_CHECK_EQUAL(info.messageIds.size(), 27);
+    BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "discarded@x") == info.messageIds.end());
+    const std::string originalFingerprint = info.Fingerprint();
+    const size_t parityId = xml.find("par-1@x");
+    BOOST_REQUIRE(parityId != std::string::npos);
+    xml.replace(parityId, 7, "par-new@x");
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL_COLLECTIONS(info.dataMessageIds.begin(), info.dataMessageIds.end(), expected.begin(), expected.end());
+    BOOST_CHECK_NE(info.Fingerprint(), originalFingerprint);
+
+    // Keep measurable data IDs even when malformed data withholds geometry.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>valid@x</segment>"
+        "<segment number='2' bytes='100'>invalid id@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 0);
+    BOOST_REQUIRE_EQUAL(info.dataMessageIds.size(), 1);
+    BOOST_CHECK_EQUAL(info.dataMessageIds[0], "valid@x");
+}
+
+BOOST_AUTO_TEST_CASE(NativeDataPartGeometryExcludesParityTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='100'>data-1@x</segment>"
+        "<segment number='2' bytes='100'>data-2@x</segment></segments></file>"
+        "<file subject='&quot;rel.vol00+25.par2&quot;'><segments>";
+    for (int i = 1; i <= 25; i++)
+        xml += "<segment number='" + std::to_string(i) + "' bytes='10'>par-" + std::to_string(i) + "@x</segment>";
+    xml += "</segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.listedParts, 27);
+    BOOST_CHECK_EQUAL(info.declaredParts, 175);
+    BOOST_CHECK_EQUAL(info.dataListedParts, 2);
+    BOOST_CHECK_EQUAL(info.dataDeclaredParts, 150);
+    BOOST_CHECK_EQUAL(info.dataMessageIds.size(), 2);
+
+    // Numbered data gaps remain data geometry, independently of PAR parts.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>data-1@x</segment>"
+        "<segment number='3' bytes='100'>data-3@x</segment></segments></file>"
+        "<file subject='&quot;rel.par2&quot;'><segments>"
+        "<segment number='1' bytes='10'>par@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataListedParts, 2);
+    BOOST_CHECK_EQUAL(info.dataDeclaredParts, 3);
+    BOOST_CHECK_EQUAL(info.listedParts, 3);
+    BOOST_CHECK_EQUAL(info.declaredParts, 4);
+}
+
+BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentKeepsLastTest)
+{
+    NzbSummary info;
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='50'>old@x</segment>"
+        "<segment number='2' bytes='200'>second@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.totalBytes, 300);
+    BOOST_CHECK_EQUAL(info.dataBytes, 300);
+    BOOST_CHECK_EQUAL(info.listedParts, 2);
+    BOOST_CHECK_EQUAL(info.declaredParts, 2);
+    BOOST_CHECK_EQUAL(info.messageIds.size(), 2);
+    BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "old@x") == info.messageIds.end());
+    BOOST_REQUIRE_EQUAL(info.heads.size(), 1);
+    BOOST_CHECK_EQUAL(info.heads[0].messageId, "last@x");
+
+    // Repeated XML entries are one unique part, not evidence for tail inference.
+    xml = "<nzb><file subject='&quot;rel.mkv&quot; yEnc (1/150)'><segments>"
+        "<segment number='1' bytes='100'>old@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.listedParts, 1);
+    BOOST_CHECK_EQUAL(info.declaredParts, 1);
+}
+
+BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentInvalidLastTest)
+{
+    NzbSummary info;
+    for (const std::string& last : { std::string("<segment number='1' bytes='100'>invalid id@x</segment>"),
+        std::string("<segment number='1' bytes='0'>last@x</segment>") })
+    {
+        std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+            "<segment number='1' bytes='100'>old@x</segment>"
+            "<segment number='2' bytes='200'>second@x</segment>" + last + "</segments></file></nzb>";
+        BOOST_REQUIRE(NzbReader::Parse(xml, info));
+        BOOST_CHECK_EQUAL(info.dataBytes, 0);
+        BOOST_CHECK(info.heads.empty());
+        BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "old@x") == info.messageIds.end());
+        BOOST_CHECK_EQUAL(info.totalBytes, 200);
+    }
+    // An invalid overwritten occurrence is absent from the queued file.
+    std::string xml = "<nzb><file subject='&quot;rel.mkv&quot;'><segments>"
+        "<segment number='1' bytes='0'>invalid id@x</segment>"
+        "<segment number='1' bytes='100'>last@x</segment></segments></file></nzb>";
+    BOOST_REQUIRE(NzbReader::Parse(xml, info));
+    BOOST_CHECK_EQUAL(info.dataBytes, 100);
+    BOOST_REQUIRE_EQUAL(info.heads.size(), 1);
+    BOOST_CHECK_EQUAL(info.heads[0].messageId, "last@x");
+}
+
+BOOST_AUTO_TEST_CASE(NativeIndependentParityCollectionsUnknownTest)
+{
+    for (bool reverse : { false, true })
+    {
+        NzbSummary info;
+        std::vector<NzbFile> files = {
+            { "first.par2", { 100 } }, { "first.vol00+01.par2", { 200 } },
+            { "second.par2", { 300 } }, { "second.vol00+01.par2", { 400 } },
+            { "first.mkv", { 1000 } }, { "second.mkv", { 2000 } }
+        };
+        if (reverse) std::reverse(files.begin(), files.end());
+        BOOST_REQUIRE(NzbReader::Parse(MakeNzb(files, "par-sets"), info));
+        BOOST_CHECK_EQUAL(info.dataBytes, 3000);
+        BOOST_CHECK(info.parIndex.messageId.empty());
+        BOOST_CHECK(info.recoveryBytes.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(NativeParityIndexByFilenameTest)
+{
+    NzbSummary info;
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({
+        { "rel.vol00+01.par2", { 100 } },
+        { "rel.par2", { 900 } },
+        { "rel.vol01+02.PAR2", { 200 } },
+        { "other.vol00+10.par2", { 1000 } },
+        { "rel.mkv", { 10000 } }
+    }, "par-index"), info));
+    BOOST_CHECK_EQUAL(info.parIndex.name, "rel.par2");
+    BOOST_REQUIRE_EQUAL(info.recoveryBytes.size(), 2);
+    BOOST_CHECK_EQUAL(info.recoveryBytes[0], 100);
+    BOOST_CHECK_EQUAL(info.recoveryBytes[1], 200);
+
+    // Without an identifiable base index, recovery capacity is unknown.
+    BOOST_REQUIRE(NzbReader::Parse(MakeNzb({
+        { "rel.vol00+01.par2", { 100 } },
+        { "rel.vol01+02.par2", { 200 } },
+        { "rel.mkv", { 10000 } }
+    }, "par-volumes"), info));
+    BOOST_CHECK(info.parIndex.messageId.empty());
+    BOOST_CHECK(info.recoveryBytes.empty());
+}
 
 BOOST_AUTO_TEST_CASE(NativeIdentityParitySuffixTest)
 {

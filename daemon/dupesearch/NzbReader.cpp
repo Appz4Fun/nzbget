@@ -25,6 +25,11 @@
 #include <limits>
 #include "NzbReader.h"
 #include "XmlReader.h"
+#include "NzbFile.h"
+#include "ParParser.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 #include "DupeUtil.h"
 #ifdef NZBGET_USE_RUST
@@ -113,6 +118,10 @@ public:
 			m_name = NameOfSubject(XmlReader::Attr(attrs, "subject"));
 			m_fileBytes = 0;
 			m_firstId.clear();
+			m_subject = XmlReader::Attr(attrs, "subject");
+			m_parts.clear();
+			m_segments.clear();
+			m_validParts = 0;
 		}
 		else if (name == "segment" && m_inFile)
 		{
@@ -131,22 +140,9 @@ public:
 		}
 		else if (name == "segment" && m_inSegment)
 		{
-			// a message-id with a line break, a space or brackets inside would
-			// write more than one command into the STAT batch: the replies came
-			// out of step on a connection that went back to the pool
-			std::string id = Trim(m_text);
-			if (ValidMessageId(id))
-			{
-				sizes[m_name] += m_segmentBytes;
-				ids.insert(id);
-				if (m_segmentBytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - m_segmentBytes)
-				{
-					m_fileBytes += m_segmentBytes;
-				}
-				else if (!IsParName(m_name)) geometryValid = false;
-				if (m_segmentNumber == 1 && m_firstId.empty()) m_firstId = id;
-			}
-			else if (!IsParName(m_name)) geometryValid = false;
+            // Keep the ID and size together until duplicate part numbers have
+            // been resolved with the queue parser's keep-last policy.
+            m_segments.push_back({ m_segmentNumber, m_segmentBytes, Trim(m_text) });
 			m_inSegment = false;
 		}
 		else if (name == "group" && m_inFile)
@@ -159,6 +155,52 @@ public:
 		}
 		else if (name == "file")
 		{
+            std::stable_sort(m_segments.begin(), m_segments.end(),
+                [](const Segment& a, const Segment& b) { return a.number < b.number; });
+            for (size_t i = 0; i < m_segments.size(); i++)
+            {
+                const Segment& segment = m_segments[i];
+                if (i + 1 < m_segments.size() && m_segments[i + 1].number == segment.number) continue;
+                m_parts.push_back({ segment.number, segment.bytes });
+                // Invalid retained data still makes geometry unknown. Never
+                // resurrect an earlier valid duplicate in place of this ID.
+                if (!ValidMessageId(segment.id))
+                {
+                    if (!IsParName(m_name)) geometryValid = false;
+                    continue;
+                }
+                sizes[m_name] += segment.bytes;
+                ids.insert(segment.id);
+                if (!IsParName(m_name)) dataIds.insert(segment.id);
+                m_validParts++;
+                if (!IsParName(m_name) && segment.bytes > 0) articleSizes.push_back((uint64_t)segment.bytes);
+                if (segment.bytes > 0 && m_fileBytes <= std::numeric_limits<long long>::max() - segment.bytes)
+                    m_fileBytes += segment.bytes;
+                else if (!IsParName(m_name)) geometryValid = false;
+                if (segment.number == 1) m_firstId = segment.id;
+            }
+            uint64_t listed = m_parts.size(), declared = listed;
+#ifdef NZBGET_USE_RUST
+            std::vector<NzbgetRsDupePart> raw;
+            raw.reserve(m_parts.size());
+            for (const auto& part : m_parts) raw.push_back({ part.first, part.second });
+            int count = NzbFile::DeclaredParts(m_subject.c_str());
+            nzbget_rs_dupe_part_counts(raw.data(), raw.size(), count > 0 ? (uint32_t)count : 0,
+                IsParName(m_name), &listed, &declared);
+#else
+            for (const auto& part : m_parts) if (part.first > 0 && part.first <= 200000)
+                declared = std::max(declared, (uint64_t)part.first);
+#endif
+            listedParts += m_validParts;
+            declaredParts += declared;
+            if (!IsParName(m_name))
+            {
+                dataListedParts += m_validParts;
+                dataDeclaredParts += declared;
+            }
+            if (IsParName(m_name) && m_fileBytes > 0 && !m_firstId.empty())
+                parityHeads.push_back({ m_name, m_firstId, m_fileBytes });
+
 			if (!IsParName(m_name) && m_fileBytes > 0)
 			{
 				dataFiles++;
@@ -184,7 +226,12 @@ public:
 	long long dataBytes = 0;
 	int dataFiles = 0;
 	bool geometryValid = true;
+	uint64_t listedParts = 0, declaredParts = 0;
+	uint64_t dataListedParts = 0, dataDeclaredParts = 0;
+	std::vector<uint64_t> articleSizes;
+	std::vector<NzbSummary::Head> parityHeads;
 	std::set<std::string> ids;
+	std::set<std::string> dataIds;
 	std::set<std::string> groups;
 	std::map<std::string, std::string> meta;
 
@@ -196,6 +243,16 @@ private:
 	long long m_segmentNumber = 0;
 	long long m_fileBytes = 0;
 	std::string m_firstId;
+	std::string m_subject;
+	uint64_t m_validParts = 0;
+	std::vector<std::pair<long long,long long>> m_parts;
+    struct Segment
+    {
+        long long number;
+        long long bytes;
+        std::string id;
+    };
+    std::vector<Segment> m_segments;
 	bool m_inFile = false;
 	bool m_inSegment = false;
 };
@@ -232,7 +289,48 @@ bool NzbReader::Parse(const std::string& data, NzbSummary& summary)
 	summary.poster = reader.poster;
 	summary.meta = reader.meta;
 	summary.messageIds.assign(reader.ids.begin(), reader.ids.end());
+	summary.dataMessageIds.assign(reader.dataIds.begin(), reader.dataIds.end());
 	summary.groups.assign(reader.groups.begin(), reader.groups.end());
+    summary.listedParts = reader.listedParts;
+    summary.declaredParts = reader.declaredParts;
+    summary.dataListedParts = reader.dataListedParts;
+    summary.dataDeclaredParts = reader.dataDeclaredParts;
+    if (!reader.articleSizes.empty())
+    {
+        std::sort(reader.articleSizes.begin(), reader.articleSizes.end());
+        summary.articleBytes = reader.articleSizes[reader.articleSizes.size()/2];
+    }
+    // File size does not identify a PAR2 index: an index can be larger than
+    // a recovery volume. Use the shared filename parser and keep capacity
+    // paired with the selected index's collection.
+    for (const auto& head : reader.parityHeads)
+    {
+        int baseLen = 0;
+        if (ParParser::ParseParFilename(head.name.c_str(), true, &baseLen, nullptr) &&
+            baseLen >= 0 && (size_t)baseLen + 5 == head.name.size())
+        {
+            if (!summary.parIndex.messageId.empty() &&
+                !ParParser::SameParCollection(summary.parIndex.name.c_str(), head.name.c_str(), true))
+            {
+                // Whole-NZB dataBytes cannot be paired with one independent
+                // PAR collection's capacity. Keep feasibility unknown.
+                summary.parIndex = NzbSummary::Head();
+                break;
+            }
+            if (summary.parIndex.messageId.empty()) summary.parIndex = head;
+        }
+    }
+    if (!summary.parIndex.messageId.empty())
+    {
+        for (const auto& head : reader.parityHeads)
+        {
+            int baseLen = 0;
+            if (ParParser::ParseParFilename(head.name.c_str(), true, &baseLen, nullptr) &&
+                baseLen >= 0 && (size_t)baseLen + 5 < head.name.size() &&
+                ParParser::SameParCollection(summary.parIndex.name.c_str(), head.name.c_str(), true))
+                summary.recoveryBytes.push_back((uint64_t)head.bytes);
+        }
+    }
 
 	std::string mainName;
 	long long mainSize = -1;

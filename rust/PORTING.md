@@ -70,11 +70,72 @@ conflicting release names. The daemon retains article transport and queue
 ownership. `DupeSameSize` hints compare data-file counts and bytes independently
 of parity overhead; existing and newly discovered backups use the same rule.
 The hints select candidates for the existing checksum validation, rather than
-establishing byte identity. The broader discovery integration follows separately.
+establishing byte identity.
+
+`dupewatch` owns queue/history eligibility, repeat-search suppression, broader
+queries, a shared atomic fetch budget, partial-NZB health normalization and PAR2
+repairability estimates. The daemon retains queue locks, HTTP/NNTP transport and
+the existing failover controller. A search shares one deadline and a budget of
+three HTTP attempts per configured donor across strict and broader passes; zero
+keeps the existing unlimited mode. Broader candidates need conservative release
+compatibility and matching decoded packed-media identity. Generated duplicate
+keys follow renamed picks only when the persisted per-NZB ownership marker
+matches; client key edits clear that marker. Explicit client keys remain intact. Empty searches
+can retry without losing the title needed to recognize generated keys, while a
+usable existing backup suppresses those retries.
 
 The offline differential test compares the pure Python proxy reference with
 Rust. It deliberately never imports proxy configuration or performs indexer
-requests. The Bencher suite includes the new identity function.
+requests. The watcher differential suite likewise runs only local pure-function
+fixtures. Isolated fake NNTP/Newznab functional scenarios exercise broader
+identity proof, data-only hints and rename tracking. The Bencher suite includes
+identity, queue decisions, broader queries and partial health normalization.
+
+The source-extracted pre-port `Prepare` prefix matches 184,320 C++ ASan/UBSan
+fixtures. A separate same-feature C++ control performs the required identity,
+cache, ownership, fleet and history work with the faithful pre-port C++
+normalizer and an independent allocation-free policy. This control is a
+counterfactual implementation, not the old production controller. Parity checks
+cover normalization, signed-time extremes, ownership and active/retired fleets.
+
+Decision-prefix measurements include normalization, runtime name-cache work,
+peer/history snapshots, allocation and the real Rust C ABI. Both callers stop
+before accepted-search stamp writes, edits, saving, packed-media proof and
+transport. Cold/restart and warm eligible/cooldown fixtures are measured under
+the exclusive shared-worker lock. Prebuilt snapshots separately compare the
+best direct C++ policy with Rust; a second opaque C++ translation-unit experiment
+makes the ABI boundary comparable. Generic lower-score peer snapshots are valid
+API stress cases, while the production caller normally filters those
+peers before the call. These are synthetic fixtures, not deployment measurements.
+
+Earlier comparisons against the old production controller perform different
+work and are retained only as historical experiments. The context-bearing old
+C++ policy prefix and the scalar Rust function also have different boundaries;
+their timings do not establish a language speedup. Wrapper experiments are kept
+separate from the best direct C++ control. Final gates use paired changes for
+each row and retain slower and noisy results.
+
+Later complete `PrepareNative` measurements use the actual native library,
+metadata, collection, logging and isolated state/progress writes. The alternative
+C++ controller changes only watch/normalization boundaries; existing `SameRelease`
+remains shared production behavior. Tiny (2 live/0 history), normal (4/2) and large
+(128/1024) fixtures pass 28 parity cases, including generated-key cold/warm writes.
+Ordinary optimized C++ policy remains machine-outlined; no control is handicapped.
+Five alternating process pairs preserve every sample. A second fixed experiment
+removes backend-specific normalization from untimed fixture resets/assertions and
+uses a new composed archive; differences cannot be attributed to that repair alone.
+Its paired medians still show tiny warm IO +4.97%, generated warm IO +4.44% and
+large warm IO +1.94%. The candidate remains held; no overall faster claim follows.
+Matched IO bytes do not independently prove every atomic write or fsync succeeded.
+Full raw process pairs and compiler/source provenance are retained in PR #80.
+
+Restarted searches bind donor proof to the original title, key and posting
+fingerprint; changed/unbound saved state is searched again. Legacy three-field
+stamps refresh once and preserve ambiguous client keys; only an independently
+persisted per-NZB marker proves generated ownership. Manual name edits notify only the watcher,
+while DirectRename retains its queue-script event. Inferred absent parts mark
+unusable donors dead, including fast additions and existing history members.
+Generated keys and managed score floors persist without client edits.
 
 ## Parked
 

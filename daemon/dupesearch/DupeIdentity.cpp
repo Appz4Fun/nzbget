@@ -37,43 +37,111 @@ DupeIdentity::Identity DupeIdentity::FromArticle(const std::vector<char>& data, 
 	return identity;
 }
 
+ArticleFetcher::FetchedArticle DupeIdentity::FetchArticle(const NzbSummary::Head& head,
+    const std::vector<std::string>& names, time_t deadline, const FetchFunc& fetch)
+{
+    ArticleFetcher::FetchedArticle article;
+#ifdef NZBGET_USE_RUST
+    if (head.messageId.empty() || Util::CurrentTime() >= deadline || HttpGet::Stopped() || DonorHealth::Stopping()) return article;
+    std::vector<CString> groups;
+    for (const std::string& name : names) groups.emplace_back(name.c_str());
+    ArticleFetcher fetcher;
+    std::atomic<bool> done{false};
+    std::string id = head.messageId;
+    if (id.front() != '<' || id.back() != '>') id = "<" + id + ">";
+    std::thread worker([&]() {
+        try { article = fetch ? fetch(id, groups) : fetcher.Fetch(id.c_str(), groups); }
+        catch (...) { article = ArticleFetcher::FetchedArticle(); }
+        done = true;
+    });
+    while (!done && Util::CurrentTime() < deadline && !HttpGet::Stopped() && !DonorHealth::Stopping()) Util::Sleep(20);
+    if (!done) fetcher.Stop();
+    worker.join();
+    if (Util::CurrentTime() >= deadline || HttpGet::Stopped() || DonorHealth::Stopping() || article.Offset != 0)
+        return ArticleFetcher::FetchedArticle();
+#endif
+    return article;
+}
+
 DupeIdentity::Identity DupeIdentity::Read(const NzbSummary& info, time_t deadline, const FetchFunc& fetch)
 {
 #ifdef NZBGET_USE_RUST
-	std::vector<CString> groups;
-	for (const std::string& group : info.groups) groups.emplace_back(group.c_str());
-	unsigned long long minimum = info.dataBytes > 0 ?
-		(unsigned long long)(info.dataBytes / 5) * 2 + (unsigned long long)(info.dataBytes % 5) * 2 / 5 : 0;
-	for (const NzbSummary::Head& head : info.heads)
-	{
-		if (Util::CurrentTime() >= deadline || HttpGet::Stopped() || DonorHealth::Stopping()) break;
-		ArticleFetcher fetcher;
-		ArticleFetcher::FetchedArticle article;
-		std::atomic<bool> done{false};
-		std::string id = head.messageId;
-		if (id.empty()) continue;
-		if (id.front() != '<') id = "<" + id + ">";
-		std::thread worker([&]() {
-			try { article = fetch ? fetch(id, groups) : fetcher.Fetch(id.c_str(), groups); }
-			catch (...) { article = ArticleFetcher::FetchedArticle(); }
-			done = true;
-		});
-		while (!done && Util::CurrentTime() < deadline && !HttpGet::Stopped() && !DonorHealth::Stopping())
-		{
-			Util::Sleep(20);
-		}
-		if (!done) fetcher.Stop();
-		worker.join();
-		if (Util::CurrentTime() >= deadline || HttpGet::Stopped() || DonorHealth::Stopping()) break;
-		if (article.Success && article.Offset == 0)
-		{
-			Identity found = FromArticle(article.Data, head.name,
-				article.FileSize > 0 ? (unsigned long long)article.FileSize : 0, minimum);
-			if (found) return found;
-		}
-	}
+    unsigned long long minimum = info.dataBytes > 0 ?
+        (unsigned long long)(info.dataBytes / 5) * 2 + (unsigned long long)(info.dataBytes % 5) * 2 / 5 : 0;
+    for (const NzbSummary::Head& head : info.heads)
+    {
+        auto article = FetchArticle(head, info.groups, deadline, fetch);
+        if (article.Success)
+        {
+            Identity found = FromArticle(article.Data, head.name,
+                article.FileSize > 0 ? (unsigned long long)article.FileSize : 0, minimum);
+            if (found) return found;
+        }
+        if (Util::CurrentTime() >= deadline || HttpGet::Stopped() || DonorHealth::Stopping()) break;
+    }
 #endif
-	return Identity();
+    return Identity();
+}
+
+unsigned long long DupeIdentity::WholeBytes(const NzbSummary& info)
+{
+    if (info.totalBytes <= 0) return 0;
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_whole_bytes((uint64_t)info.totalBytes, info.listedParts, info.declaredParts);
+#else
+    return (unsigned long long)info.totalBytes;
+#endif
+}
+
+double DupeIdentity::Alive(const DonorHealth::Health& health, const NzbSummary& info)
+{
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_effective_alive(health.present, health.missing, health.error, info.listedParts, info.declaredParts);
+#else
+    return health.Alive();
+#endif
+}
+
+bool DupeIdentity::IsDead(const DonorHealth::Health& health, const NzbSummary& info, int minimum)
+{
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_is_dead(health.present, health.missing, health.error, info.listedParts, info.declaredParts, minimum) != 0;
+#else
+    double alive = health.Alive();
+    return alive >= 0 && alive * 100 < minimum && health.missing >= DonorHealth::MinKnown;
+#endif
+}
+
+int DupeIdentity::UnlistedMissing(const DonorHealth::Health& health, const NzbSummary& info)
+{
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_unlisted_missing(health.Answered(), info.listedParts, info.declaredParts);
+#else
+    return 0;
+#endif
+}
+
+bool DupeIdentity::ParDoomed(const NzbSummary& info, double alive, time_t deadline)
+{
+#ifdef NZBGET_USE_RUST
+    if (info.parIndex.messageId.empty() || info.recoveryBytes.empty() || info.dataBytes <= 0 || info.articleBytes == 0) return false;
+    auto article = FetchArticle(info.parIndex, info.groups, deadline);
+    if (!article.Success) return false;
+    uint64_t block = nzbget_rs_dupe_par_block(article.Data.data(), article.Data.size());
+    return nzbget_rs_dupe_par_doomed((uint64_t)info.dataBytes, info.articleBytes,
+        info.recoveryBytes.data(), info.recoveryBytes.size(), alive, block) != 0;
+#else
+    return false;
+#endif
+}
+
+bool DupeIdentity::OuterCompatible(const std::string& title, const std::string& name)
+{
+#ifdef NZBGET_USE_RUST
+    return nzbget_rs_dupe_outer_ok(title.data(), title.size(), name.data(), name.size()) != 0;
+#else
+    return !ReleaseName::Readable(name) || ReleaseName::SameRelease(title, name);
+#endif
 }
 
 bool DupeIdentity::SameData(const NzbSummary& a, const NzbSummary& b)
