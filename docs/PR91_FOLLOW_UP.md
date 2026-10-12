@@ -18,9 +18,14 @@ subject to their existing holds.
   both RPC and postprocessing cleanup, plus the publisher helper-output issue.
   Candidate adapter repairs are included for follow-up verification; their
   presence alone does not establish remediation.
+- The single retained-archive regression admission attempt stopped at its
+  capacity check before runner or payload launch. No tests ran in that attempt;
+  it is neither behavioral RED nor repaired GREEN evidence. The earlier Git
+  bundle setup failure and the capacity failure remain separately preserved.
 - Earlier runner and workflow repairs have scoped reviews and validation.
-  Rust executable inputs retain separate source-equality and previously recorded
-  native validation evidence. No new production speedup is established here.
+  Rust/Cargo validation at `502da6a6` remains historical evidence. The integrated
+  default can include other runtime Rust changes, so those results do not clear
+  the final integrated build. No new production speedup is established here.
 
 ## TODO after integration
 
@@ -37,8 +42,9 @@ subject to their existing holds.
   Preserve the earlier failing evidence; do not substitute component passes.
 - [ ] Complete a whole-tree review and a fresh GitHub Codex review of the signed
   integrated revision. Keep unresolved review findings visible until verified.
-- [ ] Recheck Rust executable input equality before reusing prior native results;
-  renew affected validation if those inputs change.
+- [ ] Validate the final integrated Rust build on the coordinated worker. Recheck
+  executable input equality before reusing any prior native results; inherited
+  runtime changes require renewed affected validation.
 - [ ] Verify workflow raw-artifact retention with an actual trusted workflow run.
   The existing artifact-selector check used a synthetic transport and model.
 - [ ] Configure and observe trusted Bencher publication before declaring it
