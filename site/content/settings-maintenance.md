@@ -30,6 +30,11 @@ Key options: [`SystemHealthCheck`](options.md#systemhealthcheck), [`WriteBuffer`
 <figcaption>These example status values are not a production health report. Open the picture to inspect the full section.</figcaption>
 </figure>
 
+<figure class="settings-figure">
+<a class="settings-shot" href="assets/settings/status-wide.jpg" aria-label="Open full-size picture: Wide dark Status panels beside the Settings menu"><img src="assets/settings/status-wide.jpg" width="1920" height="1080" loading="lazy" alt="Wide dark Status panels beside the Settings menu"></a>
+<figcaption>Status panels expand with the desktop window. Open the picture to inspect the full section.</figcaption>
+</figure>
+
 ## System
 
 Back up configuration before a substantial change:

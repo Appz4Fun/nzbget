@@ -598,6 +598,34 @@ body.navfixed.scrolled #Navbar .navbar-inner {
 		height: calc(100vh - var(--navbar-space, 72px));
 		padding-top: 0;
 	}
+
+	/* Desktop sections use the full window beside a stable left navigation rail. */
+	.config__container {
+		justify-content: flex-start;
+	}
+
+	.config__aside {
+		flex: 0 0 240px;
+		min-width: 0;
+	}
+
+	.config__main {
+		flex: 1 1 0;
+		min-width: 0;
+		max-width: none;
+		width: auto;
+	}
+
+	.config-status {
+		max-width: none;
+	}
+
+	#StatisticsTab {
+		box-sizing: border-box;
+		max-width: none;
+		width: 100%;
+		margin: 0;
+	}
 }
 
 @media (max-width: 768px) {
