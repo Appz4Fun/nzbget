@@ -1,0 +1,17 @@
+{
+  "kind": "historical source snapshot; inspection only, no runtime integration",
+  "baseline": "cd9d4db450be61422421f7a83633d13aadc14d46",
+  "recovery": "exact held candidate bytes retained privately before documentation work; measured C++ and Rust hashes match original pilot manifest",
+  "sha256": {
+    "daemon/postprocess/ContentMap.cpp": "98e1459ad6b100a3555432b1ddb1b422e640adae07414e8ee9933d3126da23db",
+    "rust/src/cryptoread.rs": "ed68e36c3dda57e965ec7dbc38fa3426520842308291bb221ae2b61191e9d141",
+    "rust/src/lib.rs": "26e6d5759c914fa60bb9e33943b0c7c0220e0e625fb066164586e4ea5f42c094",
+    "rust/include/nzbget_cryptoread.h": "42154dd1f5a7c352edc681190ed5ef4164296473011416e70787124e424ae711",
+    "rust/tests/cryptoread_bench.cpp": "f85c6f4a8c5cde16be687ff21c4174a690a887cac9e0b7321b987b040441b79b",
+    "rust/tests/cryptoread_caller.cpp": "584284ee086036092a4adeaf5a38a48e2de6b76e8a5220b5fed167d23179eae0",
+    "rust/tests/cryptoread_compare.py": "95b864babe49c02a82ddf395be33642eadb13e87720e56e1d1f1e7c802d90e1e",
+    "original/daemon/postprocess/ContentMap.cpp": "710df759e14c2147ff0d9bb91d36b48ffc04979588067b21ca6a23379effc771",
+    "COPYING": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505"
+  },
+  "archive_sha256": "d83f53e9691f6286e6b68e32914c9d3739e19e5a673dfe3c50355eed9c1985e8"
+}

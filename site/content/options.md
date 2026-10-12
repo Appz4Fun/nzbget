@@ -12,3 +12,5 @@ Numbered options, such as the settings of each news server, are listed once with
 
 > [!NOTE] Generated text
 > The descriptions below come straight from `nzbget.conf`, much of it written for NZBGet, so their style differs from the rest of this site.
+
+For pictures and setup steps, use the [illustrated Settings guides](settings.md).

@@ -3783,7 +3783,7 @@ pub unsafe extern "C" fn nzbget_rs_binrpc_edit_split(data: *const c_char, len: u
 /// `content` is null (empty) or NUL-terminated.
 #[no_mangle]
 pub unsafe extern "C" fn nzbget_rs_binrpc_is_url(content: *const c_char) -> c_int {
-    crate::binrpc::is_url(input(content)) as c_int
+    crate::binrpc::is_url_cstr(content.cast()) as c_int
 }
 
 /// UrlDownloader::ProcessHeader's X-DNZB headers: 1 with `*start` and
@@ -3842,6 +3842,169 @@ pub unsafe extern "C" fn nzbget_rs_url_completed(downloader: c_int, deleting: c_
     }
 }
 
+/// A response of `total` bytes (and a NUL after them for the C string
+/// functions) written by `fill`, which gets room for them and returns the
+/// bytes it wrote; an empty buffer for no bytes or more than an int's range.
+/// The buffer isn't zeroed first.
+///
+/// # Safety
+/// As the entries' strings in `fill`.
+unsafe fn response(total: u64, fill: impl FnOnce(&mut [std::mem::MaybeUninit<u8>]) -> usize) -> RsBuf {
+    if total == 0 || total > crate::binrpc::MAX_RESPONSE {
+        return RsBuf { data: std::ptr::null_mut(), len: 0, cap: 0 };
+    }
+    let total = total as usize;
+    let mut v: Vec<u8> = Vec::with_capacity(total + 1);
+    let room = v.spare_capacity_mut();
+    assert_eq!(fill(&mut room[..total]), total);
+    room[total].write(0);
+    v.set_len(total + 1);
+    let mut v = std::mem::ManuallyDrop::new(v);
+    RsBuf { data: v.as_mut_ptr() as *mut c_char, len: total, cap: v.capacity() }
+}
+
+/// An encoded response: owned_capacity is zero when data borrows the
+/// caller's scratch buffer; otherwise free the equivalent RsBuf.
+#[repr(C)]
+pub struct BinResponse {
+    pub data: *mut c_char,
+    pub len: usize,
+    pub owned_capacity: usize,
+}
+
+/// Uses scratch only when it holds the complete response and its final NUL.
+/// All lengths retain response's limits; an undersized or null scratch falls
+/// back to one owned allocation. The scratch buffer is never freed by Rust.
+///
+/// # Safety
+/// scratch is null or writable for capacity bytes, and does not overlap
+/// any entry or string read by fill. As response for fill.
+unsafe fn response_into(total: u64, scratch: *mut c_char, capacity: usize,
+    fill: impl FnOnce(&mut [std::mem::MaybeUninit<u8>]) -> usize) -> BinResponse {
+    if total != 0 && total <= crate::binrpc::MAX_RESPONSE && !scratch.is_null() && total < capacity as u64 {
+        let total = total as usize;
+        let room = std::slice::from_raw_parts_mut(scratch.cast::<std::mem::MaybeUninit<u8>>(), total);
+        assert_eq!(fill(room), total);
+        scratch.add(total).write(0);
+        BinResponse { data: scratch, len: total, owned_capacity: 0 }
+    } else {
+        let buf = response(total, fill);
+        BinResponse { data: buf.data, len: buf.len, owned_capacity: buf.cap }
+    }
+}
+
+unsafe fn batch<'a, E>(first: *const E, count: usize) -> &'a [E] {
+    if first.is_null() { &[] } else { std::slice::from_raw_parts(first, count) }
+}
+
+/// The trailing data of a List response (binrpc::encode of the NZBs, then
+/// the parameters, then the files, in one allocation; free with
+/// nzbget_rs_free). Empty (null data, length 0) with no entries or when
+/// the data would be more than INT_MAX bytes. NULL arrays are empty.
+///
+/// # Safety
+/// The arrays are null or readable for their counts, the entries' strings
+/// readable for their lengths.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_list(nzbs: *const crate::binrpc::NzbEntry, nzb_count: usize,
+    params: *const crate::binrpc::ParamEntry, param_count: usize, files: *const crate::binrpc::FileEntry,
+    file_count: usize) -> RsBuf {
+    use crate::binrpc::{encode, encoded_len};
+    let (nzbs, params, files) = (batch(nzbs, nzb_count), batch(params, param_count), batch(files, file_count));
+    let total = encoded_len(nzbs).saturating_add(encoded_len(params)).saturating_add(encoded_len(files));
+    response(total, |out| {
+        let mut at = encode(nzbs, out);
+        at += encode(params, &mut out[at..]);
+        at + encode(files, &mut out[at..])
+    })
+}
+
+/// The trailing data of a Log response (as nzbget_rs_binrpc_encode_list).
+///
+/// # Safety
+/// As nzbget_rs_binrpc_encode_list.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_log(log: *const crate::binrpc::LogEntry, count: usize) -> RsBuf {
+    let log = batch(log, count);
+    response(crate::binrpc::encoded_len(log), |out| crate::binrpc::encode(log, out))
+}
+
+/// The trailing data of a PostQueue response (as nzbget_rs_binrpc_encode_list).
+///
+/// # Safety
+/// As nzbget_rs_binrpc_encode_list.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_post_queue(jobs: *const crate::binrpc::PostEntry, count: usize) -> RsBuf {
+    let jobs = batch(jobs, count);
+    response(crate::binrpc::encoded_len(jobs), |out| crate::binrpc::encode(jobs, out))
+}
+
+/// The trailing data of a History response (as nzbget_rs_binrpc_encode_list).
+///
+/// # Safety
+/// As nzbget_rs_binrpc_encode_list.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_history(history: *const crate::binrpc::HistoryEntry, count: usize)
+    -> RsBuf {
+    let history = batch(history, count);
+    response(crate::binrpc::encoded_len(history), |out| crate::binrpc::encode(history, out))
+}
+
+/// Encodes a whole List response into caller scratch when it fits, or
+/// one owned allocation otherwise. owned_capacity == 0 means borrowed;
+/// otherwise free RsBuf {data, len, cap: owned_capacity}. Empty/oversized
+/// responses have null data. See response_into for scratch requirements.
+///
+/// # Safety
+/// Arrays and strings meet encode_list's requirements. scratch is null or
+/// writable for capacity bytes, disjoint from all input arrays/strings.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_list_into(nzbs: *const crate::binrpc::NzbEntry, nzb_count: usize,
+    params: *const crate::binrpc::ParamEntry, param_count: usize, files: *const crate::binrpc::FileEntry,
+    file_count: usize, scratch: *mut c_char, capacity: usize) -> BinResponse {
+    use crate::binrpc::{encode, encoded_len};
+    let (nzbs, params, files) = (batch(nzbs, nzb_count), batch(params, param_count), batch(files, file_count));
+    let total = encoded_len(nzbs).saturating_add(encoded_len(params)).saturating_add(encoded_len(files));
+    response_into(total, scratch, capacity, |out| {
+        let mut at = encode(nzbs, out);
+        at += encode(params, &mut out[at..]);
+        at + encode(files, &mut out[at..])
+    })
+}
+
+/// As encode_list_into, for a log response.
+///
+/// # Safety
+/// As encode_list_into.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_log_into(log: *const crate::binrpc::LogEntry, count: usize,
+    scratch: *mut c_char, capacity: usize) -> BinResponse {
+    let entries = batch(log, count);
+    response_into(crate::binrpc::encoded_len(entries), scratch, capacity, |out| crate::binrpc::encode(entries, out))
+}
+
+/// As encode_list_into, for a post_queue response.
+///
+/// # Safety
+/// As encode_list_into.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_post_queue_into(jobs: *const crate::binrpc::PostEntry, count: usize,
+    scratch: *mut c_char, capacity: usize) -> BinResponse {
+    let entries = batch(jobs, count);
+    response_into(crate::binrpc::encoded_len(entries), scratch, capacity, |out| crate::binrpc::encode(entries, out))
+}
+
+/// As encode_list_into, for a history response.
+///
+/// # Safety
+/// As encode_list_into.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_encode_history_into(history: *const crate::binrpc::HistoryEntry, count: usize,
+    scratch: *mut c_char, capacity: usize) -> BinResponse {
+    let entries = batch(history, count);
+    response_into(crate::binrpc::encoded_len(entries), scratch, capacity, |out| crate::binrpc::encode(entries, out))
+}
+
 /// The remote client's reading of one list-response entry at `*at`: 1 with
 /// `nints` ints in `ints` (host order), `nfields` string starts in `starts`
 /// (the strings' lengths in ints[fields[k]]) and `*at` past the entry; 0
@@ -3878,62 +4041,83 @@ pub unsafe extern "C" fn nzbget_rs_binrpc_read_entry(data: *const c_char, len: u
     }
 }
 
-/// The remote client's log line for a message kind: 1 with `line` set, 0
-/// (untouched) for an unknown kind.
+/// The remote client's reading of up to `max` list-response entries from
+/// `*at` of the `len` bytes of data into `out`: the number read, with `*at`
+/// past them. Fewer than `max` when an entry or one of its strings (up to
+/// its NUL) doesn't fit in `len`: the entries before it are read. The
+/// strings point into `data` (and end at their NULs).
 ///
 /// # Safety
-/// `text` is null (empty) or NUL-terminated; `line` is null or writable.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_log_line(kind: u32, text: *const c_char, line: *mut RsBuf) -> c_int {
-    match crate::binrpc::log_line(kind, input(text)) {
-        Some(v) => {
-            if !line.is_null() {
-                *line = into_buf(v);
-            }
-            1
-        }
-        None => 0,
+/// `data` is readable for `len` (or null with 0); `at` is valid; `out` is
+/// writable for `max` entries (or null for 0) and may be uninitialized.
+unsafe fn read_entries<E: crate::binrpc::Entry>(data: *const c_char, len: usize, at: *mut usize, out: *mut E,
+    max: usize) -> usize {
+    if at.is_null() || (max > 0 && out.is_null()) {
+        return 0;
     }
+    crate::binrpc::read_many(bytes_arg(data.cast(), len), &mut *at, out, max)
 }
 
-/// The remote client's post-processing line.
+/// The NZB entries of a List response (see read_entries above).
 ///
 /// # Safety
-/// `info_name` is null (empty) or NUL-terminated.
+/// As read_entries above.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_post_queue_line(id: u32, stage: u32, progress: u32, info_name: *const c_char)
-    -> RsBuf {
-    into_buf(crate::binrpc::post_queue_line(id, stage, progress, input(info_name)))
+pub unsafe extern "C" fn nzbget_rs_binrpc_read_nzbs(data: *const c_char, len: usize, at: *mut usize,
+    out: *mut crate::binrpc::NzbEntry, max: usize) -> usize {
+    read_entries(data, len, at, out, max)
 }
 
-/// The remote client's history line: 1 with `line` set, 0 (untouched) for
-/// a kind it doesn't list.
+/// The parameter entries of a List response (see read_entries above).
 ///
 /// # Safety
-/// `nicename` is null (empty) or NUL-terminated; `line` is null or
-/// writable.
+/// As read_entries above.
 #[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_history_line(id: u32, kind: u32, nicename: *const c_char, file_count: u32,
-    size_hi: u32, size_lo: u32, par_status: u32, script_status: u32, url_status: u32, line: *mut RsBuf) -> c_int {
-    let entry = crate::binrpc::HistoryEntry {
-        id,
-        kind,
-        nicename: input(nicename),
-        file_count,
-        size: ((size_hi as i64) << 32) + size_lo as i64,
-        par_status,
-        script_status,
-        url_status,
-    };
-    match crate::binrpc::history_line(&entry) {
-        Some(v) => {
-            if !line.is_null() {
-                *line = into_buf(v);
-            }
-            1
-        }
-        None => 0,
-    }
+pub unsafe extern "C" fn nzbget_rs_binrpc_read_params(data: *const c_char, len: usize, at: *mut usize,
+    out: *mut crate::binrpc::ParamEntry, max: usize) -> usize {
+    read_entries(data, len, at, out, max)
+}
+
+/// The file entries of a List response (see read_entries above).
+///
+/// # Safety
+/// As read_entries above.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_read_files(data: *const c_char, len: usize, at: *mut usize,
+    out: *mut crate::binrpc::FileEntry, max: usize) -> usize {
+    read_entries(data, len, at, out, max)
+}
+
+/// The remote client's log listing of the first `count` entries of `len`
+/// bytes of data, as printed ("[INFO] text" lines, each with its newline;
+/// free with nzbget_rs_free). It ends at an entry that doesn't fit the data;
+/// unknown kinds have no line.
+///
+/// # Safety
+/// `data` is readable for `len` (or null with 0).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_log_listing(data: *const c_char, len: usize, count: u32) -> RsBuf {
+    into_buf(crate::binrpc::log_listing(bytes_arg(data.cast(), len), count))
+}
+
+/// The remote client's post-processing listing ("[id] name, stage, n%"; as
+/// nzbget_rs_binrpc_log_listing).
+///
+/// # Safety
+/// As nzbget_rs_binrpc_log_listing.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_post_queue_listing(data: *const c_char, len: usize, count: u32) -> RsBuf {
+    into_buf(crate::binrpc::post_queue_listing(bytes_arg(data.cast(), len), count))
+}
+
+/// The remote client's history listing ("[id] name (...)"; as
+/// nzbget_rs_binrpc_log_listing). Kinds it doesn't list have no line.
+///
+/// # Safety
+/// As nzbget_rs_binrpc_log_listing.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_binrpc_history_listing(data: *const c_char, len: usize, count: u32) -> RsBuf {
+    into_buf(crate::binrpc::history_listing(bytes_arg(data.cast(), len), count))
 }
 
 /// The C library's ctype under the daemon's locale (NzbFile).
@@ -4038,8 +4222,87 @@ pub unsafe extern "C" fn nzbget_rs_nzb_duplicate_filenames(names: *const *const 
 #[cfg(test)]
 mod binrpc_tests {
     use super::*;
-    use crate::binrpc::BASE_SIZE;
+    use crate::binrpc::{FileEntry, HistoryEntry, LogEntry, NzbEntry, ParamEntry, PostEntry, Text, BASE_SIZE};
     use std::ptr::{null, null_mut};
+
+    fn log(id: u32, kind: u32, text: &[u8]) -> LogEntry {
+        LogEntry { id, kind, time: 0, texts: [Text::new(text)] }
+    }
+
+    fn bytes(buf: &RsBuf) -> &[u8] {
+        unsafe { bytes_arg(buf.data.cast(), buf.len) }
+    }
+
+
+    #[test]
+    fn credential_output_may_overlap_inputs() {
+        #[repr(C, align(4))]
+        struct Base([u8; BASE_SIZE]);
+        unsafe {
+            let mut base = Base([0; BASE_SIZE]);
+            base.0[8..12].copy_from_slice(&14u32.to_be_bytes());
+            base.0[12..16].copy_from_slice(b"user");
+            let ptr = base.0.as_mut_ptr();
+            assert_eq!(nzbget_rs_binrpc_check(ptr, BASE_SIZE, c"user".as_ptr(), c"".as_ptr(),
+                ptr.add(12).cast()), 1);
+            assert_eq!(ptr.add(12).cast::<u32>().read(), 14);
+
+            let mut control_password = u32::from_ne_bytes(*b"pw\0\0");
+            base.0[44..46].copy_from_slice(b"pw");
+            let password_ptr = &mut control_password as *mut u32;
+            assert_eq!(nzbget_rs_binrpc_check(base.0.as_ptr(), BASE_SIZE, null(), password_ptr.cast(),
+                password_ptr), 1);
+            assert_eq!(control_password, 14);
+        }
+    }
+
+    #[test]
+    fn missing_sizes_fail_and_null_outputs_are_allowed() {
+        unsafe {
+            let mut base = [0u8; BASE_SIZE];
+            base[8..12].copy_from_slice(&14u32.to_be_bytes());
+            let sizes = [123u32; 15];
+            let (mut expected, mut received) = (7, 9);
+            for count in 0..15 {
+                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), count,
+                    &mut expected, &mut received), 0);
+                assert_eq!((expected, received), (7, 9));
+            }
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 15, null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                &mut expected, &mut received), 0);
+            assert_eq!((expected, received), (123, 0));
+            base[4..8].copy_from_slice(&123u32.to_be_bytes());
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
+                null_mut(), null_mut()), 1);
+            // Unknown types still bypass the table, just as Dispatch does.
+            base[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 1);
+        }
+    }
+
+    #[test]
+    fn null_and_short_inputs() {
+        unsafe {
+            let base = [0u8; BASE_SIZE];
+            let mut kind = 42;
+            for len in 0..BASE_SIZE {
+                assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), len, null(), null(), &mut kind), 0);
+                assert_eq!(kind, 42);
+                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), len, null(), 0, null_mut(), null_mut()), 0);
+            }
+            assert_eq!(nzbget_rs_binrpc_check(null(), BASE_SIZE, null(), null(), &mut kind), 0);
+            assert_eq!(kind, 42);
+            assert_eq!(nzbget_rs_binrpc_size_ok(null(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), BASE_SIZE, null(), null(), null_mut()), 1);
+            let response = nzbget_rs_binrpc_bool_response(-1, null());
+            assert_eq!(std::slice::from_raw_parts(response.data.cast::<u8>(), response.len),
+                [0x6e, 0x7a, 0x62, 0x31, 0, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 1, 0]);
+            nzbget_rs_free(response);
+        }
+    }
 
     #[test]
     fn client_entry_outputs_and_failures() {
@@ -4096,199 +4359,214 @@ mod binrpc_tests {
     }
 
     #[test]
-    fn client_line_outputs_and_ownership() {
+    fn binrpc_url_prefix_handles_null_short_and_mixed_case_strings() {
         unsafe {
-            let mut line = into_buf(b"sentinel".to_vec());
-            let original = (line.data, line.len, line.cap);
-            assert_eq!(nzbget_rs_binrpc_log_line(u32::MAX, null(), &mut line), 0);
-            assert_eq!((line.data, line.len, line.cap), original);
-            assert_eq!(nzbget_rs_binrpc_history_line(1, 0, null(), 0, 0, 0, 0, 0, 0, &mut line), 0);
-            assert_eq!((line.data, line.len, line.cap), original);
-            nzbget_rs_free(line);
-
-            assert_eq!(nzbget_rs_binrpc_log_line(0, null(), null_mut()), 1);
-            assert_eq!(nzbget_rs_binrpc_history_line(1, 1, null(), 0, 0, 0, 0, 0, 0, null_mut()), 1);
-            let mut output = std::mem::MaybeUninit::uninit();
-            assert_eq!(nzbget_rs_binrpc_log_line(0, null(), output.as_mut_ptr()), 1);
-            let line = output.assume_init();
-            assert_eq!(input(line.data), b"[INFO] ");
-            nzbget_rs_free(line);
-            let line = nzbget_rs_binrpc_post_queue_line(1, u32::MAX, 10, null());
-            assert_eq!(input(line.data), b"[1] , 1%");
-            nzbget_rs_free(line);
-            let mut output = std::mem::MaybeUninit::uninit();
-            assert_eq!(nzbget_rs_binrpc_history_line(1, 1, null(), 2, 0, 2048,
-                u32::MAX, u32::MAX, u32::MAX, output.as_mut_ptr()), 1);
-            let line = output.assume_init();
-            assert_eq!(input(line.data), b"[1]  (2 files, 2.00 KB)");
-            nzbget_rs_free(line);
-        }
-    }
-
-    #[test]
-    fn entry_buffer_ownership_and_nulls() {
-        unsafe {
-            nzbget_rs_binrpc_buf_free(null_mut());
-            assert_eq!(nzbget_rs_binrpc_buf_len(null()), 0);
-            nzbget_rs_binrpc_entry(null_mut(), null(), 1, null(), null(), 1, 0);
-            let empty = nzbget_rs_binrpc_buf_take(null_mut());
-            assert_eq!(empty.len, 0);
-            nzbget_rs_free(empty);
-
-            let buf = nzbget_rs_binrpc_buf_new();
-            // NULL arrays are empty even with nonzero counts.
-            nzbget_rs_binrpc_entry(buf, null(), 1, null(), null(), 1, 0);
-            assert_eq!(nzbget_rs_binrpc_buf_len(buf), 0);
-            let ints = [u32::MAX, 0, 0];
-            let strings = [c"ab".as_ptr(), null()];
-            let fields = [1, 2];
-            nzbget_rs_binrpc_entry(buf, ints.as_ptr(), 3, strings.as_ptr(), fields.as_ptr(), 2, 2);
-            assert_eq!(nzbget_rs_binrpc_buf_len(buf), 16);
-            let bytes = nzbget_rs_binrpc_buf_take(buf);
-            assert_eq!(bytes_arg(bytes.data.cast(), bytes.len),
-                [255, 255, 255, 255, 0, 0, 0, 3, 0, 0, 0, 1, b'a', b'b', 0, 0]);
-            // take consumes the builder; the returned allocation has its own owner.
-            let other = nzbget_rs_binrpc_buf_new();
-            nzbget_rs_binrpc_buf_free(other);
-            nzbget_rs_free(bytes);
-
-        }
-    }
-
-    #[test]
-    fn null_and_short_inputs() {
-        unsafe {
-            let base = [0u8; BASE_SIZE];
-            let mut kind = 42;
-            for len in 0..BASE_SIZE {
-                assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), len, null(), null(), &mut kind), 0);
-                assert_eq!(kind, 42);
-                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), len, null(), 0, null_mut(), null_mut()), 0);
+            assert_eq!(nzbget_rs_binrpc_is_url(null()), 0);
+            for source in [b"http:/".as_slice(), b"https:/", b"ftp:/", b"http:x", b"https:x", b"<?xml version=1><nzb>"] {
+                for end in 0..=source.len() {
+                    let input = std::ffi::CString::new(&source[..end]).unwrap();
+                    assert_eq!(nzbget_rs_binrpc_is_url(input.as_ptr()) != 0, crate::binrpc::is_url(&source[..end]));
+                }
             }
-            assert_eq!(nzbget_rs_binrpc_check(null(), BASE_SIZE, null(), null(), &mut kind), 0);
-            assert_eq!(kind, 42);
-            assert_eq!(nzbget_rs_binrpc_size_ok(null(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 0);
-            assert_eq!(nzbget_rs_binrpc_check(base.as_ptr(), BASE_SIZE, null(), null(), null_mut()), 1);
-            let response = nzbget_rs_binrpc_bool_response(-1, null());
-            assert_eq!(std::slice::from_raw_parts(response.data.cast::<u8>(), response.len),
-                [0x6e, 0x7a, 0x62, 0x31, 0, 0, 0, 16, 0, 0, 0, 1, 0, 0, 0, 1, 0]);
-            nzbget_rs_free(response);
-        }
-    }
-
-    #[test]
-    fn missing_sizes_fail_and_null_outputs_are_allowed() {
-        unsafe {
-            let mut base = [0u8; BASE_SIZE];
-            base[8..12].copy_from_slice(&14u32.to_be_bytes());
-            let sizes = [123u32; 15];
-            let (mut expected, mut received) = (7, 9);
-            for count in 0..15 {
-                assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), count,
-                    &mut expected, &mut received), 0);
-                assert_eq!((expected, received), (7, 9));
+            for mask in 0..32 {
+                let mut source = b"https:/".to_vec();
+                for (at, ch) in source[..5].iter_mut().enumerate() {
+                    if mask & (1 << at) != 0 { *ch = ch.to_ascii_uppercase(); }
+                }
+                let input = std::ffi::CString::new(source).unwrap();
+                assert_eq!(nzbget_rs_binrpc_is_url(input.as_ptr()), 1);
             }
-            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 15, null_mut(), null_mut()), 0);
-            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
-                null_mut(), null_mut()), 0);
-            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
-                &mut expected, &mut received), 0);
-            assert_eq!((expected, received), (123, 0));
-            base[4..8].copy_from_slice(&123u32.to_be_bytes());
-            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, sizes.as_ptr(), 15,
-                null_mut(), null_mut()), 1);
-            // Unknown types still bypass the table, just as Dispatch does.
-            base[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
-            assert_eq!(nzbget_rs_binrpc_size_ok(base.as_ptr(), BASE_SIZE, null(), 0, null_mut(), null_mut()), 1);
+            let mut source = b"<?xml version=1><nzb>".to_vec();
+            source.resize(1024 * 1024, b'x');
+            source.push(0);
+            assert_eq!(nzbget_rs_binrpc_is_url(source.as_ptr().cast()), 0);
+        }
+    }
+
+
+
+
+
+
+    #[test]
+    fn encoders_allocate_once_and_read_back() {
+        unsafe {
+            // nothing: an empty buffer that frees as any
+            let none = nzbget_rs_binrpc_encode_log(null(), 5);
+            assert_eq!((none.data, none.len), (null_mut(), 0));
+            nzbget_rs_free(none);
+            let none = nzbget_rs_binrpc_encode_list(null(), 0, null(), 0, null(), 0);
+            assert_eq!(none.len, 0);
+            nzbget_rs_free(none);
+
+            let entries = [log(1, 2, b"hello"), log(2, 4, b""), log(3, 0, b"abcd")];
+            let buf = nzbget_rs_binrpc_encode_log(entries.as_ptr(), entries.len());
+            assert_eq!(buf.len, 24 + 20 + 24);
+            // the text is a C string past the data, too
+            assert_eq!(*buf.data.add(buf.len), 0);
+            let mut out = [std::mem::MaybeUninit::<LogEntry>::uninit(); 4];
+            let mut at = 0;
+            let n = nzbget_rs_binrpc_read_entries_for_test(buf.data, buf.len, &mut at, out.as_mut_ptr().cast());
+            assert_eq!((n, at), (3, buf.len));
+            assert_eq!(input(out[2].assume_init().texts[0].data.cast()), b"abcd");
+            nzbget_rs_free(buf);
+
+            // the three kinds of List in one buffer, in order
+            let nzbs = [NzbEntry { id: 1, kind: 0, size_lo: 0, size_hi: 0, remaining_size_lo: 0, remaining_size_hi: 0,
+                paused_size_lo: 0, paused_size_hi: 0, paused_count: 0, remaining_par_count: 0, priority: 0, matched: 1,
+                texts: [Text::new(b"f"), Text::new(b"n"), Text::EMPTY, Text::EMPTY, Text::EMPTY] }];
+            let params = [ParamEntry { nzb_index: 1, texts: [Text::new(b"k"), Text::new(b"v")] }];
+            let files = [FileEntry { id: 9, nzb_index: 1, size_lo: 0, size_hi: 0, remaining_size_lo: 0, remaining_size_hi: 0,
+                paused: 0, filename_confirmed: 0, active_downloads: 0, matched: 0, texts: [Text::new(b"s"), Text::EMPTY] }];
+            let buf = nzbget_rs_binrpc_encode_list(nzbs.as_ptr(), 1, params.as_ptr(), 1, files.as_ptr(), 1);
+            assert_eq!(buf.len, (68 + 8) + (12 + 4) + (48 + 4));
+            let data = bytes(&buf);
+            assert_eq!(&data[0..4], [0, 0, 0, 1]);
+            assert_eq!(data[68..70], *b"f\0");
+            assert_eq!(&data[76..80], [0, 0, 0, 1]);
+            let (mut at, mut nz, mut pa, mut fi) = (0usize, MaybeUninitNzb::new(), MaybeUninitPar::new(), MaybeUninitFile::new());
+            assert_eq!(nzbget_rs_binrpc_read_nzbs(buf.data, buf.len, &mut at, nz.0.as_mut_ptr().cast(), 1), 1);
+            assert_eq!(nzbget_rs_binrpc_read_params(buf.data, buf.len, &mut at, pa.0.as_mut_ptr().cast(), 1), 1);
+            assert_eq!(nzbget_rs_binrpc_read_files(buf.data, buf.len, &mut at, fi.0.as_mut_ptr().cast(), 1), 1);
+            assert_eq!(at, buf.len);
+            assert_eq!(nz.0[0].assume_init().matched, 1);
+            assert_eq!(pa.0[0].assume_init().nzb_index, 1);
+            assert_eq!(fi.0[0].assume_init().id, 9);
+            nzbget_rs_free(buf);
+
+            // the other two kinds
+            let jobs = [PostEntry { id: 1, stage: 7, stage_progress: 100, file_progress: 0, start_time: 0, stage_time: 0,
+                texts: [Text::EMPTY, Text::new(b"Name"), Text::EMPTY, Text::EMPTY] }];
+            let buf = nzbget_rs_binrpc_encode_post_queue(jobs.as_ptr(), 1);
+            assert_eq!(buf.len, 40 + 1 + 5 + 1 + 1);
+            let listing = nzbget_rs_binrpc_post_queue_listing(buf.data, buf.len, 1);
+            assert_eq!(bytes(&listing), b"[1] Name, Unpacking, 10%\n");
+            nzbget_rs_free(listing);
+            nzbget_rs_free(buf);
+            let history = [HistoryEntry { id: 1, kind: 1, time: 0, size_lo: 2048, size_hi: 0, file_count: 2, par_status: 3,
+                script_status: 3, url_status: 0, texts: [Text::new(b"Nzb")] }];
+            let buf = nzbget_rs_binrpc_encode_history(history.as_ptr(), 1);
+            assert_eq!(buf.len, 40 + 4);
+            let listing = nzbget_rs_binrpc_history_listing(buf.data, buf.len, 1);
+            assert_eq!(bytes(&listing), b"[1] Nzb (2 files, 2.00 KB, Par successful, Script successful)\n");
+            nzbget_rs_free(listing);
+            nzbget_rs_free(buf);
+        }
+    }
+
+    struct MaybeUninitNzb([std::mem::MaybeUninit<NzbEntry>; 1]);
+    struct MaybeUninitPar([std::mem::MaybeUninit<ParamEntry>; 1]);
+    struct MaybeUninitFile([std::mem::MaybeUninit<FileEntry>; 1]);
+    impl MaybeUninitNzb { fn new() -> Self { Self([std::mem::MaybeUninit::uninit()]) } }
+    impl MaybeUninitPar { fn new() -> Self { Self([std::mem::MaybeUninit::uninit()]) } }
+    impl MaybeUninitFile { fn new() -> Self { Self([std::mem::MaybeUninit::uninit()]) } }
+
+    /// Reads up to 3 log entries (a test stand-in for a kind's reader).
+    unsafe fn nzbget_rs_binrpc_read_entries_for_test(data: *const c_char, len: usize, at: *mut usize, out: *mut LogEntry) -> usize {
+        read_entries(data, len, at, out, 3)
+    }
+
+    #[test]
+    fn a_response_over_an_int_or_with_no_bytes_is_empty() {
+        unsafe {
+            let called = std::cell::Cell::new(false);
+            for total in [0, crate::binrpc::MAX_RESPONSE + 1, u64::MAX] {
+                let buf = response(total, |_| {
+                    called.set(true);
+                    0
+                });
+                assert_eq!((buf.data, buf.len, buf.cap), (null_mut(), 0, 0));
+            }
+            assert!(!called.get());
+            let buf = response(5, |out| {
+                assert_eq!(out.len(), 5);
+                for (slot, byte) in out.iter_mut().zip(b"hello") {
+                    slot.write(*byte);
+                }
+                5
+            });
+            assert_eq!(bytes(&buf), b"hello");
+            assert_eq!(*buf.data.add(5), 0);
+            nzbget_rs_free(buf);
         }
     }
 
     #[test]
-    fn credential_output_may_overlap_inputs() {
-        #[repr(C, align(4))]
-        struct Base([u8; BASE_SIZE]);
+    fn response_scratch_has_explicit_ownership_and_exact_boundaries() {
         unsafe {
-            let mut base = Base([0; BASE_SIZE]);
-            base.0[8..12].copy_from_slice(&14u32.to_be_bytes());
-            base.0[12..16].copy_from_slice(b"user");
-            let ptr = base.0.as_mut_ptr();
-            assert_eq!(nzbget_rs_binrpc_check(ptr, BASE_SIZE, c"user".as_ptr(), c"".as_ptr(),
-                ptr.add(12).cast()), 1);
-            assert_eq!(ptr.add(12).cast::<u32>().read(), 14);
-
-            let mut control_password = u32::from_ne_bytes(*b"pw\0\0");
-            base.0[44..46].copy_from_slice(b"pw");
-            let password_ptr = &mut control_password as *mut u32;
-            assert_eq!(nzbget_rs_binrpc_check(base.0.as_ptr(), BASE_SIZE, null(), password_ptr.cast(),
-                password_ptr), 1);
-            assert_eq!(control_password, 14);
+            let entries = [log(1, 2, b"hello"), log(2, 0, b"")];
+            let owned = nzbget_rs_binrpc_encode_log(entries.as_ptr(), entries.len());
+            let expected = bytes(&owned).to_vec();
+            for capacity in [0, owned.len - 1, owned.len, owned.len + 1, owned.len + 9] {
+                let mut scratch = vec![0xabu8; owned.len + 10];
+                let b = nzbget_rs_binrpc_encode_log_into(entries.as_ptr(), entries.len(), scratch.as_mut_ptr().cast(), capacity);
+                assert_eq!(bytes_arg(b.data.cast(), b.len), expected);
+                assert_eq!(*b.data.add(b.len), 0);
+                if capacity > owned.len {
+                    assert_eq!(b.data, scratch.as_mut_ptr().cast());
+                    assert_eq!(b.owned_capacity, 0);
+                    assert_eq!(scratch[b.len + 1], 0xab);
+                } else {
+                    assert_ne!(b.data, scratch.as_mut_ptr().cast());
+                    assert!(b.owned_capacity > 0);
+                    assert!(scratch.iter().all(|&v| v == 0xab));
+                    nzbget_rs_free(RsBuf { data: b.data, len: b.len, cap: b.owned_capacity });
+                }
+            }
+            // A null buffer cannot be borrowed, regardless of its capacity.
+            let b = nzbget_rs_binrpc_encode_log_into(entries.as_ptr(), entries.len(), null_mut(), usize::MAX);
+            assert!(b.owned_capacity > 0);
+            assert_eq!(bytes_arg(b.data.cast(), b.len), expected);
+            nzbget_rs_free(RsBuf { data: b.data, len: b.len, cap: b.owned_capacity });
+            let mut scratch = [0xabu8; 32];
+            for total in [0, crate::binrpc::MAX_RESPONSE + 1, u64::MAX] {
+                let b = response_into(total, scratch.as_mut_ptr().cast(), scratch.len(), |_| panic!("invalid size filled"));
+                assert_eq!((b.data, b.len, b.owned_capacity), (null_mut(), 0, 0));
+                assert!(scratch.iter().all(|&v| v == 0xab));
+            }
+            nzbget_rs_free(owned);
         }
     }
-}
 
-/// NzbgetRsBinBuf: the trailing data of a list response being built.
-pub struct BinBuf(Vec<u8>);
-
-/// A new, empty response buffer; free with nzbget_rs_binrpc_buf_free (or
-/// nzbget_rs_binrpc_buf_take).
-#[no_mangle]
-pub extern "C" fn nzbget_rs_binrpc_buf_new() -> *mut BinBuf {
-    Box::into_raw(Box::new(BinBuf(Vec::new())))
-}
-
-/// Frees a response buffer (null: nothing).
-///
-/// # Safety
-/// `buf` is null or from nzbget_rs_binrpc_buf_new, not yet freed or taken.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_buf_free(buf: *mut BinBuf) {
-    if !buf.is_null() {
-        drop(Box::from_raw(buf));
+    #[test]
+    fn readers_check_their_arguments() {
+        unsafe {
+            let entries = [log(1, 2, b"hello")];
+            let buf = nzbget_rs_binrpc_encode_log(entries.as_ptr(), 1);
+            let mut out = [std::mem::MaybeUninit::<LogEntry>::uninit(); 1];
+            let mut at = 0;
+            // no position, no output
+            assert_eq!(nzbget_rs_binrpc_read_nzbs(buf.data, buf.len, null_mut(), null_mut(), 0), 0);
+            assert_eq!(nzbget_rs_binrpc_read_nzbs(buf.data, buf.len, &mut at, null_mut(), 1), 0);
+            assert_eq!(at, 0);
+            // zero entries, a null output, and no data
+            assert_eq!(nzbget_rs_binrpc_read_nzbs(buf.data, buf.len, &mut at, null_mut(), 0), 0);
+            assert_eq!(read_entries(null(), 0, &mut at, out.as_mut_ptr().cast::<LogEntry>(), 1), 0);
+            assert_eq!(read_entries(buf.data, buf.len - 1, &mut at, out.as_mut_ptr().cast::<LogEntry>(), 1), 0);
+            assert_eq!(at, 0);
+            assert_eq!(read_entries(buf.data, buf.len, &mut at, out.as_mut_ptr().cast::<LogEntry>(), 1), 1);
+            assert_eq!(at, buf.len);
+            nzbget_rs_free(buf);
+        }
     }
-}
 
-/// The bytes written so far (null buffer: 0).
-///
-/// # Safety
-/// `buf` is null or a live buffer.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_buf_len(buf: *const BinBuf) -> usize {
-    buf.as_ref().map_or(0, |b| b.0.len())
-}
-
-/// The buffer's bytes (free with nzbget_rs_free); the buffer itself is
-/// freed. A null buffer gives an empty result.
-///
-/// # Safety
-/// As nzbget_rs_binrpc_buf_free.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_buf_take(buf: *mut BinBuf) -> RsBuf {
-    if buf.is_null() {
-        return into_buf(Vec::new());
+    #[test]
+    fn listings_of_null_and_short_data_are_empty_strings() {
+        unsafe {
+            for listing in [nzbget_rs_binrpc_log_listing(null(), 0, 5), nzbget_rs_binrpc_post_queue_listing(null(), 0, 5),
+                nzbget_rs_binrpc_history_listing(null(), 7, 5)] {
+                assert_eq!(bytes(&listing), b"");
+                assert_eq!(*listing.data, 0);
+                nzbget_rs_free(listing);
+            }
+            let entries = [log(1, 0, b"x")];
+            let buf = nzbget_rs_binrpc_encode_log(entries.as_ptr(), 1);
+            let listing = nzbget_rs_binrpc_log_listing(buf.data, buf.len, 2);
+            assert_eq!(bytes(&listing), b"[INFO] x\n");
+            nzbget_rs_free(listing);
+            nzbget_rs_free(buf);
+        }
     }
-    into_buf(Box::from_raw(buf).0)
-}
-
-/// Appends a list entry (binrpc::append_entry): `ints` in host order, the
-/// lengths of `strings` put into the fields `fields` names, padding counted
-/// in field `pad_field`.
-///
-/// # Safety
-/// `buf` is null (nothing) or a live buffer; `ints` is null or `nints`
-/// values; `strings` and `fields` are null or `nstrings` entries, each string
-/// null (empty) or NUL-terminated.
-#[no_mangle]
-pub unsafe extern "C" fn nzbget_rs_binrpc_entry(buf: *mut BinBuf, ints: *const u32, nints: usize, strings: *const *const c_char,
-    fields: *const usize, nstrings: usize, pad_field: usize) {
-    let Some(buf) = buf.as_mut() else { return };
-    let ints = if ints.is_null() { &[][..] } else { std::slice::from_raw_parts(ints, nints) };
-    let (strings, fields) = if strings.is_null() || fields.is_null() {
-        (&[][..], &[][..])
-    } else {
-        (std::slice::from_raw_parts(strings, nstrings), std::slice::from_raw_parts(fields, nstrings))
-    };
-    let pairs: Vec<(&[u8], usize)> = strings.iter().zip(fields).map(|(&s, &f)| (input(s), f)).collect();
-    crate::binrpc::append_entry(&mut buf.0, ints, &pairs, pad_field);
 }
 
 #[cfg(test)]

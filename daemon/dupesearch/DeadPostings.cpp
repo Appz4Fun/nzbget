@@ -22,11 +22,15 @@
 
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 #include "DeadPostings.h"
 #include "DupeUtil.h"
 #include "FileSystem.h"
 #include "Log.h"
 #include "Util.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 void DeadPostings::SetStatePath(const std::string& path)
 {
@@ -41,6 +45,14 @@ void DeadPostings::Load()
 	std::string line;
 	while (std::getline(file, line))
 	{
+#ifdef NZBGET_USE_RUST
+		nzbget_rs_deadpostings_parse(reinterpret_cast<const uint8_t*>(line.data()), line.size(), &m_dead,
+			[](void* context, int64_t stamp, const uint32_t* hashes, size_t count) noexcept
+			{
+				auto* entries = static_cast<decltype(m_dead)*>(context);
+				entries->emplace_back((time_t)stamp, Posting::Sketch(hashes, hashes + count));
+			});
+#else
 		std::stringstream stream(line);
 		std::string when, hashes;
 		if (!std::getline(stream, when, '\t') || !std::getline(stream, hashes, '\t'))
@@ -71,6 +83,7 @@ void DeadPostings::Load()
 		{
 			m_dead.emplace_back((time_t)stamp, std::move(sketch));
 		}
+#endif
 	}
 	Prune(Util::CurrentTime());
 }
@@ -80,8 +93,16 @@ void DeadPostings::Prune(time_t now)
 {
 	// expired, or dated more than a day ahead (clock skew or a corrupt time, which
 	// would otherwise never expire)
+	using UnsignedTime = std::make_unsigned_t<time_t>;
 	auto stale = [now](const std::pair<time_t, Posting::Sketch>& entry)
-		{ return now - entry.first >= DeadTtlSec || entry.first - now > 24 * 3600; };
+		{
+			// Choose the subtraction order first; unsigned distances also cover
+			// timestamps spanning the complete signed time_t range.
+			const UnsignedTime current = static_cast<UnsignedTime>(now);
+			const UnsignedTime recorded = static_cast<UnsignedTime>(entry.first);
+			return now >= entry.first ? current - recorded >= DeadTtlSec :
+				recorded - current > 24 * 3600;
+		};
 	m_dead.erase(std::remove_if(m_dead.begin(), m_dead.end(), stale), m_dead.end());
 	m_unsaved.erase(std::remove_if(m_unsaved.begin(), m_unsaved.end(), stale), m_unsaved.end());
 }
@@ -117,7 +138,10 @@ bool DeadPostings::IsDead(const Posting::Sketch& sketch, time_t now)
 	{
 		for (const auto& entry : *list)
 		{
-			if (now - entry.first < DeadTtlSec && Posting::SameSketch(sketch, entry.second))
+			using UnsignedTime = std::make_unsigned_t<time_t>;
+			if ((now < entry.first || static_cast<UnsignedTime>(now) -
+				static_cast<UnsignedTime>(entry.first) < DeadTtlSec) &&
+				Posting::SameSketch(sketch, entry.second))
 			{
 				return true;
 			}
