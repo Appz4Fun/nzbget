@@ -914,6 +914,195 @@ raise SystemExit(runner.main())
             signal.signal(signal.SIGALRM, previous_handler)
             signal.setitimer(signal.ITIMER_REAL, *previous_timer)
 
+    def test_natural_caller_expiration_before_disarm_is_delivered_once(self):
+        for interval, stage in ((0, "timer"), (.5, "timer"), (0, "pending"), (.5, "pending")):
+            with self.subTest(interval=interval, stage=stage):
+                spec = importlib.util.spec_from_file_location("runner_natural_expiry", RUNNER)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                real_timer, real_arm, real_pending = signal.getitimer, signal.setitimer, signal.sigpending
+                previous_handler = signal.getsignal(signal.SIGALRM)
+                previous_timer = real_timer(signal.ITIMER_REAL)
+                previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                delivered, sampled, pending = [], [], []
+                handler = lambda number, frame: delivered.append(number)
+                def expire():
+                    time.sleep(.06)  # actual OS expiry while entry masks ALRM
+                    pending.append(signal.SIGALRM in real_pending())
+                def timer(which):
+                    result = real_timer(which)
+                    if result[0] > 0 and not sampled:
+                        sampled.append(result)
+                        if stage == "timer": expire()
+                    return result
+                def pending_snapshot():
+                    result = real_pending()
+                    if stage == "pending" and sampled and not pending: expire()
+                    return result
+                def arm(which, value, repeat=0):
+                    # Lengthen only a requested overdue rearm in this probe:
+                    # kernel coalescing must not hide a duplicate caller alarm.
+                    if pending and 0 < value <= .00001:
+                        value = .01
+                    return real_arm(which, value, repeat)
+                try:
+                    signal.signal(signal.SIGALRM, handler)
+                    signal.setitimer(signal.ITIMER_REAL, .03, interval)
+                    module.signal.getitimer = timer
+                    module.signal.setitimer = arm
+                    module.signal.sigpending = pending_snapshot
+                    with self.assertRaises(module.CaptureFailure) as failure:
+                        with module.capture_alarm(time.monotonic() + 1, None):
+                            self.fail("naturally pending caller expiry reached capture body")
+                    time.sleep(.03)
+                    self.assertEqual(failure.exception.code, "unavailable")
+                    self.assertEqual(pending, [True])
+                    self.assertEqual(delivered, [signal.SIGALRM])
+                    self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+                    self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
+                    remaining, restored_interval = real_timer(signal.ITIMER_REAL)
+                    self.assertEqual(restored_interval, interval)
+                    if interval:
+                        self.assertGreater(remaining, .3)
+                        self.assertLessEqual(remaining, interval)
+                    else:
+                        self.assertEqual(remaining, 0)
+                finally:
+                    module.signal.getitimer = real_timer
+                    module.signal.setitimer = real_arm
+                    module.signal.sigpending = real_pending
+                    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+                    signal.signal(signal.SIGALRM, previous_handler)
+                    signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    def test_one_shot_suspended_by_capture_delivers_one_deferred_expiration(self):
+        spec = importlib.util.spec_from_file_location("runner_deferred_expiry", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        delivered = []
+        try:
+            signal.signal(signal.SIGALRM, lambda number, frame: delivered.append(number))
+            signal.setitimer(signal.ITIMER_REAL, .03)
+            with module.capture_alarm(time.monotonic() + 1, None):
+                time.sleep(.06)
+                self.assertFalse(delivered)
+            time.sleep(.03)
+            self.assertEqual(delivered, [signal.SIGALRM])
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0, 0))
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+    def test_disabled_periodic_caller_timer_and_pending_signal_remain_unowned(self):
+        spec = importlib.util.spec_from_file_location("runner_disabled_periodic", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_arm = signal.setitimer
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        changed, delivered = [], []
+        def arm(*args):
+            changed.append(args)
+            return real_arm(*args)
+        try:
+            signal.signal(signal.SIGALRM, lambda number, frame: delivered.append(number))
+            real_arm(signal.ITIMER_REAL, 0, .5)
+            disabled_state = signal.getitimer(signal.ITIMER_REAL)
+            os.kill(os.getpid(), signal.SIGALRM)  # explicitly manual, not natural expiry
+            module.signal.setitimer = arm
+            with self.assertRaises(module.CaptureFailure) as failure:
+                with module.capture_alarm(time.monotonic() + 1, None):
+                    self.fail("disabled caller timer reached capture body")
+            self.assertEqual(failure.exception.code, "unavailable")
+            self.assertFalse(changed)
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), disabled_state)
+            self.assertIn(signal.SIGALRM, signal.sigpending())
+            self.assertIn(signal.SIGALRM, signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            self.assertEqual(delivered, [signal.SIGALRM])
+        finally:
+            module.signal.setitimer = real_arm
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            real_arm(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in signal.sigpending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            real_arm(signal.ITIMER_REAL, *previous_timer)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    def test_disabled_timer_state_survives_signal_after_pending_snapshot(self):
+        spec = importlib.util.spec_from_file_location("runner_disabled_race", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_pending = signal.sigpending
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        delivered, sent = [], []
+        def pending():
+            result = real_pending()
+            if not sent:
+                sent.append(True)
+                os.kill(os.getpid(), signal.SIGALRM)  # manual signal after snapshot
+            return result
+        try:
+            handler = lambda number, frame: delivered.append(number)
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, 0, .5)
+            disabled_state = signal.getitimer(signal.ITIMER_REAL)
+            module.signal.sigpending = pending
+            with self.assertRaises(module.CaptureFailure) as failure:
+                with module.capture_alarm(time.monotonic() + 1, None):
+                    self.fail("pending signal reached capture body")
+            self.assertEqual(failure.exception.code, "unavailable")
+            self.assertEqual(delivered, [signal.SIGALRM])
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), disabled_state)
+            self.assertIs(signal.getsignal(signal.SIGALRM), handler)
+            self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), previous_mask)
+        finally:
+            module.signal.sigpending = real_pending
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            if signal.SIGALRM in real_pending(): signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous_handler)
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    def test_prior_timer_compensation_excludes_delay_before_actual_disarm(self):
+        spec = importlib.util.spec_from_file_location("runner_disarm_epoch", RUNNER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real_arm = signal.setitimer
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        delayed = []
+        def arm(which, value, interval=0):
+            if value == 0 and not delayed:
+                delayed.append(True)
+                time.sleep(.15)
+            return real_arm(which, value, interval)
+        try:
+            signal.signal(signal.SIGALRM, lambda number, frame: None)
+            real_arm(signal.ITIMER_REAL, 30, .5)
+            started = time.monotonic()
+            module.signal.setitimer = arm
+            with module.capture_alarm(started + 1, None): time.sleep(.05)
+            remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+            expected = 30 - (time.monotonic() - started)
+            self.assertAlmostEqual(remaining, expected, delta=.03)
+            self.assertEqual(interval, .5)
+        finally:
+            module.signal.setitimer = real_arm
+            real_arm(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+            real_arm(signal.ITIMER_REAL, *previous_timer)
+
     def test_alarm_firing_during_arming_restores_previous_handler_and_timer(self):
         spec = importlib.util.spec_from_file_location("runner_alarm_arming", RUNNER)
         module = importlib.util.module_from_spec(spec)

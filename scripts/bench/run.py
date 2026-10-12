@@ -60,6 +60,9 @@ def capture_alarm(deadline, cancelled):
     previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     previous_handler = None
     previous_timer = None
+    caller_pending = False
+    caller_timer_armed = False
+    timer_suspended = False
     installed = False
     entered = time.monotonic()
     try:
@@ -68,12 +71,20 @@ def capture_alarm(deadline, cancelled):
         previous_handler = signal.getsignal(signal.SIGALRM)
         timer_sampled = time.monotonic()
         previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        caller_timer_armed = previous_timer[0] > 0
         previous_pending = signal.sigpending()
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        # An already blocked/pending alarm belongs to the caller. Preserve it
-        # and fail closed rather than claim an interruptible capture.
-        if (signal.SIGALRM in previous_mask or signal.SIGALRM in previous_pending
-                or signal.SIGALRM in signal.sigpending()):
+        caller_pending = signal.SIGALRM in previous_pending
+        if signal.SIGALRM in previous_mask or caller_pending:
+            raise CaptureFailure("unavailable")
+        # An expiry can advance the timer after the nonmutating snapshot.
+        # Restore the actual suspended state, never a stale expired one-shot.
+        previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        timer_suspended = True
+        timer_sampled = time.monotonic()
+        caller_pending = signal.SIGALRM in signal.sigpending()
+        # An expiration pending during suspension still belongs to the caller.
+        # Preserve it and fail closed rather than claim interruptible capture.
+        if caller_pending:
             raise CaptureFailure("unavailable")
         signal.signal(signal.SIGALRM, interrupt)
         installed = True
@@ -88,7 +99,7 @@ def capture_alarm(deadline, cancelled):
             signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
         finally:
             try:
-                if previous_timer is not None:
+                if timer_suspended:
                     signal.setitimer(signal.ITIMER_REAL, 0)
                 if installed:
                     # Discard only this capture's pending alarm before restoring
@@ -97,9 +108,17 @@ def capture_alarm(deadline, cancelled):
                         signal.sigwait({signal.SIGALRM})
                 if previous_handler is not None:
                     signal.signal(signal.SIGALRM, previous_handler)
-                if previous_timer is not None and previous_timer[0] > 0:
-                    remaining = max(0.000001, previous_timer[0] - (time.monotonic() - timer_sampled))
+                if timer_suspended and (previous_timer[0] > 0 or caller_timer_armed and caller_pending and previous_timer[1] > 0):
+                    # Linux restarts an expired periodic timer upon delivery of
+                    # its pending signal. Preserve that next interval, without
+                    # creating a second expiration for an expired one-shot.
+                    remaining = (max(0.000001, previous_timer[0] - (time.monotonic() - timer_sampled))
+                                 if previous_timer[0] > 0 else previous_timer[1])
                     signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
+                elif timer_suspended and previous_timer[1] > 0:
+                    # Preserve a disabled timer's configured interval without
+                    # activating it (Darwin retains this zero-remaining state).
+                    signal.setitimer(signal.ITIMER_REAL, 0, previous_timer[1])
             finally:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
