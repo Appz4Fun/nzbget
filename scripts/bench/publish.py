@@ -13,11 +13,13 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import urllib.error
 import urllib.request
+from collections import deque
 
 ACTOR = "xbmc4lyfe"
 BRANCH = "dupe-article-fallback"
@@ -170,7 +172,7 @@ def verify_blob(raw, expected_sha, limit):
     require(actual == expected_sha, "evidence blob content hash mismatch")
 
 
-def acquire_evidence(api, repository, evidence_sha):
+def acquire_evidence(api, repository, evidence_sha, output_dir, protection):
     commit = api.get(f"/repos/{repository}/commits/{evidence_sha}")
     validate_evidence_commit(commit, evidence_sha)
     tree_sha = commit["commit"]["tree"]["sha"]
@@ -185,7 +187,12 @@ def acquire_evidence(api, repository, evidence_sha):
         except (KeyError, TypeError, ValueError) as exc:
             raise PublicationError("invalid evidence blob encoding") from exc
         verify_blob(raw, blob_sha, FILES[path])
-        contents[Path(path).name] = raw
+        name = Path(path).name
+        # A subsequent request may fail. Complete durable, exclusive retention
+        # of this verified artifact before even requesting the next blob.
+        retain_evidence({name: raw}, output_dir)
+        protection.refresh()
+        contents[name] = raw
     return contents
 
 
@@ -461,8 +468,9 @@ def bencher_command(project, branch, base_sha, head_sha, testbed, bmf, host):
     return command
 
 
-def write_outputs(path, values):
+def write_outputs(path, values, protection=None):
     if path:
+        require(protection is None or not protection.protects(Path(path)), "workflow output aliases retained raw proof")
         with Path(path).open("a", encoding="utf-8") as output:
             for key, value in values.items():
                 require(re.fullmatch(r"[a-z_]+", key) and "\n" not in str(value) and "\r" not in str(value), "invalid workflow output")
@@ -479,11 +487,112 @@ def initialize_owned_outputs(output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
-def clear_derived_outputs(output_dir, strict=True):
+def traversed_raw_entries(path):
+    """Bounded POSIX traversal preserves links reached inside link targets."""
+    absolute = path if path.is_absolute() else Path.cwd() / path
+    current = Path(absolute.anchor)
+    pending = deque(absolute.parts[1:])
+    visited = {current}
+    expansions = 0
+    while pending:
+        part = pending.popleft()
+        if part == ".":
+            continue
+        if part == "..":
+            current = current.parent
+            visited.add(current)
+            continue
+        entry = current / part
+        visited.add(entry)
+        try:
+            metadata = entry.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            current = entry
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            expansions += 1
+            require(expansions <= 40, "raw proof symlink expansion budget exceeded")
+            target = Path(os.readlink(entry))
+            if target.is_absolute():
+                current = Path(target.anchor)
+                visited.add(current)
+                parts = target.parts[1:]
+            else:
+                parts = target.parts
+            pending.extendleft(reversed(parts))
+        else:
+            current = entry
+    return visited
+
+
+class RawProofProtection:
+    """Cumulative alias checks for the supported single-controller filesystem.
+
+    Refresh at every mutation boundary and retain earlier paths/inodes after
+    redirection. This does not claim custody against a hostile concurrent
+    filesystem writer. Raw creation itself is anchored to an open directory.
+    """
+    def __init__(self, output_dir):
+        self.output_dir = output_dir
+        self.entries = set()
+        self.resolved = set()
+        self.inodes = set()
+        self.unknown = False
+        self.refresh()
+
+    def refresh(self):
+        try:
+            for name in RAW_OUTPUT_FILES:
+                path = self.output_dir / name
+                absolute = path if path.is_absolute() else Path.cwd() / path
+                visited = traversed_raw_entries(absolute)
+                self.entries.update(visited)
+                for entry in visited:
+                    self.resolved.add(entry.resolve())
+                    for follow in (False, True):
+                        try:
+                            metadata = entry.stat(follow_symlinks=follow)
+                        except (FileNotFoundError, NotADirectoryError):
+                            continue
+                        self.inodes.add((metadata.st_dev, metadata.st_ino))
+        except (OSError, RuntimeError, PublicationError):
+            self.unknown = True
+
+    def protects(self, path):
+        self.refresh()
+        if self.unknown:
+            return True
+        try:
+            absolute = path if path.is_absolute() else Path.cwd() / path
+            entry = absolute.parent.resolve() / absolute.name
+            if absolute in self.entries or entry in self.entries or absolute.resolve() in self.resolved:
+                return True
+            for follow in (False, True):
+                try:
+                    metadata = absolute.stat(follow_symlinks=follow)
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                if (metadata.st_dev, metadata.st_ino) in self.inodes:
+                    return True
+        except (OSError, RuntimeError, PublicationError):
+            return True
+        return False
+
+
+def require_unaliased_derived(output_dir, protection):
+    require(all(not protection.protects(output_dir / name) for name in DERIVED_OUTPUT_FILES),
+            "derived output aliases retained raw proof")
+
+
+def clear_derived_outputs(output_dir, strict=True, protection=None):
+    protection = protection or RawProofProtection(output_dir)
     blocked = False
     for name in DERIVED_OUTPUT_FILES:
         path = output_dir / name
         try:
+            if protection.protects(path):
+                blocked = True
+                continue
             if path.is_dir() or (path.exists() and not path.is_file() and not path.is_symlink()):
                 blocked = True
                 continue
@@ -495,16 +604,19 @@ def clear_derived_outputs(output_dir, strict=True):
         require(not blocked, "owned derived output path is not a removable regular file")
 
 
-def clear_owned_outputs(output_dir):
+def clear_owned_outputs(output_dir, protection=None):
     if output_dir is not None:
         initialize_owned_outputs(output_dir)
-        clear_derived_outputs(output_dir)
+        protection = protection or RawProofProtection(output_dir)
+        require_fresh_raw_outputs(output_dir)
+        clear_derived_outputs(output_dir, protection=protection)
 
 
-def hold_derived_outputs(output_dir, message):
+def hold_derived_outputs(output_dir, message, protection=None):
     try:
         initialize_owned_outputs(output_dir)
-        clear_derived_outputs(output_dir, strict=False)
+        protection = protection or RawProofProtection(output_dir)
+        clear_derived_outputs(output_dir, strict=False, protection=protection)
     except (PublicationError, OSError):
         return False
     contents = {"qualification.json": json.dumps({"schema_version": 1, "status": "HOLD", "reasons": [message]}) + "\n",
@@ -512,6 +624,9 @@ def hold_derived_outputs(output_dir, message):
     complete = True
     for name, text in contents.items():
         try:
+            if protection.protects(output_dir / name):
+                complete = False
+                continue
             with (output_dir / name).open("x", encoding="utf-8") as output:
                 output.write(text)
         except OSError:
@@ -529,11 +644,19 @@ def retain_evidence(contents, output_dir):
     # Transport validation has completed. Preserve these bytes even if JSON,
     # identity, qualification or publication subsequently fails. Exclusive
     # creation also protects a prior proof created after the reuse check.
-    for name, raw in contents.items():
-        require(name in RAW_OUTPUT_FILES and isinstance(raw, bytes) and len(raw) <= FILES["benchmark-results/" + name],
-                "invalid bounded raw evidence output")
-        with (output_dir / name).open("xb") as retained:
-            retained.write(raw)
+    directory = os.open(output_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name, raw in contents.items():
+            require(name in RAW_OUTPUT_FILES and isinstance(raw, bytes) and len(raw) <= FILES["benchmark-results/" + name],
+                    "invalid bounded raw evidence output")
+            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            with os.fdopen(descriptor, "wb") as retained:
+                retained.write(raw)
+                retained.flush()
+                os.fsync(retained.fileno())
+            os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def controlled_summary(contents, manifest, output_dir):
@@ -616,6 +739,7 @@ def main(argv=None):
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args(argv)
     owned_outputs_ready = False
+    raw_protection = None
     manages_outputs = not (args.verify_identity_only or args.verify_archive_only or args.list_prs or args.set_pr_status)
     api = None
     try:
@@ -647,7 +771,8 @@ def main(argv=None):
         if args.publish and args.mode == "pr":
             update_pr_status(api, args.repository, args.pr, args.controller_sha, "pending", expected_head=args.expected_head_sha)
         if manages_outputs:
-            clear_owned_outputs(args.output_dir)
+            raw_protection = RawProofProtection(args.output_dir) if args.output_dir is not None else None
+            clear_owned_outputs(args.output_dir, raw_protection)
         require(args.mode and args.output_dir and args.testbed, "mode, output directory and stable testbed are required")
         for value in (args.evidence_sha, args.expected_base_sha, args.controller_sha):
             require(isinstance(value, str) and SHA.fullmatch(value), "full immutable evidence/base/controller SHAs are required")
@@ -655,14 +780,14 @@ def main(argv=None):
             require(type(args.pr) is int and args.pr > 0 and isinstance(args.expected_head_sha, str) and SHA.fullmatch(args.expected_head_sha), "PR number and full head SHA are required")
         require(0 < len(args.testbed) <= 200 and not any(ord(c) < 32 for c in args.testbed) and args.testbed not in ("ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04"), "stable existing testbed is required")
         require_fresh_raw_outputs(args.output_dir)
-        contents = acquire_evidence(api, args.repository, args.evidence_sha)
-        retain_evidence(contents, args.output_dir)
+        contents = acquire_evidence(api, args.repository, args.evidence_sha, args.output_dir, raw_protection)
         manifest = json_object(contents["manifest.json"])
         require(manifest.get("base_sha") == args.expected_base_sha and manifest.get("testbed") == args.testbed, "evidence baseline or testbed mismatch")
         require(isinstance(manifest.get("candidate_sha"), str) and SHA.fullmatch(manifest["candidate_sha"]), "missing full candidate SHA")
         if args.expected_head_sha:
             require(manifest["candidate_sha"] == args.expected_head_sha, "evidence candidate SHA mismatch")
         protected = validate_current(api, args.repository, args.mode, args.expected_base_sha, manifest["candidate_sha"], args.pr, args.controller_sha)
+        require_unaliased_derived(args.output_dir, raw_protection)
         _, bmf, qualification = controlled_summary(contents, manifest, args.output_dir)
         receipt = json_object(contents["collection-receipt.json"]) if "collection-receipt.json" in contents else None
         reasons = receipt_reasons(receipt, manifest, contents["manifest.json"], contents["samples.jsonl"])
@@ -672,18 +797,21 @@ def main(argv=None):
         if reasons:
             qualification["status"] = "HOLD"
             qualification["reasons"] = qualification.get("reasons", []) + reasons
+        require_unaliased_derived(args.output_dir, raw_protection)
         (args.output_dir / "qualification.json").write_text(json.dumps(qualification, indent=2) + "\n")
         report = args.output_dir / "report.md"
+        require(not raw_protection.protects(report), "report output aliases retained raw proof")
         report.write_text(f"Publisher qualification: **{qualification['status']}**. Signed transport records operator-reviewed collection evidence; signature does not attest timing execution.\n\n" + report.read_text())
         selected = selected_bmf(bmf, manifest, args.mode)
+        require(not raw_protection.protects(args.output_dir / "selected-bencher.json"), "Bencher output aliases retained raw proof")
         (args.output_dir / "selected-bencher.json").write_text(json.dumps(selected, indent=2) + "\n")
         ready = not reasons and (args.mode == "base" or qualification["status"] == "PASS")
         write_outputs(args.github_output, {"status": qualification["status"], "ready": str(ready).lower(),
-                      "base_sha": manifest["base_sha"], "candidate_sha": manifest["candidate_sha"]})
+                      "base_sha": manifest["base_sha"], "candidate_sha": manifest["candidate_sha"]}, raw_protection)
         print(f"Collection validation: {qualification['status']}; publication ready: {str(ready).lower()}; canonical branch protected: {str(protected).lower()}")
         if args.publish:
             publish_results(api, args, manifest, qualification, not reasons)
-            write_outputs(args.github_output, {"published": "true"})
+            write_outputs(args.github_output, {"published": "true"}, raw_protection)
             print("Validated data published" + (" for baseline monitoring" if args.mode == "base" else " with paired caller qualification"))
         return 0
     except (PublicationError, OSError, subprocess.TimeoutExpired, TypeError, KeyError, AttributeError, RecursionError) as exc:
@@ -696,9 +824,12 @@ def main(argv=None):
                 update_pr_status(api, args.repository, args.pr, args.controller_sha, "failure", expected_head=args.expected_head_sha)
             except (PublicationError, OSError, TypeError, KeyError, AttributeError):
                 print("HOLD: live qualification status could not be invalidated safely", file=sys.stderr)
-        if owned_outputs_ready and not hold_derived_outputs(args.output_dir, message):
+        if owned_outputs_ready and not hold_derived_outputs(args.output_dir, message, raw_protection):
             print("HOLD: derived diagnostic outputs could not all be updated safely", file=sys.stderr)
-        write_outputs(args.github_output, {"status": "HOLD", "ready": "false", "published": "false"})
+        try:
+            write_outputs(args.github_output, {"status": "HOLD", "ready": "false", "published": "false"}, raw_protection)
+        except (PublicationError, OSError):
+            print("HOLD: workflow output could not be updated without changing raw proof", file=sys.stderr)
         return 2
 
 

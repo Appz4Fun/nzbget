@@ -398,6 +398,145 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual((Path(temp) / name).read_bytes(), raw)
             self.assertEqual(json.loads((Path(temp) / "qualification.json").read_text())["status"], "HOLD")
 
+    def test_each_verified_blob_is_durable_before_later_transport_or_validation_failure(self):
+        contents = self.proof_contents()
+        names = list(contents)
+        for failure_at in (2, 3):
+            for failure_kind in ("transport", "validation"):
+                with self.subTest(failure_at=failure_at, failure_kind=failure_kind), tempfile.TemporaryDirectory() as temp:
+                    output = Path(temp) / "results"
+                    class LaterFailure(EvidenceAPI):
+                        def __init__(self):
+                            super().__init__(contents)
+                            self.fetches = 0
+                            self.before_fetch = []
+                        def get(self, endpoint):
+                            if "/git/blobs/" in endpoint:
+                                self.fetches += 1
+                                self.before_fetch.append([name for name in names if (output / name).is_file()])
+                                if self.fetches == failure_at:
+                                    if failure_kind == "transport":
+                                        raise publish.PublicationError("controlled later transport failure")
+                                    blob = dict(super().get(endpoint))
+                                    blob["content"] = __import__("base64").b64encode(b"controlled wrong blob bytes").decode()
+                                    return blob
+                            return super().get(endpoint)
+                    api = LaterFailure()
+                    with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        result = publish.main(self.publication_arguments(output))
+                    self.assertEqual(result, 2)
+                    self.assertEqual(api.before_fetch[-1], names[:failure_at - 1])
+                    for name in names[:failure_at - 1]:
+                        self.assertEqual((output / name).read_bytes(), contents[name])
+                    for name in names[failure_at - 1:]:
+                        self.assertFalse((output / name).exists())
+                    self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+                    self.assertEqual(api.statuses[0]["state"], "failure")
+
+    def test_raw_aliases_and_hardlinks_survive_both_reuse_and_hold_cleanup(self):
+        for alias in ("symlink", "chain", "hardlink", "qualification"):
+            with self.subTest(alias=alias), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / "results"
+                output.mkdir()
+                target_name = "qualification.json" if alias == "qualification" else "summary.json"
+                original = b'{"status":"PASS","raw":"original proof"}'
+                target = output / target_name
+                target.write_bytes(original)
+                raw = output / "manifest.json"
+                if alias == "hardlink":
+                    os.link(target, raw)
+                elif alias == "chain":
+                    (output / "bencher.json").symlink_to(target.name)
+                    raw.symlink_to("bencher.json")
+                else:
+                    raw.symlink_to(target.name)
+                if target_name != "qualification.json":
+                    (output / "qualification.json").write_text('{"status":"PASS"}')
+                workflow = Path(temp) / "workflow-output"
+                api = StatusAPI()
+                with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    result = publish.main(self.publication_arguments(output) + ["--github-output", str(workflow)])
+                self.assertEqual(result, 2)
+                self.assertEqual(raw.read_bytes(), original)
+                self.assertEqual(target.read_bytes(), original)
+                if alias == "hardlink":
+                    self.assertEqual(raw.stat().st_ino, target.stat().st_ino)
+                else:
+                    self.assertTrue(raw.is_symlink())
+                if alias == "chain":
+                    self.assertTrue((output / "bencher.json").is_symlink())
+                recorded = dict(line.split("=", 1) for line in workflow.read_text().splitlines())
+                self.assertEqual((recorded["status"], recorded["ready"], recorded["published"]), ("HOLD", "false", "false"))
+                self.assertIn("HOLD", (output / "report.md").read_text())
+                self.assertEqual(api.statuses[0]["state"], "failure")
+
+    def test_intermediate_symlink_entries_inside_raw_targets_are_protected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            real = output / "real"
+            real.mkdir()
+            (real / "manifest.json").write_bytes(b"raw traversed proof")
+            (output / "summary.json").symlink_to("real", target_is_directory=True)
+            (output / "bridge").symlink_to("summary.json/manifest.json")
+            (output / "manifest.json").symlink_to("bridge")
+            (output / "qualification.json").write_text('{"status":"PASS"}')
+            api = StatusAPI()
+            with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(publish.main(self.publication_arguments(output)), 2)
+            self.assertEqual((output / "manifest.json").read_bytes(), b"raw traversed proof")
+            self.assertTrue((output / "summary.json").is_symlink())
+            self.assertTrue((output / "bridge").is_symlink())
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+
+    def test_partial_acquisition_hardlink_cannot_be_deleted_by_hold_cleanup(self):
+        contents = self.proof_contents()
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            class LinkedFailure(EvidenceAPI):
+                def __init__(self):
+                    super().__init__(contents)
+                    self.fetches = 0
+                def get(self, endpoint):
+                    if "/git/blobs/" in endpoint:
+                        self.fetches += 1
+                        if self.fetches == 2:
+                            os.link(output / "manifest.json", output / "selected-bencher.json")
+                            raise publish.PublicationError("controlled failure after raw hardlink")
+                    return super().get(endpoint)
+            api = LinkedFailure()
+            with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(publish.main(self.publication_arguments(output)), 2)
+            self.assertEqual((output / "manifest.json").read_bytes(), contents["manifest.json"])
+            self.assertEqual((output / "selected-bencher.json").read_bytes(), contents["manifest.json"])
+            self.assertEqual(api.statuses[0]["state"], "failure")
+
+    def test_cumulative_raw_alias_protection_keeps_targets_after_redirection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "results"
+            output.mkdir()
+            (output / "summary.json").write_bytes(b"original raw target")
+            (output / "bencher.json").write_bytes(b"redirected raw target")
+            (output / "manifest.json").symlink_to("summary.json")
+            class Redirected(StatusAPI):
+                def __init__(self):
+                    super().__init__()
+                    self.identities = 0
+                def get(self, endpoint):
+                    if endpoint == "/user":
+                        self.identities += 1
+                        if self.identities == 3:
+                            (output / "manifest.json").unlink()
+                            (output / "manifest.json").symlink_to("bencher.json")
+                    return super().get(endpoint)
+            api = Redirected()
+            with patch.object(publish, "GitHub", return_value=api), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(publish.main(self.publication_arguments(output)), 2)
+            self.assertEqual((output / "summary.json").read_bytes(), b"original raw target")
+            self.assertEqual((output / "bencher.json").read_bytes(), b"redirected raw target")
+            self.assertEqual(os.readlink(output / "manifest.json"), "bencher.json")
+            self.assertEqual(json.loads((output / "qualification.json").read_text())["status"], "HOLD")
+
     def test_reused_output_preserves_first_proof_rejects_new_download_and_invalidates_pass(self):
         first = {"manifest.json": b"first manifest", "samples.jsonl": b"first samples", "collection-receipt.json": b"first receipt"}
         class NoEvidence(EvidenceAPI):
