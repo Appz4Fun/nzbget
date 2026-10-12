@@ -1208,6 +1208,56 @@ int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* ma
 // False means the entire line is invalid; no partial callback is made.
 bool nzbget_rs_deadpostings_parse(const uint8_t* data, size_t len, void* context,
 	void (*visit)(void* context, int64_t stamp, const uint32_t* hashes, size_t count));
+// Watcher flags are snapshots of daemon objects, not queue mutation requests.
+enum NzbgetRsDupeWatchFlags {
+    rsDupeEnabled = 1u << 0, rsDupeCheck = 1u << 1, rsDupePresent = 1u << 2,
+    rsDupeNzb = 1u << 3, rsDupeHistory = 1u << 4, rsDupeSuccess = 1u << 5,
+    rsDupeDeleting = 1u << 6, rsDupeDeleteNone = 1u << 7, rsDupeDeleteManual = 1u << 8,
+    rsDupeDeleteDupe = 1u << 9, rsDupeDeleteCopy = 1u << 10, rsDupeDeleteGood = 1u << 11,
+    rsDupePostProcess = 1u << 12, rsDupeScoreMode = 1u << 13, rsDupeDonor = 1u << 14,
+    rsDupeAutoRedownload = 1u << 15, rsDupeManagedFleet = 1u << 16
+};
+typedef struct {
+    int32_t id, score;
+    uint32_t flags;
+    const char* key;
+    size_t key_len;
+} NzbgetRsDupeWatchPeer;
+// Same decision with no peers, an existing stamp and unchanged identity.
+// Only scalar arguments are read; no queue record needs to be constructed.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((const, nothrow))
+#endif
+int nzbget_rs_dupe_watch_stamped(uint32_t flags, int32_t score, int64_t now,
+    int32_t previousScore, int64_t previousTime);
+// Return 0 skip, 1 retry post-processing, 2 search. Inputs caller-owned/readable.
+/* This decision function only reads its valid snapshot inputs and cannot unwind. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((pure, nothrow))
+#endif
+int nzbget_rs_dupe_watch(const NzbgetRsDupeWatchPeer* pick, const NzbgetRsDupeWatchPeer* peers, size_t count,
+    int64_t now, int32_t previousScore, int64_t previousTime, int hasPrevious, int identityChanged);
+NzbgetRsBuf nzbget_rs_dupe_queries(const char* name, size_t len);
+int nzbget_rs_dupe_should_expand(double alive, int32_t missing, int failed, int wholeBackup);
+// An opaque per-search budget (3 * maxDonors; zero means unlimited).
+// All concurrent callers must have joined before free.
+void* nzbget_rs_dupe_budget_new(uint32_t maxDonors);
+void nzbget_rs_dupe_budget_free(void* budget);
+int nzbget_rs_dupe_budget_take(const void* budget);
+int nzbget_rs_dupe_budget_spent(const void* budget);
+
+typedef struct { int64_t number, bytes; } NzbgetRsDupePart;
+void nzbget_rs_dupe_part_counts(const NzbgetRsDupePart* parts, size_t count, uint32_t declared, int parity,
+    uint64_t* listed, uint64_t* total);
+uint64_t nzbget_rs_dupe_whole_bytes(uint64_t bytes, uint64_t listed, uint64_t total);
+int32_t nzbget_rs_dupe_unlisted_missing(int32_t answered, uint64_t listed, uint64_t total);
+double nzbget_rs_dupe_effective_alive(int32_t present, int32_t missing, int32_t error, uint64_t listed, uint64_t total);
+int nzbget_rs_dupe_is_dead(int32_t present, int32_t missing, int32_t error, uint64_t listed, uint64_t total, int32_t minimum);
+uint64_t nzbget_rs_dupe_par_block(const char* data, size_t len);
+int nzbget_rs_dupe_par_doomed(uint64_t dataBytes, uint64_t articleBytes, const uint64_t* volumes,
+    size_t count, double alive, uint64_t block);
+
+int nzbget_rs_dupe_outer_ok(const char* title, size_t titleLen, const char* name, size_t len);
 
 #ifdef __cplusplus
 }

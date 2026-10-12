@@ -164,6 +164,15 @@ std::vector<Answer> NntpHealthServer::Exchange(const std::vector<DonorHealth::Re
 	std::vector<Answer> answers;
 	for (size_t i = 0; i < batch.size(); i++)
 	{
+        // Discovery can grow the pipeline on a fast pick before checking a slow
+        // donor. On shutdown abandon unread replies instead of draining it.
+        if (HttpGet::Stopped() || DonorHealth::Stopping())
+        {
+            release.broken = true;
+            DonorHealth::ExchangeError error;
+            error.answers = answers;
+            throw error;
+        }
 		char line[1024];
 		int length = 0;
 		if (!connection->ReadLine(line, sizeof(line), &length))
@@ -179,6 +188,15 @@ std::vector<Answer> NntpHealthServer::Exchange(const std::vector<DonorHealth::Re
 	// BODY for the articles that have a gate: one server at a time, verified
 	for (size_t i = 0; i < batch.size(); i++)
 	{
+        if (HttpGet::Stopped() || DonorHealth::Stopping())
+        {
+            release.broken = true;
+            DonorHealth::ExchangeError error;
+            error.answers = answers;
+            for (size_t j = i; j < batch.size(); j++)
+                if (batch[j].gate && error.answers[j] == Answer::Present) error.answers[j] = Answer::Error;
+            throw error;
+        }
 		if (!batch[i].gate || answers[i] != Answer::Present)
 		{
 			continue;

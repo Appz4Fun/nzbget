@@ -305,6 +305,18 @@ fn main() {
             black_box(b"Show.S01E01.1080p.WEB.H264-GRP.mkv"), 5_000_000_000, 1_000_000_000));
     });
 
+    bench("dupewatch/queue decision", &mut || {
+        use nzbget_rs::dupewatch as w;
+        let flags=w::ENABLED|w::DUPE_CHECK|w::PRESENT|w::NZB|w::DELETE_NONE|w::SCORE_MODE;
+        black_box(w::decide(black_box(flags),1000000,None,1000000,None,false));
+    });
+    bench("dupewatch/lenient queries", &mut || {
+        black_box(nzbget_rs::dupewatch::lenient_queries(black_box(b"Show.S01E01.2025.1080p.WEB.H264-GRP")));
+    });
+    bench("dupewatch/partial health", &mut || {
+        black_box(nzbget_rs::dupewatch::effective_alive(black_box(13),0,0,3,10));
+    });
+
     // Bencher Metric Format
     let mut out = String::from("{\n");
     let last = results.len().saturating_sub(1);

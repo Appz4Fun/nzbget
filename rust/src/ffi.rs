@@ -6393,3 +6393,153 @@ pub unsafe extern "C" fn nzbget_rs_dupe_lenient_ok(title: *const c_char, title_l
     let theirs = dupe_identity_input(theirs);
     c_int::from(crate::dupeidentity::lenient_ok(arg(title, title_len), arg(main_name, main_len), mine.as_ref(), theirs.as_ref()))
 }
+
+// Native duplicate-discovery watcher and per-search fetch budget.
+#[repr(C)]
+pub struct DupeWatchPeer {
+    pub id: i32,
+    pub score: i32,
+    pub flags: u32,
+    pub key: *const c_char,
+    pub key_len: usize,
+}
+
+/// Eligibility with an unchanged identity and an existing search stamp, before
+/// peer snapshots are needed. This scalar boundary does not read queue memory.
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_watch_stamped(flags: u32, score: i32, now: i64,
+    previous_score: i32, previous_time: i64) -> c_int {
+    crate::dupewatch::decide(flags, score, None, now,
+        Some(crate::dupewatch::SearchStamp { score: previous_score, time: previous_time }), false) as c_int
+}
+
+#[inline(never)]
+unsafe fn dupe_watch_has_higher(pick: &DupeWatchPeer, peers: *const DupeWatchPeer, count: usize) -> bool {
+    use crate::dupewatch::{self, Snapshot};
+    let mine = Snapshot { id: pick.id, score: pick.score, flags: pick.flags, key: arg(pick.key, pick.key_len) };
+    for peer in std::slice::from_raw_parts(peers, count) {
+        if peer.id == pick.id || peer.score <= pick.score { continue; }
+        let other = Snapshot { id: peer.id, score: peer.score, flags: peer.flags, key: arg(peer.key, peer.key_len) };
+        if dupewatch::higher_peer(mine, other, true) { return true; }
+    }
+    false
+}
+
+/// # Safety
+/// Peer records and key buffers valid for their counts; pick is non-NULL.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_watch(pick: *const DupeWatchPeer, peers: *const DupeWatchPeer,
+    count: usize, now: i64, previous_score: i32, previous_time: i64, has_previous: c_int,
+    identity_changed: c_int) -> c_int {
+    use crate::dupewatch::{self, Decision};
+    if pick.is_null() { return 0; }
+    let pick = &*pick;
+    // Changed identities never use the previous stamp; avoid irrelevant time
+    // arithmetic as well as peer/key work on these common fast paths.
+    let previous = if has_previous != 0 && identity_changed == 0 {
+        Some(dupewatch::SearchStamp { score: previous_score, time: previous_time })
+    } else { None };
+    let preliminary = dupewatch::decide(pick.flags, pick.score, None, now, previous, identity_changed != 0);
+    if preliminary != Decision::Search || count == 0 || peers.is_null() { return preliminary as c_int; }
+    // Keep the key scan out of the entry's register-save/prologue fast path.
+    if dupe_watch_has_higher(pick, peers, count) { return Decision::Skip as c_int; }
+    Decision::Search as c_int
+}
+
+/// Returns unique query strings: u32 count LE, then u32 length LE and bytes.
+/// # Safety
+/// Name readable for its length, or NULL (empty). Release result with nzbget_rs_free.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_queries(name: *const c_char, len: usize) -> RsBuf {
+    let queries = crate::dupewatch::lenient_queries(arg(name, len));
+    let mut out = (queries.len() as u32).to_le_bytes().to_vec();
+    for query in queries { out.extend_from_slice(&(query.len() as u32).to_le_bytes()); out.extend_from_slice(&query); }
+    into_buf(out)
+}
+
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_should_expand(alive: f64, missing: i32, failed: c_int, whole: c_int) -> c_int {
+    c_int::from(crate::dupewatch::should_expand(alive, missing, failed != 0, whole != 0))
+}
+
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_budget_new(max_donors: u32) -> *mut crate::dupewatch::FetchBudget {
+    Box::into_raw(Box::new(crate::dupewatch::FetchBudget::from_max_donors(max_donors as usize)))
+}
+
+/// # Safety
+/// Budget is a live pointer returned by nzbget_rs_dupe_budget_new; callers have joined users before freeing.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_budget_free(budget: *mut crate::dupewatch::FetchBudget) {
+    if !budget.is_null() { drop(Box::from_raw(budget)); }
+}
+
+/// # Safety
+/// Budget is live; concurrent calls are allowed, but free must not run concurrently.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_budget_take(budget: *const crate::dupewatch::FetchBudget) -> c_int {
+    if budget.is_null() { return 0; }
+    c_int::from((*budget).take())
+}
+
+/// # Safety
+/// Budget is live; concurrent calls are allowed, but free must not run concurrently.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_budget_spent(budget: *const crate::dupewatch::FetchBudget) -> c_int {
+    if budget.is_null() { return 1; }
+    c_int::from((*budget).spent())
+}
+
+#[repr(C)]
+pub struct DupePart { pub number: i64, pub bytes: i64 }
+/// # Safety
+/// Parts readable for count; output counters writable. NULL parts/count zero are empty.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_part_counts(parts: *const DupePart, count: usize, declared: u32,
+    parity: c_int, listed: *mut u64, total: *mut u64) {
+    if listed.is_null() || total.is_null() { return; }
+    let parts = if count == 0 || parts.is_null() { &[][..] } else { std::slice::from_raw_parts(parts, count) };
+    let values: Vec<_> = parts.iter().map(|p| (p.number,p.bytes)).collect();
+    let result = crate::dupewatch::part_counts(&values, declared, parity != 0);
+    *listed = result.0;
+    *total = result.1;
+}
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_whole_bytes(bytes: u64, listed: u64, total: u64) -> u64 {
+    crate::dupewatch::whole_bytes(bytes, listed, total)
+}
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_unlisted_missing(answered: i32, listed: u64, total: u64) -> i32 {
+    crate::dupewatch::unlisted_missing(answered, listed, total)
+}
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_effective_alive(present: i32, missing: i32, error: i32, listed: u64, total: u64) -> f64 {
+    crate::dupewatch::effective_alive(present, missing, error, listed, total)
+}
+#[no_mangle]
+pub extern "C" fn nzbget_rs_dupe_is_dead(present: i32, missing: i32, error: i32, listed: u64, total: u64, minimum: i32) -> c_int {
+    c_int::from(crate::dupewatch::dead_donor(present, missing, error, listed, total, minimum))
+}
+/// # Safety
+/// The decoded body is readable for len, or NULL (empty).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_par_block(data: *const c_char, len: usize) -> u64 {
+    crate::twin::block_size(arg(data,len))
+}
+/// # Safety
+/// Recovery sizes readable for count, or count zero/NULL (empty).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_par_doomed(data_bytes: u64, article_bytes: u64, volumes: *const u64,
+    count: usize, alive: f64, block: u64) -> c_int {
+    let volumes = if count == 0 || volumes.is_null() { &[][..] } else { std::slice::from_raw_parts(volumes,count) };
+    c_int::from(crate::dupewatch::par_doomed(data_bytes,article_bytes,volumes,alive,block))
+}
+
+/// # Safety
+/// Names readable for their lengths, or NULL (empty).
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_dupe_outer_ok(title: *const c_char, title_len: usize, name: *const c_char, len: usize) -> c_int {
+    let title=arg(title,title_len);let name=arg(name,len);
+    c_int::from(!crate::dupeidentity::conflicts(title,name) && !crate::dupeidentity::other_title(title,name)
+        && (!crate::releasename::readable(name) || crate::dupeidentity::consistent(title,name)))
+}

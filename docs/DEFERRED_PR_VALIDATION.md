@@ -38,3 +38,24 @@ Source snapshot: `31e197612b3570e55ca9ea525a358e8ccdc06da7`.
   production RPC, or qualify its production overhead.
 - [ ] Normalize the extra trailing blank line in the observer Cargo manifest
   during follow-up; the integration whitespace check reported it.
+
+## PR #80 — native proxy discovery and watcher
+
+Published source: `59f3408a32dc1ba9a6c4f6d72a9cad427be29fae`, with the
+frozen held-member eligibility repair tree
+`14fad1a2ecf575e780b2753d266cbf6798d6818d`.
+
+- [ ] Fix the three unresolved Codex findings: infer whole size per file, pass
+  inferred full data extent to PAR feasibility, and reschedule eligible old
+  history picks after an interrupted SEARCHING checkpoint. These repairs are
+  not implemented in this snapshot.
+- [ ] Validate the included placement-eligibility checks before and after probe
+  work. Only the original held-BAD failure was executed; the repaired code and
+  FORCE, healthy and asynchronous BAD controls remain unexecuted.
+- [ ] Complete the excluded size/PAR regression fixtures alongside their
+  matching implementation. Private proof drivers and unfinished tests were
+  preserved in the owner workspace, not added to this squash.
+- [ ] Revisit slower and inconclusive complete-caller results and incomplete
+  per-call I/O instrumentation. This latest source has not been timed.
+- [ ] Complete integrated correctness checks and current-head review; leave
+  outstanding review discussions truthful. Backend deployment remains held.
