@@ -129,6 +129,7 @@ The **[documentation site](https://appz4fun.github.io/nzbget/)** covers:
 - [Check, repair, and unpack](https://appz4fun.github.io/nzbget/post-processing.html), [Servers, RSS, and scheduling](https://appz4fun.github.io/nzbget/automation.html), and [Performance tuning](https://appz4fun.github.io/nzbget/performance.html)
 - [Configuration options](https://appz4fun.github.io/nzbget/options.html), generated from `nzbget.conf`
 - [API and compatibility](https://appz4fun.github.io/nzbget/api.html) and the [Design system](https://appz4fun.github.io/nzbget/design-system.html)
+- [Offline benchmark viewer and evidence](benchmarks/nanobench-poc/README.md), a fixture-only proof of concept with its production performance hold unchanged
 
 The site's source is in [`site/`](site). It deploys on every push to the default branch, after Vale checks the prose against the Google developer documentation style.
 

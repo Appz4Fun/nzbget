@@ -1,0 +1,30 @@
+{
+  "base": "cd9d4db450be61422421f7a83633d13aadc14d46",
+  "framework": "nanobench v4.6.0",
+  "boundary": "real ReadDonorInner; runtime routing of ReadInnerDecrypted; candidate dependency definitions weak, original shared definitions strong",
+  "status": "prospective proof of concept; production candidate HOLD unchanged",
+  "sha256": {
+    "build-range/nanobench-poc/paired-caller": "65b9e62e26ebba1ac12c06f32bd20ca8bed2893ec30f65519bbb4fa24dceb0da",
+    "build-range/nanobench-poc/caller.cpp": "22acaa8178f24656c8416c5b95f69cfa69d0a7581ecec73ba3d7cdfb40e4c716",
+    "build-range/nanobench-poc/caller.cpp.in": "d1d6665651f4c7ea8fa74ee8322b18ac07e4f98f446c5094742bbb70f58a62db",
+    "build-range/nanobench-poc/nanobench.h": "2cfcdd57044fd0ee11d1be2b5dc545781b05c36049613c0089a73b332afd8c4d",
+    "build-range/nanobench-poc/build.py": "d1dad407098fcd8e7762c027ebdbaae5c389f16cb117d573e03fca6e3b7190fb",
+    "build-range/nanobench-poc/original.cpp": "710df759e14c2147ff0d9bb91d36b48ffc04979588067b21ca6a23379effc771",
+    "daemon/postprocess/ContentMap.cpp": "98e1459ad6b100a3555432b1ddb1b422e640adae07414e8ee9933d3126da23db",
+    "rust/src/cryptoread.rs": "ed68e36c3dda57e965ec7dbc38fa3426520842308291bb221ae2b61191e9d141",
+    "build-range/liblibnzbget.a": "41ef0f9dfd09022f772b59c3e4c33f68860979200cd9f1612e5415ece12f3b9d",
+    "libxml2.so": "209e941be9eb2eb9ab36caaa0b81d1c6b36c8f5d7268c24f19e81039137e6485",
+    "libssl.so": "a40e7b67489bbd257e432c700ff8f6a1ad796425b5eccecdc2930127fdd86624",
+    "libcrypto.so": "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a",
+    "libformw.so": "cbbf42a3e1313ae714d756043b781b7cf86485e1735ac3f2933194f3abe1ea75",
+    "libz.so": "86200da370f20476a2507e9097a789b5ef97269b4ca8d5e164ad82dab9d99892",
+    "libboost_json.so.1.83.0": "025bd91a6e9ba8391a22af417e3bbbadadf79120096446e4e52805a05af7599a",
+    "libboost_container.so.1.83.0": "418d4b82e10a76ee8f33600d057b1433c666552cc419e30590ec389802751cb5",
+    "build-range/libregex.a": "c46b78b2df40e1b802f5b9c4fd433d2b2283645f50d7ee3b4110d6e43b879a41",
+    "build-range/rapidyenc/src/rapidyenc-build/rapidyenc_static/librapidyenc.a": "49ee793a42c80090d60107b835f5d54aaebc739dfa74e3aceefad29561c3a05b",
+    "rust/target/release/libnzbget_rs.a": "c8ecc3f11d681272107c2bff5704d8ee759073c5d5c28d116bdd46bed00c6c4c",
+    "build-range/par2-turbo/src/par2-turbo-build/libpar2-turbo.a": "33450b7e05e3ba5a1e48cd2cfea3b2729ad07157940afdc036db20afbdb41cbc",
+    "build-range/par2-turbo/src/par2-turbo-build/libgf16.a": "d80195bd734ca9682a1d3af49ca8c49e1b7578e0c5ccecff1949d1246796d325",
+    "build-range/par2-turbo/src/par2-turbo-build/libhasher.a": "ad36c12097165620b51f4b69e22f339bf15efbf45028ba5b475b8bdd8501c96c"
+  }
+}
