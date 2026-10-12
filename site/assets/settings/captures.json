@@ -1,8 +1,8 @@
 {
   "capture_date": "2026-10-11",
-  "source_base": "96dba640",
+  "source_base": "d0cc6ed7",
   "environment": "Isolated loopback demonstration service; no production data; example values and sanitized optional-extension defaults.",
-  "theme": "Light except categories-dark",
+  "theme": "Light except categories-dark, desktop-wide and status-wide",
   "ui_source_sha256": {
     "webui/_locales/cs/messages.json": "d219c57ed7fe23043a14a6ad5c61bc263a9fffa15f8a010f2302e228cb5f10a1",
     "webui/_locales/da/messages.json": "8509edb394ea3cfb7b9de5b8d6f7ee52cc6fa03b71df5b214058259a09068934",
@@ -71,7 +71,7 @@
     "webui/lib/raphael.min.js": "10106f7cddd4c33b9b9c7c2013e6d35d6a9c12f417697271d99d8d97f1a45ce6",
     "webui/locales.source.json": "736fb0e7ad40d0ec9b292f56a9f9140a1341af948124d9fd2b2eb08122f47baf",
     "webui/messages.js": "15b6ff9091d4cece284c2e95b490e921dc9f3e9c27e645b4839b54f09e33f1c4",
-    "webui/skin.css": "340f2ccb8536cd4d9cba21b3b6468f0e4c71973a1bd5265d55cb31b2a389d0d4",
+    "webui/skin.css": "afd3209d1c7b3b588c55e3fb5e55f9f7b8c884574bb7b00336130c95f74f1215",
     "webui/statistics.js": "eff39ba74e4808d1afb8a86e4fe185d6cea1513a816aa3972e1a47674ab696d9",
     "webui/status.js": "8985ed9d430c9185dc7e8bdb7858cf391088032bf2a932ce386106e5a3ab6326",
     "webui/style.css": "3246f2422e606e6325552c2583db7eda4ff5a951ecb5389c0724aaf2e31717b4",
@@ -93,7 +93,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "301b06f53f8b9df4baba44ddbe2c5f00bf2204eb2003d2962691cfb6c9e2320f",
+      "sha256": "8bb61d189e578c8692f4a53341f7f8f2d5ea1eca60f66c37091c6c147448f4d5",
       "capture_ready": "Selected heading verified, connection healthy; Status waits for loaded system information."
     },
     {
@@ -106,7 +106,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "1d05f3ddd81312b169499d33cbf1698144ccc414a29544cb4b213c038bcb64b1",
+      "sha256": "d2a8aab3fffe72cb6d8e2d616aab8df0c3896aa3434b749e3ce0cef70cbd7bb3",
       "capture_ready": "Selected heading verified, connection healthy; Status waits for loaded system information."
     },
     {
@@ -119,7 +119,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "66c14ad9fbd25e55ab2d13f6fc2e77975cd1cc12a426cccbb23f6e4601467860",
+      "sha256": "3e60891c0488c9a41663d23a566f3a7e452b0bc3edd3515540cd49dd29375eee",
       "capture_ready": "Selected heading verified, connection healthy; Status waits for loaded system information."
     },
     {
@@ -142,7 +142,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "d31c6dbb03e17ecda63c3fa407324157b021a98f51feef5b5c18d496fc6476d7"
+      "sha256": "911b7b534ccc242245e42159653471de22075d8ac251f03cc4599b0164f5b2b6"
     },
     {
       "section": "PATHS",
@@ -168,7 +168,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "9f186ef346012749b0bcf19fb2d79b96ea4633caed8483c8024f0fc49052ef92"
+      "sha256": "6c0fe00f23848b07417b8edff293998ff5e1994c6893b23d62723e0771f2042b"
     },
     {
       "section": "NEWS-SERVERS",
@@ -180,7 +180,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "70f4cc9702746ab13d6afd498198c2741c8de390e9282fe58b2c06a32a4a291c"
+      "sha256": "5f0832738e4f364bb47e22d95e6c5924ec6cfe1a87adbc5fb4552432fed9594e"
     },
     {
       "section": "SECURITY",
@@ -212,7 +212,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "c9ad410036a73bbbfd900a644f2ada998a80296027f84c2bfaed716cd879aa0a"
+      "sha256": "9a3f5adc0da12819c28b400a8d4ef4f309ae036d2d94c0afaa0402647bf26c21"
     },
     {
       "section": "CATEGORIES",
@@ -224,7 +224,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "a91e39fd5c290d1d9d63b604a09bd3413395895abf072d71ecf01f28d4aa8a6b"
+      "sha256": "5e6639f41318539cb612e6e286e561433218fb13a61a3ed811e74de5ec2c8a27"
     },
     {
       "section": "RSS_FEEDS",
@@ -236,7 +236,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "b142058680576abc39d16c1171668118456d2eb520965ff520affb9ea3d9cf9a"
+      "sha256": "6cad747c179553f8972904ddae61fa479d0ae04e5aae5a4656c703781bcc52b1"
     },
     {
       "section": "INCOMING_NZBS",
@@ -271,7 +271,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "afbcfdd281cfe904b080cd2dee4a98b290738df68059fa8798439c8547357624"
+      "sha256": "67a5691c279e4a70f4849c2366e3068bf2e075baff89bc769df3dfe986bcfd22"
     },
     {
       "section": "DOWNLOAD_QUEUE",
@@ -302,7 +302,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "4116b9c77a19443486eca1071467129c6ee145206e46b4aef54d58ed3540a9f8"
+      "sha256": "ce7a6a6e75c0f50fbbd2574a91faa17a0e71925f76e6e7fa88ad869d40dc4f87"
     },
     {
       "section": "CONNECTION",
@@ -329,7 +329,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "793d0d02dc0e33bb81428b381dbb58feb9f4dd861f87a9935444a0af14d16e57"
+      "sha256": "1d8e320194e67f24a052bfa6c651e484cbcbd1c7cd29e8e33a0d599be174aefe"
     },
     {
       "section": "LOGGING",
@@ -355,7 +355,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "1af3c737e3c52368340ade8e322a651248ad537adadd489a3b989c89999dd5ed"
+      "sha256": "91981993eeaaf9fcb7c656d50c86136d0f5d69439e7cb08d75f8e3a9046b9ad2"
     },
     {
       "section": "SCHEDULER",
@@ -367,7 +367,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "3d372f32324576cb9e4cc2727fb641ff4ab735575e8bb70f220b200eae275531"
+      "sha256": "864a804b6434e5a09a8a60c94a4b1a0a6c1a694f32d2cb508bf961812a36840e"
     },
     {
       "section": "CHECK_AND_REPAIR",
@@ -396,7 +396,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "c0037c4cf19b6acd16eab909a43a59132b8420ec94e67b57985bbd2c22057c0d"
+      "sha256": "e140ba6408690758446b068052102256c4bb3ae5fe68e09c7a99e8cbec610c83"
     },
     {
       "section": "UNPACK",
@@ -419,7 +419,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "45e2e4b4865d992db103f6e87250a2222aee7d452dfded3fa75e812f4a410457"
+      "sha256": "18800ee770b1a478c4ab31afea7f098e88a1049e144cd12e8fbce018ee2c1fce"
     },
     {
       "section": "EXTENSION_SCRIPTS",
@@ -437,7 +437,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "63f14293a45e69a4d43572cf1649b707676ec1a6b1ba49ea70f49f31073187f3"
+      "sha256": "c9d3e27ccf5e28ab7617535afe372e4a5872a905760bfbc04cbd5efa6f6c99c7"
     },
     {
       "section": "extension-manager",
@@ -449,7 +449,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "b076c85f7721bebce67d11104eae3b5d2f7f4bdcfa3410513525e12cde4c7049",
+      "sha256": "b006f818ed2e8af0f3b962d95e050db79ac8827a80ef379bf3624809420c4647",
       "capture_ready": "Selected heading verified, connection healthy; Status waits for loaded system information."
     },
     {
@@ -484,7 +484,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "5798776c8a64360595b19372c6861fbdda5f4134300000bec5b48507606035d7"
+      "sha256": "204918b1503c668fd61a862d0e0484f7d53ef954a7d24111f854f6537ce21108"
     },
     {
       "section": "ExtendedUnpacker_OPTIONS",
@@ -504,7 +504,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "3d477cebb4c0e5b5a46d676b2bbe15de96e0e2911ae7caa021f886400c149dc8"
+      "sha256": "43c6ace74e816bce1cf96ac33f8e265230e0eeed1305b2dce8d3f8dbec05770d"
     },
     {
       "section": "ExtendedUnrar_OPTIONS",
@@ -521,7 +521,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "b19ae4f1d661fa61575be4670ba361459e890ce2b9909e2180831059b9692845"
+      "sha256": "f6c3072ce950a3c0f0bce8af8c6e04fa97780289e242855a9b9077036837da6b"
     },
     {
       "section": "PermissionFix_OPTIONS",
@@ -535,7 +535,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "57e2f864b70012ab4305e4249eff5eb2e98eaec9fe18758b4beecec389ad9577"
+      "sha256": "ea08bae43b14effe253c46ac1fc56db162dfa98b5fa2b61fcebff75b6df75e8b"
     },
     {
       "section": "Config-Licenses",
@@ -547,7 +547,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "section",
-      "sha256": "ef6f351fc0b0ba22e06afc976ff268eb3c482b8fcd4dc2a1d2a54c1e31f2b3bd",
+      "sha256": "e4a9de25c973c3889ef81e47f67e9f8b9e308e00f2c222f1ec49488579291705",
       "capture_ready": "Selected heading verified, connection healthy; Status waits for loaded system information."
     },
     {
@@ -578,7 +578,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "example",
-      "sha256": "dbae578e3365b0ea8d352b5456c839bb0ea276a17fb71e2229330d46cb066404"
+      "sha256": "e14f51279a7cccd81bd7ab503587b38a78c4ca17efaeb81c4f2ca7200b18d8a3"
     },
     {
       "section": "CATEGORIES",
@@ -596,7 +596,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "example",
-      "sha256": "3b288d68559fdb867685eb19fc74db3a4594f9e69b5f396717bbd0e8fb081341"
+      "sha256": "7fe75e7818f728d148ed98d688a0d88e3584337703df109c313e0dedf8bdcb32"
     },
     {
       "section": "RSS_FEEDS",
@@ -620,7 +620,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "example",
-      "sha256": "f310b616f83c5861e0ccfa8ed11faa23734696d577610bc5aa33265ebf1ff2f2"
+      "sha256": "099d597777c6fcb44b2765884d675defacb24161299215ec558ca056d0dd0c83"
     },
     {
       "section": "SCHEDULER",
@@ -637,7 +637,7 @@
       "textSafe": true,
       "unsafe": [],
       "kind": "example",
-      "sha256": "e90e0726bcb7a83537296a8254119b85eeb9f0a692e4ebb8ccf18674d2484f68"
+      "sha256": "f5dce4ee86455ced15b8b4e3f9bb720d4ea41d22031e5fa5df5c051c8aaf42c8"
     },
     {
       "file": "categories-phone",
@@ -649,7 +649,7 @@
       "fields": [],
       "height": 945,
       "kind": "example",
-      "sha256": "82da08cbc5408175ff16046dd7e959f89a81bf80f391ba75e23b4a6a1f67fe97"
+      "sha256": "67cd6183c4556e9e1bd0e95706953f6a13af6b93ca141af01c9051f116bb5a98"
     },
     {
       "file": "option-help",
@@ -659,9 +659,9 @@
       "textSafe": true,
       "overflow": false,
       "fields": [],
-      "height": 1000,
+      "height": 1100,
       "kind": "example",
-      "sha256": "910f92a72c0682a8004609ee4300c1910d7e42e11a57dcc820a3422dc2b06ea3"
+      "sha256": "f9636659638c205dba0cdaabd47332c53fe524d370b3f14ded23899ade781625"
     },
     {
       "file": "categories-dark",
@@ -673,7 +673,33 @@
       "fields": [],
       "height": 1000,
       "kind": "example",
-      "sha256": "7e816c908529b51982620d18a5f3dda1564528666e7c429c1fb05c99cb7f6db9"
+      "sha256": "8fd3b809559b3b7f2634fec529c7fb3d1b1db78ef1507ac3938eb865d865bc2c"
+    },
+    {
+      "file": "desktop-wide",
+      "section": "CATEGORIES",
+      "width": 1920,
+      "height": 1080,
+      "kind": "example",
+      "unsafe": [],
+      "textSafe": true,
+      "overflow": false,
+      "fields": [],
+      "capture_ready": "Real sanitized dark desktop capture; selected heading and complete content verified.",
+      "sha256": "044b5989026fa4d5c8df3fc35903ffcaa1648ebfad87dfe80bdbe62a55523a27"
+    },
+    {
+      "file": "status-wide",
+      "section": "Config-SystemInfo",
+      "width": 1920,
+      "height": 1080,
+      "kind": "example",
+      "unsafe": [],
+      "textSafe": true,
+      "overflow": false,
+      "fields": [],
+      "capture_ready": "Real sanitized dark desktop capture; selected heading and complete content verified.",
+      "sha256": "12305e259fb257469a991ecb3e3c0608ab4f21f8e79933ed8ac745554bf8c708"
     }
   ]
 }

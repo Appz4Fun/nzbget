@@ -5,6 +5,7 @@ the browser's unsaved configuration, and intercepts `saveconfig` before it reach
 the daemon.
 
 ```sh
+node tests/webui/full-width-layout.js http://127.0.0.1:17689/
 node tests/webui/settings-density.js http://127.0.0.1:17689/
 node tests/webui/settings-lists.js http://127.0.0.1:17689/
 node tests/webui/settings-list-health.js http://127.0.0.1:17689/
@@ -36,3 +37,7 @@ the first phone screen. Desktop retains the full menu in both themes.
 
 The title check returns repeatedly from Paths to all five static Settings pages
 and verifies their localized headings in English, German, and Turkish.
+
+The full-width check compares navigation and content bounds as the desktop window
+grows, verifies Status and Statistics use the available width in both themes,
+and retains the compact category view on a phone.
