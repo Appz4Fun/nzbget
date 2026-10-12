@@ -17,6 +17,16 @@ typedef struct
 	size_t cap;
 } NzbgetRsBuf;
 
+// Stream-repair floor: arrays remain C++ owned and borrowed only during the call.
+// Nonempty arrays are readable/aligned for count entries; empty arrays may be NULL.
+// Probe indexes must identify donor entries. Invalid indexes abort before an
+// out-of-bounds read. Overflowing reference C++ arithmetic is outside parity.
+typedef struct { int64_t offset; int64_t size; } NzbgetRsStreamCompareRange;
+int64_t nzbget_rs_stream_compare_floor(int64_t decoded_size,
+    const NzbgetRsStreamCompareRange* holes, size_t hole_count,
+    const NzbgetRsStreamCompareRange* donors, size_t donor_count,
+    const int32_t* probes, size_t probe_count);
+
 // raw may be NULL (treated as empty); otherwise it must point to a readable
 // NUL-terminated string for the duration of the call. Results own their storage.
 // Allocation failure or a Rust panic aborts; unwinding never crosses this ABI.
@@ -1201,6 +1211,16 @@ int nzbget_rs_dupe_candidate(const char* title, size_t titleLen, uint64_t bytes,
     const char* name, size_t nameLen, uint64_t size);
 int nzbget_rs_dupe_lenient_ok(const char* title, size_t titleLen, const char* mainName, size_t mainLen,
     const NzbgetRsDupeIdentityInput* mine, const NzbgetRsDupeIdentityInput* theirs);
+
+// Stream repair patch selection (rust/src/streampatchparts.rs). Ranges are
+// caller-owned aligned pairs of int64_t offset,size (the native StreamRange
+// representation). Output is caller-owned and writable for donorCount ints;
+// returns the number written, in ascending zero-based index order. No buffers
+// overlap. NULL is allowed for empty slices. donorCount must fit int32_t;
+// endpoint addition and original int index +/- margin overflow are outside the
+// defined C++ parity domain. All sizes and offsets otherwise retain semantics.
+size_t nzbget_rs_stream_patch_parts(const void* donors, size_t donorCount,
+    const void* holes, size_t holeCount, int32_t margin, int32_t* output);
 
 // Dead-posting persistence line parser (rust/src/deadpostings.rs).
 // data points to len bytes, or is null with len zero. visit receives one complete

@@ -152,6 +152,22 @@ fn main() {
     let (classes, lower_table) = c_locale();
     let ct = nzbfile::Ctype { classes: &classes, space: 1, digit: 2, lower: &lower_table, char_signed: true };
 
+    for (n, step, label) in [(8, 4, "small"), (20000, 2000, "sparse"), (20000, 10, "dense")] {
+        let donors: Vec<_> = (0..n).map(|i| nzbget_rs::streampatchparts::Range {
+            offset: i * 700000, size: 700000,
+        }).collect();
+        let holes: Vec<_> = (0..n).step_by(step).map(|i| nzbget_rs::streampatchparts::Range {
+            offset: i * 700000 + 100, size: 20,
+        }).collect();
+        bench(&format!("streampatchparts/{label} {n} donors"), &mut || {
+            let mut output = vec![0; donors.len()];
+            let len = nzbget_rs::streampatchparts::select(
+                black_box(&donors), black_box(&holes), 2, &mut output);
+            output.truncate(len);
+            black_box(output);
+        });
+    }
+
     // text and search helpers
     let haystack: Vec<u8> = (0..1 << 20).map(|_| b'a' + (rng.next() % 20) as u8).collect();
     bench("bytes/find a miss in 1 MiB", &mut || {
@@ -315,6 +331,20 @@ fn main() {
     });
     bench("dupewatch/partial health", &mut || {
         black_box(nzbget_rs::dupewatch::effective_alive(black_box(13),0,0,3,10));
+    });
+
+    // Stream comparison floor: regression metrics; end-to-end C++ caller qualification
+    // is in rust/tests/streamcompare_differential.py, including fair C++ controls.
+    use nzbget_rs::streamcompare::{required_compare_floor, Range as CompareRange};
+    let donors = [CompareRange { offset: 0, size: 1024 * 1024 }, CompareRange { offset: 1024 * 1024, size: 1024 * 1024 }];
+    let sparse: Vec<CompareRange> = (0..1024).map(|i| CompareRange { offset: i * 2048, size: 16 }).collect();
+    bench("streamcompare/empty", &mut || { black_box(required_compare_floor(black_box(100000), &[], &[], &[])); });
+    bench("streamcompare/two probes sparse 1024 holes", &mut || {
+        black_box(required_compare_floor(black_box(2 * 1024 * 1024), black_box(&sparse), black_box(&donors), black_box(&[0, 1])));
+    });
+    let reversed = [CompareRange { offset: 500, size: -100 }];
+    bench("streamcompare/reversed hole", &mut || {
+        black_box(required_compare_floor(black_box(100000), black_box(&reversed), black_box(&donors), black_box(&[0, 0])));
     });
 
     // Bencher Metric Format
