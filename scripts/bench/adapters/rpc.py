@@ -50,6 +50,8 @@ MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_FIXTURES = 64
 MAX_ROWS = 100000
 MAX_PROCESSES = 128
+RETAINED_ARCHIVES = ("source.raw", "source-manifest.raw", "legacy-evidence.json")
+OWNED_EXPORTS = ("adapter-status.json", "manifest.json", "samples.jsonl")
 
 
 def unique_object(pairs):
@@ -337,14 +339,64 @@ def check_paths(manifest, source, output):
                 raise ValueError("input/output alias collision")
 
 
+def retained_archive_inventory(output):
+    """Inventory every existing archive entry, traversal, target and inode."""
+    budget = {"steps": 0, "links": 0}
+    destination, _ = bounded_path_traversal(output, budget)
+    paths, inodes, present = set(), set(), set()
+    for name in RETAINED_ARCHIVES:
+        archive = destination / name
+        if not (archive.exists() or archive.is_symlink()):
+            continue
+        present.add(archive)
+        target, entries = bounded_path_traversal(archive, budget)
+        paths.update((archive, target, *entries))
+    for entry in paths:
+        try:
+            info = os.lstat(entry)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        inodes.add((info.st_dev, info.st_ino))
+    return {"destination": destination, "paths": paths, "inodes": inodes,
+            "present": present, "budget": budget}
+
+
+def protected_export(output, name, inventory):
+    """Do not unlink or write an archive backing or traversed link entry."""
+    entry = inventory["destination"] / name
+    if entry in inventory["paths"]:
+        return True
+    if not (entry.exists() or entry.is_symlink()):
+        return False
+    target, _ = bounded_path_traversal(entry, inventory["budget"])
+    if target in inventory["paths"]:
+        return True
+    for path in (entry, target):
+        try:
+            info = os.lstat(path)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        if (info.st_dev, info.st_ino) in inventory["inodes"]:
+            return True
+    return False
+
+
 def clear_owned_exports(output):
     marker = output / "adapter-status.json"
     try:
+        inventory = retained_archive_inventory(output)
+        protected = {name for name in OWNED_EXPORTS if protected_export(output, name, inventory)}
+        # A retained raw alias may use the marker itself or a directory link in
+        # its traversal. Preserve that entry even when it contains old READY.
+        if "adapter-status.json" in protected:
+            return
         if marker.is_symlink() or load_json(bounded_read(marker, MAX_MANIFEST_BYTES)).get("adapter") != "rpc":
             return
         # Remove the READY marker first, even if another generated artifact
         # was damaged into a directory that cannot safely be unlinked.
-        for name in ["adapter-status.json", "manifest.json", "samples.jsonl"]:
+        for name in OWNED_EXPORTS:
+            if name in protected:
+                continue
             try:
                 (output / name).unlink(missing_ok=True)
             except OSError:
@@ -380,10 +432,16 @@ def main(argv=None):
                 if qualification["status"] == "HOLD":
                     result["status"] = "HOLD"
                     result["reasons"].extend(qualification["reasons"])
-        clear_invalid = False
         output = args.output_dir
+        # Recheck the complete retained graph before refusing a reuse or
+        # creating an export. Protection failures must precede any cleanup.
+        inventory = retained_archive_inventory(output)
+        for name in OWNED_EXPORTS:
+            if protected_export(output, name, inventory):
+                raise ValueError("retained archive protects export entry; use a fresh output directory")
         if output.exists():
             raise ValueError("output-dir already exists; immutable evidence is not overwritten")
+        clear_invalid = False
         output.parent.mkdir(parents=True, exist_ok=True)
         temp = Path(tempfile.mkdtemp(prefix=".rpc-adapter-", dir=output.parent))
         (temp / "source.raw").write_bytes(source)
@@ -408,7 +466,7 @@ def main(argv=None):
     except (OSError, ValueError, TypeError, OverflowError, RecursionError) as error:
         if clear_invalid:
             clear_owned_exports(args.output_dir)
-        print(f"rpc adapter: {error}", file=sys.stderr)
+        print(f"rpc adapter: HOLD: {error}", file=sys.stderr)
         return 2
     finally:
         if temp is not None:
