@@ -83,7 +83,7 @@ Immediate held work: PR #80 native duplicate watcher has unresolved correctness 
 
 ## Project constraints
 
-- Follow `docs/AI_POLICY.md`, `docs/EVIDENCE_WORKFLOW.md`, `docs/BENCHMARK_AGENT_PROCEDURES.md`, `docs/RUST_CONVERSION_PROCEDURES.md`, and `docs/DEPLOYMENT_AGENT_PROCEDURES.md`.
+- Follow the current `AGENTS.md`, PR template, `docs/EVIDENCE_WORKFLOW.md`, `docs/BENCHMARK_AGENT_PROCEDURES.md`, `docs/RUST_CONVERSION_PROCEDURES.md`, and `docs/DEPLOYMENT_AGENT_PROCEDURES.md`. Canonical commit `7d3d6412` removed `docs/AI_POLICY.md`; do not impose the superseded policy on new PRs.
 - Heavy compilation and Rust validation belong on the designated remote worker; obey the shared lock order, assigned job cap, and evidence retention rules.
 - Do not run unapproved profiling/benchmark payloads, alter a frozen plan to make it pass, delete prior evidence, or infer deployment from source integration.
 - Keep signed identity, fresh-base integration, current-head review, CI, deployment authorization, installed binary identity, and live checks as separate gates.

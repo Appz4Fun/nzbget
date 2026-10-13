@@ -13,7 +13,7 @@ Source file checkboxes record deletion after replacement and integration, not in
 - [x] Confirm `dupe-article-fallback` as the user-approved target; `master` and `main` do not exist in this remote.
 - [x] Capture a source inventory over every daemon C++ file and Rust source module with immutable Git blob identities.
 - [x] Ask current source/integration owners for the single worker scheduler, reserved lanes, holds, and largest measured opportunities.
-- [ ] Receive scheduling ownership and a concrete nonoverlapping runtime task.
+- [x] Receive scheduling ownership and a concrete nonoverlapping runtime task: the article decode/CRC/write data-plane comparison described below.
 - [x] Map all 36 source-level Rust-backed caller boundaries, retained C++ work and build/bypass guards; classify the 11 exports without call-shaped references.
 - [x] Audit linked C++ dependency targets, verify pinned RapidYenc/PAR2 source identities, and identify remaining platform/package surfaces without claiming native execution.
 - [ ] Confirm compiled Rust route coverage on representative offline daemon fixtures.
@@ -24,6 +24,14 @@ Source file checkboxes record deletion after replacement and integration, not in
 Source boundary details and partial-check coverage gaps are in [BOUNDARY_MAP.md](rust-migration/BOUNDARY_MAP.md).
 
 Linked dependencies and final package/platform retirement gates are in [DEPENDENCY_RETIREMENT.md](rust-migration/DEPENDENCY_RETIREMENT.md).
+
+## Assigned first comparison boundary
+
+The integration coordinator assigned this lane the real `ArticleDownloader` decode/check/write path and `ArticleWriter` allocation, buffer copy, cache/disk output and cleanup. The first deliverable is an isolated source-bound parity/benchmark harness and a bounded worker payload; production changes wait for initial measurements. Preserve the existing Rust decoder independently, including its native RapidYenc callbacks, and compare original and equivalently improved C++ using fixed tiny, normal and large offline articles. Observe complete decoded bytes, CRC, partial-output/failure behavior and actual boundary hits before timing. A direct decoder kernel cannot qualify the complete article caller.
+
+The existing scheduling owner controls worker admission. Heavy builds, correctness runs and profiling require the exact payload and coordinator grant. Health/NNTP scheduling, recovery geometry/matching/pinned donor state and PAR work remain with their current owners. This assignment does not clear their holds or establish a Rust speedup.
+
+Ruling: execute the approved differential-benchmark plan through an isolated harness first; do not infer a production replacement from a kernel result or change production source before the assigned initial measurement identifies a slice.
 
 ## Initial investigation priority
 
@@ -421,8 +429,8 @@ Linked dependencies and final package/platform retirement gates are in [DEPENDEN
 - [ ] Audit Objective-C/platform wrappers, packaging, installer entry points, and cross-compilation support; record every retained non-Rust surface and resolve it against the full migration objective.
 - [ ] Prove final source inventory and runtime build contain no remaining application C++ or C++ dependencies covered by the objective.
 
-## Holds and pending policy questions
+## Remaining holds and current contribution policy
 
 - The 2x hard floor against both original and equally improved C++ cannot be presumed for every routine. A failed gate keeps that candidate open; it must not be marked migrated or replaced by an indefinitely retained fallback.
 - Deferred PR #80/#86/#87/#91/#93 validation and backend holds are preserved. A new default source tree requires fresh applicability/lineage decisions.
-- `docs/AI_POLICY.md` requires human-authored PR descriptions and human testing before submission. Prepare exact artifacts and validation first; obtain the contributor-authored template text at PR submission without writing it for them.
+- Canonical commit `7d3d6412` removed `docs/AI_POLICY.md` and its references from `AGENTS.md` and the PR template. The earlier human-authored-description/testing restriction is superseded; new PRs follow the current template, evidence requirements and both Codex review gates.
