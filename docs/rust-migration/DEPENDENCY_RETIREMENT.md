@@ -14,6 +14,8 @@ The fetched library and nested GF16/hasher CMake identities above are checked ag
 
 Both native libraries are wired into POSIX builds through `cmake/posix.cmake` and Windows through `cmake/windows.cmake`. POSIX PAR inclusion depends on enabled PAR checking; this conditional path is not permission to remove PAR support to satisfy migration. The Windows build currently includes the PAR target directly. Preserve required target configurations and record actual enabled-library hit counts in future correctness fixtures.
 
+RapidYenc also remains a dependency of the generated C++ decoder oracle in `rust/tests/decoder_differential.py`: its emitted code calls native CRC and decode/CRC initialization, and its build links the native libraries. The source record distinguishes these three generated-harness call references from the nine calls in five daemon/test C++ files. Preserve the oracle and its source/fixture evidence, carry its contracts into independent Rust regressions, then retire the emitted C++ and native-link path before removing the library. A retained Python driver that compiles C++ is still part of the C++ retirement audit.
+
 The pinned `rust-par2` repository at `dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf` has no directly listed C/C++ source or `build.rs` in its complete returned source tree. This narrow observation does not qualify its PAR behavior, transitively linked code, archive contents, or performance; those checks stay open.
 
 ## Other foreign-code and packaged surfaces

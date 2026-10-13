@@ -28,7 +28,8 @@
     "platforms/macos/PreferencesDialog.m": "ae53a6203fcea72c6e24ccc4f203ad2a8cf0c3db",
     "platforms/macos/RPC.m": "a6afd05ed5884b440c993ab0c190d606e2bc9c04",
     "platforms/macos/WebClient.m": "b2bf1a056cdc94439024fd15ec1d4499e8001c59",
-    "platforms/macos/WelcomeDialog.m": "98358f24c745bffb27bd4ba2bdd07e19a340f840"
+    "platforms/macos/WelcomeDialog.m": "98358f24c745bffb27bd4ba2bdd07e19a340f840",
+    "rust/tests/decoder_differential.py": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -300,7 +301,8 @@
           "symbol": "rapidyenc_crc_init"
         }
       ],
-      "retirement_contract": "Replace decode/CRC startup initialization with qualified Rust backend/CPU dispatch initialization before removing native init calls."
+      "retirement_contract": "Replace decode/CRC startup initialization with qualified Rust backend/CPU dispatch initialization before removing native init calls.",
+      "consumer_type": "native C++ source"
     },
     {
       "path": "daemon/nntp/Decoder.cpp",
@@ -319,7 +321,8 @@
           "symbol": "rapidyenc_decode_incremental"
         }
       ],
-      "retirement_contract": "Preserve incremental native decode, callback ABI, state/ownership and CRC behavior before replacing callbacks/backend."
+      "retirement_contract": "Preserve incremental native decode, callback ABI, state/ownership and CRC behavior before replacing callbacks/backend.",
+      "consumer_type": "native C++ source"
     },
     {
       "path": "daemon/system/SystemInfo.cpp",
@@ -330,7 +333,8 @@
           "symbol": "rapidyenc_version"
         }
       ],
-      "retirement_contract": "Preserve user-visible backend/version reporting under an explicitly reviewed replacement contract; remove RAPIDYENC_VERSION guard and native version call only with that replacement, avoiding a missing field or stale label."
+      "retirement_contract": "Preserve user-visible backend/version reporting under an explicitly reviewed replacement contract; remove RAPIDYENC_VERSION guard and native version call only with that replacement, avoiding a missing field or stale label.",
+      "consumer_type": "native C++ source"
     },
     {
       "path": "daemon/util/Util.cpp",
@@ -341,7 +345,28 @@
           "symbol": "rapidyenc_crc"
         }
       ],
-      "retirement_contract": "Preserve native CRC byte/update contract and its callers before retiring the backend."
+      "retirement_contract": "Preserve native CRC byte/update contract and its callers before retiring the backend.",
+      "consumer_type": "native C++ source"
+    },
+    {
+      "path": "rust/tests/decoder_differential.py",
+      "git_blob": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+      "calls": [
+        {
+          "line": 66,
+          "symbol": "rapidyenc_crc"
+        },
+        {
+          "line": 215,
+          "symbol": "rapidyenc_decode_init"
+        },
+        {
+          "line": 216,
+          "symbol": "rapidyenc_crc_init"
+        }
+      ],
+      "retirement_contract": "Preserve the original C++ decoder oracle, source/fixture evidence and differential contracts; translate assertions into independent Rust regressions, then retire the emitted C++/compiler/native library-link path before removing RapidYenc. Source presence is not current build readiness or performance proof.",
+      "consumer_type": "generated C++ differential harness"
     },
     {
       "path": "tests/main.cpp",
@@ -356,7 +381,8 @@
           "symbol": "rapidyenc_crc_init"
         }
       ],
-      "retirement_contract": "Carry native backend fixture initialization and regression contracts into the Rust test setup before retiring C++ harness/init calls."
+      "retirement_contract": "Carry native backend fixture initialization and regression contracts into the Rust test setup before retiring C++ harness/init calls.",
+      "consumer_type": "native C++ source"
     }
   ],
   "macos_objective_c_applications": [
@@ -410,5 +436,6 @@
       "native_platform_validation": "pending"
     }
   ],
-  "supplementary_caller_platform_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+  "supplementary_caller_platform_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+  "rapidyenc_direct_caller_scope": "Lexical native API call references in tracked daemon/tests/rust/scripts/lib/platforms sources at the supplementary audit commit. Includes emitted C++ in the Python decoder oracle; does not prove compiled route coverage or execution."
 }
