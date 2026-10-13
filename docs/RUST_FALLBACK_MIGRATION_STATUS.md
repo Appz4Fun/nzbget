@@ -61,3 +61,15 @@ Next-stage donor-state contracts are authored in `rust/src/articlefallback.rs` (
 - Pending joint purge contract is documented in the spec and accepted in source-only coordination: new persisted daemon generation/validated binding, durable intent, separate cancel versus drain/cleanup acknowledgements, no waits/callbacks under locks, no stale commit or guessed family. No shared lifecycle code implements that proposal yet.
 
 Next: local Codex review of this owner, Rust donor identity/matching, then full recovery caller integration with the approved generation/cancellation handoff. Native complete-caller speed and supported-platform/full-Cargo/runtime/live gates remain open. No production C++ replacement has been removed or milestone PR opened.
+
+## Donor matcher foundation
+
+- Restored missing managed checkout from pushed ff5df91f; the primary rust-posting checkout was preserved. Uncommitted matcher recovered from its retained test-source snapshot, without recreating already-pushed work.
+- `rust/src/articleidentity.rs` owns complete donor-file selection, sparse/duplicate-part structural comparison, declared part-count parsing, and size-step match/FNV hash. Known content authority is supplied by the existing validated content owner; metadata heuristics are not checksum proof.
+- Full `std::string` authority checks versus C-string filename comparison are distinct. Empty/dash sentinel regressions and embedded-NUL authority regressions were observed RED then corrected GREEN.
+- **15/15** bounded single-file Rust1.99 Mac tests passed; **20,000** exact historical C++/Rust matcher fixtures passed on Mac. Six copied source bodies are guarded by `articleidentity_oracle_guard.py`.
+- An independent local Codex reviewer found no actionable defined-domain semantic regression and explicitly left locale capture/integration, native worker/full Cargo/caller/performance/live gates unproven.
+- The current host locale fold/whitespace tables must be supplied to the production matcher; ASCII/C-locale wrappers are for standalone fixtures. Source integer/endpoint overflow outside the C++ defined domain is handled conservatively and not labeled C++ parity.
+- Local Docker startup failed even for an empty container; source-build and startup timeouts are preserved separately, owned containers removed. Light dependency-free single-file Mac validation continued, without Cargo builds or performance measurements. The shared worker is disconnected and its last build outcome is unknown; no native stage or replacement was inferred complete.
+
+Next runtime milestone remains actual article recovery-caller integration and source-bound original/fair C++/Rust benchmarking, then Linux/full build/offline/live qualification, removal of replaced C++, local and final-head PR Codex review and signed integration. No production C++ algorithm has been deleted or Runtime PR accepted from these foundation tests.

@@ -57,3 +57,5 @@ pub mod dupewatch;
 pub mod articlegeometry;
 
 pub mod articlefallback;
+
+pub mod articleidentity;
