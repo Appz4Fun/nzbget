@@ -326,31 +326,15 @@
 					<button class="btn btn-default" onclick="Upload.addClick()" data-i18n-title="btn_add_title" data-i18n-title-arg-1="[A]"><i class="material-icon">add</i><span class="btn-caption" data-i18n="btn_add"></span></button>
 				</div>
 
-				<!-- NZB-ACTIONS BUTTONS -->
+				<!-- DOWNLOAD ACTIONS -->
 				<div class="btn-group phone-hide">
-					<button class="btn btn-default" onclick="Downloads.editClick()" data-i18n-title="btn_edit_title" data-i18n-title-arg-1="[Enter]"><i class="material-icon">edit</i><span class="btn-caption" data-i18n="btn_edit"></span></button>
-					<button class="btn btn-default" onclick="Downloads.mergeClick()" data-i18n-title="btn_merge_title" data-i18n-title-arg-1="[M]"><i class="material-icon">merge</i><span class="btn-caption" data-i18n="btn_merge"></span></button>
 					<button class="btn btn-default" onclick="Downloads.pauseClick()" data-i18n-title="btn_pause_title" data-i18n-title-arg-1="[P]"><i class="material-icon">pause</i><span class="btn-caption" data-i18n="btn_pause"></span></button>
 					<button class="btn btn-default" onclick="Downloads.resumeClick()" data-i18n-title="btn_resume_title" data-i18n-title-arg-1="[R]"><i class="material-icon">play_arrow</i><span class="btn-caption" data-i18n="btn_resume"></span></button>
 					<button class="btn btn-default" onclick="Downloads.deleteClick()" data-i18n-title="btn_delete_title" data-i18n-title-arg-1="[D]"><i class="material-icon">delete</i><span class="btn-caption" data-i18n="btn_delete"></span></button>
 				</div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.editClick()" data-i18n-title="btn_edit_title" data-i18n-title-arg-1=""><i class="material-icon">edit</i><span class="btn-caption" data-i18n="btn_edit"></span></button></div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.mergeClick()" data-i18n-title="btn_merge_title" data-i18n-title-arg-1=""><i class="material-icon">merge</i><span class="btn-caption" data-i18n="btn_merge"></span></button></div>
 				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.pauseClick()" data-i18n-title="btn_pause_title" data-i18n-title-arg-1=""><i class="material-icon">pause</i><span class="btn-caption" data-i18n="btn_pause"></span></button></div>
 				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.resumeClick()" data-i18n-title="btn_resume_title" data-i18n-title-arg-1=""><i class="material-icon">play_arrow</i><span class="btn-caption" data-i18n="btn_resume"></span></button></div>
 				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.deleteClick()" data-i18n-title="btn_delete_title" data-i18n-title-arg-1=""><i class="material-icon">delete</i><span class="btn-caption" data-i18n="btn_delete"></span></button></div>
-
-				<!-- MOVE BUTTONS -->
-				<div class="btn-group phone-hide">
-					<button class="btn btn-default" onclick="Downloads.moveClick('top')" data-i18n-title="btn_move_top_title" data-i18n-title-arg-1="[T]"><i class="material-icon">vertical_align_top</i></button>
-					<button class="btn btn-default" onclick="Downloads.moveClick('up')" data-i18n-title="btn_move_up_title" data-i18n-title-arg-1="[U]"><i class="material-icon">north</i></button>
-					<button class="btn btn-default" onclick="Downloads.moveClick('down')" data-i18n-title="btn_move_down_title" data-i18n-title-arg-1="[N]"><i class="material-icon">south</i></button>
-					<button class="btn btn-default" onclick="Downloads.moveClick('bottom')" data-i18n-title="btn_move_bottom_title" data-i18n-title-arg-1="[B]"><i class="material-icon">vertical_align_bottom</i></button>
-				</div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.moveClick('top')" data-i18n-title="btn_move_top_title" data-i18n-title-arg-1=""><i class="material-icon">vertical_align_top</i></button></div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.moveClick('up')" data-i18n-title="btn_move_up_title" data-i18n-title-arg-1=""><i class="material-icon">north</i></button></div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.moveClick('down')" data-i18n-title="btn_move_down_title" data-i18n-title-arg-1=""><i class="material-icon">south</i></button></div>
-				<div class="btn-group phone-only inline"><button class="btn btn-default" onclick="Downloads.moveClick('bottom')" data-i18n-title="btn_move_bottom_title" data-i18n-title-arg-1=""><i class="material-icon">vertical_align_bottom</i></button></div>
 
 				<div class="btn-group" id="RssMenuBlock">
 					<button class="btn btn-default dropdown-toggle" data-toggle="dropdown" data-i18n-title="menu_rss_feeds"><i class="material-icon">rss_feed</i><span class="btn-caption" data-i18n="btn_rss_feeds"></span> <span class="phone-only inline">&nbsp;</span><span class="caret"></span></button>
@@ -365,25 +349,25 @@
 				<div class="btn-group phone-only inline" id="DownloadsRecordsPerPageBlockPhone">
 				</div>
 
+				<div class="form-inline toolbox-top clearfix" id="DownloadsTableTopBlock">
+					<div class="pull-left toolbox-length" id="DownloadsRecordsPerPageBlock">
+						<select size="1" id="DownloadsRecordsPerPage" onchange="Downloads.recordsPerPageChange()">
+							<option value="5">5</option>
+							<option selected="selected" value="10">10</option>
+							<option value="15">15</option>
+							<option value="20">20</option>
+							<option value="30">30</option>
+							<option value="50">50</option>
+							<option value="100">100</option>
+						</select><span class="records-label" data-i18n="records_per_page"></span>
+					</div>
+
+					<div class="pagination pull-right"><ul id="DownloadsTable_pager"></ul></div>
+				</div>
+
 			</div>
 
 <!-- *** DOWNLOADS: TABLE -->
-
-			<div class="form-inline toolbox-top clearfix" id="DownloadsTableTopBlock">
-				<div class="pull-left toolbox-length" id="DownloadsRecordsPerPageBlock">
-					<select size="1" id="DownloadsRecordsPerPage" onchange="Downloads.recordsPerPageChange()">
-						<option value="5">5</option>
-						<option selected="selected" value="10">10</option>
-						<option value="15">15</option>
-						<option value="20">20</option>
-						<option value="30">30</option>
-						<option value="50">50</option>
-						<option value="100">100</option>
-					</select><span class="records-label" data-i18n="records_per_page"></span>
-				</div>
-
-				<div class="pagination pull-right"><ul id="DownloadsTable_pager"></ul></div>
-			</div>
 
 			<table class="table table-striped table-bordered table-check table-cancheck table-drag datatable" id="DownloadsTable">
 				<thead>
@@ -617,11 +601,6 @@
 							</li>
 							<li class="config-static"><a class="text-uppercase" href="#Config-System" data-i18n="nav_system"></a></li>
 						</ul>
-						<div class="visible-desktop">
-							<div class="config-save-desktop">
-								<button type="button" class="btn btn-primary" id="Config_Save" onclick="Config.saveChanges()" data-i18n="btn_save_all_changes"></button>
-							</div>
-						</div>
 					</div>
 
 					<div class="config__main">
@@ -631,6 +610,10 @@
 									<span id="ConfigTitleStatus" style="font-size: initial;"></span>
 								</div>
 									
+								<div class="config-header-actions">
+									<div class="visible-desktop">
+										<button type="button" class="btn btn-primary" id="Config_Save" onclick="Config.saveChanges()" data-i18n="btn_save_all_changes"></button>
+									</div>
 								<div class="btn-group pull-right">
 									<a class="btn dropdown-toggle" id="Config_ViewButton" data-toggle="dropdown"><span data-i18n="btn_view"></span> <span class="caret"></span></a>
 									<ul class="dropdown-menu footer-button-menu" id="Config_ViewMenu">
@@ -638,6 +621,7 @@
 											<li><a href="#" id="Config_ViewCompact" onclick="Config.viewMode()"><i class="material-icon">done</i> <span data-i18n="menu_compact_mode"></span></a></li>
 										</ul>
 									</div>
+								</div>
 								</div>
 
 								<div id="ConfigInfo">

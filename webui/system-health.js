@@ -142,7 +142,8 @@ var SystemHealth = (new function ($) {
 	var $ConfigTitleStatus;
 	var $SystemInfo_Health;
 	var $SystemInfoNavBtnBadge;
-	var sectionsReport = {};
+	// Settings can render before the first asynchronous health reply arrives.
+	var sectionsReport = new HealthReport();
 	var alertsReport = {};
 	var healthCheckEnabled = true;
 	this.SEVERITY = {
@@ -171,6 +172,7 @@ var SystemHealth = (new function ($) {
 					sectionsReport = makeHealthReport(health["Sections"]);
 					redrawGlobalBadges(alertsReport, sectionsReport);
 					redraw(alertsReport);
+					Config.refreshHealth();
 				},
 				function(err)
 				{
