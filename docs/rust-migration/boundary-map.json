@@ -1,0 +1,690 @@
+{
+  "boundaries": [
+    {
+      "boundary_id": "B01",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "ecde8c8f76d065d66df9f944f9b7d68c04e2766f",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/connect/WebDownloader.cpp",
+      "cpp_work_retained": "Connection I/O, body/file writes, warnings and downloader lifecycle",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/webdownload_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/webdownload.rs",
+        "rust/src/url.rs"
+      ],
+      "rust_work_in_current_source": "HTTP response/header/redirect decisions"
+    },
+    {
+      "boundary_id": "B02",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "1ed8a4cea42c5d127c42406970d96d6b9ef0c3fb",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/DeadPostings.cpp",
+      "cpp_work_retained": "File reads, mutex-protected records, prune/save and time handling",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/deadpostings_cpp_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/deadpostings.rs"
+      ],
+      "rust_work_in_current_source": "Persisted-record text parsing"
+    },
+    {
+      "boundary_id": "B03",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "ea68972da8e8dbc2db5c3c295235526840f1367f",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/DonorScore.cpp",
+      "cpp_work_retained": "C++ donor snapshots/results and Ranks caller",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/donorscore_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/donorscore.rs"
+      ],
+      "rust_work_in_current_source": "Base/target scores and reranking"
+    },
+    {
+      "boundary_id": "B04",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "ca73204fe907c17d928645bb2419721ad59c8717",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/DupeIdentity.cpp",
+      "cpp_work_retained": "Article transport, C++ metadata, health snapshots and caller decisions; no-Rust identity/PAR features are stubs, with simplified matching/health fallbacks, not equivalent controls",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/dupeidentity_differential.py",
+      "non_rust_fallback_equivalence": "not equivalent for identity extraction/fetch/PAR decisions and conservative matching/health logic",
+      "non_rust_feature_availability": "FromArticle/Read return empty identities; FetchArticle returns empty result; UnlistedMissing returns zero; ParDoomed returns false; health/matching paths use simplified legacy fallbacks",
+      "rust_paths": [
+        "rust/src/dupeidentity.rs",
+        "rust/src/dupewatch.rs",
+        "rust/src/twin.rs",
+        "rust/src/releasename.rs"
+      ],
+      "rust_work_in_current_source": "Inner identity and conservative health/PAR decisions"
+    },
+    {
+      "boundary_id": "B05",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "cf6f7129c7b1ed805a8934f56182630e17b9662b",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/DupeSearch.cpp",
+      "cpp_work_retained": "Queue/history locks, searches, transport, caching, state/progress writes and failover orchestration; Rust-dependent native preparation/ranking/Expand features are absent without Rust, not equivalent legacy controls",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/dupewatch_cpp_differential.py",
+      "non_rust_fallback_equivalence": "not equivalent for native preparation/ranking and expanded duplicate identity/PAR search work",
+      "non_rust_feature_availability": "PrepareNative returns false, native duplicate ranking notification work is omitted, and Expand body is compiled out without Rust; legacy search work remains",
+      "rust_paths": [
+        "rust/src/dupewatch.rs",
+        "rust/src/releasename.rs"
+      ],
+      "rust_work_in_current_source": "Watch/stamp decision, broader query text and expansion decision"
+    },
+    {
+      "boundary_id": "B06",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "959bdd76e70f1df6aa65e339da45cb88362ea4ba",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/NzbFetcher.cpp",
+      "cpp_work_retained": "HTTP fetch, admission/cooldown persistence, donor-health checks and C++ stats",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/src/dupewatch.rs",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/dupewatch.rs"
+      ],
+      "rust_work_in_current_source": "Shared atomic HTTP fetch budget"
+    },
+    {
+      "boundary_id": "B07",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "77bbe9f570344440f5511a34e821300b33f0d6f4",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/NzbReader.cpp",
+      "cpp_work_retained": "libxml2 XML parse, C++ summary ownership and transport caller",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/dupesearch_nzb/README.md",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/dupesearch_nzb.rs",
+        "rust/src/dupewatch.rs"
+      ],
+      "rust_work_in_current_source": "Subject/PAR-name classification and part geometry"
+    },
+    {
+      "boundary_id": "B08",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "8388ded0dc3ef17f0a2b5deb6c81f81d7d111f0f",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/Posting.cpp",
+      "cpp_work_retained": "SketchOfFile I/O/cache/mutex, input/output conversions and listing ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/posting_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/posting.rs"
+      ],
+      "rust_work_in_current_source": "Sketches, comparisons, grouping and ordering"
+    },
+    {
+      "boundary_id": "B09",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "eb61125e7f7afcd0d27dbed7425013d0fcfe2d66",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/dupesearch/ReleaseName.cpp",
+      "cpp_work_retained": "C++ string allocation and conversion of serialized attributes to sets/vectors",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/releasename_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/releasename.rs"
+      ],
+      "rust_work_in_current_source": "Clean/normalize/parse/compatibility routines"
+    },
+    {
+      "boundary_id": "B10",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "703498f5e02ba61a0b7cb7c76b662b36f2be6bc2",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/extension/ExtensionLoader.cpp",
+      "cpp_work_retained": "Script discovery, C++ line-read callback, item copies and extension registry",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/extload_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/extload.rs"
+      ],
+      "rust_work_in_current_source": "V1 script header parsing"
+    },
+    {
+      "boundary_id": "B11",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "348206c63fa0b0a92fd135701cef0004176ff8a0",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/extension/ManifestFile.cpp",
+      "cpp_work_retained": "C++ file read, copy callback, object containers and exception translation",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/manifest_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/manifest.rs",
+        "rust/src/json.rs"
+      ],
+      "rust_work_in_current_source": "Manifest JSON grammar and interpretation"
+    },
+    {
+      "boundary_id": "B12",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "255b7647abf170a1efa80415992de5eeb9a9b910",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/feed/FeedFilter.cpp",
+      "cpp_work_retained": "Feed item getter/mutator callbacks, regex engine/capture callbacks, locale folding and filter lifecycle",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/feedfilter_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/feedfilter.rs",
+        "rust/src/wildmask.rs"
+      ],
+      "rust_work_in_current_source": "Filter parse/match decisions"
+    },
+    {
+      "boundary_id": "B13",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "f90b6d4dcec8744b6a8fb50606de49cd059924ba",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/main/CommandLineParser.cpp",
+      "cpp_work_retained": "C++ argv/result ownership and native getopt interface invoked by the Rust parser",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/cmdline_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/cmdline.rs"
+      ],
+      "rust_work_in_current_source": "CLI option/list parse"
+    },
+    {
+      "boundary_id": "B14",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "5403d9243678fc2ca08dcc53c9ebc055acd375cc",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/main/Options.cpp",
+      "cpp_work_retained": "Main configuration loading, validation callbacks, registry and mutation",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/options_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/options.rs"
+      ],
+      "rust_work_in_current_source": "Selected time/day/name/conversion/category routines"
+    },
+    {
+      "boundary_id": "B15",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "03e8362899c34a228b02765027815a7e23642d48",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/main/Scheduler.cpp",
+      "cpp_work_retained": "Snapshot/result adaptation, task execution and scheduler state",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/scheduler_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/scheduler.rs"
+      ],
+      "rust_work_in_current_source": "Task time-matching"
+    },
+    {
+      "boundary_id": "B16",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "e4c19d46945ba132725de3086abd63c2a55048a1",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/nntp/Decoder.cpp",
+      "cpp_work_retained": "Decoder lifecycle adapter, enabled rapidyenc decode/CRC callbacks and downstream article writer",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/decoder_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/decoder.rs"
+      ],
+      "rust_work_in_current_source": "Stateful yEnc/UU/raw protocol processing"
+    },
+    {
+      "boundary_id": "B17",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "714b8bbec8129d6b06645c3dbfbb8e26eef6b93b",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/nntp/NntpConnection.cpp",
+      "cpp_work_retained": "Network/TLS I/O, line-buffer callbacks, reporting and exception translation",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/nntp_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/nntp.rs"
+      ],
+      "rust_work_in_current_source": "Handshake/auth/request/group protocol decisions"
+    },
+    {
+      "boundary_id": "B18",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "7bb6fe192712334790c9483b586049f26bb80170",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/nntp/StatMeter.cpp",
+      "cpp_work_retained": "Stat collection, volume objects, time source, persistence and locks",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/statmeter_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/statmeter.rs"
+      ],
+      "rust_work_in_current_source": "Volume-slot arithmetic and clearing/addition"
+    },
+    {
+      "boundary_id": "B19",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "3ab9a86e10a00ea75ac2da08882b0b916f5a6b6d",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/postprocess/CollectionAnalyzer.cpp",
+      "cpp_work_retained": "Recursive filesystem walk, metadata/error handling, UTF-8 conversion, sniffing and result ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/collection_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/collection.rs",
+        "rust/src/deobfuscation.rs",
+        "rust/src/filetypes.rs",
+        "rust/src/paths.rs"
+      ],
+      "rust_work_in_current_source": "Collection classification, name/rename planning"
+    },
+    {
+      "boundary_id": "B20",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "be931562ddd3d03d89667f55797980ebd4ed3bb2",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/postprocess/ParParser.cpp",
+      "cpp_work_retained": "Filename locale-fold callback and surrounding PAR parser/file ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/parparser_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/parparser.rs"
+      ],
+      "rust_work_in_current_source": "PAR filename and same-collection classification"
+    },
+    {
+      "boundary_id": "B21",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "906947a74a50d374de22f629b3bdaa63eb033e95",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/postprocess/ParRenamer.cpp",
+      "cpp_work_retained": "C++ PAR loading, file/hash callbacks, filesystem mutation, errors and reporting",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/parrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/parrenamer.rs",
+        "rust/src/renameanalyzer.rs",
+        "rust/src/parparser.rs"
+      ],
+      "rust_work_in_current_source": "Rename control decisions"
+    },
+    {
+      "boundary_id": "B22",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "48818d9b8d3c65cf6c517d15f5e24361a9db318b",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/postprocess/RarReader.cpp",
+      "cpp_work_retained": "Content-source reads, OpenSSL decrypt callbacks, C++ file results and exception/cleanup behavior",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/rarreader_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/rarreader.rs"
+      ],
+      "rust_work_in_current_source": "RAR3/RAR5 header interpretation"
+    },
+    {
+      "boundary_id": "B23",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "537840acd6f0510ff739b1864b59fd04d03cbfa9",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/postprocess/RarRenamer.cpp",
+      "cpp_work_retained": "Regex/metadata/filesystem callbacks, C++ result ownership and logging",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/rarrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/rarrenamer.rs"
+      ],
+      "rust_work_in_current_source": "File-set naming and rename selection"
+    },
+    {
+      "boundary_id": "B24",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "919182fba3655135416d67ca88180bc026e04b97",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/Deobfuscation.cpp",
+      "cpp_work_retained": "Rust-result to C++ string ownership and original non-Rust fallback",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/deobfuscation_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/deobfuscation.rs"
+      ],
+      "rust_work_in_current_source": "Obfuscation classification and title transformation"
+    },
+    {
+      "boundary_id": "B25",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "2e872926c88f1f39c2facf5dddc6675b7c966088",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/DirectRenamer.cpp",
+      "cpp_work_retained": "Queue objects, file-existence/hash getters, custom-locale C++ formatting, exception translation and rename events",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/directrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/directrenamer.rs",
+        "rust/src/renameanalyzer.rs"
+      ],
+      "rust_work_in_current_source": "Name selection, classic-locale PAR formatting and content analysis"
+    },
+    {
+      "boundary_id": "B26",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "2b519755e33c5419eb859f0b0a7c3ebb4b4dda06",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/DupeStreamRepair.cpp",
+      "cpp_work_retained": "Small/no-probe/no-hole floor bypasses, remaining range/probe/donor/job logic and C++ buffers",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/streamcompare.md",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/streampatchparts.rs",
+        "rust/src/streamcompare.rs"
+      ],
+      "rust_route_conditions": {
+        "RequiredCompareFloor": {
+          "holes_minimum": 4096,
+          "probe_parts_nonempty": true,
+          "symbol": "nzbget_rs_stream_compare_floor"
+        },
+        "SelectPatchParts": {
+          "donor_ranges_nonempty": true,
+          "holes_nonempty": true,
+          "margin_parts_minimum": 0,
+          "symbol": "nzbget_rs_stream_patch_parts"
+        },
+        "build_guard": "NZBGET_USE_RUST"
+      },
+      "rust_work_in_current_source": "PatchParts for nonempty donor ranges and holes with marginParts >= 0; coverage floor for nonempty probes and at least 4096 holes"
+    },
+    {
+      "boundary_id": "B27",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "9df3eaabed6a01755289465ed3039835b9d03fea",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/NzbFile.cpp",
+      "cpp_work_retained": "libxml2 SAX handlers, queue FileInfo/ArticleInfo objects, subject/password parsing and caller ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/nzbfile_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/nzbfile.rs"
+      ],
+      "rust_work_in_current_source": "Declared parts, per-file totals and duplicate filenames"
+    },
+    {
+      "boundary_id": "B28",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "781ae80e7bd2f2cecf0bb96809d9346a18512582",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/TwinCheck.cpp",
+      "cpp_work_retained": "Queue coordination, article/provider I/O, C++ adapters and failover integration; no-Rust builds omit twin labels/content matching rather than preserving an equivalent C++ implementation",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/src/twin.rs",
+      "non_rust_fallback_equivalence": "not equivalent for twin labels/content matching",
+      "non_rust_feature_availability": "twin labels and content matching disabled; legacy C++ PAR-repair helpers remain",
+      "rust_paths": [
+        "rust/src/twin.rs"
+      ],
+      "rust_work_in_current_source": "PAR/NZB signatures, fingerprints, persisted store and matching"
+    },
+    {
+      "boundary_id": "B29",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "5465c7e6def55e407f598c36692920070004c4ed",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/queue/UrlCoordinator.cpp",
+      "cpp_work_retained": "Downloader lifecycle, queue metadata mutations, URL scheduling and persistence",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/urlcoord_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/urlcoord.rs",
+        "rust/src/text.rs"
+      ],
+      "rust_work_in_current_source": "X-DNZB header normalization and completion status decisions"
+    },
+    {
+      "boundary_id": "B30",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "47b86c48d273c265bc9b8fd0cfdb3df2a26d246a",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/remote/BinRpc.cpp",
+      "cpp_work_retained": "Socket transport, collection under locks, scratch/adapters, command execution and protocol dispatch lifecycle",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/binrpc_lists_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/binrpc.rs"
+      ],
+      "rust_work_in_current_source": "Frame validation and response entry encoding"
+    },
+    {
+      "boundary_id": "B31",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "bd78fba33b06c66d71fe2369b2666adaf233908d",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/remote/RemoteClient.cpp",
+      "cpp_work_retained": "Socket receive, payload lifetime, actual formatted stdio emission and client orchestration",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/binrpc_client_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/binrpc.rs"
+      ],
+      "rust_work_in_current_source": "Queue entry parse and rendered list text"
+    },
+    {
+      "boundary_id": "B32",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "d1a00b23352133e63e3ca29859159544f04caabd",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/remote/WebServer.cpp",
+      "cpp_work_retained": "HTTP I/O/server lifecycle, tokens/config state, static-file/compression/RPC responses and logging",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/webserver_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/webserver.rs"
+      ],
+      "rust_work_in_current_source": "Header/URL/credential/IP checks"
+    },
+    {
+      "boundary_id": "B33",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "cc70a5ba2c29f422edc79cc55bf1522463409c45",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/remote/XmlRpc.cpp",
+      "cpp_work_retained": "C++ command objects, JSON response payload assembly, queue operations and output ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/rpcroute_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/rpcparams.rs",
+        "rust/src/rpcroute.rs",
+        "rust/src/json.rs"
+      ],
+      "rust_work_in_current_source": "Parameter parsing, protocol/routing decisions and response envelope"
+    },
+    {
+      "boundary_id": "B34",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "36ac832bac23bc1d127a6a3052b8398976e353a1",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/util/FileSystem.cpp",
+      "cpp_work_retained": "Native stat ABI callbacks, deletion/rename adapters, unported filesystem operations and Windows fallbacks",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/fsops_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/fsops.rs",
+        "rust/src/fsdelete.rs",
+        "rust/src/paths.rs"
+      ],
+      "rust_work_in_current_source": "Selected POSIX file/path/deletion routines"
+    },
+    {
+      "boundary_id": "B35",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "53f0e1ba0f8cf247e136ce36c983ba0ad16e6814",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/util/FileTypes.cpp",
+      "cpp_work_retained": "C++ sniff-file reads and path/string wrapper ownership",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/filetypes_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/filetypes.rs"
+      ],
+      "rust_work_in_current_source": "Extension/magic classification"
+    },
+    {
+      "boundary_id": "B36",
+      "campaign_performance_qualification": "pending",
+      "compiled_route_coverage": "unknown",
+      "cpp_blob": "49fb66cd9244218c4825e2d77aedc83e31eb1e4d",
+      "cpp_file_deleted": false,
+      "cpp_path": "daemon/util/Util.cpp",
+      "cpp_work_retained": "CString/string adapters, locale callbacks, regex and other unported utility bodies",
+      "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
+      "evidence_type": "source inspection only",
+      "existing_partial_check_entrypoint": "rust/tests/textutil_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "rust_paths": [
+        "rust/src/escape.rs",
+        "rust/src/decode.rs",
+        "rust/src/text.rs",
+        "rust/src/webutil.rs",
+        "rust/src/util.rs",
+        "rust/src/url.rs",
+        "rust/src/wildmask.rs",
+        "rust/src/crc.rs"
+      ],
+      "rust_work_in_current_source": "Selected text/URL/format/wildcard/CRC routines"
+    }
+  ],
+  "compatibility_exports_without_daemon_cpp_call_like_occurrence": {
+    "nzbget_rs_binrpc_encode_history": "Owned-buffer encoder API retained; daemon selects the caller-scratch _into variant.",
+    "nzbget_rs_binrpc_encode_list": "Owned-buffer encoder API retained; daemon selects the caller-scratch _into variant.",
+    "nzbget_rs_binrpc_encode_log": "Owned-buffer encoder API retained; daemon selects the caller-scratch _into variant.",
+    "nzbget_rs_binrpc_encode_post_queue": "Owned-buffer encoder API retained; daemon selects the caller-scratch _into variant.",
+    "nzbget_rs_binrpc_read_files": "Bulk reader API with Rust regression coverage; no direct daemon call identified.",
+    "nzbget_rs_binrpc_read_nzbs": "Bulk reader API with Rust regression coverage; daemon uses the single-entry reader in the current queue-list path.",
+    "nzbget_rs_binrpc_read_params": "Bulk reader API with Rust regression coverage; no direct daemon call identified.",
+    "nzbget_rs_ext_v1_parse": "Buffer parser API retained; daemon selects the callback-based ext_v1_read path.",
+    "nzbget_rs_latin1_to_utf8": "Rust-owned buffer API retained; C++ WebUtil selects the caller-owned _n API, while Rust header callers call text routines directly."
+  },
+  "function_pointer_deleters_without_call_like_occurrence": {
+    "nzbget_rs_ext_v1_free": {
+      "cpp_path": "daemon/extension/ExtensionLoader.cpp",
+      "kind": "C++ function-pointer deleter",
+      "line": 108
+    },
+    "nzbget_rs_rename_analyzer_free": {
+      "cpp_path": "daemon/queue/DirectRenamer.cpp",
+      "kind": "C++ function-pointer deleter",
+      "line": 63
+    }
+  },
+  "method": "Manual caller ownership inspection over the 36 files from the reviewed lexical inventory. Modules listed can include their internal dependencies. This is not a compiler-derived call graph or executed boundary coverage; no speed/deployment claim follows. Correctness-entrypoint availability is source presence only, not an executed check. Listed checks are partial; they do not establish parity for all retained C++ work.",
+  "schema_version": 1,
+  "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
+  "source_inventory_binding": "companion blob in the same reviewed tree",
+  "source_inventory_blob": "d0cff5055f8dfce5f1c763577983252b2401a9ce",
+  "source_inventory_path": "docs/rust-migration/source-inventory.json",
+  "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
+}
