@@ -416,9 +416,25 @@ unsupported scope. Task 1 can document usable contracts while that GAP remains.
 
 ## Preservation, replacement and qualification handoff
 
-Original/current Rust `fsdelete` and `fsops` sources are independently preserved
-and hashed with `FileSystem.cpp`, FFI/header/module registration and their
-existing differential harnesses. `fsops` is Unix gated; filesystem dispatch
+Original/current Rust `fsdelete` and `fsops` baseline hashes were recorded
+with `FileSystem.cpp`, FFI/header/module registration and their existing
+differential harnesses in signed commit `64410656`. The original ignored
+Task 1 source packet, raw checks and bundles became unavailable when the
+original worktree was removed. Its recorded hashes and custody claims remain
+in that immutable commit and the map's `original_capture_claim`; they are
+historical claims, not a statement that the original packet is still held.
+
+A separately labeled retrospective packet reconstructs the 102 enumerated
+source blobs from immutable Git commit `d4842b18`, matches each original
+recorded digest, and rechecks the recorded source anchors. It includes a new
+bounded signed-history bundle with its own hash and prerequisite. These are
+retrospective reconstructions, never the original prospective evidence. The
+map records the reconstruction manifest hash, scope and limitations. A bounded
+availability audit found the older independent source/legacy audits, but no
+independent copy of the original Task 1 packet. The legacy audit's report hash
+still matches; it is source-only evidence, not an ownership catalog.
+
+`fsops` is Unix gated; filesystem dispatch
 also depends on actual build macros. These are live preservation baselines,
 not new purge modules. Preserve wrapper callbacks, bytes, allocation/error,
 logging/flush and embedded-NUL/non-UTF8 behavior at any touched existing caller.

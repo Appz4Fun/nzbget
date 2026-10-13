@@ -8,7 +8,8 @@
     "ref": "refs/heads/dupe-article-fallback",
     "commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
     "observed_date": "2026-10-13",
-    "method": "authenticated ls-remote --symref then credential-helper-overridden fetch; no integration"
+    "method": "authenticated ls-remote --symref then credential-helper-overridden fetch; no integration",
+    "evidence_status": "Historical observation recorded before workspace loss; original command logs unavailable; not refreshed during custody recovery."
   },
   "limits": {
     "seeds": 4096,
@@ -19,7 +20,7 @@
     "identity_bytes": 65535
   },
   "capture": {
-    "provenance": "prospective source preservation; source inspection only, no executable lineage or runtime evidence",
+    "provenance": "retrospective reconstruction after loss of original ignored Task1 packet; not original prospective evidence",
     "per_source_limit_bytes": 2000000,
     "files": [
       {
@@ -533,16 +534,37 @@
         "bytes": 2631
       }
     ],
-    "history_bundle_sha256": "e135dfdff1c8010f5bf87d7787bd37b15751f8a8ca4fbcd1fba1e7e75dc8d31e",
-    "custody": "Controller task workspace task-1-source-capture; repository source remains recoverable from source_commit. No original or adverse evidence was deleted.",
-    "history_bundle_bytes": 24339,
-    "history_bundle_scope": {
-      "commits": [
-        "345097648e26f4758b1b9aad69261dc30dfa621f",
-        "d4842b182efdc13cde1031d6ac8f0b5ba165effc"
-      ],
-      "prerequisite": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
-    }
+    "file_hash_role": "Original recorded source hashes from signed 64410656; independently matched by retrospective reconstruction below.",
+    "original_capture_claim": {
+      "record_commit": "644106564387539f6ccaeba65b6b989f6f4eb290",
+      "provenance": "prospective source preservation; source inspection only, no executable lineage or runtime evidence",
+      "history_bundle_sha256": "e135dfdff1c8010f5bf87d7787bd37b15751f8a8ca4fbcd1fba1e7e75dc8d31e",
+      "custody": "Controller task workspace task-1-source-capture; repository source remains recoverable from source_commit. No original or adverse evidence was deleted.",
+      "history_bundle_bytes": 24339,
+      "history_bundle_scope": {
+        "commits": [
+          "345097648e26f4758b1b9aad69261dc30dfa621f",
+          "d4842b182efdc13cde1031d6ac8f0b5ba165effc"
+        ],
+        "prerequisite": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+      },
+      "availability": "Original packet and raw verification logs unavailable after controller-reported startup cleanup; original claims retained, not asserted as current custody."
+    },
+    "reconstruction": {
+      "packet_label": ".superpowers/sdd/2026-10-13-duplicate-family-purge/task-1-retrospective-recovery-v2",
+      "manifest_sha256": "bd212747a2f93e1cfc13b3b05d88ed4b3551e08d3e16e08aef381f0ce411d800",
+      "source_commit": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+      "file_count": 102,
+      "every_reconstructed_hash_matches_original_record": true,
+      "retrospective_bundle": {
+        "sha256": "58a1a1ab02261f07a87da47cb7314d19d9899b2d74b52f3b1bee3dbf437144f1",
+        "bytes": 52945,
+        "scope": "7d3d6412f93cd43452f1b390b4ed705c7691df54..644106564387539f6ccaeba65b6b989f6f4eb290",
+        "prerequisite": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+      },
+      "provenance": "Generated retrospectively from immutable Git blobs; does not restore original capture/command evidence."
+    },
+    "custody": "Retrospective packet is in the recovered controller task workspace. Signed original 64410656 remains unchanged. Earlier independent legacy audit remains separately available."
   },
   "registration_map": [
     {
@@ -2070,7 +2092,7 @@
         "caller": "daemon/util/FileSystem.cpp",
         "ffi": "rust/src/ffi.rs",
         "header": "rust/include/nzbget_rs.h",
-        "capture_role": "independently retained current/original Rust preservation baseline; not new purge",
+        "capture_role": "Original preservation baseline hash retained from signed 64410656; source bytes retrospectively reconstructed and hash-matched; original Task1 packet unavailable.",
         "validation": "not run"
       },
       {
@@ -2079,7 +2101,7 @@
         "caller": "daemon/util/FileSystem.cpp",
         "ffi": "rust/src/ffi.rs",
         "header": "rust/include/nzbget_rs.h",
-        "capture_role": "independently retained current/original Rust preservation baseline; not new purge",
+        "capture_role": "Original preservation baseline hash retained from signed 64410656; source bytes retrospectively reconstructed and hash-matched; original Task1 packet unavailable.",
         "validation": "not run"
       }
     ],
@@ -2124,7 +2146,7 @@
   ],
   "contract": {
     "path": "docs/dupepurge-contract.md",
-    "sha256": "bc54a4160e48c02dbbbd071a5e50218e61dc8698e443d1d939bcd402795d697f",
+    "sha256": "011cf4f7a5c2f417555e7158eee412a99c8ad4c7015ba67c68e907df900c282f",
     "status": "proposed, not wired or jointly acknowledged"
   }
 }
