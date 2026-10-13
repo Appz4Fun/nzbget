@@ -1,6 +1,6 @@
 {
   "schema": "nzbget.dupepurge.source-map.v1",
-  "status": "source_contract_proposal_pending_joint_declaration_ack",
+  "status": "source_contract_source_only_acknowledged_with_required_barrier_clarification",
   "source_commit": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
   "approved_spec_commit": "345097648e26f4758b1b9aad69261dc30dfa621f",
   "fresh_default": {
@@ -2111,9 +2111,27 @@
     }
   },
   "declaration_ack": {
-    "root": "pending exact declaration acknowledgment",
-    "fallback_owner": "pending exact declaration acknowledgment",
-    "runtime_edits_authorized_by_this_artifact": false
+    "root": {
+      "status": "source_only_acknowledged",
+      "subject_commit": "644106564387539f6ccaeba65b6b989f6f4eb290",
+      "provenance": "Controller Task 1 coordination relay on 2026-10-13 reports explicit owner acknowledgment; no direct owner messaging by this implementer.",
+      "clarification": "Same barrier revision means the same coordinator-issued purge/fence barrier identity; owner-local counters cannot substitute."
+    },
+    "fallback_owner": {
+      "status": "source_only_acknowledged",
+      "subject_commit": "644106564387539f6ccaeba65b6b989f6f4eb290",
+      "provenance": "Controller Task 1 coordination relay on 2026-10-13 reports explicit owner acknowledgment; no direct owner messaging by this implementer."
+    },
+    "scope": "Exact 64410656 source declarations/schema only; custody correction and required barrier clarification are separately recorded for fresh task review.",
+    "runtime_edits_authorized_by_this_artifact": false,
+    "does_not_establish": [
+      "implemented_behavior",
+      "legacy_ownership_resolution",
+      "runtime_correctness",
+      "performance_qualification",
+      "integration",
+      "deployment"
+    ]
   },
   "claims": {
     "source_checks_only": true,
@@ -2146,7 +2164,21 @@
   ],
   "contract": {
     "path": "docs/dupepurge-contract.md",
-    "sha256": "011cf4f7a5c2f417555e7158eee412a99c8ad4c7015ba67c68e907df900c282f",
-    "status": "proposed, not wired or jointly acknowledged"
+    "sha256": "45e09e042140f7c84c996481c0f5ff7d8dcdfe42e76f77e9b516977d42ba3d69",
+    "status": "Exact 64410656 schema source-only ACKed by Root and fallback owner per controller; required coordinator barrier clarification documented; unwired and awaiting fresh task review."
+  },
+  "barrier_semantics": {
+    "issuer": "purge_coordinator",
+    "identity_fields": [
+      "PurgeToken.request",
+      "PurgeToken.generation",
+      "OwnerBarrier.barrier_revision"
+    ],
+    "expected_identity_authority": "Coordinator-retained durable purge/fence state before fence dispatch",
+    "owner_obligation": "Each required owner echoes the same coordinator-issued identity; no owner allocates, advances or substitutes its own counter.",
+    "quiesced_ack": "All required owners occur exactly once with the retained expected barrier identity and zero queued/active/pinned/publication/unacknowledged-delta counts. Reject missing, mixed, stale or superseded identities.",
+    "owner_local_counters": "Diagnostics only; equality is neither required nor sufficient and they cannot replace the coordinator barrier.",
+    "ack_state_revision": "Operation state revision; not an owner-local counter or implicit substitute barrier.",
+    "provenance": "Root clarification conveyed by controller after source-only acknowledgment of 64410656; documentation interpretation of existing records, not an added API."
   }
 }

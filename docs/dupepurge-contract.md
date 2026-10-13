@@ -4,12 +4,14 @@
 
 This document and [source-map.json](../rust/tests/dupepurge/source-map.json)
 are Task 1's source-bound declaration proposal. **No purge API is wired.**
-Root and the fallback owner agreed the direction; their acknowledgment of
-these exact declarations is still required before shared runtime/header edits.
-The controller obtains that acknowledgment against the signed commit and
-records any revision as a new proposal. This document does not claim that
-owner review, runtime validation, qualification, integration or deployment
-has happened.
+The controller reported on 2026-10-13 that Root and the fallback owner each
+explicitly SOURCE-ONLY ACKed the exact declarations/schema in signed commit
+`644106564387539f6ccaeba65b6b989f6f4eb290`. Root required the barrier-identity
+interpretation below to be documented before wiring. These ACKs apply to that
+immutable source contract; this clarification and custody correction are
+recorded separately for the controller's fresh task review. They establish no
+implemented behavior, legacy ownership resolution, runtime validation,
+qualification, integration or deployment.
 
 The approved [design](superpowers/specs/2026-10-13-duplicate-family-purge-design.md)
 is commit `345097648e26f4758b1b9aad69261dc30dfa621f`. Inspected source is
@@ -227,6 +229,25 @@ QuiescedAck { identity: AckIdentity, inventory_revision: u64,
 OwnerBarrier { owner_kind: u32, barrier_revision: u64, counts: DrainCounts }
 ```
 
+The purge coordinator issues `OwnerBarrier.barrier_revision`. Together with
+`QuiescedAck.identity.token.request` and `.generation`, it identifies the
+**same coordinator-issued purge/fence barrier** that every owner must echo.
+The coordinator retains that expected identity in its durable purge/fence
+state before dispatching the fence; owners cannot allocate, advance or replace
+it with their own counters. `QuiescedAck` validates every required owner's
+barrier against this retained identity, with each required owner present once.
+A stale, missing, mixed or differently issued barrier cannot acknowledge drain.
+If the coordinator supersedes a barrier, earlier acknowledgments no longer
+satisfy the new barrier, even within the same operation.
+
+Owner-local counters may be diagnostic observations and may differ across
+owners. Equality of those counters is neither required nor sufficient for
+`QuiescedAck`; they never substitute for the coordinator's barrier identity.
+`AckIdentity.state_revision` continues to describe the operation's state
+revision and is not an owner-local counter or an implicit replacement barrier.
+This is Root's required interpretation of the existing records, not an added
+entry point or a claim that the barrier is implemented.
+
 `OwnedEntry.object_identity` is a versioned bounded platform descriptor
 identity, never just an unvalidated inode string; its root/namespace proof and
 outside claim IDs resolve to retained snapshot records. A rename retains both
@@ -276,8 +297,10 @@ private details are excluded from public exports.
 - `DrainReply`: `pending`, exact-token `QuiescedAck`, or `error`. Pending counts
   distinguish queued, active, pinned and publication uses by owner/kind, plus
   unacknowledged output deltas. ACK requires all zero with admission still
-  fenced and all owners reporting the same barrier revision. Counts are
-  evidence from registrations, not estimates from flags or aggregate threads.
+  fenced and all required owners echoing the same coordinator-issued
+  purge/fence barrier identity defined above. Owner-local counter equality
+  cannot satisfy this condition. Counts are evidence from registrations, not
+  estimates from flags or aggregate threads.
 - `InventoryAck`: monotonic inventory revision, covered delta sequence,
   exact member/entry changes and durable receipt. A worker's final empty delta
   is explicit. A path/rename binding supersession preserves old history.
@@ -458,10 +481,13 @@ body removal versus retained internal call sites; do not claim removal merely
 because a Rust module is added. No body has been removed in Task 1. The full
 purge has no incomplete C++ production fallback and changes no BinRPC fields.
 
-The controller handoff asks Root and the fallback owner to acknowledge:
-identity/parent semantics and immutable validation; allocator/load rules;
-queue-guard reservation linearization; all four shared entry points and exact
-receipt identity; ticket acquisition/transfer/release at the mapped callers;
-output delta durability before destruction; distinct cache/pending ACK; and
-retained failed fences. Any declaration revision updates both this contract
-and the map before dependent implementation proceeds.
+The controller-reported source-only ACKs cover the exact `64410656`
+declarations: identity/parent semantics and immutable validation;
+allocator/load rules; queue-guard reservation linearization; all four shared
+entry points and exact receipt identity; ticket acquisition/transfer/release
+at the mapped callers; output delta durability before destruction; distinct
+cache/pending ACK; and retained failed fences. Root's coordinator-issued
+barrier interpretation is now explicit in both this contract and the map.
+The controller obtains fresh review of the complete Task 1 range. A later
+declaration change updates both artifacts before dependent implementation;
+source-only acknowledgment releases no implementation or qualification hold.
