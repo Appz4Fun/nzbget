@@ -82,7 +82,7 @@
 - [ ] Freshly compose target and run complete Rust/C++ unit, all functional scenarios and live matrix against immutable binary/source receipts. No skipped mode is a pass.
 - [ ] Verify every recovery runtime path is Rust-owned and every remaining adapter is explicitly accounted for; do not declare completion with retained C++ algorithms.
 - [ ] Repeat native qualification only for material final composition changes under a new frozen packet; every required fixture passes.
-- [ ] Obtain contributor-written template/personal testing at publication if required by inherited policy, then push signed feature head and verify GitHub signatures.
+- [ ] Use the refreshed target PR template (AI description policy removed at 7d3d6412), disclose actual scope/validation, then push signed feature head and verify GitHub signatures.
 - [ ] Create PR into dupe-article-fallback and attach it. Request one Codex review of final published head; fix findings, resolve discussions, verify approval and applicable CI.
 - [ ] Coordinate locally signed squash against fresh sole-parent base, verify source-equivalent tree and exact-head review, integrate and verify remote parity. Preserve original signed working history.
 
