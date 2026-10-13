@@ -1,0 +1,2130 @@
+{
+  "schema": "nzbget.dupepurge.source-map.v1",
+  "status": "source_contract_proposal_pending_joint_declaration_ack",
+  "source_commit": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+  "approved_spec_commit": "345097648e26f4758b1b9aad69261dc30dfa621f",
+  "fresh_default": {
+    "remote": "https://github.com/Appz4Fun/nzbget.git",
+    "ref": "refs/heads/dupe-article-fallback",
+    "commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+    "observed_date": "2026-10-13",
+    "method": "authenticated ls-remote --symref then credential-helper-overridden fetch; no integration"
+  },
+  "limits": {
+    "seeds": 4096,
+    "members": 65536,
+    "inventory_entries": 1000000,
+    "snapshot_or_frame_payload_bytes": 67108864,
+    "path_bytes": 1023,
+    "identity_bytes": 65535
+  },
+  "capture": {
+    "provenance": "prospective source preservation; source inspection only, no executable lineage or runtime evidence",
+    "per_source_limit_bytes": 2000000,
+    "files": [
+      {
+        "path": "daemon/connect/WebDownloader.cpp",
+        "sha256": "6f1218304ecf6b5c8499bfa9ab14457bdd3c78891e0a1112ba468e18ef5ad624",
+        "bytes": 16258
+      },
+      {
+        "path": "daemon/connect/WebDownloader.h",
+        "sha256": "66202c09749fc03d023e8e99a6c2848cc516b83df7d96b3fecb3d60db452d919",
+        "bytes": 3343
+      },
+      {
+        "path": "daemon/dupesearch/DupeSearch.cpp",
+        "sha256": "62fcdca6b54a564321606bd87a9d6b1b2ed3a8e1e0b2e182858d76e95014a828",
+        "bytes": 78475
+      },
+      {
+        "path": "daemon/dupesearch/DupeSearch.h",
+        "sha256": "a8380eb844b3600130d036f7e15a91b7c0374e2e92421900ef7ae1a5e2515871",
+        "bytes": 8207
+      },
+      {
+        "path": "daemon/extension/NzbScript.cpp",
+        "sha256": "da0a2492b4d3ae0f7d0f04e81128767e9112a833aa3eebda02d5c3188b74366d",
+        "bytes": 2494
+      },
+      {
+        "path": "daemon/extension/NzbScript.h",
+        "sha256": "49b8628203f7abd5ae81bf2af2d22cbdb04ca48fa018ab625c3d718b9d1774a1",
+        "bytes": 1325
+      },
+      {
+        "path": "daemon/extension/PostScript.cpp",
+        "sha256": "1afd3da170e0f4242f6ee81391f79281960fbf40446ca780eb0273ab2c20384e",
+        "bytes": 10500
+      },
+      {
+        "path": "daemon/extension/PostScript.h",
+        "sha256": "af14e07c168d7f07ebbf23db3d32c35f11d47c8c11f4296dc2c298c26e556886",
+        "bytes": 1453
+      },
+      {
+        "path": "daemon/extension/QueueScript.cpp",
+        "sha256": "91f6e49aec583a1b143648310569e30183d8e001d881aa6347766d306c874b06",
+        "bytes": 13591
+      },
+      {
+        "path": "daemon/extension/QueueScript.h",
+        "sha256": "8355ca0892ac625be6cf5d5f6611eff6fa8fedff12e8e8f0e3d0cfc006de1175",
+        "bytes": 2196
+      },
+      {
+        "path": "daemon/main/nzbget.cpp",
+        "sha256": "147f0ecb4669b64d7dde9126ad26c987f4329705fb4de659ec4b35682eeb59ed",
+        "bytes": 30087
+      },
+      {
+        "path": "daemon/nntp/ArticleDownloader.cpp",
+        "sha256": "e1936f8b3f45e10664237e5d2cb85cca3a343ac1c4648a071e704211e033ebd2",
+        "bytes": 21283
+      },
+      {
+        "path": "daemon/nntp/ArticleDownloader.h",
+        "sha256": "4981ef7e961768943cf6366dc67e4adcbb8f4c9d501f4a327d6eae1634c276fc",
+        "bytes": 3812
+      },
+      {
+        "path": "daemon/nntp/ArticleWriter.cpp",
+        "sha256": "e5b0ae66a4a05084dc64530654702ac99c821940f71f757ca32dcdc65897ff29",
+        "bytes": 34275
+      },
+      {
+        "path": "daemon/nntp/ArticleWriter.h",
+        "sha256": "89d9fba6cee4b8bb1e0b7e55bd7c22b60b28601cff8202be04000dd4bc5ff5c9",
+        "bytes": 5092
+      },
+      {
+        "path": "daemon/postprocess/DirectUnpack.cpp",
+        "sha256": "1b37cb26061640742c567eb054c4b1833a04866f4b5d407e80a584941403f355",
+        "bytes": 15036
+      },
+      {
+        "path": "daemon/postprocess/DirectUnpack.h",
+        "sha256": "65f86be4a8f73703bd91f9bb159070e08326b836009b30ed7d20c7c6c6cbd2c6",
+        "bytes": 3029
+      },
+      {
+        "path": "daemon/postprocess/ParChecker.cpp",
+        "sha256": "70242e076bae18b32a1de2ff283e7f3ca374dcb37d9075e7485f13d0d7ac98c9",
+        "bytes": 45227
+      },
+      {
+        "path": "daemon/postprocess/ParChecker.h",
+        "sha256": "c6d1d7eef12ebf8594c3b9e289cdfa6832f9bec564a3d64bbaf60cae6d40ceaa",
+        "bytes": 8537
+      },
+      {
+        "path": "daemon/postprocess/ParRenamer.cpp",
+        "sha256": "3ad33ec7f38cd4a108663b1c7fa34f45aae767b8b44b30c1c4958b5644ff0002",
+        "bytes": 21474
+      },
+      {
+        "path": "daemon/postprocess/ParRenamer.h",
+        "sha256": "4d1dccbf62efc91be81f36a7d031c0559f312a4cf6e8f40c75cf1c0fa72c921c",
+        "bytes": 4395
+      },
+      {
+        "path": "daemon/postprocess/PostUnpackRenamer.cpp",
+        "sha256": "7e210b18955d1d6d98d4b267401815c2dacc709cdc6beed294cd130fb3dc0960",
+        "bytes": 4683
+      },
+      {
+        "path": "daemon/postprocess/PostUnpackRenamer.h",
+        "sha256": "85deed6beaa15733b0280fa3677a698720a8cea2f348a7130118d9a639d8dbb0",
+        "bytes": 1232
+      },
+      {
+        "path": "daemon/postprocess/PrePostProcessor.cpp",
+        "sha256": "6172d51b7a7421d8d545899b0ba460f4362427cd0ec74263c62f5b0dd2147bfc",
+        "bytes": 45293
+      },
+      {
+        "path": "daemon/postprocess/PrePostProcessor.h",
+        "sha256": "7d1b9aaf74a677c0900d12e58e2f07b4629cd50dc5735b4a07e9e5226d7cdfaf",
+        "bytes": 2953
+      },
+      {
+        "path": "daemon/postprocess/Repair.cpp",
+        "sha256": "2d5227043bdeed145b068e53467cb627d6c45e84995e528502e616361639cc9b",
+        "bytes": 26196
+      },
+      {
+        "path": "daemon/postprocess/Repair.h",
+        "sha256": "d5c5ff86e8628bd26fab08386c2a3b684444d92d5e5706a9cfab82939d97045f",
+        "bytes": 4449
+      },
+      {
+        "path": "daemon/postprocess/StreamRepair.cpp",
+        "sha256": "55dea2b73507346baeeeb1ae27478b156a7f554e07c3d44f2042ae252134e8a8",
+        "bytes": 121826
+      },
+      {
+        "path": "daemon/postprocess/StreamRepair.h",
+        "sha256": "2035fb1ca912a3b4774a21640f01718fcf0ef4e790ef353fe4f83c9cb98dd573",
+        "bytes": 21825
+      },
+      {
+        "path": "daemon/postprocess/UnpackController.cpp",
+        "sha256": "6bf5ed8869a1fd35febb566a93582116cf3f062fd3260cda484ce3248fd8c257",
+        "bytes": 29367
+      },
+      {
+        "path": "daemon/postprocess/UnpackController.h",
+        "sha256": "0c1cf11313fd56ce19e4ba91eef0beb2a849dacf723b0edf79e7143dcbc53f99",
+        "bytes": 3451
+      },
+      {
+        "path": "daemon/queue/DirectRenamer.cpp",
+        "sha256": "3259f9478ca4d11ae0d5e9a0434d39b98ebd0348ae7056863c73cb773eedbf03",
+        "bytes": 24983
+      },
+      {
+        "path": "daemon/queue/DirectRenamer.h",
+        "sha256": "be76527bdda579ea179b119def7a2b49539d67dd09f4c29fa0f5103075c683ce",
+        "bytes": 3184
+      },
+      {
+        "path": "daemon/queue/DiskState.cpp",
+        "sha256": "25908ae2d315a24bae85486ec489d62c5b6c447971f8dd61eb48f3de7bf9f297",
+        "bytes": 93337
+      },
+      {
+        "path": "daemon/queue/DiskState.h",
+        "sha256": "212f3fe3ac566240325c0098f13a60e85ce651380b50e87fab9fb6806512da84",
+        "bytes": 5720
+      },
+      {
+        "path": "daemon/queue/DownloadInfo.cpp",
+        "sha256": "77c1c51dba948c15618722fc18d0e99203a149007f47d182219a6151233e1fd1",
+        "bytes": 24984
+      },
+      {
+        "path": "daemon/queue/DownloadInfo.h",
+        "sha256": "02beb2864b61c2c9749e6d99bdeb2bbee9e48d7683a7f14992db7c02da05308f",
+        "bytes": 53752
+      },
+      {
+        "path": "daemon/queue/DupeArticleFallback.cpp",
+        "sha256": "c2f3083353f251d692d76e56b765b6dc338fe59bc1784a41f64f1ad744a1a81f",
+        "bytes": 50772
+      },
+      {
+        "path": "daemon/queue/DupeArticleFallback.h",
+        "sha256": "cdead6641f5ff0bc82a13d4258244278fa7e2983e83cb45f3525da3b5ea1ea9c",
+        "bytes": 15276
+      },
+      {
+        "path": "daemon/queue/DupeCoordinator.cpp",
+        "sha256": "9f309ae240e065d6e68e61b96adb74fe55f7bc84d31bf0097f08799ac94a9049",
+        "bytes": 34045
+      },
+      {
+        "path": "daemon/queue/DupeCoordinator.h",
+        "sha256": "fc66a69ecb59dc3252258ec285a14b2b1f8eccf93b37d219aa24c0b8fd68951d",
+        "bytes": 3502
+      },
+      {
+        "path": "daemon/queue/DupeProbe.cpp",
+        "sha256": "ab39686527c343aef505c5af50e1d1512ab9625dd8c8f743e328159d4b6f0f7d",
+        "bytes": 15175
+      },
+      {
+        "path": "daemon/queue/DupeProbe.h",
+        "sha256": "36e4a773fd51882bc40cdf6afc2c4c68b31d8611fcba5a5d44dab9725bd889da",
+        "bytes": 7055
+      },
+      {
+        "path": "daemon/queue/DupeStreamRepair.cpp",
+        "sha256": "504c56eb48fe644e93c76d131d55029b1fd13d92d2009e5703de9e9ee558e36c",
+        "bytes": 29956
+      },
+      {
+        "path": "daemon/queue/DupeStreamRepair.h",
+        "sha256": "416b9d2fdbc27fcc0b860e98915607431ee7cd9bcf337721ddc54f95ee8431dd",
+        "bytes": 11398
+      },
+      {
+        "path": "daemon/queue/HistoryCoordinator.cpp",
+        "sha256": "3d091ba181f407755b20669267cfbb7d4b05bd989926ebf8c8541d20832c5083",
+        "bytes": 36971
+      },
+      {
+        "path": "daemon/queue/HistoryCoordinator.h",
+        "sha256": "c68014a7cf65b6c75eba826c045339675956187a2c04b4a9f9d3e657bbb25819",
+        "bytes": 2826
+      },
+      {
+        "path": "daemon/queue/QueueCoordinator.cpp",
+        "sha256": "636351e5d5f102de5e96c6ea33bad4bc8b717500373d47241231b3fd1cf92694",
+        "bytes": 98979
+      },
+      {
+        "path": "daemon/queue/QueueCoordinator.h",
+        "sha256": "d98494586de1fda1eccdfc9495e9bf2e2df19d34a18ab5182fa61a23c6581581",
+        "bytes": 8080
+      },
+      {
+        "path": "daemon/queue/QueueEditor.cpp",
+        "sha256": "9c2ec7cc7b68d70353c8080678c997f449bf35510184589705ad1de1ae00d566",
+        "bytes": 34303
+      },
+      {
+        "path": "daemon/queue/QueueEditor.h",
+        "sha256": "3481b39f8248bf9609dfc31c8b073efe4f8537877a09c00d80594e7adf9139ec",
+        "bytes": 3164
+      },
+      {
+        "path": "daemon/queue/Scanner.cpp",
+        "sha256": "cbf7292d589877980ea9462ecd4be2799c95025ef06a24bc534afa633d3643b8",
+        "bytes": 28159
+      },
+      {
+        "path": "daemon/queue/Scanner.h",
+        "sha256": "8e6fdc5d5773bcba9cab1de02bb4e8d24c006f72864e9296c9038330b4545739",
+        "bytes": 6630
+      },
+      {
+        "path": "daemon/queue/TwinCheck.cpp",
+        "sha256": "5351104981aea9bbe9d99b3b5b3b5077b9aa6d2ecef5cb5a335da365fcc9da2b",
+        "bytes": 32974
+      },
+      {
+        "path": "daemon/queue/TwinCheck.h",
+        "sha256": "def7e347adc20fe3f9cd4796f62bd31148e707d19d74fb4f75a0b5ae04fdad98",
+        "bytes": 6458
+      },
+      {
+        "path": "daemon/queue/UrlCoordinator.cpp",
+        "sha256": "3d7b502da388d75aef78cfb6461965a1023c42417b57a3e0423475e724e32a1a",
+        "bytes": 13139
+      },
+      {
+        "path": "daemon/queue/UrlCoordinator.h",
+        "sha256": "78c3dce32dc83864f3d7d3f7cf0e9fc2c0367481960fd47e0c41ad3634f6183c",
+        "bytes": 2655
+      },
+      {
+        "path": "daemon/systemhealth/CheckAndRepairValidator.cpp",
+        "sha256": "bd81c3278ac4eb287d850374bafe16642f5001109744a783f482421acda25a2b",
+        "bytes": 7643
+      },
+      {
+        "path": "daemon/systemhealth/CheckAndRepairValidator.h",
+        "sha256": "7cfcdf1def26dfe7128dd8c1339fb8299e7927adc823c000226f989cf52df910",
+        "bytes": 5836
+      },
+      {
+        "path": "daemon/systemhealth/UnpackValidator.cpp",
+        "sha256": "6e6a0dc5a094bd33c7a268bc8a5c64a9ec459d64e547b48524fc30663b224001",
+        "bytes": 5066
+      },
+      {
+        "path": "daemon/systemhealth/UnpackValidator.h",
+        "sha256": "6b4d7ee5644e7b63f35a44805775159f0b12650ca6555a605c63e548af007213",
+        "bytes": 4198
+      },
+      {
+        "path": "daemon/util/FileSystem.cpp",
+        "sha256": "635d2f5bc8108ac88516afa75fe2bd545c78408314bd3b6a2a4d0b65b6309b26",
+        "bytes": 50132
+      },
+      {
+        "path": "daemon/util/FileSystem.h",
+        "sha256": "4c3f2ffad0a8f2a1d898f017357444acd19760342aa9d030a1add9cb4c38d2e1",
+        "bytes": 8247
+      },
+      {
+        "path": "daemon/util/ScriptController.cpp",
+        "sha256": "8ea45df298451c3589fbac6ec37929d165697e9a8521061c458d93bb5f6bc39c",
+        "bytes": 24147
+      },
+      {
+        "path": "daemon/util/ScriptController.h",
+        "sha256": "85864da9d064817b0a328e4ad25aa648413e7062ab6889ea687d0f0bc66c9254",
+        "bytes": 4077
+      },
+      {
+        "path": "daemon/util/Thread.cpp",
+        "sha256": "d4a41e2c4d2fef1abff5e3fede0c7901e50db566af28948cb4bbe7bc87322e83",
+        "bytes": 2728
+      },
+      {
+        "path": "daemon/util/Thread.h",
+        "sha256": "a17f7c725120a2de6712b862f2ba9fc3e372fa5dccab9d2524e8f2a6ec2822dc",
+        "bytes": 4123
+      },
+      {
+        "path": "daemon/util/Unpack.cpp",
+        "sha256": "e5fa1e5642e6715580fa18ea7ec8d8ea8a48982ef1df86266d493ef4459c830c",
+        "bytes": 3778
+      },
+      {
+        "path": "daemon/util/Unpack.h",
+        "sha256": "a2fac9c6e2975b519e020d96aad442ebe3bb39438b76042627f7ddfeffd15d12",
+        "bytes": 3049
+      },
+      {
+        "path": "rust/include/nzbget_rs.h",
+        "sha256": "9e790d21b11573256f787ecc3a6c5d9ef43e8b7102c92a7d58be526f14b9cf28",
+        "bytes": 71723
+      },
+      {
+        "path": "rust/src/ffi.rs",
+        "sha256": "76c9a03d7c417c4d988536283eee6407c66983aa809b26035cf3631976c267f6",
+        "bytes": 280570
+      },
+      {
+        "path": "rust/src/fsdelete.rs",
+        "sha256": "733eb1d8b8548460185471c056ae472359b0439610c6ff6fe329b5bf70385feb",
+        "bytes": 15313
+      },
+      {
+        "path": "rust/src/fsops.rs",
+        "sha256": "c7e4463705b2248d27d20fd99502d922566a10183ef84650e859df488fc8245a",
+        "bytes": 7864
+      },
+      {
+        "path": "rust/src/lib.rs",
+        "sha256": "9e19aafed04b1248ebdeb05c27122843cf50fdc31b9c76aa8f06b3542006b556",
+        "bytes": 1067
+      },
+      {
+        "path": "rust/tests/fsdelete_differential.py",
+        "sha256": "1c61228fd4ed6d6e9f7fdcfd6358fac3bb0948250a3985bb0178a71d3ffe0bb2",
+        "bytes": 30760
+      },
+      {
+        "path": "rust/tests/fsops_differential.py",
+        "sha256": "76a3b2f53dceef79ca5a0bae98075cad03463b62a58833eb91f44564ad84ffd3",
+        "bytes": 17203
+      },
+      {
+        "path": "daemon/main/nzbget.h",
+        "sha256": "7f787266aea80379b7dc81464d802e9051d541eb8072968e2c88b920a6b6ca2e",
+        "bytes": 6951
+      },
+      {
+        "path": "daemon/nntp/ArticleFetcher.cpp",
+        "sha256": "ea4e397e7864aeb8ccb6826f73f91fadc5b5fc630bd271c8855c5add142b5c69",
+        "bytes": 16798
+      },
+      {
+        "path": "daemon/nntp/ArticleFetcher.h",
+        "sha256": "071eabf85da376bfc7d1f3cc6be9a6b6380b9efed62e7163f99fe867b655df77",
+        "bytes": 8276
+      },
+      {
+        "path": "daemon/dupesearch/NzbFetcher.cpp",
+        "sha256": "f80bfba6b49c3edcaf13541fa19ff0fff5991c939254756df472fa29458ebb2f",
+        "bytes": 7828
+      },
+      {
+        "path": "daemon/dupesearch/NzbFetcher.h",
+        "sha256": "b778882e9dcb7b8dfdf0d7ecd813f5f909235a1f645e09f9fbe3e9d86b2038e0",
+        "bytes": 3968
+      },
+      {
+        "path": "daemon/dupesearch/DonorHealth.cpp",
+        "sha256": "ce02268b77ab925328659b009a3c879a0c2c1add74319e30e5aed1564adc4419",
+        "bytes": 13885
+      },
+      {
+        "path": "daemon/dupesearch/DonorHealth.h",
+        "sha256": "46d0f4b1726baa24cce9dbf623fa7b152c6cc4dd9d23fb11f2951d50abc3e825",
+        "bytes": 8116
+      },
+      {
+        "path": "daemon/queue/NzbFile.cpp",
+        "sha256": "1d7fa012d45e4036b03c53585c893935ceaffa9879a2fc8f5366673d4f18cafc",
+        "bytes": 21183
+      },
+      {
+        "path": "daemon/queue/NzbFile.h",
+        "sha256": "8f1dca28fe4d2bb59a8a6ae033aeb769865c568179570225febd3e1037c9d5cb",
+        "bytes": 3176
+      },
+      {
+        "path": "rust/src/twin.rs",
+        "sha256": "21b1bc24772779e0361dfe8ead855a9289d0011320f2daa3156b005ef07371ef",
+        "bytes": 58697
+      },
+      {
+        "path": "rust/src/dupeidentity.rs",
+        "sha256": "97d82b50244fabf425c239ad28156b7d664d612fc73d5e4a7777b9438bf631fe",
+        "bytes": 15550
+      },
+      {
+        "path": "daemon/queue/ParDamage.cpp",
+        "sha256": "5389d230dbd4e94052978f2b090250a540f83e710a914e7dd46776d3a7f6f5d3",
+        "bytes": 6380
+      },
+      {
+        "path": "daemon/queue/ParDamage.h",
+        "sha256": "fd482db5446b6ad7c3eefd8fff6d229b440338608579ffa3bf4d6d4c4fbf0076",
+        "bytes": 2721
+      },
+      {
+        "path": "daemon/dupesearch/DeadPostings.cpp",
+        "sha256": "601b90bd7d38ddbe7479112445404dd4856ab9ea6fdfcfc07f6d06c28e29daa9",
+        "bytes": 4837
+      },
+      {
+        "path": "daemon/dupesearch/DeadPostings.h",
+        "sha256": "ada578270f3d4d069aca8a07b6e506f560a6e7f8ec8a6fe34c1a5d0a7ff66ae3",
+        "bytes": 1959
+      },
+      {
+        "path": "daemon/sources.cmake",
+        "sha256": "17d71fc1ca95078deb414ea4cc4f3d7b5adaf01fadf05ca05e0adb523687c2e8",
+        "bytes": 8610
+      },
+      {
+        "path": "rust/Cargo.toml",
+        "sha256": "6da0fd2ca8a7c3435d84ce40aa393d2534fd01f0159164cb7e69ffc98485cd92",
+        "bytes": 790
+      },
+      {
+        "path": "rust/rust-toolchain.toml",
+        "sha256": "ff13c9224217a4ccd63320d8b89cc82d7fa64da14a627e499f9f18db4c6602d0",
+        "bytes": 31
+      },
+      {
+        "path": "daemon/postprocess/Cleanup.cpp",
+        "sha256": "aacdb09d2fac68a2baf06c763dac7a08d3a0fa6b3452c0b87a8c0f43f3a8107d",
+        "bytes": 9253
+      },
+      {
+        "path": "daemon/postprocess/Cleanup.h",
+        "sha256": "2bbdc65fecbd0aa97e181f19d9a5f66f23468649a75cbd0c2b1276096a760f16",
+        "bytes": 1839
+      },
+      {
+        "path": "daemon/postprocess/Rename.cpp",
+        "sha256": "3ab84e790703674cd1680259411b42148f0fadc6e04c89b7e0d8dd5fe0398845",
+        "bytes": 6792
+      },
+      {
+        "path": "daemon/postprocess/Rename.h",
+        "sha256": "156ffd75f81ccbe348df438d20b8ea67668b651d834990fb675b10fc1bc52bc5",
+        "bytes": 2878
+      },
+      {
+        "path": "daemon/postprocess/PostDownloadRenamer.cpp",
+        "sha256": "9869f5461514a8f178e4209a853b8776fc4bd711b6e7a2fbee31232f2ad43af6",
+        "bytes": 4736
+      },
+      {
+        "path": "daemon/postprocess/PostDownloadRenamer.h",
+        "sha256": "8042a42b4801c425ebdc2a017f88c440915ff2bbf2b49b566bc5d3286bf662e1",
+        "bytes": 1235
+      },
+      {
+        "path": "daemon/extension/ScanScript.cpp",
+        "sha256": "abad85f700dadda6b0d31e4ab1fc27b360d4f6e935906f2184adc9024626fb12",
+        "bytes": 6206
+      },
+      {
+        "path": "daemon/extension/ScanScript.h",
+        "sha256": "a420d577825615bf8801ca2dfb4edfa2e21bb51d71913eca44fb749fa2d8c7dd",
+        "bytes": 2631
+      }
+    ],
+    "history_bundle_sha256": "e135dfdff1c8010f5bf87d7787bd37b15751f8a8ca4fbcd1fba1e7e75dc8d31e",
+    "custody": "Controller task workspace task-1-source-capture; repository source remains recoverable from source_commit. No original or adverse evidence was deleted.",
+    "history_bundle_bytes": 24339,
+    "history_bundle_scope": {
+      "commits": [
+        "345097648e26f4758b1b9aad69261dc30dfa621f",
+        "d4842b182efdc13cde1031d6ac8f0b5ba165effc"
+      ],
+      "prerequisite": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    }
+  },
+  "registration_map": [
+    {
+      "id": "identity",
+      "path": "daemon/queue/DownloadInfo.h",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "class FileInfo",
+          "lines": [
+            175
+          ]
+        },
+        {
+          "symbol_or_exact_source": "class NzbInfo",
+          "lines": [
+            36,
+            542
+          ]
+        },
+        {
+          "symbol_or_exact_source": "class DupInfo",
+          "lines": [
+            1034,
+            1144
+          ]
+        },
+        {
+          "symbol_or_exact_source": "class CompletedFile",
+          "lines": [
+            364,
+            370
+          ]
+        },
+        {
+          "symbol_or_exact_source": "class DownloadQueue",
+          "lines": [
+            37,
+            1223
+          ]
+        }
+      ],
+      "registration_required": "Assign persisted nonzero incarnations to collection and file records; file ticket includes validated parent collection binding.",
+      "publication_required": "Guard SetId, SetNzbInfo, namespace/filename/key edits and compact replacement; IDs alone never identify a lease.",
+      "release_required": "No destruction or reuse until inventory and terminal persistence ACK; historic full-to-compact transition retains incarnation.",
+      "inventory": "DestDir, FinalDir, queued inputs, CompletedFile list, FileInfo output/hardlink/article paths",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "identity-load",
+      "path": "daemon/queue/DownloadInfo.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void NzbInfo::SetId",
+          "lines": [
+            147
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void FileInfo::SetId",
+          "lines": [
+            869
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupInfo::SetId",
+          "lines": [
+            969
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool NzbInfo::RenameCompletedFile",
+          "lines": [
+            347
+          ]
+        }
+      ],
+      "registration_required": "Legacy ID generators and ResetGenId are not persistent purge generations.",
+      "publication_required": "Rename/parent changes must append inventory deltas before forgetting old bindings.",
+      "release_required": "Fresh incarnations for genuine new records; valid loads restore persisted incarnation.",
+      "inventory": "Completed-file old/new name mapping",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "anchored-family",
+      "path": "daemon/queue/DupeCoordinator.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "bool DupeCoordinator::SameNameOrKey",
+          "lines": [
+            37
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeCoordinator::NzbCompleted",
+          "lines": [
+            457
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeCoordinator::",
+          "lines": [
+            103,
+            457,
+            536,
+            688,
+            737
+          ]
+        }
+      ],
+      "registration_required": "Snapshot direct seed-to-candidate comparisons under queue guard; capture raw name/key and actual locale semantics.",
+      "publication_required": "Fence donor requeue/failover and changed bindings before any insertion.",
+      "release_required": "Retain existing internal failover callers; full purge bypasses their user-delete policy.",
+      "inventory": "No path authority from name/key match",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "article",
+      "path": "daemon/queue/QueueCoordinator.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void QueueCoordinator::StartArticleDownload",
+          "lines": [
+            700
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueCoordinator::ArticleCompleted",
+          "lines": [
+            751
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueCoordinator::DeleteDownloader",
+          "lines": [
+            1091
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueCoordinator::DeleteFileInfo",
+          "lines": [
+            1123
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueCoordinator::DeleteQueueEntry",
+          "lines": [
+            2245
+          ]
+        }
+      ],
+      "registration_required": "Register article queued/active ticket and every donor dependency before Start; GetNextArticle must reject reserved members.",
+      "publication_required": "ArticleCompleted, partial saves, direct-rename callbacks and normal completion must generation-check; snapshot output before DeleteFileInfo.",
+      "release_required": "DeleteDownloader list removal is not sufficient: release after writer/cache pins and all callbacks; replace purge-path FileBusy sleep with outside-lock polling.",
+      "inventory": "FileInfo and ArticleInfo output/result/hardlink state",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "queue-mutation",
+      "path": "daemon/queue/QueueCoordinator.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "NzbInfo* QueueCoordinator::AddNzbFileToQueue",
+          "lines": [
+            397
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueCoordinator::MergeQueueEntries",
+          "lines": [
+            2316
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueCoordinator::SplitQueueEntries",
+          "lines": [
+            2419
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueCoordinator::SetQueueEntryCategory",
+          "lines": [
+            2265
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueCoordinator::SetQueueEntryName",
+          "lines": [
+            2284
+          ]
+        }
+      ],
+      "registration_required": "Reserve before add/merge/split/rename/category mutation; ownership transfers need binding validation.",
+      "publication_required": "AddNzbFileToQueue is final Scanner admission check; late descendant admission requires parent ticket still live and unfenced.",
+      "release_required": "Hold old and new ownership records until durable delta; no ID-only lookup after unlock.",
+      "inventory": "Merged queued NZB inputs, moved completed output",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "writer-cache",
+      "path": "daemon/nntp/ArticleWriter.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "bool ArticleWriter::Start",
+          "lines": [
+            77
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleWriter::Finish",
+          "lines": [
+            214
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleWriter::FlushCache",
+          "lines": [
+            868
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool ArticleCache::CheckFlush",
+          "lines": [
+            1209
+          ]
+        },
+        {
+          "symbol_or_exact_source": "ArticleCache::FlushGuard::~FlushGuard",
+          "lines": [
+            1258
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool ArticleWriter::MoveCompletedFiles",
+          "lines": [
+            1010
+          ]
+        }
+      ],
+      "registration_required": "Register writer plus cache queued, pinned and flushing uses before m_fileInfo leaves queue guard.",
+      "publication_required": "All temp/result/output moves and CompleteFile/MoveCompletedFiles publication produce delta before source names vanish.",
+      "release_required": "Close files, finish flush/callback and release actual pin; m_activeDownloads zero alone cannot ACK.",
+      "inventory": "Article segments, temporary/direct output, final output, moved files",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "article-stop",
+      "path": "daemon/nntp/ArticleDownloader.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void ArticleDownloader::Run",
+          "lines": [
+            80
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleDownloader::Stop",
+          "lines": [
+            693
+          ]
+        }
+      ],
+      "registration_required": "Article parent ticket covers connection and fallback attempts.",
+      "publication_required": "Generation-check terminal notifications before queue lookup or retries.",
+      "release_required": "Stop sets cancellation; release only after Run cleanup, writer and connection users finish.",
+      "inventory": "Writer-produced deltas",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "fallback-pins",
+      "path": "daemon/queue/DupeArticleFallback.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "bool DupeArticleFallback::TryFallback",
+          "lines": [
+            140
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeArticleFallback::PinSources",
+          "lines": [
+            794
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeArticleFallback::FinishPin",
+          "lines": [
+            607
+          ]
+        },
+        {
+          "symbol_or_exact_source": "NzbInfo* DupeArticleFallback::GetParsedDonor",
+          "lines": [
+            945
+          ]
+        }
+      ],
+      "registration_required": "Pin target and all donor bindings before source selection; copied IDs/message IDs do not constitute immutable binding.",
+      "publication_required": "FinishPin installs source arrays: generation-check contributors, target, posting, cache insertion and failover/lead changes.",
+      "release_required": "Release contributor uses on success, failure, cancellation and source-array replacement; clear parsed/bad donor caches only after pin drain.",
+      "inventory": "Parsed donor NZB source and per-article source arrays",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "twin",
+      "path": "daemon/queue/TwinCheck.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void TwinCheck::ServiceWork",
+          "lines": [
+            753
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void TwinCheckJob::Run",
+          "lines": [
+            187
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void TwinCheckJob::Store",
+          "lines": [
+            278
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void TwinCheckJob::Sample",
+          "lines": [
+            309
+          ]
+        },
+        {
+          "symbol_or_exact_source": "std::string TwinCheck::Identity",
+          "lines": [
+            443,
+            692
+          ]
+        },
+        {
+          "symbol_or_exact_source": "g_jobs.insert(thread);",
+          "lines": [
+            1022
+          ]
+        }
+      ],
+      "registration_required": "Register both primary and sampled collection before job enters local vector/registry; include work between snapshot and g_jobs insertion.",
+      "publication_required": "Fence Store, Sample, Rust twin cache updates, failed-attempt bookkeeping, nudge and queue Save.",
+      "release_required": "Run unregister is anchor but must follow final publication/cache use; no StopAll/WaitAll for purge.",
+      "inventory": "Scoped fingerprint/posting cache and failed-attempt/checking state",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "probe",
+      "path": "daemon/queue/DupeProbe.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void DupeProbe::Start",
+          "lines": [
+            95,
+            441
+          ]
+        },
+        {
+          "symbol_or_exact_source": "DupeProbe::Verdict DupeProbe::Check",
+          "lines": [
+            108
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DupeProbe::Register",
+          "lines": [
+            141
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeProbe::Unregister",
+          "lines": [
+            154
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeProbe::StartRecheck",
+          "lines": [
+            441
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeProbe::Recheck",
+          "lines": [
+            455
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeProbe::Run",
+          "lines": [
+            519
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeProbe::Abandon",
+          "lines": [
+            594
+          ]
+        }
+      ],
+      "registration_required": "Register Start/StartRecheck and synchronous Check with inherited binding; Check currently uses ID zero and needs parent context.",
+      "publication_required": "Fence recheck article mutations, Note, Abandon, dead-pick reset and failover.",
+      "release_required": "Release after all provider calls and callbacks, including early returns/launch failure.",
+      "inventory": "Scoped samples and pending probe state",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "search",
+      "path": "daemon/dupesearch/DupeSearch.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void DupeSearch::Schedule",
+          "lines": [
+            196
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::Run",
+          "lines": [
+            235
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DupeSearch::Prepare",
+          "lines": [
+            309,
+            439
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::Search",
+          "lines": [
+            834
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::Place",
+          "lines": [
+            1003
+          ]
+        },
+        {
+          "symbol_or_exact_source": "int DupeSearch::AddDonor",
+          "lines": [
+            1544
+          ]
+        }
+      ],
+      "registration_required": "Register m_pending, local due vector, prepared Job and all nested health/fetch jobs; transfer same ticket without an uncounted gap.",
+      "publication_required": "Fence AddDonor before Scanner handoff AND final queue insertion, SetScore, Note, sent/checkpoint/state saves; PickGone plus compensating delete is insufficient.",
+      "release_required": "Release after Scanner acknowledgment, health/fetch completion and all late publications; own queued/active/publication counts required.",
+      "inventory": "Search pending files and exact key/title/posting scoped records",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "search-artifacts",
+      "path": "daemon/dupesearch/DupeSearch.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void DupeSearch::MarkSearching",
+          "lines": [
+            1715
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::SavePending",
+          "lines": [
+            1733
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::RemovePending",
+          "lines": [
+            1759
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DupeSearch::ResumePending",
+          "lines": [
+            1768
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DupeSearch::ForgetSearch",
+          "lines": [
+            1989
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DupeSearch::SaveState",
+          "lines": [
+            2008
+          ]
+        }
+      ],
+      "registration_required": "Startup ResumePending held behind restored purge fence; capture only validated pending child namespace.",
+      "publication_required": "Persist exact scoped cache changes; preserve unrelated key/title editions and global indexer state.",
+      "release_required": "Separate CleanupAck after pending-directory removal and acknowledged state save; existing void RemovePending is insufficient.",
+      "inventory": "dupesearch-pending/<validated-id>, sent and posting-bound checkpoint; shared state rows",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "provider-fetch",
+      "path": "daemon/nntp/ArticleFetcher.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "ArticleFetcher::FetchedArticle ArticleFetcher::Fetch",
+          "lines": [
+            70,
+            287
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleFetcher::Stop",
+          "lines": [
+            246
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleFetcher::ReleaseConnection",
+          "lines": [
+            257
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleBatchFetcher::Begin",
+          "lines": [
+            512
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool ArticleBatchFetcher::ClaimNext",
+          "lines": [
+            528
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleBatchFetcher::StoreResult",
+          "lines": [
+            545
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleBatchFetcher::WorkerLoop",
+          "lines": [
+            558
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleBatchFetcher::CancelRemaining",
+          "lines": [
+            640
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void ArticleBatchFetcher::Stop",
+          "lines": [
+            647
+          ]
+        }
+      ],
+      "registration_required": "Inherit all target/donor tickets into batch requests, claimed tasks and provider handles.",
+      "publication_required": "StoreResult must reject old token/batch and cannot publish after release.",
+      "release_required": "Drain batch queued/active/results, connection cancellation and fetcher destruction before parent ticket release.",
+      "inventory": "Transient buffered provider outputs",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "provider-health",
+      "path": "daemon/dupesearch/DonorHealth.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "DonorHealth::Server::Ask",
+          "lines": [
+            136
+          ]
+        },
+        {
+          "symbol_or_exact_source": "DonorHealth::CheckItems",
+          "lines": [
+            344
+          ]
+        },
+        {
+          "symbol_or_exact_source": "DonorHealth::CheckPosting",
+          "lines": [
+            429,
+            471
+          ]
+        },
+        {
+          "symbol_or_exact_source": "DonorHealth::CheckPostings",
+          "lines": [
+            471
+          ]
+        }
+      ],
+      "registration_required": "Every asynchronous walker and nested request inherits collection/source ticket.",
+      "publication_required": "Do not publish health/ranking changes after fence without scoped publication validation.",
+      "release_required": "Actual per-ticket walker completion; global WaitAll is shutdown-only.",
+      "inventory": "Scoped health results; shared server resources retained",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "provider-nzb",
+      "path": "daemon/dupesearch/NzbFetcher.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "NzbFetcher::Fetched NzbFetcher::Fetch",
+          "lines": [
+            154,
+            233
+          ]
+        },
+        {
+          "symbol_or_exact_source": "NzbFetcher::Fetched NzbFetcher::FetchPosting",
+          "lines": [
+            233
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void NzbFetcher::Save",
+          "lines": [
+            108
+          ]
+        }
+      ],
+      "registration_required": "Parent search ticket covers indexer wait, HTTP request and fetched NZB.",
+      "publication_required": "Publication and retry inherit same token; no namespace authority from fetched internal filenames.",
+      "release_required": "Hold until HTTP/files/buffers and parent publication use end; do not delete global indexer budget state.",
+      "inventory": "Owned fetched NZB/checkpoint only",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "scanner",
+      "path": "daemon/queue/Scanner.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void Scanner::ServiceWork",
+          "lines": [
+            113
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void Scanner::ProcessIncomingFile",
+          "lines": [
+            387
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool Scanner::AddFileToQueue",
+          "lines": [
+            611
+          ]
+        },
+        {
+          "symbol_or_exact_source": "Scanner::EAddStatus Scanner::AddExternalFile",
+          "lines": [
+            921
+          ]
+        }
+      ],
+      "registration_required": "Register external QueueData, incoming/archive processing and NZB-script work before temp creation/rename; propagate source ticket through queue handoff.",
+      "publication_required": "Recheck exact incarnation/source and namespace reservation at AddFileToQueue and AddNzbFileToQueue; queued URL conversion inherits parent binding.",
+      "release_required": "Release after result delivered and final insertion rejected/accepted with durable owned-file delta; no waiting under queue/fallback/provider lock.",
+      "inventory": "Incoming temp/queued NZB paths; no incoming-root sweep",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "url",
+      "path": "daemon/queue/UrlCoordinator.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void UrlCoordinator::StartUrlDownload",
+          "lines": [
+            280
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void UrlCoordinator::UrlCompleted",
+          "lines": [
+            314
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool UrlCoordinator::DeleteQueueEntry",
+          "lines": [
+            463
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void UrlCoordinator::AddUrlToQueue",
+          "lines": [
+            495
+          ]
+        }
+      ],
+      "registration_required": "Register queued/active URL and external publication ticket before downloader Start.",
+      "publication_required": "UrlCompleted hands off to Scanner after active-list erase: keep publication ticket throughout; never infer drain from list alone.",
+      "release_required": "Stop is nonblocking; release after network cleanup, Scanner completion and output delta.",
+      "inventory": "URL temporary NZB and Scanner produced queued NZB",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post",
+      "path": "daemon/postprocess/PrePostProcessor.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::StartJob",
+          "lines": [
+            903
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::EnterStage",
+          "lines": [
+            1219
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::JobCompleted",
+          "lines": [
+            1225
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::CleanupJobs",
+          "lines": [
+            663
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::NzbDeleted",
+          "lines": [
+            477
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PrePostProcessor::NzbCompleted",
+          "lines": [
+            512
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool PrePostProcessor::PostQueueDelete",
+          "lines": [
+            1301
+          ]
+        }
+      ],
+      "registration_required": "Register every queued post stage before StartJob including PAR/rename/unpack/move/cleanup/script and transitions.",
+      "publication_required": "Suppress purge-owned history replacement, duplicate failover, DeleteCleanup and deletion-script enqueue; append outputs before normal object removal.",
+      "release_required": "Post working=false, detached pointers or m_activeJobs erase are insufficient; require actual stage thread/child-process exit and delta ACK.",
+      "inventory": "Post-stage destination/final, extracted/moved/renamed and repair output",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "direct-unpack",
+      "path": "daemon/postprocess/DirectUnpack.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void DirectUnpack::StartJob",
+          "lines": [
+            30
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectUnpack::Run",
+          "lines": [
+            42
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectUnpack::Stop",
+          "lines": [
+            417
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectUnpack::NzbDeleted",
+          "lines": [
+            544
+          ]
+        }
+      ],
+      "registration_required": "Register unpack thread and child process before launch, also when overlapping article download.",
+      "publication_required": "Record actual unpack/final paths and outputs, including failed/cancelled child partial files.",
+      "release_required": "Drain Run and process handles even after NzbDeleted detaches; acknowledge final delta before destructor.",
+      "inventory": "Unpack namespace, temporary and final output",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "direct-rename",
+      "path": "daemon/queue/DirectRenamer.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void DirectParLoader::StartLoader",
+          "lines": [
+            123
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectParLoader::Run",
+          "lines": [
+            149
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectRenamer::ArticleDownloaded",
+          "lines": [
+            221
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DirectRenamer::RenameFiles",
+          "lines": [
+            402
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DirectRenamer::RenameFile",
+          "lines": [
+            771
+          ]
+        }
+      ],
+      "registration_required": "Register DirectParLoader lifetime and article analysis/rename callbacks.",
+      "publication_required": "Guard names and completion publication; record old/new entries before metadata replacement.",
+      "release_required": "Release loader, callback and descriptor users after actual completion, not rename-status change.",
+      "inventory": "Renamed completed/in-progress files and PAR loader output",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "stream-repair",
+      "path": "daemon/postprocess/StreamRepair.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void StreamRepairController::StartJob",
+          "lines": [
+            387
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::StartLive",
+          "lines": [
+            398
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::Run",
+          "lines": [
+            417,
+            485
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::RepairCompletedLive",
+          "lines": [
+            628
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::StartWatchdog",
+          "lines": [
+            730
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::StopWatchdog",
+          "lines": [
+            828
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::Stop",
+          "lines": [
+            828,
+            860
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::MarkRepaired",
+          "lines": [
+            1495
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void StreamRepairController::MarkRecreated",
+          "lines": [
+            1513
+          ]
+        }
+      ],
+      "registration_required": "Register post/live repair, donor sources, batch fetch, content maps and watchdog threads before launch/use.",
+      "publication_required": "Fence live-name refresh, MarkRepaired/MarkRecreated and repaired-file publication, retain partial/scratch output deltas.",
+      "release_required": "Pointer detach cannot release ticket; finish Run/RunLive, watchdog join, donor/target maps, batch fetch and callbacks before drain ACK.",
+      "inventory": "Repaired/recreated target files, materialized donor sets and scratch directories",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-worker-adapters",
+      "path": "daemon/postprocess/Repair.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void RepairController::StartJob",
+          "lines": [
+            489
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void RepairController::Stop",
+          "lines": [
+            478
+          ]
+        }
+      ],
+      "registration_required": "Post parent ticket covers repair worker plus library work.",
+      "publication_required": "Capture repaired and extra PAR outputs under exact member binding.",
+      "release_required": "Return only actual thread/library completion via post ticket; Stop flag insufficient.",
+      "inventory": "Repair outputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "queue-scripts",
+      "path": "daemon/extension/QueueScript.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void QueueScriptCoordinator::EnqueueScript",
+          "lines": [
+            265
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueScriptCoordinator::CheckQueue",
+          "lines": [
+            410
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueScriptController::StartScript",
+          "lines": [
+            75
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void QueueScriptController::Run",
+          "lines": [
+            108
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool QueueScriptCoordinator::HasJob",
+          "lines": [
+            467
+          ]
+        }
+      ],
+      "registration_required": "Register queued events and script child process; suppress new affected deletion events.",
+      "publication_required": "Fence script-driven name/category/parameter commands and output inventory; externally uncontrolled descendants cannot yield ACK.",
+      "release_required": "Drain child process plus Run callbacks, queued/current event and output custody; HasJob ID check is not generation proof.",
+      "inventory": "Declared script owned outputs; unknown output scope is missing_inventory",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-scripts",
+      "path": "daemon/extension/PostScript.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void PostScriptController::StartJob",
+          "lines": [
+            34
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PostScriptController::Run",
+          "lines": [
+            56
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void PostScriptController::Stop",
+          "lines": [
+            316
+          ]
+        }
+      ],
+      "registration_required": "Inherit post ticket through external process launch.",
+      "publication_required": "Retain script outputs and callbacks before final post completion.",
+      "release_required": "Require child exit, pipe readers and callbacks; stop request alone insufficient.",
+      "inventory": "Declared script owned outputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "history",
+      "path": "daemon/queue/HistoryCoordinator.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::DeleteDiskFiles",
+          "lines": [
+            95
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::HistoryHide",
+          "lines": [
+            301
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::HistoryDelete",
+          "lines": [
+            443
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::MoveToQueue",
+          "lines": [
+            483
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::HistoryRedownload",
+          "lines": [
+            554
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void HistoryCoordinator::HistoryRetry",
+          "lines": [
+            707
+          ]
+        }
+      ],
+      "registration_required": "Gate retention/compaction/retry/redownload against reservation; snapshot full metadata before compact projection.",
+      "publication_required": "Durable inventory required before file-list clear, full-to-compact replacement or queue/history erasure.",
+      "release_required": "Keep source object until inventory and final persistence ACK; ordinary cleanup/retention callers audited separately.",
+      "inventory": "Full hkNzb/hkUrl potentially applicable; hkDup without recovered inventory is GAP",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "disk",
+      "path": "daemon/queue/DiskState.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "bool StateFile::FinishWrite",
+          "lines": [
+            218
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DiskState::LoadDownloadQueue",
+          "lines": [
+            373
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::RaiseIdsPastQueueDir",
+          "lines": [
+            512
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::SaveIdFloor",
+          "lines": [
+            561
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::SaveNzbInfo",
+          "lines": [
+            935
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DiskState::LoadNzbInfo",
+          "lines": [
+            1039
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::SaveDupInfo",
+          "lines": [
+            1922
+          ]
+        },
+        {
+          "symbol_or_exact_source": "bool DiskState::LoadDupInfo",
+          "lines": [
+            1933
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::DiscardFiles",
+          "lines": [
+            1899
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::DiscardFile",
+          "lines": [
+            1899,
+            2115
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void DiskState::AppendNzbMessage",
+          "lines": [
+            3082
+          ]
+        }
+      ],
+      "registration_required": "Load and persist new generation/incarnation authority and intents before normal worker admission; existing int ID floor is separate.",
+      "publication_required": "Checked writes/flush/fsync/rename/directory sync with individual receipts; multi-file queue/history publication reconciled through journal.",
+      "release_required": "No logical erasure until final publication ACK; retain failed and partial intent.",
+      "inventory": "Numeric per-file queue state, collection log, full/compact inventory sidecar",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "startup-shutdown",
+      "path": "daemon/main/nzbget.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "m_queueCoordinator->Start();",
+          "lines": [
+            735
+          ]
+        },
+        {
+          "symbol_or_exact_source": "m_urlCoordinator->Start();",
+          "lines": [
+            736
+          ]
+        },
+        {
+          "symbol_or_exact_source": "m_dupeSearch->Start();",
+          "lines": [
+            737
+          ]
+        },
+        {
+          "symbol_or_exact_source": "m_serviceCoordinator->Start();",
+          "lines": [
+            740
+          ]
+        },
+        {
+          "symbol_or_exact_source": "m_queueScriptCoordinator->Stop();",
+          "lines": [
+            1006
+          ]
+        }
+      ],
+      "registration_required": "Install recovered intent fence before workers/services/RPC mutations/Scanner/ResumePending become admissible.",
+      "publication_required": "Shutdown retains journal and counters custody; no success from daemon exit.",
+      "release_required": "Bounded shutdown progress may stop; failed/pending intent remains durable and fenced.",
+      "inventory": "Generation allocator and purge operation journal",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "rust-twin-cache",
+      "path": "rust/src/twin.rs",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "pub fn open",
+          "lines": [
+            468
+          ]
+        },
+        {
+          "symbol_or_exact_source": "pub fn put",
+          "lines": [
+            510
+          ]
+        },
+        {
+          "symbol_or_exact_source": "pub fn partial_of",
+          "lines": [
+            519
+          ]
+        },
+        {
+          "symbol_or_exact_source": "pub fn get",
+          "lines": [
+            526
+          ]
+        },
+        {
+          "symbol_or_exact_source": "pub fn prune",
+          "lines": [
+            536
+          ]
+        },
+        {
+          "symbol_or_exact_source": "pub static STORE",
+          "lines": [
+            554
+          ]
+        }
+      ],
+      "registration_required": "Owner scopes cache access by validated posting/source binding and inherited ticket.",
+      "publication_required": "Exclude purge-bound cache insertion after drain barrier.",
+      "release_required": "Per-family cache removal ACK; global prune/reset is not scoped ACK.",
+      "inventory": "Retained fingerprint/signature cache",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "par-damage",
+      "path": "daemon/queue/ParDamage.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "ParDamage::Forget",
+          "lines": [
+            228
+          ]
+        }
+      ],
+      "registration_required": "Register/rebind cached damage data with immutable owner incarnation.",
+      "publication_required": "Fence updates and prevent stale ID reused record mutation.",
+      "release_required": "Scoped Forget after all users drain; receipt binds exact source.",
+      "inventory": "Per-collection PAR damage cache",
+      "owner": "fallback owner",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-cleanup-move",
+      "path": "daemon/postprocess/Cleanup.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void MoveController::StartJob",
+          "lines": [
+            30
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void MoveController::Run",
+          "lines": [
+            41
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void CleanupController::StartJob",
+          "lines": [
+            242
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void CleanupController::Run",
+          "lines": [
+            253
+          ]
+        }
+      ],
+      "registration_required": "Acquire post worker and namespace ticket before thread Start; suppress ordinary destructive cleanup once reserved.",
+      "publication_required": "Append actual moved old/new entries and destination/final metadata delta before SetDestDir/SetFinalDir or cleanup erases custody.",
+      "release_required": "Retain post ticket through all filesystem operations, callbacks and thread cleanup; SetWorking(false) alone is insufficient.",
+      "inventory": "Moved files, prior destination, final destination and cleanup candidates",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-rename",
+      "path": "daemon/postprocess/Rename.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void RenameController::StartJob",
+          "lines": [
+            69
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void RenameController::Run",
+          "lines": [
+            81
+          ]
+        }
+      ],
+      "registration_required": "Ticket covers PAR/RAR renamer and underlying descriptors.",
+      "publication_required": "Record old/new entry names and callbacks before replacing metadata.",
+      "release_required": "Actual Run/library/descriptors complete, final delta ACK, then ticket release.",
+      "inventory": "PAR/RAR rename outputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-download-rename",
+      "path": "daemon/postprocess/PostDownloadRenamer.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void Controller::StartJob",
+          "lines": [
+            32
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void Controller::Run",
+          "lines": [
+            50
+          ]
+        }
+      ],
+      "registration_required": "Register post ticket before Start; include synchronous renamer subwork.",
+      "publication_required": "Generation-check name changes and capture complete old/new outputs before metadata publication.",
+      "release_required": "Drain thread/descriptors and final delta ACK before releasing post ticket.",
+      "inventory": "Actual renamed outputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-unpack-rename",
+      "path": "daemon/postprocess/PostUnpackRenamer.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void Controller::StartJob",
+          "lines": [
+            32
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void Controller::Run",
+          "lines": [
+            50
+          ]
+        }
+      ],
+      "registration_required": "Register post ticket before Start; include synchronous renamer subwork.",
+      "publication_required": "Generation-check name changes and capture complete old/new outputs before metadata publication.",
+      "release_required": "Drain thread/descriptors and final delta ACK before releasing post ticket.",
+      "inventory": "Actual renamed outputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "post-unpack",
+      "path": "daemon/postprocess/UnpackController.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void UnpackController::StartJob",
+          "lines": [
+            47
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void UnpackController::Run",
+          "lines": [
+            58
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void UnpackController::Completed",
+          "lines": [
+            604
+          ]
+        },
+        {
+          "symbol_or_exact_source": "void UnpackController::Stop",
+          "lines": [
+            1020
+          ]
+        }
+      ],
+      "registration_required": "Register worker and child-process tickets before unpack launch.",
+      "publication_required": "Capture partial/extracted/moved/final files before Completed clears or replaces source paths.",
+      "release_required": "Wait outside locks for child, pipes, worker and final inventory ACK; Stop is not completion.",
+      "inventory": "Unpack temporary/final output and renamed inputs",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "nzb-script",
+      "path": "daemon/extension/NzbScript.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "void NzbScriptController::ExecuteScriptList",
+          "lines": [
+            69
+          ]
+        }
+      ],
+      "registration_required": "Scanner/post parent ticket encloses each script invocation and spawned process.",
+      "publication_required": "Every script result/parameter/path mutation checks parent ticket and records owned output.",
+      "release_required": "Drain process and publication callbacks before releasing parent; no separate ID-zero unbound job.",
+      "inventory": "Script generated NZB or output custody",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "legacy-group-policy",
+      "path": "daemon/queue/QueueEditor.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "bool QueueEditor::EditGroup",
+          "lines": [
+            751
+          ]
+        },
+        {
+          "symbol_or_exact_source": "g_QueueCoordinator->DeleteQueueEntry",
+          "lines": [
+            228
+          ]
+        },
+        {
+          "symbol_or_exact_source": "g_UrlCoordinator->DeleteQueueEntry",
+          "lines": [
+            1367
+          ]
+        }
+      ],
+      "registration_required": "Reject legacy user-route full-delete substitution; existing internal automatic actions need separate retained caller audit.",
+      "publication_required": "Purge owns selection/cleanup policy and may not call existing option-sensitive delete chain as success.",
+      "release_required": "Retain only reviewed mechanical/automatic paths after replacing user route; Task 1 removes no body.",
+      "inventory": "Original incomplete C++ comparator only",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    },
+    {
+      "id": "scanner-script",
+      "path": "daemon/extension/ScanScript.cpp",
+      "anchors": [
+        {
+          "symbol_or_exact_source": "ScanScriptController::ExecuteScripts",
+          "lines": [
+            50
+          ]
+        },
+        {
+          "symbol_or_exact_source": "ScanScriptController::ExecuteScript",
+          "lines": [
+            50,
+            95
+          ]
+        },
+        {
+          "symbol_or_exact_source": "ScanScriptController::AddMessage",
+          "lines": [
+            147
+          ]
+        }
+      ],
+      "registration_required": "Scanner parent ticket covers each scan script and child process before invocation.",
+      "publication_required": "Generation-check script name/category/key/parameter mutations and capture generated or renamed NZB files before final admission.",
+      "release_required": "Child process, output readers and callbacks end before Scanner parent releases; preserve partial files on cancellation.",
+      "inventory": "Actual transformed/generated incoming NZB files; unknown output remains missing inventory",
+      "owner": "purge/lifecycle",
+      "status": "required_not_implemented"
+    }
+  ],
+  "legacy_ownership": {
+    "status": "GAP",
+    "authoritative_input": null,
+    "source_audit": "HistoryHide loses ownership fields; SaveDupInfo cannot encode paths; older retained files may exist",
+    "required_custody": [
+      "immutable historical snapshot/catalog identity and checksum",
+      "independently verified original collection/file incarnation or reviewed legacy binding bridge",
+      "posting/source bytes independently validated",
+      "actual owned entry/root identities and capture time",
+      "outside/shared ownership claims and continuity since capture"
+    ],
+    "insufficient": [
+      "title",
+      "size",
+      "content hash alone",
+      "current category/root",
+      "NZB-internal filename",
+      "current numeric ID",
+      "DupeKind=twin or DupeSampledOf alone"
+    ],
+    "delivery": "full goal held pending independent recovery review or explicit human acceptance; future retention and rejection do not fulfill legacy cleanup",
+    "prior_source_audit_sha256": "1e28bc4ceb3b08a53d68c3ab7963eb2f8c20c6ad50fdaae8f47f7121e00e3bd2",
+    "prior_source_audit_revision": "345097648e26f4758b1b9aad69261dc30dfa621f",
+    "prior_source_audit_provenance": "Earlier source-only audit retained verbatim; not prospectively captured runtime or inventory recovery"
+  },
+  "baselines": {
+    "historical_cpp": {
+      "kind": "incomplete_original_boundaries",
+      "paths": [
+        "daemon/queue/QueueEditor.cpp",
+        "daemon/queue/HistoryCoordinator.cpp",
+        "daemon/postprocess/PrePostProcessor.cpp",
+        "daemon/util/FileSystem.cpp"
+      ],
+      "not_full_family_comparator": true
+    },
+    "new_full_contract_cpp": {
+      "kind": "new_reference_to_be_implemented",
+      "implemented": false,
+      "must_share_all_optimized_algorithms_with_rust": true
+    },
+    "existing_rust": [
+      {
+        "module": "rust/src/fsdelete.rs",
+        "sha256": "733eb1d8b8548460185471c056ae472359b0439610c6ff6fe329b5bf70385feb",
+        "caller": "daemon/util/FileSystem.cpp",
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "capture_role": "independently retained current/original Rust preservation baseline; not new purge",
+        "validation": "not run"
+      },
+      {
+        "module": "rust/src/fsops.rs",
+        "sha256": "c7e4463705b2248d27d20fd99502d922566a10183ef84650e859df488fc8245a",
+        "caller": "daemon/util/FileSystem.cpp",
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "capture_role": "independently retained current/original Rust preservation baseline; not new purge",
+        "validation": "not run"
+      }
+    ],
+    "new_purge": {
+      "implemented": false,
+      "preservation_nonapplicability": "requires independent source review; does not waive existing Rust boundaries"
+    }
+  },
+  "declaration_ack": {
+    "root": "pending exact declaration acknowledgment",
+    "fallback_owner": "pending exact declaration acknowledgment",
+    "runtime_edits_authorized_by_this_artifact": false
+  },
+  "claims": {
+    "source_checks_only": true,
+    "runtime_tests_run": false,
+    "native_speed_qualified": false,
+    "merged": false,
+    "deployed": false
+  },
+  "inventory_applicability": [
+    {
+      "record": "queued/post/full hkNzb/hkUrl",
+      "status": "conditional",
+      "condition": "Actual recorded roots/entries plus independent exclusive/shared ownership validation, incarnation and source binding required; fields alone are not proof"
+    },
+    {
+      "record": "existing legacy hkDup without authoritative catalog",
+      "status": "GAP",
+      "condition": "Missing immutable path ownership; reject and retain, full delivery still held"
+    },
+    {
+      "record": "future compact hkDup with acknowledged retained inventory",
+      "status": "proposed_not_implemented",
+      "condition": "Inventory and incarnation retained durably before full record destruction"
+    },
+    {
+      "record": "outside/shared claims",
+      "status": "must_preserve",
+      "condition": "Snapshot overlapping namespace/entry owners; conflict if exclusivity cannot be proven"
+    }
+  ],
+  "contract": {
+    "path": "docs/dupepurge-contract.md",
+    "sha256": "bc54a4160e48c02dbbbd071a5e50218e61dc8698e443d1d939bcd402795d697f",
+    "status": "proposed, not wired or jointly acknowledged"
+  }
+}
