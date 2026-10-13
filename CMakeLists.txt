@@ -60,6 +60,11 @@ project(
 	LANGUAGES C CXX
 )
 
+option(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH "Qualify Rust donor matching through the real caller" OFF)
+if(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH AND WIN32)
+    message(FATAL_ERROR "Experimental article matcher is unavailable on this Windows Rust build path")
+endif()
+
 set(EXTERNAL_DEPS "")
 include(cmake/common.cmake)
 

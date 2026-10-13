@@ -138,7 +138,7 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 	const int64 matched = nzbget_rs_article_match(&target, donors.data(), donors.size(),
 		reinterpret_cast<const uint8_t*>(targetNzbFilename), targetNzbFilename ? strlen(targetNzbFilename) : 0,
 		reinterpret_cast<const uint8_t*>(byContent.data()), byContent.size(), fold, whitespace);
-	if (matched < -1 || (matched >= 0 && static_cast<size_t>(matched) >= donors.size()))
+	if (matched < -1 || (matched >= 0 && static_cast<uint64>(matched) >= static_cast<uint64>(donors.size())))
 	{
 		// A rejected candidate invalidates qualification, rather than silently
 		// falling through to C++ and falsely counting a Rust operation hit.

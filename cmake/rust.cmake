@@ -1,4 +1,3 @@
-option(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH "Qualify Rust donor matching through the real caller" OFF)
 # An explicitly requested qualification route must never silently use C++.
 macro(nzbget_rust_backend_unavailable)
     if(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH)
