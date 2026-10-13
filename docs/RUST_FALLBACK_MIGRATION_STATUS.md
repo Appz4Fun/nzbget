@@ -44,3 +44,9 @@ The feature branch preparation commits c31879c6 and d0713ba0 are pushed and GitH
 - Fresh target now includes toolbar-only badf75a2 after the 4cf19abd baseline. Compose the fresh target before qualification/integration; the baseline oracle remains immutable.
 
 Next: local implementation Codex review, scheduled native correctness, then whole article matching/pinned-state Rust ownership and complete-caller speed proof. This foundation does not satisfy a runtime replacement milestone and does not clear neighboring holds.
+
+## Local implementation review and follow-up
+
+Signed foundation head 17051f8e received a high-effort local Codex source review. No correctness, UB/lifetime, aliasing, output-initialization or ABI-layout defect was found within that supplied source. Three low coverage gaps were addressed with explicit tests for genuinely uninitialized output, address-plus-length overflow, and exactly adjacent input/output. The expanded suite passed **25/25**. The production implementation is unchanged by those coverage additions. Full Cargo/native/platform/runtime/performance review is still pending; this local review is not PR approval.
+
+Next-stage donor-state contracts are authored in `rust/src/articlefallback.rs` (five tests for rotation threshold, stale pinned results, first-round gating, exhausted/single-donor budget and provisional/verified success). Its implementation and RED execution remain pending. The file is not exported by `lib.rs`, so it is not a runtime path.

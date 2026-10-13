@@ -29,3 +29,37 @@ fn abi_rejects_overlap_misalignment_and_span_overflow_before_borrow() {
     assert_eq!(unsafe { nzbget_rs_article_geometry(input.as_ptr(), usize::MAX, 100, &mut out, usize::MAX) }, -2);
     assert_eq!((out.expected_offset,out.expected_end,out.aligned), (123,456,789));
 }
+
+#[test]
+fn abi_initializes_every_result_in_uninitialized_output() {
+    let input = [RawArticle { part: 1, size: 110, offset: 0, segment_size: 100, finished: 1, borrowed: 0 }];
+    let mut output = std::mem::MaybeUninit::<GeometryResult>::uninit();
+    assert_eq!(unsafe { nzbget_rs_article_geometry(input.as_ptr(), 1, 100, output.as_mut_ptr(), 1) }, -1);
+    // SAFETY: valid successful call initializes the complete result fields.
+    let result = unsafe { output.assume_init() };
+    assert_eq!((result.expected_offset, result.expected_end, result.aligned), (0,100,1));
+}
+
+#[test]
+fn abi_rejects_address_endpoint_overflow_without_touching_output() {
+    let pointer = (usize::MAX & !(std::mem::align_of::<RawArticle>() - 1)) as *const RawArticle;
+    let mut output = GeometryResult { expected_offset: 123, expected_end: 456, aligned: 789 };
+    assert_eq!(unsafe { nzbget_rs_article_geometry(pointer, 1, 100, &mut output, 1) }, -2);
+    assert_eq!((output.expected_offset, output.expected_end, output.aligned), (123,456,789));
+}
+
+#[test]
+fn abi_accepts_exactly_adjacent_input_and_output_spans() {
+    #[repr(C)]
+    struct Adjacent { input: RawArticle, output: std::mem::MaybeUninit<GeometryResult> }
+    let mut buffer = Adjacent {
+        input: RawArticle { part: 1, size: 110, offset: 0, segment_size: 100, finished: 1, borrowed: 0 },
+        output: std::mem::MaybeUninit::uninit(),
+    };
+    let input = &buffer.input as *const RawArticle;
+    let output = buffer.output.as_mut_ptr();
+    assert_eq!(input as usize + std::mem::size_of::<RawArticle>(), output as usize);
+    assert_eq!(unsafe { nzbget_rs_article_geometry(input, 1, 100, output, 1) }, -1);
+    let result = unsafe { buffer.output.assume_init() };
+    assert_eq!((result.expected_offset, result.expected_end, result.aligned), (0,100,1));
+}
