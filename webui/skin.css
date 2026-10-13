@@ -1529,6 +1529,11 @@ tr.checked:nth-child(odd) .progress-block .progress {
 	display: none;
 }
 
+.section-toolbar #DownloadsTableTopBlock {
+	flex: 1 1 320px;
+	margin: 0;
+}
+
 .phone .section-toolbar.btn-toolbar > .btn-group.phone-only {
 	display: inline-flex;
 }
