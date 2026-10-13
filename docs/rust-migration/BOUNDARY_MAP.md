@@ -85,4 +85,4 @@ None of these classifications authorizes deleting an API from ABI/test consumers
 
 ## Next runtime admission
 
-The existing scheduling owner is preserving the active candidate-build priority and source/overlay receipts. The full migration lane remains on source inspection until the owner supplies the original four-NZB profile evidence and assigns a specific nonoverlapping runtime boundary. Do not select a backend based only on archive names, source identity, or historical kernel multipliers.
+The integration coordinator assigned this lane the `ArticleDownloader` decode/check/write and `ArticleWriter` data-plane comparison. Prepare an isolated source-bound harness and exact bounded payload first; heavy validation, profiling and timing still require scheduling-owner admission and coordinator grant. The recovered four-NZB loopback evidence identifies health scheduling as that fixture's largest observed cost, not article-decoder throughput. Do not select a production replacement based only on archive names, source identity, or historical kernel multipliers; production edits wait for the assigned initial measurements.
