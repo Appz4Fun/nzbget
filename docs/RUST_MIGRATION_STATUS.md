@@ -426,6 +426,86 @@ Ruling: execute the approved differential-benchmark plan through an isolated har
 - [ ] `tests/util/Utf8.cpp` — platform or test support remains in completion scope.
 - [ ] `tests/util/Util.cpp` — platform or test support remains in completion scope.
 
+## C++ oracles and drivers under Rust tests
+
+Every retained source below has an immutable identity in `source-inventory.json`. Preserve and translate its contracts before retiring C++ compilation; source classification does not establish readiness or runtime execution. Python analysis/orchestration needs an explicit C++-coupling disposition, including transitive imports, rather than an assumed whole-file deletion.
+
+- [ ] `rust/tests/deobfuscation_ownership.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/dupesearch_nzb/caller.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/latin1_caller/driver.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/paths_ownership.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/rarrenamer_metadata.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/streamcompare_caller.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/streamcompare_improved_control.inc` — C++ include fragment; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/streamcompare_reference.inc` — C++ include fragment; preserve/translate contracts and retire C++ source after validation.
+- [ ] `rust/tests/streampatchparts_harness.cpp` — C++ test/caller harness; preserve/translate contracts and retire C++ source after validation.
+
+### Python test-driver C++ coupling
+
+- [ ] `rust/tests/binrpc_client_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/binrpc_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/binrpc_edit_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/binrpc_lists_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/cmdline_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/collection_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/crc_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/deadpostings_cpp_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/deadpostings_locale.py` — C++-related driver candidate; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/deadpostings_mutations.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/decode_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/decoder_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/deobfuscation_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/directrenamer_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/donorscore_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupeidentity_differential.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupesearch_nzb/mutations.py` — C++-related driver candidate; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupesearch_nzb/run.py` — C++-related driver candidate; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupesearch_nzb/summarize.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupesearch_nzb/test_evidence.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupewatch_cpp_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/dupewatch_differential.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/extload_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/feedfilter_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/filetypes_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/fsdelete_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/fsops_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/latin1_caller/run.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/latin1_caller/summarize.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/latin1_caller/test_runner.py` — C++-related driver candidate; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/manifest_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/nntp_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/nzbfile_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/options_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/parparser_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/parrenamer_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/paths_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/posting_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/rarreader_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/rarrenamer_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/releasename_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/renameanalyzer_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/rpcaccess_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/rpcparams_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/rpcroute_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/scheduler_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/statmeter_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/streamcompare_analyze.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/streamcompare_differential.py` — C++-related driver candidate; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/streampatchparts_benchmark_summary.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/streampatchparts_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/streampatchparts_mutations.py` — analysis/orchestration source; transitive C++ dependency review pending; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/testserver_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/text_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/textutil_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/url_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/urlcoord_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/util_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/webdownload_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/webserver_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/webutil_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+- [ ] `rust/tests/wildmask_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
+
 ## Build and dependency retirement
 
 - [ ] Replace optional Rust build selection and every C++ fallback with supported mandatory Rust builds on all supported targets.

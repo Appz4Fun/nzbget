@@ -17,6 +17,11 @@ Bounded Git blob reads; lexical public C ABI export and call-like symbol occurre
 | daemon cpp total lines including comments | 87451 |
 | daemon cpp with rust call like occurrence | 36 |
 | daemon headers | 149 |
+| Rust test C++ implementations | 7 |
+| Rust test C++ include fragments | 2 |
+| Rust test Python drivers | 63 |
+
+The supplemental test audit binds all nine checked-in C++ implementations/fragments and all 63 Python drivers individually in `source-inventory.json`, with unchecked dispositions in `RUST_MIGRATION_STATUS.md`. Python can emit, build, import or orchestrate C++ references; absence of a literal include is not proof of independence. These sources match both the original inventory commit and supplemental audit commit `7d3d6412f93cd43452f1b390b4ed705c7691df54`. Their presence does not establish current harness build readiness or native execution. Preserve differential contracts and historical oracles, translate required regressions to Rust, and retire the C++ test/build paths before marking final removal complete.
 
 ## Rust modules
 
@@ -96,5 +101,6 @@ These require individual classification as benchmark-only, helper/indirect ABI u
 - Stream patch selection invokes Rust for nonempty donor ranges and holes with nonnegative margin, including zero margin and inputs below 4096 holes. The separate coverage floor invokes Rust for nonempty probes and at least 4096 holes in `daemon/queue/DupeStreamRepair.cpp`. These are wired source paths; compiled coverage and recorded performance holds remain unresolved.
 - `Crc32::Combine` already routes to Rust in Rust-enabled builds; its historical 135x claim compares a different algorithm. `rust/src/crc.rs` explicitly identifies its later-zlib multiplication method, so qualification requires the same improved algorithm in the fair C++ control.
 - `NzbFile` retains libxml2 SAX parsing and C++ queue objects; the 17x duplicate-name claim is not proof that the whole parser or submission path is 17x faster.
+- `TwinCheck` disables twin labels and content matching without Rust (`#else` in `daemon/queue/TwinCheck.cpp`); remaining legacy C++ PAR-repair helpers do not supply equivalent feature behavior. A non-Rust build cannot qualify a twin feature speed comparison by omitting that work.
 
 The complete machine-readable occurrence locations and immutable Git blob identities are in [source-inventory.json](rust-migration/source-inventory.json).

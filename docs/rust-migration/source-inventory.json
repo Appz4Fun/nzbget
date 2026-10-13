@@ -3561,6 +3561,71 @@
     "nzbget_rs_rename_analyzer_free"
   ],
   "method": "Bounded Git blob reads; lexical public C ABI export and call-like symbol occurrence inventory. Comments, preprocessor branches and dead code can match. No compile, linking, reachability, benchmark, or deployment result inferred. Rust source line counts include test code and comments. No language percentage inferred.",
+  "rust_cpp_test_sources": [
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "e593feb522265ec5f2269f17a9ba8853813cfbed",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/deobfuscation_ownership.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "eb115135caa32f2fbb52fbd68334b71635051898",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/dupesearch_nzb/caller.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "082ec4942c6a0286b49b34db17ac019e838b1d7a",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/latin1_caller/driver.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "7a279f94258bf2f7b2489ce9f6e5386efb701e46",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/paths_ownership.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "895302f7f5a8237bde5a0d38f8d4201f75f6fb2f",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/rarrenamer_metadata.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "c548e29102e2f2fe4eadbf7bfb56740407bf1b8c",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/streamcompare_caller.cpp"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "c7e5ec53d8105b1555e04602f365f2d852e02252",
+      "kind": "C++ include fragment",
+      "path": "rust/tests/streamcompare_improved_control.inc"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "16814b7f78d520f9ad7babbc06de8bf8d45eb48c",
+      "kind": "C++ include fragment",
+      "path": "rust/tests/streamcompare_reference.inc"
+    },
+    {
+      "compiled_readiness": "unknown",
+      "disposition": "preserve contracts, translate to Rust tests, retire C++ source",
+      "git_blob": "18de971a7804a6d3db4f4c6acefa0e7b87671677",
+      "kind": "C++ test/caller harness",
+      "path": "rust/tests/streampatchparts_harness.cpp"
+    }
+  ],
   "rust_modules": [
     {
       "blob": "9c175fc01bf4f11aba47b08ac329fa4f38f4c7ff",
@@ -6284,6 +6349,575 @@
       "path": "rust/src/wildmask.rs"
     }
   ],
+  "rust_test_python_drivers": [
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "56f91c8b4edb58ecffa566955941dfd71dd13d4d",
+      "path": "rust/tests/binrpc_client_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "c681b618ba526692691ff1dc62f77f4112901107",
+      "path": "rust/tests/binrpc_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "5d2eeb4a0907f7fd7dec72cbac0ae2450fb53698",
+      "path": "rust/tests/binrpc_edit_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "6d53188d12cf152725fa4abfcb552516fb8da7b2",
+      "path": "rust/tests/binrpc_lists_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "2f91d5c3b81e2ce43da70ff249dddbd21e6fbd60",
+      "path": "rust/tests/cmdline_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f0a0ef35a7d55effc146681ae67583e6b3c9f0b4",
+      "path": "rust/tests/collection_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "509e6bec24fda6bd5aad1538c66b1a671e5bb33e",
+      "path": "rust/tests/crc_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "d6e5d8483a7606c3ccbec116370ce82c675cbb41",
+      "path": "rust/tests/deadpostings_cpp_differential.py"
+    },
+    {
+      "classification": "C++-related driver candidate",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "87ec8cff4133eaa4e196cc78997ce64d4ee54796",
+      "path": "rust/tests/deadpostings_locale.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "734d1f0028801b1346c3039b0d2f34d556949780",
+      "path": "rust/tests/deadpostings_mutations.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "fedefc5279a48784ec9cdb60247782d7a8c14402",
+      "path": "rust/tests/decode_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+      "path": "rust/tests/decoder_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "e2f3f4af049b54e0d780c4c6c4e785c2cf27e092",
+      "path": "rust/tests/deobfuscation_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "a4f92d3e5ec329bb951383014869a91583962ee9",
+      "path": "rust/tests/differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+      "path": "rust/tests/directrenamer_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "70041565fc53facd2332109ceef269b3708419f1",
+      "path": "rust/tests/donorscore_differential.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "1a01aa136ce4144bd6e37e9b0a3593ab97b0dcb8",
+      "path": "rust/tests/dupeidentity_differential.py"
+    },
+    {
+      "classification": "C++-related driver candidate",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "6a22776d2ae910f58dc511588e1f8e8cc959c765",
+      "path": "rust/tests/dupesearch_nzb/mutations.py"
+    },
+    {
+      "classification": "C++-related driver candidate",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+      "path": "rust/tests/dupesearch_nzb/run.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "942a3ed0bfb44ad56dce4b10dcb6c984b821489a",
+      "path": "rust/tests/dupesearch_nzb/summarize.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "831aa43a9f70fb90214b061013ca2a3731e90ed3",
+      "path": "rust/tests/dupesearch_nzb/test_evidence.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+      "path": "rust/tests/dupewatch_cpp_differential.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "ed9bf04808f66f36b7da9f2f31d63b64daefa97a",
+      "path": "rust/tests/dupewatch_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "6ec84dca4cd8f191ef288aa392b1275a98b8c8a5",
+      "path": "rust/tests/extload_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "c59f60cf3db83b7280a717c330eb1324e9342f9a",
+      "path": "rust/tests/feedfilter_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "97e1b30151dd582ab9a1bd72447d0afbad18fe14",
+      "path": "rust/tests/filetypes_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "178dd31689f739a50db1aad08bf5e187017eeaad",
+      "path": "rust/tests/fsdelete_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "88e82286dd72a777636c987deab28d743d4c9e74",
+      "path": "rust/tests/fsops_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "922c8bc6ea322210a8e06660c4518e2dcd47beb1",
+      "path": "rust/tests/latin1_caller/run.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "09f0c049a75ed732d357ece27a1b6090e16e52f4",
+      "path": "rust/tests/latin1_caller/summarize.py"
+    },
+    {
+      "classification": "C++-related driver candidate",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "613b0b893e2fc49f8c2c0c1ab9100045f097c190",
+      "path": "rust/tests/latin1_caller/test_runner.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "ad4eae123c51b2d4dadd0a6b29676f910e4823cd",
+      "path": "rust/tests/manifest_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "5cc74700e40199efead76aefa014327bfd1e5a47",
+      "path": "rust/tests/nntp_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "d3e52730c6831c20703bbaed622244a8a350a318",
+      "path": "rust/tests/nzbfile_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f8b3709d3fc5fffa8aba90b7e03f85fdaa1a24b8",
+      "path": "rust/tests/options_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "c484c6045388d019b61fffbb02e880e2632f6ced",
+      "path": "rust/tests/parparser_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "3299e89b406a2ef7af9c7a53e60273c274919fd0",
+      "path": "rust/tests/parrenamer_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "164f86f6b90a886a4e88ad61873346e99a31e25e",
+      "path": "rust/tests/paths_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "4875087a3973279f65d02aa2cf48385f0e7dd087",
+      "path": "rust/tests/posting_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "22a214b8258c51177d3da70e2971095d8e65880c",
+      "path": "rust/tests/rarreader_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "7192f796184cbbcb55684fc61dde5c8023c021bc",
+      "path": "rust/tests/rarrenamer_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "912152ea7051d098150f29e9752c467696f38397",
+      "path": "rust/tests/releasename_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
+      "path": "rust/tests/renameanalyzer_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+      "path": "rust/tests/rpcaccess_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "e43e3d8fcdf2fc794f7890314c958db60270ea1a",
+      "path": "rust/tests/rpcparams_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "c2e092d4a27a2e6d5cb57ce5c6c58ac72d595ae6",
+      "path": "rust/tests/rpcroute_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "563e3d41bdd8f5d79728f2df63803e7740a58a61",
+      "path": "rust/tests/scheduler_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "e631fb79043b8e87bd1376fc688a643692eb86f0",
+      "path": "rust/tests/statmeter_differential.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "94fac32d6f6fdf014c46b36fccca701fcc795d49",
+      "path": "rust/tests/streamcompare_analyze.py"
+    },
+    {
+      "classification": "C++-related driver candidate",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f4fd2776f29dc6fd6bbb444e9066ecf87ab7fa9d",
+      "path": "rust/tests/streamcompare_differential.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "b1c2ebbff9ae2b218bb02296ad01b6a10a1aa9fa",
+      "path": "rust/tests/streampatchparts_benchmark_summary.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f62a10b374114c2cd811917362e89189cfbb4883",
+      "path": "rust/tests/streampatchparts_differential.py"
+    },
+    {
+      "classification": "analysis/orchestration source; transitive C++ dependency review pending",
+      "cpp_build_or_artifact_literal": false,
+      "cpp_include_literal": false,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "7a6fdb3c9e8c740231606f25c4c0e31dff20b5fb",
+      "path": "rust/tests/streampatchparts_mutations.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "711164e8c09632951db607a1a58aeeb5d458022d",
+      "path": "rust/tests/testserver_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "6469c6f4da49df0625d6a00bee33a78ccd3ba160",
+      "path": "rust/tests/text_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "5629d9cd46ca0f7315a63f559daf47ee0443e06a",
+      "path": "rust/tests/textutil_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "93a26a62695e9f1f4101dabb0c9006a002328d51",
+      "path": "rust/tests/url_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "b0744f1e2608ad93241b04ca1037b282ca04c95a",
+      "path": "rust/tests/urlcoord_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "8738f041a53287425565d22060c33ac6332895e1",
+      "path": "rust/tests/util_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "dae133f323e756fa22d7d0b6e94bcd566209184a",
+      "path": "rust/tests/webdownload_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "8903fac07565a1047c704582a7194a76fdabd0e7",
+      "path": "rust/tests/webserver_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "f5d89a4f0e4e5723c10469347cff10c8f2580de7",
+      "path": "rust/tests/webutil_differential.py"
+    },
+    {
+      "classification": "emitted C++ source",
+      "cpp_build_or_artifact_literal": true,
+      "cpp_include_literal": true,
+      "disposition": "preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis",
+      "execution": "not inferred from source",
+      "git_blob": "3a5254f4a7c4f09016f50c2436f1e048a771dacd",
+      "path": "rust/tests/wildmask_differential.py"
+    }
+  ],
   "schema_version": 1,
   "source_blobs": {
     "CMakeLists.txt": {
@@ -7718,6 +8352,294 @@
       "blob": "55bdd362da6569f3c2f7af716fd4ba0ffc68ecf0",
       "size": 6915
     },
+    "rust/tests/binrpc_client_differential.py": {
+      "blob": "56f91c8b4edb58ecffa566955941dfd71dd13d4d",
+      "size": 20970
+    },
+    "rust/tests/binrpc_differential.py": {
+      "blob": "c681b618ba526692691ff1dc62f77f4112901107",
+      "size": 8834
+    },
+    "rust/tests/binrpc_edit_differential.py": {
+      "blob": "5d2eeb4a0907f7fd7dec72cbac0ae2450fb53698",
+      "size": 8005
+    },
+    "rust/tests/binrpc_lists_differential.py": {
+      "blob": "6d53188d12cf152725fa4abfcb552516fb8da7b2",
+      "size": 14400
+    },
+    "rust/tests/cmdline_differential.py": {
+      "blob": "2f91d5c3b81e2ce43da70ff249dddbd21e6fbd60",
+      "size": 16235
+    },
+    "rust/tests/collection_differential.py": {
+      "blob": "f0a0ef35a7d55effc146681ae67583e6b3c9f0b4",
+      "size": 9560
+    },
+    "rust/tests/crc_differential.py": {
+      "blob": "509e6bec24fda6bd5aad1538c66b1a671e5bb33e",
+      "size": 3329
+    },
+    "rust/tests/deadpostings_cpp_differential.py": {
+      "blob": "d6e5d8483a7606c3ccbec116370ce82c675cbb41",
+      "size": 12026
+    },
+    "rust/tests/deadpostings_locale.py": {
+      "blob": "87ec8cff4133eaa4e196cc78997ce64d4ee54796",
+      "size": 5732
+    },
+    "rust/tests/deadpostings_mutations.py": {
+      "blob": "734d1f0028801b1346c3039b0d2f34d556949780",
+      "size": 1801
+    },
+    "rust/tests/decode_differential.py": {
+      "blob": "fedefc5279a48784ec9cdb60247782d7a8c14402",
+      "size": 7245
+    },
+    "rust/tests/decoder_differential.py": {
+      "blob": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+      "size": 15241
+    },
+    "rust/tests/deobfuscation_differential.py": {
+      "blob": "e2f3f4af049b54e0d780c4c6c4e785c2cf27e092",
+      "size": 7983
+    },
+    "rust/tests/deobfuscation_ownership.cpp": {
+      "blob": "e593feb522265ec5f2269f17a9ba8853813cfbed",
+      "size": 1326
+    },
+    "rust/tests/differential.py": {
+      "blob": "a4f92d3e5ec329bb951383014869a91583962ee9",
+      "size": 4263
+    },
+    "rust/tests/directrenamer_differential.py": {
+      "blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+      "size": 20166
+    },
+    "rust/tests/donorscore_differential.py": {
+      "blob": "70041565fc53facd2332109ceef269b3708419f1",
+      "size": 7804
+    },
+    "rust/tests/dupeidentity_differential.py": {
+      "blob": "1a01aa136ce4144bd6e37e9b0a3593ab97b0dcb8",
+      "size": 15154
+    },
+    "rust/tests/dupesearch_nzb/caller.cpp": {
+      "blob": "eb115135caa32f2fbb52fbd68334b71635051898",
+      "size": 6940
+    },
+    "rust/tests/dupesearch_nzb/mutations.py": {
+      "blob": "6a22776d2ae910f58dc511588e1f8e8cc959c765",
+      "size": 1705
+    },
+    "rust/tests/dupesearch_nzb/run.py": {
+      "blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+      "size": 3795
+    },
+    "rust/tests/dupesearch_nzb/summarize.py": {
+      "blob": "942a3ed0bfb44ad56dce4b10dcb6c984b821489a",
+      "size": 2534
+    },
+    "rust/tests/dupesearch_nzb/test_evidence.py": {
+      "blob": "831aa43a9f70fb90214b061013ca2a3731e90ed3",
+      "size": 2472
+    },
+    "rust/tests/dupewatch_cpp_differential.py": {
+      "blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+      "size": 45050
+    },
+    "rust/tests/dupewatch_differential.py": {
+      "blob": "ed9bf04808f66f36b7da9f2f31d63b64daefa97a",
+      "size": 10988
+    },
+    "rust/tests/extload_differential.py": {
+      "blob": "6ec84dca4cd8f191ef288aa392b1275a98b8c8a5",
+      "size": 15684
+    },
+    "rust/tests/feedfilter_differential.py": {
+      "blob": "c59f60cf3db83b7280a717c330eb1324e9342f9a",
+      "size": 16857
+    },
+    "rust/tests/filetypes_differential.py": {
+      "blob": "97e1b30151dd582ab9a1bd72447d0afbad18fe14",
+      "size": 9582
+    },
+    "rust/tests/fsdelete_differential.py": {
+      "blob": "178dd31689f739a50db1aad08bf5e187017eeaad",
+      "size": 30760
+    },
+    "rust/tests/fsops_differential.py": {
+      "blob": "88e82286dd72a777636c987deab28d743d4c9e74",
+      "size": 17203
+    },
+    "rust/tests/latin1_caller/driver.cpp": {
+      "blob": "082ec4942c6a0286b49b34db17ac019e838b1d7a",
+      "size": 2759
+    },
+    "rust/tests/latin1_caller/run.py": {
+      "blob": "922c8bc6ea322210a8e06660c4518e2dcd47beb1",
+      "size": 7520
+    },
+    "rust/tests/latin1_caller/summarize.py": {
+      "blob": "09f0c049a75ed732d357ece27a1b6090e16e52f4",
+      "size": 1995
+    },
+    "rust/tests/latin1_caller/test_runner.py": {
+      "blob": "613b0b893e2fc49f8c2c0c1ab9100045f097c190",
+      "size": 4457
+    },
+    "rust/tests/manifest_differential.py": {
+      "blob": "ad4eae123c51b2d4dadd0a6b29676f910e4823cd",
+      "size": 23238
+    },
+    "rust/tests/nntp_differential.py": {
+      "blob": "5cc74700e40199efead76aefa014327bfd1e5a47",
+      "size": 14063
+    },
+    "rust/tests/nzbfile_differential.py": {
+      "blob": "d3e52730c6831c20703bbaed622244a8a350a318",
+      "size": 12937
+    },
+    "rust/tests/options_differential.py": {
+      "blob": "f8b3709d3fc5fffa8aba90b7e03f85fdaa1a24b8",
+      "size": 14949
+    },
+    "rust/tests/parparser_differential.py": {
+      "blob": "c484c6045388d019b61fffbb02e880e2632f6ced",
+      "size": 13965
+    },
+    "rust/tests/parrenamer_differential.py": {
+      "blob": "3299e89b406a2ef7af9c7a53e60273c274919fd0",
+      "size": 22039
+    },
+    "rust/tests/paths_differential.py": {
+      "blob": "164f86f6b90a886a4e88ad61873346e99a31e25e",
+      "size": 9722
+    },
+    "rust/tests/paths_ownership.cpp": {
+      "blob": "7a279f94258bf2f7b2489ce9f6e5386efb701e46",
+      "size": 1430
+    },
+    "rust/tests/posting_differential.py": {
+      "blob": "4875087a3973279f65d02aa2cf48385f0e7dd087",
+      "size": 10605
+    },
+    "rust/tests/rarreader_differential.py": {
+      "blob": "22a214b8258c51177d3da70e2971095d8e65880c",
+      "size": 22213
+    },
+    "rust/tests/rarrenamer_differential.py": {
+      "blob": "7192f796184cbbcb55684fc61dde5c8023c021bc",
+      "size": 10452
+    },
+    "rust/tests/rarrenamer_metadata.cpp": {
+      "blob": "895302f7f5a8237bde5a0d38f8d4201f75f6fb2f",
+      "size": 7626
+    },
+    "rust/tests/releasename_differential.py": {
+      "blob": "912152ea7051d098150f29e9752c467696f38397",
+      "size": 10595
+    },
+    "rust/tests/renameanalyzer_differential.py": {
+      "blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
+      "size": 10908
+    },
+    "rust/tests/rpcaccess_differential.py": {
+      "blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+      "size": 22275
+    },
+    "rust/tests/rpcparams_differential.py": {
+      "blob": "e43e3d8fcdf2fc794f7890314c958db60270ea1a",
+      "size": 14271
+    },
+    "rust/tests/rpcroute_differential.py": {
+      "blob": "c2e092d4a27a2e6d5cb57ce5c6c58ac72d595ae6",
+      "size": 16928
+    },
+    "rust/tests/scheduler_differential.py": {
+      "blob": "563e3d41bdd8f5d79728f2df63803e7740a58a61",
+      "size": 16541
+    },
+    "rust/tests/statmeter_differential.py": {
+      "blob": "e631fb79043b8e87bd1376fc688a643692eb86f0",
+      "size": 11695
+    },
+    "rust/tests/streamcompare_analyze.py": {
+      "blob": "94fac32d6f6fdf014c46b36fccca701fcc795d49",
+      "size": 1787
+    },
+    "rust/tests/streamcompare_caller.cpp": {
+      "blob": "c548e29102e2f2fe4eadbf7bfb56740407bf1b8c",
+      "size": 19348
+    },
+    "rust/tests/streamcompare_differential.py": {
+      "blob": "f4fd2776f29dc6fd6bbb444e9066ecf87ab7fa9d",
+      "size": 6567
+    },
+    "rust/tests/streamcompare_improved_control.inc": {
+      "blob": "c7e5ec53d8105b1555e04602f365f2d852e02252",
+      "size": 6414
+    },
+    "rust/tests/streamcompare_reference.inc": {
+      "blob": "16814b7f78d520f9ad7babbc06de8bf8d45eb48c",
+      "size": 1969
+    },
+    "rust/tests/streampatchparts_benchmark_summary.py": {
+      "blob": "b1c2ebbff9ae2b218bb02296ad01b6a10a1aa9fa",
+      "size": 1454
+    },
+    "rust/tests/streampatchparts_differential.py": {
+      "blob": "f62a10b374114c2cd811917362e89189cfbb4883",
+      "size": 4161
+    },
+    "rust/tests/streampatchparts_harness.cpp": {
+      "blob": "18de971a7804a6d3db4f4c6acefa0e7b87671677",
+      "size": 9007
+    },
+    "rust/tests/streampatchparts_mutations.py": {
+      "blob": "7a6fdb3c9e8c740231606f25c4c0e31dff20b5fb",
+      "size": 1629
+    },
+    "rust/tests/testserver_differential.py": {
+      "blob": "711164e8c09632951db607a1a58aeeb5d458022d",
+      "size": 12425
+    },
+    "rust/tests/text_differential.py": {
+      "blob": "6469c6f4da49df0625d6a00bee33a78ccd3ba160",
+      "size": 9051
+    },
+    "rust/tests/textutil_differential.py": {
+      "blob": "5629d9cd46ca0f7315a63f559daf47ee0443e06a",
+      "size": 14989
+    },
+    "rust/tests/url_differential.py": {
+      "blob": "93a26a62695e9f1f4101dabb0c9006a002328d51",
+      "size": 5361
+    },
+    "rust/tests/urlcoord_differential.py": {
+      "blob": "b0744f1e2608ad93241b04ca1037b282ca04c95a",
+      "size": 9061
+    },
+    "rust/tests/util_differential.py": {
+      "blob": "8738f041a53287425565d22060c33ac6332895e1",
+      "size": 11275
+    },
+    "rust/tests/webdownload_differential.py": {
+      "blob": "dae133f323e756fa22d7d0b6e94bcd566209184a",
+      "size": 15272
+    },
+    "rust/tests/webserver_differential.py": {
+      "blob": "8903fac07565a1047c704582a7194a76fdabd0e7",
+      "size": 14094
+    },
+    "rust/tests/webutil_differential.py": {
+      "blob": "f5d89a4f0e4e5723c10469347cff10c8f2580de7",
+      "size": 9907
+    },
+    "rust/tests/wildmask_differential.py": {
+      "blob": "3a5254f4a7c4f09016f50c2436f1e048a771dacd",
+      "size": 6149
+    },
     "tests/dupesearch/DeadPostings.cpp": {
       "blob": "a159fbb336210cd247515bd2c4f3a48fe789b898",
       "size": 9466
@@ -8033,7 +8955,11 @@
     "daemon_cpp_total_lines_including_comments": 87451,
     "daemon_cpp_with_rust_call_like_occurrence": 36,
     "daemon_headers": 149,
+    "rust_cpp_test_harness_files": 7,
+    "rust_cpp_test_include_fragments": 2,
     "rust_src_files": 50,
-    "rust_src_total_lines_including_tests_comments": 24487
-  }
+    "rust_src_total_lines_including_tests_comments": 24487,
+    "rust_test_python_drivers": 63
+  },
+  "supplementary_test_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
 }

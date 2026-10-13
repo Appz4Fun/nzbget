@@ -29,7 +29,86 @@
     "platforms/macos/RPC.m": "a6afd05ed5884b440c993ab0c190d606e2bc9c04",
     "platforms/macos/WebClient.m": "b2bf1a056cdc94439024fd15ec1d4499e8001c59",
     "platforms/macos/WelcomeDialog.m": "98358f24c745bffb27bd4ba2bdd07e19a340f840",
-    "rust/tests/decoder_differential.py": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90"
+    "rust/tests/decoder_differential.py": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+    "daemon/connect/HttpClient.cpp": "8f424043d1c56077e1c5b7d9843bd3a204c4fadc",
+    "daemon/main/nzbget.h": "12ba3d3182e10fcf772cc68a034a32513d591d46",
+    "daemon/nntp/ArticleWriter.cpp": "2d68ce94eded38ac7b9b24344baaacb9c8fb87cb",
+    "daemon/systemhealth/Validators.cpp": "3bce33455bfd460624f71928b98d7b364deb4379",
+    "rust/tests/manifest_differential.py": "ad4eae123c51b2d4dadd0a6b29676f910e4823cd",
+    "tests/dupesearch/DeadPostings.cpp": "a159fbb336210cd247515bd2c4f3a48fe789b898",
+    "tests/dupesearch/DonorHealth.cpp": "ba9873c6bd7ee0de7974078f3c8324e6663c0769",
+    "tests/dupesearch/DonorScore.cpp": "7f7da6777acb35a8131765138e10f6f9b95ec32f",
+    "tests/dupesearch/Newznab.cpp": "7b8008320ce4600760e481326c14ed9cc0607233",
+    "tests/dupesearch/Posting.cpp": "6af2f92a4060ef419eb0cfe952f3a9079fb28f08",
+    "tests/dupesearch/ReleaseName.cpp": "3496b1192df3960cae478b5f32a236617d6fc059",
+    "tests/extension/Extension.cpp": "457e7cd846b3801fcdd2ec7b847fd87a7626992c",
+    "tests/extension/ExtensionLoader.cpp": "ccb87a16cdeb1fd3b297ef8a388769368ad3ead0",
+    "tests/extension/ExtensionManager.cpp": "92bc2b92a813c4d816779b34bb0e2c09627991d3",
+    "tests/extension/ManifestFile.cpp": "64bb273509a49b27e59896ed474ca77b97e7cd1b",
+    "tests/extension/ScanScript.cpp": "a11a9cc3e5ac5427fe6800c804a5e3f4e6f4b7c8",
+    "tests/extension/ScriptConfig.cpp": "ce29487e36aae18da043ffb8e665aa7aac9c5a34",
+    "tests/feed/FeedFile.cpp": "a16a640421bead6403f739c0362eef99b2d7fa7b",
+    "tests/feed/FeedFilter.cpp": "5e748870bcb704a7db0df08ffd366137faa3de6d",
+    "tests/feed/FeedInfo.cpp": "dea07848724c317065e73b5ed72af425bfc6b5d7",
+    "tests/feed/NzbInfoCreator.cpp": "7cc5d09aae1034ad739f22a4da9543fadfe13618",
+    "tests/main/CommandLineParser.cpp": "8404e74fa3f969272a8571f63c2b6a6a357d9260",
+    "tests/main/Options.cpp": "a9b40f74aa2da21e6a6ca89e55c986e0f6067131",
+    "tests/nntp/ArticleFetcher.cpp": "21f7289b93bfa7d74ee358b7181f9f263e0f6b76",
+    "tests/nntp/ArticleWriter.cpp": "c39fcefb348b58a98721f57abba6ca7215548c51",
+    "tests/nntp/Decoder.cpp": "aa81b9b35949b76bbdc0b1c91e7e2a62209a3017",
+    "tests/nntp/ServerPool.cpp": "0cffff6a0ee4f56f0d3514793c71e2d8da34b9bc",
+    "tests/nntp/StatMeter.cpp": "85484b3e265b4eb25aae04027f93c58a1830990b",
+    "tests/postprocess/CollectionAnalyzer.cpp": "79405cdef910ff9cca20dd55790d48453bed3814",
+    "tests/postprocess/ContentMap.cpp": "2b984f5401ed5d07d996521930e11cbf0ecbbd6d",
+    "tests/postprocess/DirectUnpack.cpp": "0b191d6623624f129066de64d50fd01d35f0df11",
+    "tests/postprocess/DupeMatcher.cpp": "775bfd4445a13cb3df1f598ee7db78f22ceabba8",
+    "tests/postprocess/MoveController.cpp": "c2be3c944087f8134589fbb833477fdc33528a35",
+    "tests/postprocess/ParChecker.cpp": "73a7389b28c1c4e6276af7bc99bcad49f68d1eda",
+    "tests/postprocess/ParRenamer.cpp": "630a71c2cfd854e3b5f2561f10022ec0560c53e2",
+    "tests/postprocess/PrePostProcessor.cpp": "92a1de008df143f09888dfac76f67a89756a353a",
+    "tests/postprocess/RarReader.cpp": "042164a22838732e7fcdf86a4116d09f34bd9d13",
+    "tests/postprocess/RarRenamer.cpp": "04071fb54a0803951019b1f276e4d2f4661be403",
+    "tests/postprocess/StreamCrypto.cpp": "2407ee5de01635bf206afa2488ce44b79618d381",
+    "tests/queue/ArchiveProcessor.cpp": "7b62de694cf54b875db264f77644edccb0bcbdb6",
+    "tests/queue/CompletedFile.cpp": "21723d2cade8da900fe3fe946a8af2dd805827f6",
+    "tests/queue/Deobfuscation.cpp": "48bc5476c23572098f916b929a4f2efdb04e5dda",
+    "tests/queue/DupeArticleFallback.cpp": "d34fd29945aaa72bc1c11bedfd7327c6a36f5c3b",
+    "tests/queue/DupeCoordinator.cpp": "65d515595569422a0a94e9607d234f6aa0962ddb",
+    "tests/queue/DupeProbe.cpp": "fccc21bf07893173b28810c1ae7494bd9033e866",
+    "tests/queue/DupeStreamRepair.cpp": "3139b978d389596e081d814d31231a881c060ac6",
+    "tests/queue/HistoryCoordinator.cpp": "ba3a1a73ce5b46da68ae6dc26fa69d905c9c9009",
+    "tests/queue/NzbFile.cpp": "2de5ab3b8e29dfb1b58a1e4a477e844aad26442a",
+    "tests/queue/PropagationDelay.cpp": "6d86462facab417dcf6a3c4d651290dc9d73bbd5",
+    "tests/remote/XmlRpc.cpp": "f1faaebf4f4b588ba6bd43c6c073c21302d300c8",
+    "tests/system/SystemInfo.cpp": "c3bad7346936ae9f71ebbe5c7dcca78d97f5abec",
+    "tests/systemhealth/ConnectionValidator.cpp": "1eb9189bbffb849d42e694aceb526c8cfc0da470",
+    "tests/systemhealth/ExtensionScriptsValidator.cpp": "d25790a51b9e303031fec7e59890e782aa1cb3a8",
+    "tests/systemhealth/FeedValidator.cpp": "798f9f803acfd7f54f1e92e273e8b8ae08409981",
+    "tests/systemhealth/LoggingValidator.cpp": "047936fa3fa094eacdaa5b85fe223cfa1ea9a24a",
+    "tests/systemhealth/NewsServerValidator.cpp": "e6b25db4fa900c4136dd38e730d156b4e46c0c31",
+    "tests/systemhealth/PathsValidator.cpp": "c60dbe9c738c30d61d95e0a09e6dfd8c1050573c",
+    "tests/systemhealth/SecurityValidator.cpp": "eb404eed459ab0bba1054883878d9788e2cda992",
+    "tests/systemhealth/Validators.cpp": "c920a734167b2e45d50db8692ca012b5dff17521",
+    "tests/util/Benchmark.cpp": "13087e41c564e94ed926c1e4e422d4920ac83566",
+    "tests/util/DataAnalytics.cpp": "551880a417eea5342aa6b1bab736bca70e1d6747",
+    "tests/util/FileSystem.cpp": "a5a136d8502c9312f5b553e182a1b5c4cc0db76d",
+    "tests/util/FileTypes.cpp": "58ea3721f3ba6fa66445a6a800e459e648abdb16",
+    "tests/util/Json.cpp": "a7d56b18e9a68d76e6495594773ea27cfccbd05c",
+    "tests/util/NString.cpp": "1538e4e78ae7669b2e7b18b792038a9702573061",
+    "tests/util/ScriptController.cpp": "bf14cbaa5d9ae2551f2d52fe7cca9a67cd631d32",
+    "tests/util/Unpack.cpp": "877b9f38ea2ada99734226d3b1863e89b50dbf24",
+    "tests/util/Utf8.cpp": "6bd8e5b25c20fd00bf336fc0aea8b94f40eeb5ba",
+    "tests/util/Util.cpp": "e285986f16752fea8849369cef7c033d45935d21",
+    "daemon/postprocess/ParChecker.cpp": "8933fbbc805f491b855b085d645e277f73fb39d5",
+    "daemon/postprocess/ParChecker.h": "03d1cee8563dcd922dcea58e9546efe6d59feb58",
+    "daemon/postprocess/ParRenamer.cpp": "906947a74a50d374de22f629b3bdaa63eb033e95",
+    "daemon/queue/DirectRenamer.cpp": "2e872926c88f1f39c2facf5dddc6675b7c966088",
+    "daemon/queue/DupeArticleFallback.cpp": "df68e295712baef509bcecd0b9847f451fedbda7",
+    "daemon/queue/QueueCoordinator.cpp": "e40575a7de369b9773bab866a43017d73cd69629",
+    "rust/tests/directrenamer_differential.py": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+    "rust/tests/dupesearch_nzb/run.py": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+    "rust/tests/parrenamer_differential.py": "3299e89b406a2ef7af9c7a53e60273c274919fd0",
+    "rust/tests/renameanalyzer_differential.py": "a1f56967845c964bf3c67935270db5bd6d23968d"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -437,5 +516,969 @@
     }
   ],
   "supplementary_caller_platform_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
-  "rapidyenc_direct_caller_scope": "Lexical native API call references in tracked daemon/tests/rust/scripts/lib/platforms sources at the supplementary audit commit. Includes emitted C++ in the Python decoder oracle; does not prove compiled route coverage or execution."
+  "rapidyenc_direct_caller_scope": "Lexical native API call references in tracked daemon/tests/rust/scripts/lib/platforms sources at the supplementary audit commit. Includes emitted C++ in the Python decoder oracle; does not prove compiled route coverage or execution.",
+  "native_dependency_source_references": {
+    "boost": [
+      {
+        "path": "daemon/connect/HttpClient.cpp",
+        "git_blob": "8f424043d1c56077e1c5b7d9843bd3a204c4fadc",
+        "lines": [
+          28,
+          29,
+          32,
+          102,
+          104,
+          118,
+          141
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/connect/HttpClient.h",
+        "git_blob": "891edc1abc3cc3bf21bcdccdba1feeb50b1f14e7",
+        "lines": [
+          26,
+          29,
+          35,
+          37,
+          41,
+          73,
+          74,
+          75,
+          78,
+          79,
+          83
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/main/nzbget.h",
+        "git_blob": "12ba3d3182e10fcf772cc68a034a32513d591d46",
+        "lines": [
+          171,
+          172,
+          174
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Retire common Boost header/type exposure only after all transitive application interfaces and generated C++ consumers are replaced."
+      },
+      {
+        "path": "daemon/nntp/ArticleWriter.cpp",
+        "git_blob": "2d68ce94eded38ac7b9b24344baaacb9c8fb87cb",
+        "lines": [
+          1024
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace completed-file filesystem moves and preserve error-code/messages/partial-move semantics before removing Boost error-code types."
+      },
+      {
+        "path": "daemon/system/SystemInfo.cpp",
+        "git_blob": "314e75bc6e327a5f6b78214297bb2136054c4acd",
+        "lines": [
+          23,
+          96,
+          97
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Preserve conditional Boost/PAR2 user-visible version/backend reports and relevant external-version parsing under explicitly reviewed replacement contracts; do not drop fields or retain stale labels."
+      },
+      {
+        "path": "daemon/systemhealth/Validators.cpp",
+        "git_blob": "3bce33455bfd460624f71928b98d7b364deb4379",
+        "lines": [
+          312,
+          313,
+          314
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace IPv4/IPv6 address validation with equivalent acceptance/rejection and diagnostics before retiring Boost.Asio."
+      },
+      {
+        "path": "daemon/util/Json.cpp",
+        "git_blob": "34311bdc6325610ec2a305ed620cd29a2aae2be0",
+        "lines": [
+          25
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/util/Json.h",
+        "git_blob": "23d4e3ab3a4d9a4f2b6d7c69aff090f0ebb277c1",
+        "lines": [
+          23,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "rust/tests/manifest_differential.py",
+        "git_blob": "ad4eae123c51b2d4dadd0a6b29676f910e4823cd",
+        "lines": [
+          81,
+          82,
+          430,
+          441,
+          443
+        ],
+        "consumer_classification": "generated/compiled C++ test driver",
+        "retirement_contract": "Preserve constrained/error/allocation JSON parser assertions; translate the emitted Boost C++ oracle and retire native compile/link dependencies."
+      },
+      {
+        "path": "tests/dupesearch/DeadPostings.cpp",
+        "git_blob": "a159fbb336210cd247515bd2c4f3a48fe789b898",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/dupesearch/DonorHealth.cpp",
+        "git_blob": "ba9873c6bd7ee0de7974078f3c8324e6663c0769",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/dupesearch/DonorScore.cpp",
+        "git_blob": "7f7da6777acb35a8131765138e10f6f9b95ec32f",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/dupesearch/Newznab.cpp",
+        "git_blob": "7b8008320ce4600760e481326c14ed9cc0607233",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/dupesearch/Posting.cpp",
+        "git_blob": "6af2f92a4060ef419eb0cfe952f3a9079fb28f08",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/dupesearch/ReleaseName.cpp",
+        "git_blob": "3496b1192df3960cae478b5f32a236617d6fc059",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/Extension.cpp",
+        "git_blob": "457e7cd846b3801fcdd2ec7b847fd87a7626992c",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/ExtensionLoader.cpp",
+        "git_blob": "ccb87a16cdeb1fd3b297ef8a388769368ad3ead0",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/ExtensionManager.cpp",
+        "git_blob": "92bc2b92a813c4d816779b34bb0e2c09627991d3",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/ManifestFile.cpp",
+        "git_blob": "64bb273509a49b27e59896ed474ca77b97e7cd1b",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/ScanScript.cpp",
+        "git_blob": "a11a9cc3e5ac5427fe6800c804a5e3f4e6f4b7c8",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/extension/ScriptConfig.cpp",
+        "git_blob": "ce29487e36aae18da043ffb8e665aa7aac9c5a34",
+        "lines": [
+          14
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/feed/FeedFile.cpp",
+        "git_blob": "a16a640421bead6403f739c0362eef99b2d7fa7b",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/feed/FeedFilter.cpp",
+        "git_blob": "5e748870bcb704a7db0df08ffd366137faa3de6d",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/feed/FeedInfo.cpp",
+        "git_blob": "dea07848724c317065e73b5ed72af425bfc6b5d7",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/feed/NzbInfoCreator.cpp",
+        "git_blob": "7cc5d09aae1034ad739f22a4da9543fadfe13618",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/main.cpp",
+        "git_blob": "4774db8d9ed270f3b3cb6e2bb459070ce3c64bef",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/main/CommandLineParser.cpp",
+        "git_blob": "8404e74fa3f969272a8571f63c2b6a6a357d9260",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/main/Options.cpp",
+        "git_blob": "a9b40f74aa2da21e6a6ca89e55c986e0f6067131",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/nntp/ArticleFetcher.cpp",
+        "git_blob": "21f7289b93bfa7d74ee358b7181f9f263e0f6b76",
+        "lines": [
+          18
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/nntp/ArticleWriter.cpp",
+        "git_blob": "c39fcefb348b58a98721f57abba6ca7215548c51",
+        "lines": [
+          3
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/nntp/Decoder.cpp",
+        "git_blob": "aa81b9b35949b76bbdc0b1c91e7e2a62209a3017",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/nntp/ServerPool.cpp",
+        "git_blob": "0cffff6a0ee4f56f0d3514793c71e2d8da34b9bc",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/nntp/StatMeter.cpp",
+        "git_blob": "85484b3e265b4eb25aae04027f93c58a1830990b",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/CollectionAnalyzer.cpp",
+        "git_blob": "79405cdef910ff9cca20dd55790d48453bed3814",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/ContentMap.cpp",
+        "git_blob": "2b984f5401ed5d07d996521930e11cbf0ecbbd6d",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/DirectUnpack.cpp",
+        "git_blob": "0b191d6623624f129066de64d50fd01d35f0df11",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/DupeMatcher.cpp",
+        "git_blob": "775bfd4445a13cb3df1f598ee7db78f22ceabba8",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/MoveController.cpp",
+        "git_blob": "c2be3c944087f8134589fbb833477fdc33528a35",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/ParChecker.cpp",
+        "git_blob": "73a7389b28c1c4e6276af7bc99bcad49f68d1eda",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/ParRenamer.cpp",
+        "git_blob": "630a71c2cfd854e3b5f2561f10022ec0560c53e2",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/PrePostProcessor.cpp",
+        "git_blob": "92a1de008df143f09888dfac76f67a89756a353a",
+        "lines": [
+          3
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/RarReader.cpp",
+        "git_blob": "042164a22838732e7fcdf86a4116d09f34bd9d13",
+        "lines": [
+          28
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/RarRenamer.cpp",
+        "git_blob": "04071fb54a0803951019b1f276e4d2f4661be403",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/StreamCrypto.cpp",
+        "git_blob": "2407ee5de01635bf206afa2488ce44b79618d381",
+        "lines": [
+          28
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/ArchiveProcessor.cpp",
+        "git_blob": "7b62de694cf54b875db264f77644edccb0bcbdb6",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/CompletedFile.cpp",
+        "git_blob": "21723d2cade8da900fe3fe946a8af2dd805827f6",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/Deobfuscation.cpp",
+        "git_blob": "48bc5476c23572098f916b929a4f2efdb04e5dda",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/DupeArticleFallback.cpp",
+        "git_blob": "d34fd29945aaa72bc1c11bedfd7327c6a36f5c3b",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/DupeCoordinator.cpp",
+        "git_blob": "65d515595569422a0a94e9607d234f6aa0962ddb",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/DupeProbe.cpp",
+        "git_blob": "fccc21bf07893173b28810c1ae7494bd9033e866",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/DupeStreamRepair.cpp",
+        "git_blob": "3139b978d389596e081d814d31231a881c060ac6",
+        "lines": [
+          27
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/HistoryCoordinator.cpp",
+        "git_blob": "ba3a1a73ce5b46da68ae6dc26fa69d905c9c9009",
+        "lines": [
+          3
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/NzbFile.cpp",
+        "git_blob": "2de5ab3b8e29dfb1b58a1e4a477e844aad26442a",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/queue/PropagationDelay.cpp",
+        "git_blob": "6d86462facab417dcf6a3c4d651290dc9d73bbd5",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/remote/XmlRpc.cpp",
+        "git_blob": "f1faaebf4f4b588ba6bd43c6c073c21302d300c8",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/system/SystemInfo.cpp",
+        "git_blob": "c3bad7346936ae9f71ebbe5c7dcca78d97f5abec",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/ConnectionValidator.cpp",
+        "git_blob": "1eb9189bbffb849d42e694aceb526c8cfc0da470",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/ExtensionScriptsValidator.cpp",
+        "git_blob": "d25790a51b9e303031fec7e59890e782aa1cb3a8",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/FeedValidator.cpp",
+        "git_blob": "798f9f803acfd7f54f1e92e273e8b8ae08409981",
+        "lines": [
+          3
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/LoggingValidator.cpp",
+        "git_blob": "047936fa3fa094eacdaa5b85fe223cfa1ea9a24a",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/NewsServerValidator.cpp",
+        "git_blob": "e6b25db4fa900c4136dd38e730d156b4e46c0c31",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/PathsValidator.cpp",
+        "git_blob": "c60dbe9c738c30d61d95e0a09e6dfd8c1050573c",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/SecurityValidator.cpp",
+        "git_blob": "eb404eed459ab0bba1054883878d9788e2cda992",
+        "lines": [
+          20
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/systemhealth/Validators.cpp",
+        "git_blob": "c920a734167b2e45d50db8692ca012b5dff17521",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/Benchmark.cpp",
+        "git_blob": "13087e41c564e94ed926c1e4e422d4920ac83566",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/DataAnalytics.cpp",
+        "git_blob": "551880a417eea5342aa6b1bab736bca70e1d6747",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/FileSystem.cpp",
+        "git_blob": "a5a136d8502c9312f5b553e182a1b5c4cc0db76d",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/FileTypes.cpp",
+        "git_blob": "58ea3721f3ba6fa66445a6a800e459e648abdb16",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/Json.cpp",
+        "git_blob": "a7d56b18e9a68d76e6495594773ea27cfccbd05c",
+        "lines": [
+          23
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/NString.cpp",
+        "git_blob": "1538e4e78ae7669b2e7b18b792038a9702573061",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/ScriptController.cpp",
+        "git_blob": "bf14cbaa5d9ae2551f2d52fe7cca9a67cd631d32",
+        "lines": [
+          25
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/Unpack.cpp",
+        "git_blob": "877b9f38ea2ada99734226d3b1863e89b50dbf24",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/Utf8.cpp",
+        "git_blob": "6bd8e5b25c20fd00bf336fc0aea8b94f40eeb5ba",
+        "lines": [
+          22
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/util/Util.cpp",
+        "git_blob": "e285986f16752fea8849369cef7c033d45935d21",
+        "lines": [
+          24
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      }
+    ],
+    "par2": [
+      {
+        "path": "daemon/postprocess/ParChecker.cpp",
+        "git_blob": "8933fbbc805f491b855b085d645e277f73fb39d5",
+        "lines": [
+          30,
+          31,
+          59,
+          63,
+          75,
+          76,
+          85,
+          88,
+          89,
+          90,
+          91,
+          92,
+          98,
+          107,
+          112,
+          134,
+          142,
+          149,
+          151,
+          169,
+          172,
+          173,
+          174,
+          175,
+          176,
+          181,
+          193,
+          194,
+          362,
+          363,
+          381,
+          391,
+          401,
+          403,
+          406,
+          412,
+          414,
+          421,
+          423,
+          434,
+          439,
+          456,
+          502,
+          530,
+          531,
+          547,
+          550,
+          557,
+          570,
+          636,
+          639,
+          644,
+          721,
+          730,
+          731,
+          735,
+          739,
+          758,
+          812,
+          1160,
+          1204,
+          1209,
+          1212,
+          1248,
+          1255,
+          1258,
+          1259,
+          1275,
+          1283,
+          1316,
+          1331,
+          1364,
+          1365,
+          1370,
+          1371,
+          1374,
+          1378,
+          1398,
+          1400,
+          1401,
+          1404,
+          1414,
+          1415,
+          1424,
+          1426,
+          1492,
+          1493,
+          1509,
+          1610,
+          1612,
+          1614
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/postprocess/ParChecker.h",
+        "git_blob": "03d1cee8563dcd922dcea58e9546efe6d59feb58",
+        "lines": [
+          31,
+          180,
+          214,
+          252,
+          253,
+          254
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/postprocess/ParRenamer.cpp",
+        "git_blob": "906947a74a50d374de22f629b3bdaa63eb033e95",
+        "lines": [
+          26,
+          27,
+          28,
+          42,
+          45,
+          65,
+          180,
+          186,
+          187,
+          414,
+          421,
+          433,
+          436,
+          471,
+          473,
+          476,
+          477,
+          577,
+          578,
+          615,
+          627,
+          628
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/queue/DirectRenamer.cpp",
+        "git_blob": "2e872926c88f1f39c2facf5dddc6675b7c966088",
+        "lines": [
+          43,
+          44,
+          45,
+          46,
+          65,
+          66,
+          77,
+          80,
+          113,
+          116,
+          189,
+          196,
+          843,
+          846,
+          847,
+          875
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/queue/DupeArticleFallback.cpp",
+        "git_blob": "df68e295712baef509bcecd0b9847f451fedbda7",
+        "lines": [
+          38,
+          39,
+          477,
+          479
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Replace all native library API/type use, allocation/ownership/error and header contracts with qualified Rust owners before removing the dependency."
+      },
+      {
+        "path": "daemon/queue/QueueCoordinator.cpp",
+        "git_blob": "e40575a7de369b9773bab866a43017d73cd69629",
+        "lines": [
+          1348,
+          1355
+        ],
+        "consumer_classification": "comment-only repair mention; no direct library API proved",
+        "retirement_contract": "Preserve repair handoff behavior; these lexical comments do not prove a direct PAR2 target dependency. Actual downstream repair owners remain separately in scope."
+      },
+      {
+        "path": "daemon/system/SystemInfo.cpp",
+        "git_blob": "314e75bc6e327a5f6b78214297bb2136054c4acd",
+        "lines": [
+          39,
+          83,
+          335
+        ],
+        "consumer_classification": "native application/header source",
+        "retirement_contract": "Preserve conditional Boost/PAR2 user-visible version/backend reports and relevant external-version parsing under explicitly reviewed replacement contracts; do not drop fields or retain stale labels."
+      },
+      {
+        "path": "rust/tests/directrenamer_differential.py",
+        "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+        "lines": [
+          429
+        ],
+        "consumer_classification": "generated/compiled C++ test driver",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "rust/tests/dupesearch_nzb/run.py",
+        "git_blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+        "lines": [
+          51
+        ],
+        "consumer_classification": "generated/compiled C++ test driver",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "rust/tests/parrenamer_differential.py",
+        "git_blob": "3299e89b406a2ef7af9c7a53e60273c274919fd0",
+        "lines": [
+          45,
+          46,
+          61,
+          62,
+          63,
+          396,
+          397,
+          411,
+          412,
+          467,
+          468
+        ],
+        "consumer_classification": "generated/compiled C++ test driver",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "rust/tests/renameanalyzer_differential.py",
+        "git_blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
+        "lines": [
+          76,
+          77,
+          78,
+          79,
+          264
+        ],
+        "consumer_classification": "generated/compiled C++ test driver",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/postprocess/ContentMap.cpp",
+        "git_blob": "2b984f5401ed5d07d996521930e11cbf0ecbbd6d",
+        "lines": [
+          692
+        ],
+        "consumer_classification": "native C++ test source",
+        "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      }
+    ]
+  },
+  "dependency_reference_scan_scope": "Case-sensitive lexical include/namespace/version/target-name references in tracked daemon/tests/rust/tests/lib/platforms source extensions at supplementary audit commit; comments/disabled branches can match. This is not a compiled or transitive call graph; shared aliases and Python imports require separate complete-source retirement review."
 }

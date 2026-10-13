@@ -468,14 +468,16 @@
       "cpp_blob": "781ae80e7bd2f2cecf0bb96809d9346a18512582",
       "cpp_file_deleted": false,
       "cpp_path": "daemon/queue/TwinCheck.cpp",
-      "cpp_work_retained": "Queue coordination, article/provider I/O, C++ adapters and failover integration",
+      "cpp_work_retained": "Queue coordination, article/provider I/O, C++ adapters and failover integration; no-Rust builds omit twin labels/content matching rather than preserving an equivalent C++ implementation",
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/src/twin.rs",
       "rust_paths": [
         "rust/src/twin.rs"
       ],
-      "rust_work_in_current_source": "PAR/NZB signatures, fingerprints, persisted store and matching"
+      "rust_work_in_current_source": "PAR/NZB signatures, fingerprints, persisted store and matching",
+      "non_rust_feature_availability": "twin labels and content matching disabled; legacy C++ PAR-repair helpers remain",
+      "non_rust_fallback_equivalence": "not equivalent for twin labels/content matching"
     },
     {
       "boundary_id": "B29",
