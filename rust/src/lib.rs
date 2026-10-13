@@ -53,3 +53,5 @@ pub mod streampatchparts;
 pub mod streamcompare;
 pub mod deadpostings;
 pub mod dupewatch;
+
+pub mod articlegeometry;

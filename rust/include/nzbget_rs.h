@@ -17,6 +17,27 @@ typedef struct
 	size_t cap;
 } NzbgetRsBuf;
 
+// Staged article geometry foundation; not yet a production recovery replacement.
+// Input is readable/initialized for count entries, output writable for count,
+// capacity >= count, and the allocations are disjoint and live during the call.
+// Flags use zero=false, nonzero=true. No pointers are retained. Empty input may
+// use NULL pointers. Returns first bad article index, -1 for none, -2 for invalid
+// numeric spans/alignment/capacity/overlap; invalid calls leave output untouched.
+// Output may be uninitialized before a valid call. Allocation failure aborts.
+// Expected boundary -1 is unknown; other negative values retain C++ semantics.
+typedef struct {
+    int32_t part, size;
+    int64_t offset;
+    int32_t segment_size;
+    uint8_t finished, borrowed;
+} NzbgetRsGeometryArticle;
+typedef struct {
+    int64_t expected_offset, expected_end;
+    int32_t aligned;
+} NzbgetRsGeometryResult;
+int64_t nzbget_rs_article_geometry(const NzbgetRsGeometryArticle* input, size_t count,
+    int64_t decoded_size, NzbgetRsGeometryResult* output, size_t capacity);
+
 // Stream-repair floor: arrays remain C++ owned and borrowed only during the call.
 // Nonempty arrays are readable/aligned for count entries; empty arrays may be NULL.
 // Probe indexes must identify donor entries. Invalid indexes abort before an

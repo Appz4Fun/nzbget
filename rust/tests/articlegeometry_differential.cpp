@@ -21,6 +21,7 @@
 // Correctness oracle only: these fixture objects are NOT a complete caller speed control.
 #include <algorithm>
 #include <cstdint>
+#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -29,6 +30,8 @@
 using int64 = int64_t;
 struct InputArticle { int32_t part, size; int64_t offset; int32_t segment_size; uint8_t finished, borrowed; };
 struct OutputArticle { int64_t expected_offset, expected_end; int32_t aligned; };
+static_assert(sizeof(InputArticle)==24 && offsetof(InputArticle, offset)==8 && offsetof(InputArticle, segment_size)==16, "input ABI layout");
+static_assert(sizeof(OutputArticle)==24 && offsetof(OutputArticle, aligned)==16, "output ABI layout");
 extern "C" int64_t nzbget_rs_article_geometry(const InputArticle*, size_t, int64_t, OutputArticle*, size_t);
 class ArticleInfo {
 public:
