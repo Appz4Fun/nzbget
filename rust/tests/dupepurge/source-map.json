@@ -564,7 +564,110 @@
       },
       "provenance": "Generated retrospectively from immutable Git blobs; does not restore original capture/command evidence."
     },
-    "custody": "Retrospective packet is in the recovered controller task workspace. Signed original 64410656 remains unchanged. Earlier independent legacy audit remains separately available."
+    "custody": "Retrospective packet is in the recovered controller task workspace. Signed original 64410656 remains unchanged. Earlier independent legacy audit remains separately available.",
+    "retrospective_supplements": [
+      {
+        "id": "task1-i1-existing-rust",
+        "packet_label": ".superpowers/sdd/2026-10-13-duplicate-family-purge/task-1-i1-retrospective-v2",
+        "manifest_sha256": "3a3da3868f2b32014796ce900a845d68c840446261a171039d5ce9d1d57e305d",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "fix_base": "f1ec38fb200f423df1a846a5b4c7d7824ea9d83b",
+        "provenance": "retrospective I1 supplement; original capture and failed recovery records preserved separately",
+        "files": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "bytes": 78475,
+            "sha256": "62fcdca6b54a564321606bd87a9d6b1b2ed3a8e1e0b2e182858d76e95014a828",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "daemon/dupesearch/NzbFetcher.cpp",
+            "bytes": 7828,
+            "sha256": "f80bfba6b49c3edcaf13541fa19ff0fff5991c939254756df472fa29458ebb2f",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "bytes": 24983,
+            "sha256": "3259f9478ca4d11ae0d5e9a0434d39b98ebd0348ae7056863c73cb773eedbf03",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "bytes": 32974,
+            "sha256": "5351104981aea9bbe9d99b3b5b3b5077b9aa6d2ecef5cb5a335da365fcc9da2b",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "daemon/queue/UrlCoordinator.cpp",
+            "bytes": 13139,
+            "sha256": "3d7b502da388d75aef78cfb6461965a1023c42417b57a3e0423475e724e32a1a",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/include/nzbget_rs.h",
+            "bytes": 71723,
+            "sha256": "9e790d21b11573256f787ecc3a6c5d9ef43e8b7102c92a7d58be526f14b9cf28",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/directrenamer.rs",
+            "bytes": 6679,
+            "sha256": "46fa55a4f8195bb4540ac3a1bbd137063c874a305293195b04a568d1024bbcb8",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "bytes": 22573,
+            "sha256": "2eb4f1560ec96b07098881cd629e2694f714c9ee2f5653a2af0ed50b97363f08",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/ffi.rs",
+            "bytes": 280570,
+            "sha256": "76c9a03d7c417c4d988536283eee6407c66983aa809b26035cf3631976c267f6",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/lib.rs",
+            "bytes": 1067,
+            "sha256": "9e19aafed04b1248ebdeb05c27122843cf50fdc31b9c76aa8f06b3542006b556",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/renameanalyzer.rs",
+            "bytes": 6808,
+            "sha256": "12180866463c6028155e4d14ce453c120d69e449b119adb670896b87132dd6ee",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "bytes": 58697,
+            "sha256": "21b1bc24772779e0361dfe8ead855a9289d0011320f2daa3156b005ef07371ef",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          },
+          {
+            "path": "rust/src/urlcoord.rs",
+            "bytes": 4760,
+            "sha256": "fb349fde23c09bf4a84cd3c68cc0e8c8c8a219e80c3c9ab1b83d8d715acd81e6",
+            "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+            "capture_provenance": "retrospective I1 supplement; not original Task1 capture"
+          }
+        ]
+      }
+    ]
   },
   "registration_map": [
     {
@@ -2093,7 +2196,8 @@
         "ffi": "rust/src/ffi.rs",
         "header": "rust/include/nzbget_rs.h",
         "capture_role": "Original preservation baseline hash retained from signed 64410656; source bytes retrospectively reconstructed and hash-matched; original Task1 packet unavailable.",
-        "validation": "not run"
+        "validation": "not run",
+        "preservation_applicability": "required for existing filesystem callers; no nonapplicability accepted"
       },
       {
         "module": "rust/src/fsops.rs",
@@ -2102,7 +2206,400 @@
         "ffi": "rust/src/ffi.rs",
         "header": "rust/include/nzbget_rs.h",
         "capture_role": "Original preservation baseline hash retained from signed 64410656; source bytes retrospectively reconstructed and hash-matched; original Task1 packet unavailable.",
-        "validation": "not run"
+        "validation": "not run",
+        "preservation_applicability": "required for existing filesystem callers; no nonapplicability accepted"
+      },
+      {
+        "module": "rust/src/urlcoord.rs",
+        "sha256": "fb349fde23c09bf4a84cd3c68cc0e8c8c8a219e80c3c9ab1b83d8d715acd81e6",
+        "callers": [
+          "daemon/queue/UrlCoordinator.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "UrlCoordinator::UrlCompleted publication/cancellation changes surround an existing Rust status/retry/delete-status operation. Preserve the complete live wrapper/FFI/Scanner-result path, plus header buffers; it is not a new C++-to-Rust boundary.",
+        "route_symbols": [
+          "nzbget_rs_url_completed",
+          "nzbget_rs_url_dnzb_header"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/urlcoord.rs",
+            "exact_source": "pub fn dnzb_header(",
+            "lines": [
+              19
+            ]
+          },
+          {
+            "path": "rust/src/urlcoord.rs",
+            "exact_source": "pub fn completed(",
+            "lines": [
+              60
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
+      },
+      {
+        "module": "rust/src/twin.rs",
+        "sha256": "21b1bc24772779e0361dfe8ead855a9289d0011320f2daa3156b005ef07371ef",
+        "callers": [
+          "daemon/queue/TwinCheck.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "The mapped Rust Store::put/prune and cache lifetime/cleanup changes alter an existing Rust persistent store. Preserve OpenStore, put/partial merge/read/prune and exact posting identity behavior through its real C++/FFI caller, with scoped purge additions evaluated explicitly.",
+        "route_symbols": [
+          "nzbget_rs_nzb_entries",
+          "nzbget_rs_par2_block_size",
+          "nzbget_rs_par2_volume_blocks",
+          "nzbget_rs_twin_fingerprint",
+          "nzbget_rs_twin_has",
+          "nzbget_rs_twin_kind",
+          "nzbget_rs_twin_match",
+          "nzbget_rs_twin_open",
+          "nzbget_rs_twin_par2_sigs",
+          "nzbget_rs_twin_prune",
+          "nzbget_rs_twin_put_par2"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn open(",
+            "lines": [
+              468
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn put(",
+            "lines": [
+              510
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn partial_of(",
+            "lines": [
+              519
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn get(",
+            "lines": [
+              526
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn prune(",
+            "lines": [
+              536
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn par2_sigs(",
+            "lines": [
+              160
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn par2_set(",
+            "lines": [
+              168
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn block_size(",
+            "lines": [
+              230
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn volume_blocks(",
+            "lines": [
+              252
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn fingerprint(",
+            "lines": [
+              286
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn kind(",
+            "lines": [
+              356
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn match_by_content(",
+            "lines": [
+              394
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub fn read_nzb(",
+            "lines": [
+              581
+            ]
+          },
+          {
+            "path": "rust/src/twin.rs",
+            "exact_source": "pub static STORE:",
+            "lines": [
+              554
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
+      },
+      {
+        "module": "rust/src/directrenamer.rs",
+        "sha256": "46fa55a4f8195bb4540ac3a1bbd137063c874a305293195b04a568d1024bbcb8",
+        "callers": [
+          "daemon/queue/DirectRenamer.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "Mapped direct-rename/loader/callback lifecycle changes enclose existing Rust name decisions; preserve callbacks, names, volume mutation, error/allocation and publication behavior.",
+        "route_symbols": [
+          "nzbget_rs_direct_need_rename_pars",
+          "nzbget_rs_direct_par_name",
+          "nzbget_rs_direct_regular_name"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/directrenamer.rs",
+            "exact_source": "pub fn regular_name",
+            "lines": [
+              17
+            ]
+          },
+          {
+            "path": "rust/src/directrenamer.rs",
+            "exact_source": "pub fn par_name(",
+            "lines": [
+              36
+            ]
+          },
+          {
+            "path": "rust/src/directrenamer.rs",
+            "exact_source": "pub fn par_name_formatted(",
+            "lines": [
+              48
+            ]
+          },
+          {
+            "path": "rust/src/directrenamer.rs",
+            "exact_source": "pub fn need_rename_pars(",
+            "lines": [
+              77
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
+      },
+      {
+        "module": "rust/src/renameanalyzer.rs",
+        "sha256": "12180866463c6028155e4d14ce453c120d69e449b119adb670896b87132dd6ee",
+        "callers": [
+          "daemon/queue/DirectRenamer.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "Mapped analyzer/rename lifetime and pins enclose an existing Rust Analyzer; preserve new/reset/append/finish/free lifetime, hash bytes and callback result behavior.",
+        "route_symbols": [
+          "nzbget_rs_rename_analyzer_append",
+          "nzbget_rs_rename_analyzer_finish",
+          "nzbget_rs_rename_analyzer_free",
+          "nzbget_rs_rename_analyzer_new",
+          "nzbget_rs_rename_analyzer_reset"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/renameanalyzer.rs",
+            "exact_source": "pub struct Analyzer",
+            "lines": [
+              26
+            ]
+          },
+          {
+            "path": "rust/src/renameanalyzer.rs",
+            "exact_source": "pub fn reset(",
+            "lines": [
+              42
+            ]
+          },
+          {
+            "path": "rust/src/renameanalyzer.rs",
+            "exact_source": "pub fn append(",
+            "lines": [
+              48
+            ]
+          },
+          {
+            "path": "rust/src/renameanalyzer.rs",
+            "exact_source": "pub fn finish(",
+            "lines": [
+              75
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
+      },
+      {
+        "module": "rust/src/dupewatch.rs",
+        "sha256": "2eb4f1560ec96b07098881cd629e2694f714c9ee2f5653a2af0ed50b97363f08",
+        "callers": [
+          "daemon/dupesearch/DupeSearch.cpp",
+          "daemon/dupesearch/NzbFetcher.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "Mapped discovery admission/publication and provider drain changes enclose Rust watcher decisions/query bytes and fetch-budget allocation/concurrent use/destruction; preserve complete callers.",
+        "route_symbols": [
+          "nzbget_rs_dupe_budget_free",
+          "nzbget_rs_dupe_budget_new",
+          "nzbget_rs_dupe_budget_spent",
+          "nzbget_rs_dupe_budget_take",
+          "nzbget_rs_dupe_queries",
+          "nzbget_rs_dupe_should_expand",
+          "nzbget_rs_dupe_watch",
+          "nzbget_rs_dupe_watch_stamped"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn decide(",
+            "lines": [
+              42
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn higher_peer(",
+            "lines": [
+              97
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn lenient_queries(",
+            "lines": [
+              118
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn should_expand(",
+            "lines": [
+              173
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub struct FetchBudget",
+            "lines": [
+              312
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn from_max_donors(",
+            "lines": [
+              323
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn take(",
+            "lines": [
+              326
+            ]
+          },
+          {
+            "path": "rust/src/dupewatch.rs",
+            "exact_source": "pub fn spent(",
+            "lines": [
+              337
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
+      },
+      {
+        "module": "rust/src/ffi.rs",
+        "sha256": "76c9a03d7c417c4d988536283eee6407c66983aa809b26035cf3631976c267f6",
+        "callers": [
+          "daemon/dupesearch/DupeSearch.cpp",
+          "daemon/queue/DirectRenamer.cpp",
+          "daemon/queue/TwinCheck.cpp",
+          "daemon/queue/UrlCoordinator.cpp"
+        ],
+        "ffi": "rust/src/ffi.rs",
+        "header": "rust/include/nzbget_rs.h",
+        "source_revision": "d4842b182efdc13cde1031d6ac8f0b5ba165effc",
+        "capture_role": "Retrospective I1 supplement; existing Rust complete-caller baseline, not new full purge",
+        "capture_id": "task1-i1-existing-rust",
+        "preservation_applicability": "required; no independently reviewed nonapplicability asserted",
+        "reason": "Shared RsBuf allocation/copy/free is part of existing mapped Rust callers. Preserve buffer content, NUL/storage capacity, exactly-once disposal and failure ownership; this is not a separate new purge algorithm.",
+        "route_symbols": [
+          "nzbget_rs_free"
+        ],
+        "implementation_anchors": [
+          {
+            "path": "rust/src/ffi.rs",
+            "exact_source": "fn into_buf(",
+            "lines": [
+              13
+            ]
+          },
+          {
+            "path": "rust/src/ffi.rs",
+            "exact_source": "fn nzbget_rs_free(",
+            "lines": [
+              301
+            ]
+          }
+        ],
+        "validation": "source-only anchors/hashes; runtime preservation and timing not run",
+        "qualification": "Applicable preserved Rust complete-caller ratio upper confidence bound must be at most 1; original versus planned caller behavior must be validated separately from the new full-contract C++ comparison."
       }
     ],
     "new_purge": {
@@ -2164,7 +2661,7 @@
   ],
   "contract": {
     "path": "docs/dupepurge-contract.md",
-    "sha256": "45e09e042140f7c84c996481c0f5ff7d8dcdfe42e76f77e9b516977d42ba3d69",
+    "sha256": "e3fbf6115a37fd5cd2867d3674bb4dbb7cff481c2faf3f1d9a2f786a908d92fa",
     "status": "Exact 64410656 schema source-only ACKed by Root and fallback owner per controller; required coordinator barrier clarification documented; unwired and awaiting fresh task review."
   },
   "barrier_semantics": {
@@ -2180,5 +2677,1169 @@
     "owner_local_counters": "Diagnostics only; equality is neither required nor sufficient and they cannot replace the coordinator barrier.",
     "ack_state_revision": "Operation state revision; not an owner-local counter or implicit substitute barrier.",
     "provenance": "Root clarification conveyed by controller after source-only acknowledgment of 64410656; documentation interpretation of existing records, not an added API."
+  },
+  "rust_preservation_audit": {
+    "fix_base": "f1ec38fb200f423df1a846a5b4c7d7824ea9d83b",
+    "scope": "Only direct nzbget_rs_* references in the C++ paths already present in registration_map, plus the explicitly mapped Rust twin Store. Existing fsdelete/fsops baselines remain independent.",
+    "checked_cpp_files": [
+      "daemon/dupesearch/DonorHealth.cpp",
+      "daemon/dupesearch/DupeSearch.cpp",
+      "daemon/dupesearch/NzbFetcher.cpp",
+      "daemon/extension/NzbScript.cpp",
+      "daemon/extension/PostScript.cpp",
+      "daemon/extension/QueueScript.cpp",
+      "daemon/extension/ScanScript.cpp",
+      "daemon/main/nzbget.cpp",
+      "daemon/nntp/ArticleDownloader.cpp",
+      "daemon/nntp/ArticleFetcher.cpp",
+      "daemon/nntp/ArticleWriter.cpp",
+      "daemon/postprocess/Cleanup.cpp",
+      "daemon/postprocess/DirectUnpack.cpp",
+      "daemon/postprocess/PostDownloadRenamer.cpp",
+      "daemon/postprocess/PostUnpackRenamer.cpp",
+      "daemon/postprocess/PrePostProcessor.cpp",
+      "daemon/postprocess/Rename.cpp",
+      "daemon/postprocess/Repair.cpp",
+      "daemon/postprocess/StreamRepair.cpp",
+      "daemon/postprocess/UnpackController.cpp",
+      "daemon/queue/DirectRenamer.cpp",
+      "daemon/queue/DiskState.cpp",
+      "daemon/queue/DownloadInfo.cpp",
+      "daemon/queue/DownloadInfo.h",
+      "daemon/queue/DupeArticleFallback.cpp",
+      "daemon/queue/DupeCoordinator.cpp",
+      "daemon/queue/DupeProbe.cpp",
+      "daemon/queue/HistoryCoordinator.cpp",
+      "daemon/queue/ParDamage.cpp",
+      "daemon/queue/QueueCoordinator.cpp",
+      "daemon/queue/QueueEditor.cpp",
+      "daemon/queue/Scanner.cpp",
+      "daemon/queue/TwinCheck.cpp",
+      "daemon/queue/UrlCoordinator.cpp"
+    ],
+    "direct_dispatch_cpp_files": [
+      "daemon/dupesearch/DupeSearch.cpp",
+      "daemon/dupesearch/NzbFetcher.cpp",
+      "daemon/queue/DirectRenamer.cpp",
+      "daemon/queue/TwinCheck.cpp",
+      "daemon/queue/UrlCoordinator.cpp"
+    ],
+    "direct_export_count": 30,
+    "source_condition": "All five direct dispatch owners have NZBGET_USE_RUST guards. Rename analyzer additionally depends on !DISABLE_PARCHECK; actual enabled route must be proven by later live-caller fixtures.",
+    "routes": [
+      {
+        "symbol": "nzbget_rs_direct_need_rename_pars",
+        "implementation_module": "rust/src/directrenamer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_direct_need_rename_pars",
+            "lines": [
+              681
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_direct_need_rename_pars(",
+          "lines": [
+            3230
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_direct_need_rename_pars(",
+          "lines": [
+            784
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod directrenamer;",
+          "lines": [
+            12
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_direct_par_name",
+        "implementation_module": "rust/src/directrenamer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_direct_par_name",
+            "lines": [
+              648
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_direct_par_name(",
+          "lines": [
+            3192
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_direct_par_name(",
+          "lines": [
+            777
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod directrenamer;",
+          "lines": [
+            12
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_direct_regular_name",
+        "implementation_module": "rust/src/directrenamer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_direct_regular_name",
+            "lines": [
+              601
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_direct_regular_name(",
+          "lines": [
+            3170
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_direct_regular_name(",
+          "lines": [
+            774
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod directrenamer;",
+          "lines": [
+            12
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_budget_free",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/NzbFetcher.cpp",
+            "exact_source": "nzbget_rs_dupe_budget_free",
+            "lines": [
+              45
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_budget_free(",
+          "lines": [
+            6473
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_budget_free(",
+          "lines": [
+            1265
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_budget_new",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/NzbFetcher.cpp",
+            "exact_source": "nzbget_rs_dupe_budget_new",
+            "lines": [
+              39
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_budget_new(",
+          "lines": [
+            6466
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_budget_new(",
+          "lines": [
+            1264
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_budget_spent",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/NzbFetcher.cpp",
+            "exact_source": "nzbget_rs_dupe_budget_spent",
+            "lines": [
+              62
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_budget_spent(",
+          "lines": [
+            6488
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_budget_spent(",
+          "lines": [
+            1267
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_budget_take",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/NzbFetcher.cpp",
+            "exact_source": "nzbget_rs_dupe_budget_take",
+            "lines": [
+              51
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_budget_take(",
+          "lines": [
+            6480
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_budget_take(",
+          "lines": [
+            1266
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_queries",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "exact_source": "nzbget_rs_dupe_queries",
+            "lines": [
+              771
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_queries(",
+          "lines": [
+            6453
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_queries(",
+          "lines": [
+            1260
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_should_expand",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "exact_source": "nzbget_rs_dupe_should_expand",
+            "lines": [
+              732
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_should_expand(",
+          "lines": [
+            6461
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_should_expand(",
+          "lines": [
+            1261
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_watch",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "exact_source": "nzbget_rs_dupe_watch",
+            "lines": [
+              536,
+              575
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_watch(",
+          "lines": [
+            6431
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_watch(",
+          "lines": [
+            1258
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_dupe_watch_stamped",
+        "implementation_module": "rust/src/dupewatch.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "exact_source": "nzbget_rs_dupe_watch_stamped",
+            "lines": [
+              536
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_dupe_watch_stamped(",
+          "lines": [
+            6410
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_dupe_watch_stamped(",
+          "lines": [
+            1251
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod dupewatch;",
+          "lines": [
+            55
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_free",
+        "implementation_module": "rust/src/ffi.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/dupesearch/DupeSearch.cpp",
+            "exact_source": "nzbget_rs_free",
+            "lines": [
+              791
+            ]
+          },
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_free",
+            "lines": [
+              661
+            ]
+          },
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_free",
+            "lines": [
+              49
+            ]
+          },
+          {
+            "path": "daemon/queue/UrlCoordinator.cpp",
+            "exact_source": "nzbget_rs_free",
+            "lines": [
+              63,
+              64
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_free(",
+          "lines": [
+            301
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_free(",
+          "lines": [
+            68
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod ffi;",
+          "lines": [
+            42
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_nzb_entries",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_nzb_entries",
+            "lines": [
+              384
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_nzb_entries(",
+          "lines": [
+            282
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_nzb_entries(",
+          "lines": [
+            65
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_par2_block_size",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_par2_block_size",
+            "lines": [
+              425
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_par2_block_size(",
+          "lines": [
+            227
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_par2_block_size(",
+          "lines": [
+            59
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_par2_volume_blocks",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_par2_volume_blocks",
+            "lines": [
+              430
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_par2_volume_blocks(",
+          "lines": [
+            236
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_par2_volume_blocks(",
+          "lines": [
+            60
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_rename_analyzer_append",
+        "implementation_module": "rust/src/renameanalyzer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_rename_analyzer_append",
+            "lines": [
+              823
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_rename_analyzer_append(",
+          "lines": [
+            3124
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_rename_analyzer_append(",
+          "lines": [
+            757
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod renameanalyzer;",
+          "lines": [
+            30
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_rename_analyzer_finish",
+        "implementation_module": "rust/src/renameanalyzer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_rename_analyzer_finish",
+            "lines": [
+              868
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_rename_analyzer_finish(",
+          "lines": [
+            3150
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_rename_analyzer_finish(",
+          "lines": [
+            758
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod renameanalyzer;",
+          "lines": [
+            30
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_rename_analyzer_free",
+        "implementation_module": "rust/src/renameanalyzer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_rename_analyzer_free",
+            "lines": [
+              63
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_rename_analyzer_free(",
+          "lines": [
+            3099
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_rename_analyzer_free(",
+          "lines": [
+            755
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod renameanalyzer;",
+          "lines": [
+            30
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_rename_analyzer_new",
+        "implementation_module": "rust/src/renameanalyzer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_rename_analyzer_new",
+            "lines": [
+              63
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_rename_analyzer_new(",
+          "lines": [
+            3090
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_rename_analyzer_new(",
+          "lines": [
+            754
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod renameanalyzer;",
+          "lines": [
+            30
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_rename_analyzer_reset",
+        "implementation_module": "rust/src/renameanalyzer.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/DirectRenamer.cpp",
+            "exact_source": "nzbget_rs_rename_analyzer_reset",
+            "lines": [
+              807
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_rename_analyzer_reset(",
+          "lines": [
+            3110
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_rename_analyzer_reset(",
+          "lines": [
+            756
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod renameanalyzer;",
+          "lines": [
+            30
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_fingerprint",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_fingerprint",
+            "lines": [
+              498
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_fingerprint(",
+          "lines": [
+            213
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_fingerprint(",
+          "lines": [
+            58
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_has",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_has",
+            "lines": [
+              456
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_has(",
+          "lines": [
+            171
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_has(",
+          "lines": [
+            52
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_kind",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_kind",
+            "lines": [
+              473
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_kind(",
+          "lines": [
+            246
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_kind(",
+          "lines": [
+            61
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_match",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_match",
+            "lines": [
+              483
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_match(",
+          "lines": [
+            261
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_match(",
+          "lines": [
+            62
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_open",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_open",
+            "lines": [
+              67
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_open(",
+          "lines": [
+            129
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_open(",
+          "lines": [
+            48
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_par2_sigs",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_par2_sigs",
+            "lines": [
+              435
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_par2_sigs(",
+          "lines": [
+            202
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_par2_sigs(",
+          "lines": [
+            55
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_prune",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_prune",
+            "lines": [
+              463
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_prune(",
+          "lines": [
+            186
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_prune(",
+          "lines": [
+            54
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_twin_put_par2",
+        "implementation_module": "rust/src/twin.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/TwinCheck.cpp",
+            "exact_source": "nzbget_rs_twin_put_par2",
+            "lines": [
+              227
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_twin_put_par2(",
+          "lines": [
+            142
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_twin_put_par2(",
+          "lines": [
+            50
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod twin;",
+          "lines": [
+            47
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_url_completed",
+        "implementation_module": "rust/src/urlcoord.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/UrlCoordinator.cpp",
+            "exact_source": "nzbget_rs_url_completed",
+            "lines": [
+              349
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_url_completed(",
+          "lines": [
+            3937
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_url_completed(",
+          "lines": [
+            1143
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod urlcoord;",
+          "lines": [
+            37
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      },
+      {
+        "symbol": "nzbget_rs_url_dnzb_header",
+        "implementation_module": "rust/src/urlcoord.rs",
+        "cpp_dispatch": [
+          {
+            "path": "daemon/queue/UrlCoordinator.cpp",
+            "exact_source": "nzbget_rs_url_dnzb_header",
+            "lines": [
+              51
+            ]
+          }
+        ],
+        "ffi_definition": {
+          "path": "rust/src/ffi.rs",
+          "exact_source": "fn nzbget_rs_url_dnzb_header(",
+          "lines": [
+            3905
+          ]
+        },
+        "header_declaration": {
+          "path": "rust/include/nzbget_rs.h",
+          "exact_source": "nzbget_rs_url_dnzb_header(",
+          "lines": [
+            1142
+          ]
+        },
+        "module_registration": {
+          "path": "rust/src/lib.rs",
+          "exact_source": "pub mod urlcoord;",
+          "lines": [
+            37
+          ]
+        },
+        "applicability": "existing Rust preservation required for mapped caller; no approved nonapplicability"
+      }
+    ],
+    "no_direct_export_files": [
+      "daemon/dupesearch/DonorHealth.cpp",
+      "daemon/extension/NzbScript.cpp",
+      "daemon/extension/PostScript.cpp",
+      "daemon/extension/QueueScript.cpp",
+      "daemon/extension/ScanScript.cpp",
+      "daemon/main/nzbget.cpp",
+      "daemon/nntp/ArticleDownloader.cpp",
+      "daemon/nntp/ArticleFetcher.cpp",
+      "daemon/nntp/ArticleWriter.cpp",
+      "daemon/postprocess/Cleanup.cpp",
+      "daemon/postprocess/DirectUnpack.cpp",
+      "daemon/postprocess/PostDownloadRenamer.cpp",
+      "daemon/postprocess/PostUnpackRenamer.cpp",
+      "daemon/postprocess/PrePostProcessor.cpp",
+      "daemon/postprocess/Rename.cpp",
+      "daemon/postprocess/Repair.cpp",
+      "daemon/postprocess/StreamRepair.cpp",
+      "daemon/postprocess/UnpackController.cpp",
+      "daemon/queue/DiskState.cpp",
+      "daemon/queue/DownloadInfo.cpp",
+      "daemon/queue/DownloadInfo.h",
+      "daemon/queue/DupeArticleFallback.cpp",
+      "daemon/queue/DupeCoordinator.cpp",
+      "daemon/queue/DupeProbe.cpp",
+      "daemon/queue/HistoryCoordinator.cpp",
+      "daemon/queue/ParDamage.cpp",
+      "daemon/queue/QueueCoordinator.cpp",
+      "daemon/queue/QueueEditor.cpp",
+      "daemon/queue/Scanner.cpp"
+    ],
+    "no_direct_export_interpretation": "No direct symbol was found in the bounded file scan; this is not proof of no indirect Rust use and not an accepted preservation nonapplicability rationale. Later changed indirect callers require their own source-bound applicability before implementation/qualification.",
+    "limits": {
+      "checked_cpp_files": 34,
+      "unique_exports": 30,
+      "retrospectively_captured_files": 13,
+      "maximum_file_bytes": 2000000
+    },
+    "runtime_tests_run": false,
+    "nonapplicability_accepted": false
   }
 }

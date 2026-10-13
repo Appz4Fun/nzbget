@@ -463,6 +463,46 @@ not new purge modules. Preserve wrapper callbacks, bytes, allocation/error,
 logging/flush and embedded-NUL/non-UTF8 behavior at any touched existing caller.
 This task neither runs those harnesses nor claims current build reachability.
 
+Task 1 review finding I1 exposed an omitted existing Rust URL caller. The
+retrospective I1 supplement now captures `rust/src/urlcoord.rs` and records
+`UrlCoordinator::UrlCompleted` -> `nzbget_rs_url_completed` ->
+`urlcoord::completed`, its header declaration and `lib.rs` module registration.
+The current status/retry/delete-status policy already runs in Rust when
+`NZBGET_USE_RUST` is enabled. The planned publication ticket spanning Scanner
+handoff modifies its complete caller; it is an **existing Rust preservation
+baseline**, not a new C++-to-Rust full-purge boundary. Its existing header
+conversion path and buffer ownership are also retained in that baseline.
+
+The bounded follow-up checked only the 34 C++ files already named in the
+registration map for direct `nzbget_rs_*` references, plus the already mapped
+Rust twin store. Five C++ files contain 30 distinct exports. The map identifies
+each exact C++ dispatch, FFI definition, header declaration and module
+registration. The retrospective supplement preserves 13 files (four source
+paths absent from the original 102-file capture), with separate hashes and
+provenance; it does not rewrite the original capture inventory.
+
+| Existing Rust boundary in mapped scope | Preservation obligation |
+| --- | --- |
+| `urlcoord` | Preserve the actual URL completion/status/retry/delete and header-buffer callers while adding fenced publication. |
+| `twin` / `Store` | Preserve open, put/partial merge, lookup, prune, posting binding, persistent bytes and failure behavior through `TwinCheck` and FFI. Required scoped cache changes do not make this a new Rust boundary. |
+| `directrenamer` and `renameanalyzer` | Preserve actual direct-rename decisions, callbacks, analyzer construction/reset/append/finish/destruction, output bytes and ownership across mapped lifecycle changes. |
+| `dupewatch` | Preserve discovery decisions/query bytes and `NzbFetcher::Budget` allocation, concurrent use and destruction through their real FFI callers. |
+| Shared Rust FFI buffers | Preserve returned bytes, NUL/storage ownership and exactly-once `nzbget_rs_free` disposal as part of these complete callers. |
+| `fsdelete` and `fsops` | Retain the separately recorded existing filesystem caller baselines and their platform conditions. |
+
+Preservation is required for these mapped existing callers; no independently
+reviewed nonapplicability is claimed. Each touched complete caller needs its
+applicable original Rust baseline, actual build/dispatch proof, behavior
+checks (including failure, callbacks, bytes, lifetime and intentional scoped
+purge additions) and preservation ratio upper confidence bound at most 1.
+A helper-only comparison or the new full-contract C++ reference cannot replace
+that obligation. Analyzer dispatch also depends on `!DISABLE_PARCHECK`.
+These are source applicability declarations; no runtime correctness or timing
+was executed. Files with no direct Rust symbol do not establish absence of
+indirect Rust use. This finite check is not a transitive dependency or broader
+migration audit; later changed indirect callers still need source-bound
+applicability before implementation and qualification.
+
 Historical group/history delete is incomplete and must not be presented as a
 full-family comparator. Retain original C++ caller boundaries separately.
 A new full-contract C++ reference and an equally optimized version still need
