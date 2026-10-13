@@ -4272,6 +4272,19 @@ def scenario_dupesearchpartialdead(daemon, t):
     return ('dupesearchpartialdead', ok, 'donors=%d members=%d donor_alive=%s member_alive=%s member_health=%s grabs=%d' % (len(donor), len(member), da, ma, mh, grabs))
 
 
+def _bounded_query_attempts(requests, wanted):
+    """Newznab retries a dropped connection once, within the same search.
+    Verify exact logical query/page coverage and that transport retry bound.
+    """
+    attempts = {}
+    for request in requests:
+        key = (request.get('q'), request.get('offset'))
+        if request.get('t') != 'search' or request.get('limit') != '100':
+            return False
+        attempts[key] = attempts.get(key, 0) + 1
+    return set(attempts) == wanted and all(1 <= count <= 2 for count in attempts.values())
+
+
 def _ds_rename_regression(daemon, t, legacy=False, client_key=False):
     renamed = 'Other.S02E03.2024.720p.WEB.H264-GRP'
     mids = ['lr-pick-%d@x' % i for i in range(40)]
@@ -4321,7 +4334,9 @@ def _ds_rename_regression(daemon, t, legacy=False, client_key=False):
     added = _grep_log(t, 'WATCH_EVENT=NZB_ADDED')
     named = _grep_log(t, 'WATCH_EVENT=NZB_NAMED')
     expected_key = 'dupes:show.s01e01.1080p.web.h264.grp' if client_key or (legacy and legacy != 'owned') else 'dupes:other.s02e03.2024.720p.web.h264.grp'
-    ok = edited and key == expected_key and searches == 1 and len(new_queries) == 3 and set(new_queries) == wanted
+    new_requests = [r for r in daemon.newznab.requests if r.get('q', '').startswith('other')]
+    ok = (edited and key == expected_key and searches == 1 and
+          _bounded_query_attempts(new_requests, {(q, '0') for q in wanted}))
     if legacy:
         ok = ok and legacy_written and loaded_key == 'dupes:show.s01e01.1080p.web.h264.grp'
         if legacy == 'owned':
@@ -4845,7 +4860,11 @@ def scenario_dupesearchinterruptedmemo(daemon, t):
     grabs={tag:sum(r['_path']=='/getnzb/'+tag for r in daemon.newznab.requests) for tag in ('a','b','c')}
     stale_b=[g for g in api.history()+api.listgroups() if g.get('NZBID')!=pick_id and g.get('NZBName')==other]
     pick=_ds_group(api,DS_TITLE)
-    ok=completed_a and completed_c and renamed_b and started and renamed_c and renamed_a and a_searches==c_searches==1 and before==after==12 and grabs=={'a':1,'b':1,'c':1} and not stale_b and bool(pick) and pick.get('DupeKey')==DS_KEY
+    wanted_queries={'show s01e01 1080p web h264 grp','show s01e01 1080p','show s01e01 1080p grp',
+                    'other s02e03 2024 720p web h264 grp','other s02e03 720p','other s02e03 720p grp',
+                    'third s03e04 2023 720p web h264 grp','third s03e04 720p','third s03e04 720p grp'}
+    queries=[r for r in daemon.newznab.requests if r['_path']=='/api']
+    ok=completed_a and completed_c and renamed_b and started and renamed_c and renamed_a and a_searches==c_searches==1 and before==after and _bounded_query_attempts(queries,{(q,'0') for q in wanted_queries}) and grabs=={'a':1,'b':1,'c':1} and not stale_b and bool(pick) and pick.get('DupeKey')==DS_KEY
     return 'dupesearchinterruptedmemo',ok,'A_complete=%s B_fetch_started=%s renamed_C=%s C_complete=%s requests_before=%d after=%d A_searches=%d C_searches=%d grabs=%s stale_B_donors=%d explicit_key=%s'%(completed_a,started,renamed_c,completed_c,before,after,a_searches,c_searches,grabs,len(stale_b),pick.get('DupeKey') if pick else None)
 
 
@@ -5356,15 +5375,16 @@ def scenario_dupesearchsearch(daemon, t):
         time.sleep(0.5)
     reqs = list(daemon.newznab.requests)
     log = t.read_file('nzbget.log').decode(errors='replace')
-    offsets = sorted(int(r['offset']) for r in reqs if r.get('q') == full)
+    offsets = sorted({int(r['offset']) for r in reqs if r.get('q') == full})
     short_pages = sum(1 for r in reqs if r.get('q') == short)
     grouped_pages = sum(1 for r in reqs if r.get('q') == grouped)
     keys_sent = all(r.get('apikey') == api_key for r in reqs)
     summary = _grep_log(t, 'DupeSearch: %s: 251 result(s) from 3 search(es) (1 failed, 5 page(s)), 51 of them the same release' % DS_TITLE)
     error_logged = 'error 300' in log
     leaked = api_key in log
-    return ('dupesearchsearch', offsets == [0, 100, 200] and short_pages == 1 and grouped_pages == 1 and
-            len(reqs) == 5 and keys_sent and summary == 1 and error_logged and not leaked,
+    wanted_pages = {(full, str(offset)) for offset in (0, 100, 200)} | {(short, '0'), (grouped, '0')}
+    return ('dupesearchsearch', offsets == [0, 100, 200] and _bounded_query_attempts(reqs, wanted_pages) and
+            keys_sent and summary == 1 and error_logged and not leaked,
             'full_offsets=%s short_pages=%d grouped_pages=%d requests=%d summary_logs=%d error_logged=%s api_key_in_log=%s'
             % (offsets, short_pages, grouped_pages, len(reqs), summary, error_logged, leaked))
 
@@ -7741,8 +7761,9 @@ def scenario_dupesearchdonor(daemon, t):
 
 def scenario_dupesearchrestart(daemon, t):
     """A restart before the delay is over doesn't lose the pick (no add event
-    fires for it after the restart: the queue is scanned once), and a restart
-    after the search doesn't repeat it (the searched key is kept on disk)."""
+    fires for it after the restart: the queue is scanned once). With no usable
+    backup, an empty discovery remains retryable after the next restart;
+    successful-backup memo preservation is covered by the memo scenarios."""
     api = daemon.wait_ready()
     _ds_append(api, DS_TITLE, _ds_nzb(t, 'r'), DS_KEY, DS_PICK)
     try:
@@ -7763,8 +7784,9 @@ def scenario_dupesearchrestart(daemon, t):
     api = daemon.wait_ready()
     time.sleep(8)
     total = _grep_log(t, 'DupeSearch: searching duplicates of %s ' % DS_TITLE)
-    return ('dupesearchrestart', first == 1 and total == 1,
-            'searched_after_first_restart=%d searched_in_total=%d' % (first, total))
+    empty = _grep_log(t, 'results=0 candidates=0 postings=0 verified=0 added=0')
+    return ('dupesearchrestart', first == 1 and total == 2 and empty == 2,
+            'searched_after_first_restart=%d searched_in_total=%d empty_results=%d' % (first, total, empty))
 
 
 def _probe_fixture(t, tag, alive_every=0):
@@ -11791,8 +11813,10 @@ SCENARIO_OPTIONS = {
     'declaredcountnopair': ['DupeArticleFallback=article'],
     'recheckfailed': ['DupeArticleFallback=article', 'ArticleRetries=0', 'Server1.Connections=2'],
     'streamgrouped': ['DupeArticleFallback=stream', 'ParCheck=auto', 'ArticleTimeout=20', 'Server1.Group=1'],
-    'retrykeepsjobs': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=park'],
-    'retryparkedname': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=park'],
+    # Finish the retained first volume before missing articles trigger parking.
+    # Parallel requests can otherwise cancel before any article is retained.
+    'retrykeepsjobs': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=park', 'Server1.Connections=1'],
+    'retryparkedname': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=park', 'Server1.Connections=1'],
     'healthlastarticle': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=park', 'Server1.Connections=1'],
     'streamslowprogress': ['DupeArticleFallback=stream', 'ParCheck=auto', 'DupeStreamTimeout=5'],
     'streamtooslow': ['DupeArticleFallback=stream', 'ParCheck=auto', 'DupeStreamTimeout=5'],
@@ -11907,7 +11931,9 @@ SCENARIO_OPTIONS = {
     'ondiskgone': ['DupeArticleFallback=no', 'HealthCheck=dupe'],
     'ondiskstop': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=dupe', 'DupeStreamTimeout=60', 'PostStrategy=rocket'],
     'repairlast': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=dupe'],
-    'recheckwholefail': ['DupeArticleFallback=article', 'HealthCheck=dupe', 'ArticleRetries=0'],
+    # Let both files complete so this isolates history's failed-article
+    # recheck, rather than the separate early health-cancellation path.
+    'recheckwholefail': ['DupeArticleFallback=article', 'HealthCheck=none', 'ArticleRetries=0'],
     'samepostingrepair': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=dupe'],
     'samepostinglate': ['DupeArticleFallback=stream', 'ParCheck=auto', 'HealthCheck=dupe'],
     'projectedhealthy': ['DupeArticleFallback=no', 'HealthCheck=dupe'],

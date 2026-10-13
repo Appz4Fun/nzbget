@@ -33,6 +33,23 @@
 
 BOOST_AUTO_TEST_SUITE(UtilTest)
 
+#ifndef WIN32
+BOOST_AUTO_TEST_CASE(FileSizeRejectsFailedStat)
+{
+	const fs::path path = fs::temp_directory_path() / fs::make_unique_filename();
+	BOOST_REQUIRE(!fs::exists(path));
+	for (int attempt = 0; attempt < 64; ++attempt)
+	{
+		BOOST_CHECK_EQUAL(FileSystem::FileSize(path.string().c_str()), -1);
+		BOOST_CHECK_EQUAL(FileSystem::FileSize((path / "missing").string().c_str()), -1);
+	}
+	std::ofstream(path) << "known file size";
+	BOOST_CHECK_EQUAL(FileSystem::FileSize(path.string().c_str()), 15);
+	BOOST_CHECK_EQUAL(FileSystem::FileSize((path / "not-a-directory").string().c_str()), -1);
+	fs::remove(path);
+}
+#endif
+
 #ifdef WIN32
 BOOST_AUTO_TEST_CASE(FileSystemTest)
 {

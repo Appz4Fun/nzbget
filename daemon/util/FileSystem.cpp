@@ -1546,9 +1546,9 @@ int64 FileSystem::FileSize(const char* filename)
 	return -1;
 #else
 	struct stat buffer;
-	buffer.st_size = -1;
-	stat(filename, &buffer);
-	return buffer.st_size;
+	// stat does not promise usable output on failure. A watchdog checking an
+	// output file before it exists must not mistake that data for a huge file.
+	return stat(filename, &buffer) == 0 ? buffer.st_size : -1;
 #endif
 }
 

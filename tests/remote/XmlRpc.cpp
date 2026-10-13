@@ -378,6 +378,18 @@ static const char* const ControlPasswordMasked = "\"Name\" : \"ControlPassword\"
 // the protected options as "***", like the restricted user
 BOOST_AUTO_TEST_CASE(TestJsonPReadsAsRestrictedUser)
 {
+	// Earlier tests destroy their own Options instances, which clears
+	// g_Options. Config RPC reads the options, so own them for this test.
+	struct RestoreOptions
+	{
+		Options* previous = g_Options;
+		~RestoreOptions() { g_Options = previous; }
+	} restoreOptions;
+	Options::CmdOptList cmdOpts;
+	cmdOpts.push_back("SevenZipCmd=7z");
+	cmdOpts.push_back("UnrarCmd=unrar");
+	Options options(&cmdOpts, nullptr);
+
 	std::string reply = RpcReply("/jsonprpc/config?=cb", XmlRpcProcessor::hmGet);
 	BOOST_CHECK(reply.rfind("cb(", 0) == 0);
 	BOOST_CHECK(reply.find(ControlPasswordMasked) != std::string::npos);

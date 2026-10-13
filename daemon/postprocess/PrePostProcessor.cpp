@@ -261,6 +261,7 @@ void PrePostProcessor::DownloadQueueUpdate(void* aspect)
 	else if (queueAspect->action == DownloadQueue::eaNzbNamed)
 	{
 		g_QueueScriptCoordinator->EnqueueScript(queueAspect->nzbInfo, QueueScriptCoordinator::qeNzbNamed);
+		CheckDownloadCompleted(queueAspect->downloadQueue, queueAspect->nzbInfo);
 	}
 	else if (queueAspect->action == DownloadQueue::eaNzbDeleted &&
 		queueAspect->nzbInfo->GetDeleting() &&
@@ -359,6 +360,27 @@ void PrePostProcessor::NzbAdded(DownloadQueue* downloadQueue, NzbInfo* nzbInfo)
 	else
 	{
 		g_QueueScriptCoordinator->EnqueueScript(nzbInfo, QueueScriptCoordinator::qeNzbAdded);
+	}
+}
+
+void PrePostProcessor::CheckDownloadCompleted(DownloadQueue* downloadQueue, NzbInfo* nzbInfo)
+{
+	if (IsStopped())
+	{
+		return;
+	}
+	// Direct rename can pause the last PAR volumes after the data files
+	// finished. Their in-flight articles may still be draining; the last
+	// such request does not complete a file, so check both transitions.
+	if (nzbInfo->GetDirectRenameStatus() == NzbInfo::tsSuccess &&
+		!nzbInfo->GetPostInfo() && nzbInfo->GetDeleteStatus() == NzbInfo::dsNone &&
+		!nzbInfo->GetCompletedFiles()->empty() && nzbInfo->IsDownloadCompleted(true) &&
+		!g_Options->GetRawArticle() && !g_Options->GetSkipWrite() && !nzbInfo->GetSkipDiskWrite())
+	{
+		nzbInfo->PrintMessage(Message::mkInfo,
+			"Collection %s completely downloaded", nzbInfo->GetName());
+		g_QueueScriptCoordinator->EnqueueScript(nzbInfo, QueueScriptCoordinator::qeNzbDownloaded);
+		NzbDownloaded(downloadQueue, nzbInfo);
 	}
 }
 

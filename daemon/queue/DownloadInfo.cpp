@@ -593,7 +593,7 @@ bool NzbInfo::IsDupeSuccess()
 		(g_Options->GetHealthCheck() == Options::hcDupe &&
 		 (m_parStatus == NzbInfo::psNone || m_parStatus == NzbInfo::psSkipped) &&
 		 (m_unpackStatus == NzbInfo::usNone || m_unpackStatus == NzbInfo::usSkipped) &&
-		 CalcHealth() < CalcCriticalHealth(true)));
+		 CalcHealth() < CalcCriticalHealth(false)));
 	return !failure;
 }
 

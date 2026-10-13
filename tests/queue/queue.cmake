@@ -8,6 +8,7 @@ list(APPEND TESTS_SRC
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/DupeProbe.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/DupeStreamRepair.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/HistoryCoordinator.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/queue/PropagationDelay.cpp
 )
 
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/testdata/nzbfile DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

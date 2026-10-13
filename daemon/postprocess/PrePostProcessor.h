@@ -38,6 +38,9 @@ public:
 		const char* args);
 	void NzbAdded(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 	void NzbDownloaded(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
+	// A late rename or a draining paused PAR request can make the collection
+	// ready without completing another file. Requires the download-queue lock.
+	void CheckDownloadCompleted(DownloadQueue* downloadQueue, NzbInfo* nzbInfo);
 
 protected:
 	void Update(Subject*, void* aspect) override { DownloadQueueUpdate(aspect); }

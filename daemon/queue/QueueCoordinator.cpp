@@ -40,6 +40,7 @@
 #include "ParDamage.h"
 #include "DupeArticleFallback.h"
 #include "StreamRepair.h"
+#include "PrePostProcessor.h"
 
 bool QueueCoordinator::CoordinatorDownloadQueue::EditEntry(
 	int ID, EEditAction action, const char* args)
@@ -559,6 +560,7 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 	for (;;)
 	{
 		fileInfo = nullptr;
+		FileInfo* propagationWaitFile = nullptr;
 
 		for (NzbInfo* nzbInfo : downloadQueue->GetQueue())
 		{
@@ -577,8 +579,7 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 					bool alreadyChecked = !checkedFiles.empty() &&
 						std::find(checkedFiles.begin(), checkedFiles.end(), fileInfo1) != checkedFiles.end();
 
-					bool propagationWait = g_Options->GetPropagationDelay() > 0 &&
-						(int)fileInfo1->GetTime() + g_Options->GetPropagationDelay() >= (int)curDate;
+					bool propagationWait = IsPropagationWait(fileInfo1->GetTime(), g_Options->GetPropagationDelay(), curDate);
 
 					bool higherPriority = fileInfo &&
 						((fileInfo1->GetExtraPriority() == fileInfo->GetExtraPriority() &&
@@ -590,6 +591,12 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 					{
 						fileInfo = fileInfo1;
 					}
+
+					if (!alreadyChecked && propagationWait && !fileInfo1->GetPaused() && !fileInfo1->GetDeleted() &&
+						(!propagationWaitFile || fileInfo1->GetTime() < propagationWaitFile->GetTime()))
+					{
+						propagationWaitFile = fileInfo1;
+					}
 				}
 			}
 		}
@@ -597,6 +604,16 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 		if (!fileInfo)
 		{
 			// there are no more files for download
+			if (propagationWaitFile && propagationWaitFile->GetId() != m_propagationWaitLoggedId)
+			{
+				// log once per idle period, otherwise the queue looks stuck without any explanation
+				m_propagationWaitLoggedId = propagationWaitFile->GetId();
+				int waitSec = (int)propagationWaitFile->GetTime() + g_Options->GetPropagationDelay() - (int)curDate;
+				propagationWaitFile->GetNzbInfo()->PrintMessage(Message::mkDetail,
+					"Holding %s%c%s due to PropagationDelay: posted %i min ago, download starts in %i min",
+					propagationWaitFile->GetNzbInfo()->GetName(), PATH_SEPARATOR, propagationWaitFile->GetFilename(),
+					(int)(curDate - propagationWaitFile->GetTime()) / 60, waitSec / 60 + 1);
+			}
 			break;
 		}
 
@@ -605,6 +622,7 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 			!fileInfo->GetNzbInfo()->GetAllFirst() &&
 			GetNextFirstArticle(fileInfo->GetNzbInfo(), fileInfo, articleInfo))
 		{
+			m_propagationWaitLoggedId = 0;
 			return true;
 		}
 
@@ -629,6 +647,7 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 					article->SetDupeProactive(
 						m_dupeArticleFallback.TryFallback(downloadQueue, fileInfo, article));
 				}
+				m_propagationWaitLoggedId = 0;
 				return true;
 			}
 		}
@@ -639,6 +658,11 @@ bool QueueCoordinator::GetNextArticle(DownloadQueue* downloadQueue, FileInfo* &f
 	}
 
 	return false;
+}
+
+bool QueueCoordinator::IsPropagationWait(time_t postTime, int propagationDelay, time_t curDate)
+{
+	return propagationDelay > 0 && (int)postTime + propagationDelay >= (int)curDate;
 }
 
 bool QueueCoordinator::GetNextFirstArticle(NzbInfo* nzbInfo, FileInfo* &fileInfo, ArticleInfo* &articleInfo)
@@ -1087,6 +1111,12 @@ void QueueCoordinator::DeleteDownloader(DownloadQueue* downloadQueue,
 			nzb->SetChanged(true);
 			downloadQueue->SaveChanged();
 		}
+	}
+	else if (g_PrePostProcessor && nzbInfo->GetActiveDownloads() == 0)
+	{
+		// A paused PAR volume can finish its last in-flight request without
+		// finishing the file. It may be the collection's last active request.
+		g_PrePostProcessor->CheckDownloadCompleted(downloadQueue, nzbInfo);
 	}
 }
 

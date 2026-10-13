@@ -112,6 +112,39 @@ BOOST_AUTO_TEST_CASE(DupeFailoverWarrantedTest)
 	BOOST_CHECK(DupeCoordinator::DupeFailoverWarranted(90, -7, 0));
 }
 
+BOOST_AUTO_TEST_CASE(DupeSuccessMatchesUnrepairedHealthFailure)
+{
+	struct RestoreOptions
+	{
+		Options* previous = g_Options;
+		~RestoreOptions() { g_Options = previous; }
+	} restoreOptions;
+	Options::CmdOptList cmdOpts;
+	cmdOpts.emplace_back("HealthCheck=dupe");
+	cmdOpts.emplace_back("SevenZipCmd=7z");
+	cmdOpts.emplace_back("UnrarCmd=unrar");
+	Options options(&cmdOpts, nullptr);
+	NzbInfo nzb;
+	nzb.SetSize(1000);
+	nzb.SetCurrentFailedSize(40);
+	nzb.SetParStatus(NzbInfo::psSkipped);
+	nzb.SetUnpackStatus(NzbInfo::usNone);
+	BOOST_REQUIRE_EQUAL(nzb.CalcHealth(), 960);
+	BOOST_REQUIRE_EQUAL(nzb.CalcCriticalHealth(true), 850);
+	BOOST_REQUIRE_EQUAL(nzb.CalcCriticalHealth(false), 1000);
+	BOOST_REQUIRE_EQUAL(std::string(nzb.MakeTextStatus(true)), "FAILURE/HEALTH");
+	BOOST_CHECK(!nzb.IsDupeSuccess());
+	// A verified repair or an explicit good mark still takes precedence.
+	nzb.SetParStatus(NzbInfo::psSuccess);
+	BOOST_CHECK(nzb.IsDupeSuccess());
+	nzb.SetParStatus(NzbInfo::psSkipped);
+	nzb.SetMarkStatus(NzbInfo::ksGood);
+	BOOST_CHECK(nzb.IsDupeSuccess());
+	nzb.SetMarkStatus(NzbInfo::ksNone);
+	nzb.SetCurrentFailedSize(0);
+	BOOST_CHECK(nzb.IsDupeSuccess());
+}
+
 BOOST_AUTO_TEST_CASE(DupeAlivePermilleTest)
 {
 	NzbInfo nzbInfo;

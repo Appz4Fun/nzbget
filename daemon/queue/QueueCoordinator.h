@@ -63,6 +63,9 @@ public:
 	// release info, checksums, images, links: no stream repair, no proof of a download
 	static bool SideFile(const char* filename);
 
+	// files posted less than propagationDelay seconds ago are held back from downloading
+	static bool IsPropagationWait(time_t postTime, int propagationDelay, time_t curDate);
+
 protected:
 	void LogDebugInfo() override;
 
@@ -105,6 +108,7 @@ private:
 	std::atomic<bool> m_hasMoreJobs{true};
 	int m_downloadsLimit;
 	int m_serverConfigGeneration = 0;
+	int m_propagationWaitLoggedId = 0;
 	std::mutex m_waitMutex;
 	std::condition_variable m_waitCond;
 	// set by WakeUp (under m_waitMutex): ends the stand-by wait
