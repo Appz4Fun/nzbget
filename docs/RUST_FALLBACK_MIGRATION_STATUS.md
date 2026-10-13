@@ -26,3 +26,9 @@ Human authorized messaging the existing migration chats. Scope handoff sent to t
 Ruling: the human's explicit instruction to write spec/plan and keep implementing overrides additional paperwork permission checkpoints. Costs if wrong: rework the written design if the human corrects it; no deployment or production mutation is implied.
 
 Ruling: Task 1 is an unqualified foundation. Its C++ remains until a complete recovery caller passes parity/performance; no tiny-wrapper speed claim substitutes for the end state. Cost if wrong: larger integration/test boundary, not a falsely accepted replacement.
+
+## Local source review, preparatory checkpoint
+
+Codex reviewed the extraction, test contracts and design locally before implementation. It confirmed exact baseline body/getter fidelity and found five contract gaps: computed negative boundaries versus the exact -1 sentinel; lazy endpoint overflow branches; checked extreme part numbers; borrower precedence before endpoint/incomplete-neighbor inspection; ABI layout/error/canary contracts. These are retained findings to pin in the Rust tests/ABI before GREEN qualification, not approval of an implementation. Review made no runtime/performance claim. The current oracle is an extracted-body correctness fixture, not the full production caller performance control.
+
+The feature branch preparation commits c31879c6 and d0713ba0 are pushed and GitHub verified. No milestone PR is open yet; the first replacement still needs code, tests, speed proof, deletion and fresh local review.
