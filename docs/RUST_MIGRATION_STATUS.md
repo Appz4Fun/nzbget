@@ -349,6 +349,16 @@ Ruling: execute the approved differential-benchmark plan through an isolated har
 - [ ] `platforms/macos/RPC.h` — platform or test support remains in completion scope.
 - [ ] `platforms/macos/WebClient.h` — platform or test support remains in completion scope.
 - [ ] `platforms/macos/WelcomeDialog.h` — platform or test support remains in completion scope.
+
+## macOS application implementations
+
+- [ ] `platforms/macos/DaemonController.m` — Objective-C application implementation; Rust replacement and native macOS lifecycle proof pending.
+- [ ] `platforms/macos/MainApp.m` — Objective-C application implementation; Rust replacement and native macOS lifecycle proof pending.
+- [ ] `platforms/macos/PFMoveApplication.m` — Objective-C application implementation; Rust replacement and native macOS installation/relocation proof pending.
+- [ ] `platforms/macos/PreferencesDialog.m` — Objective-C application implementation; Rust replacement and native macOS preferences/UI proof pending.
+- [ ] `platforms/macos/RPC.m` — Objective-C application implementation; Rust replacement and native macOS RPC/failure proof pending.
+- [ ] `platforms/macos/WebClient.m` — Objective-C application implementation; Rust replacement and native macOS request/ownership proof pending.
+- [ ] `platforms/macos/WelcomeDialog.m` — Objective-C application implementation; Rust replacement and native macOS UI lifecycle proof pending.
 - [ ] `platforms/windows/resources/resource.h` — platform or test support remains in completion scope.
 - [ ] `tests/dupesearch/DeadPostings.cpp` — platform or test support remains in completion scope.
 - [ ] `tests/dupesearch/DonorHealth.cpp` — platform or test support remains in completion scope.

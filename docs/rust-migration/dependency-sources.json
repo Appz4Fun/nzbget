@@ -19,7 +19,16 @@
     "rust/Cargo.toml": "741a75a870e9e998a7572f2539e87c88ddaa672e",
     "rust/src/decoder.rs": "134b1d4001efc9fde0b72e22a596f0530e1dd22b",
     "tests/CMakeLists.txt": "da2cd1b5ac2302de14c9b7147338ded863457286",
-    "tests/main.cpp": "4774db8d9ed270f3b3cb6e2bb459070ce3c64bef"
+    "tests/main.cpp": "4774db8d9ed270f3b3cb6e2bb459070ce3c64bef",
+    "daemon/main/nzbget.cpp": "9fac573692d8bcb110f65d381279ea6fc92f2a3a",
+    "daemon/system/SystemInfo.cpp": "314e75bc6e327a5f6b78214297bb2136054c4acd",
+    "platforms/macos/DaemonController.m": "319ad55ea57866d7597358c8ee2a456d1470d2da",
+    "platforms/macos/MainApp.m": "1751b2514644eb5a5f2889af271cd4f462cf5497",
+    "platforms/macos/PFMoveApplication.m": "9522cf6d374e9a8cb35df4241d35381f4bf7d811",
+    "platforms/macos/PreferencesDialog.m": "ae53a6203fcea72c6e24ccc4f203ad2a8cf0c3db",
+    "platforms/macos/RPC.m": "a6afd05ed5884b440c993ab0c190d606e2bc9c04",
+    "platforms/macos/WebClient.m": "b2bf1a056cdc94439024fd15ec1d4499e8001c59",
+    "platforms/macos/WelcomeDialog.m": "98358f24c745bffb27bd4ba2bdd07e19a340f840"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -276,5 +285,130 @@
       "resolved_source_commit": "4aa390514d0236c00810f2a74f4435b6fff5df37",
       "source_count_scope": "Literal initial unconditional source-list entries only; conditional additions are recorded separately. Not a compiled-source count."
     }
-  ]
+  ],
+  "rapidyenc_direct_callers": [
+    {
+      "path": "daemon/main/nzbget.cpp",
+      "git_blob": "9fac573692d8bcb110f65d381279ea6fc92f2a3a",
+      "calls": [
+        {
+          "line": 138,
+          "symbol": "rapidyenc_decode_init"
+        },
+        {
+          "line": 139,
+          "symbol": "rapidyenc_crc_init"
+        }
+      ],
+      "retirement_contract": "Replace decode/CRC startup initialization with qualified Rust backend/CPU dispatch initialization before removing native init calls."
+    },
+    {
+      "path": "daemon/nntp/Decoder.cpp",
+      "git_blob": "e4c19d46945ba132725de3086abd63c2a55048a1",
+      "calls": [
+        {
+          "line": 35,
+          "symbol": "rapidyenc_decode_incremental"
+        },
+        {
+          "line": 42,
+          "symbol": "rapidyenc_crc"
+        },
+        {
+          "line": 307,
+          "symbol": "rapidyenc_decode_incremental"
+        }
+      ],
+      "retirement_contract": "Preserve incremental native decode, callback ABI, state/ownership and CRC behavior before replacing callbacks/backend."
+    },
+    {
+      "path": "daemon/system/SystemInfo.cpp",
+      "git_blob": "314e75bc6e327a5f6b78214297bb2136054c4acd",
+      "calls": [
+        {
+          "line": 87,
+          "symbol": "rapidyenc_version"
+        }
+      ],
+      "retirement_contract": "Preserve user-visible backend/version reporting under an explicitly reviewed replacement contract; remove RAPIDYENC_VERSION guard and native version call only with that replacement, avoiding a missing field or stale label."
+    },
+    {
+      "path": "daemon/util/Util.cpp",
+      "git_blob": "49fb66cd9244218c4825e2d77aedc83e31eb1e4d",
+      "calls": [
+        {
+          "line": 2883,
+          "symbol": "rapidyenc_crc"
+        }
+      ],
+      "retirement_contract": "Preserve native CRC byte/update contract and its callers before retiring the backend."
+    },
+    {
+      "path": "tests/main.cpp",
+      "git_blob": "4774db8d9ed270f3b3cb6e2bb459070ce3c64bef",
+      "calls": [
+        {
+          "line": 89,
+          "symbol": "rapidyenc_decode_init"
+        },
+        {
+          "line": 90,
+          "symbol": "rapidyenc_crc_init"
+        }
+      ],
+      "retirement_contract": "Carry native backend fixture initialization and regression contracts into the Rust test setup before retiring C++ harness/init calls."
+    }
+  ],
+  "macos_objective_c_applications": [
+    {
+      "path": "platforms/macos/DaemonController.m",
+      "git_blob": "319ad55ea57866d7597358c8ee2a456d1470d2da",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/MainApp.m",
+      "git_blob": "1751b2514644eb5a5f2889af271cd4f462cf5497",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/PFMoveApplication.m",
+      "git_blob": "9522cf6d374e9a8cb35df4241d35381f4bf7d811",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/PreferencesDialog.m",
+      "git_blob": "ae53a6203fcea72c6e24ccc4f203ad2a8cf0c3db",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/RPC.m",
+      "git_blob": "a6afd05ed5884b440c993ab0c190d606e2bc9c04",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/WebClient.m",
+      "git_blob": "b2bf1a056cdc94439024fd15ec1d4499e8001c59",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    },
+    {
+      "path": "platforms/macos/WelcomeDialog.m",
+      "git_blob": "98358f24c745bffb27bd4ba2bdd07e19a340f840",
+      "language": "Objective-C",
+      "disposition": "pending Rust replacement",
+      "native_platform_validation": "pending"
+    }
+  ],
+  "supplementary_caller_platform_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
 }
