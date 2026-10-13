@@ -2,7 +2,7 @@
 
 Initial refreshed source: `4cf19abdb8f084a384769a15cf57e56acf86f363`. Target confirmed by user: `Appz4Fun/nzbget:dupe-article-fallback`.
 
-Completion requires all application C++ implementations, adapters, headers, and build dependencies to be replaced, corresponding C++ test harnesses retired after their contracts are carried into Rust tests, and remaining C++ removed. Every implementation PR needs current published-head Codex review and approval, required validation, a locally signed squash with exact xbmc4lyfe identities, GitHub signature verification, and owner-approved integration. Backend deployment remains a separately authorized operation.
+Completion requires all application C++ implementations, adapters, headers, and build dependencies to be replaced, corresponding C++ test harnesses retired after their contracts are carried into Rust tests, and remaining C++ removed. Every implementation PR needs thorough local Codex review followed by Codex sign-off at the PR level on the current published head. Fix and resolve all findings before integration; changes after review require renewed applicable validation and review of the final head. Required validation, a locally signed squash with exact xbmc4lyfe identities, GitHub signature verification, and owner-approved integration into `dupe-article-fallback` remain separate gates. Backend deployment remains a separately authorized operation.
 
 Source file checkboxes record deletion after replacement and integration, not investigation or source inclusion. Related external C/C++ dependencies and platform code are tracked separately and cannot silently disappear from the completion audit.
 
@@ -14,10 +14,13 @@ Source file checkboxes record deletion after replacement and integration, not in
 - [x] Capture a source inventory over every daemon C++ file and Rust source module with immutable Git blob identities.
 - [x] Ask current source/integration owners for the single worker scheduler, reserved lanes, holds, and largest measured opportunities.
 - [ ] Receive scheduling ownership and a concrete nonoverlapping runtime task.
+- [x] Map all 36 source-level Rust-backed caller boundaries, retained C++ work and build/bypass guards; classify the 11 exports without call-shaped references.
 - [ ] Confirm compiled Rust route coverage on representative offline daemon fixtures.
 - [ ] Rank candidates with current profile evidence and complete-caller cost.
 - [ ] Freeze and review the first candidate qualification plan.
 - [ ] Implement, qualify, review, and integrate the first C++ deletion.
+
+Source boundary details and partial-check coverage gaps are in [BOUNDARY_MAP.md](rust-migration/BOUNDARY_MAP.md).
 
 ## Initial investigation priority
 
