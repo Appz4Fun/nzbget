@@ -26,6 +26,13 @@ const assert = require('node:assert/strict');
         const id = initial + 1;
         const input = page.locator(`#S_${prefix}${id}_${field}`);
         await input.waitFor({state: 'visible'});
+        // A visible field can still be inside the sliding insertion wrapper.
+        // Its completion detaches/reinserts children and can interrupt keyboard
+        // focus, so exercise Edit/Close after the new entry has settled.
+        await page.waitForFunction(id => {
+          const input = document.getElementById(id);
+          return input && !input.closest('.config-set-insertion');
+        }, `S_${prefix}${id}_${field}`);
         const value = prefix === 'Task' ? '06:30' : `${prefix} <compact>`;
         await input.fill(value);
         const edit = page.locator(`.config-list-row.${section}.multiid${id} .config-list-edit`);
@@ -83,4 +90,4 @@ const assert = require('node:assert/strict');
       console.log(`${theme}/${width}: PASS`);
     }
   } finally {await browser.close();}
-})().catch(e => {console.error(e.message); process.exitCode = 1;});
+})().catch(e => {console.error(e); process.exitCode = 1;});

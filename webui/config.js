@@ -981,6 +981,7 @@ var Config = (new function($)
 			safeText = formatDescription(safeText, false);
 
 			$pre.html(safeText);
+			$pre.closest('.control-group').find('.config-option-summary').text(text.split('\n')[0].trim());
 		});
 	}
 
@@ -1313,6 +1314,19 @@ var Config = (new function($)
 		}
 
 		html += '</div>';
+		if (!section.postparam && !option.nocontent && !option.commandopts)
+		{
+			html = html.replace('class="control-group ', 'class="control-group config-option-tile ');
+		}
+		if (description && !section.postparam && !option.nocontent && !option.commandopts)
+		{
+			var summary = description.split('\n')[0].trim();
+			if (section.multi)
+			{
+				summary = summary.replace(new RegExp(section.multiprefix + '[X1]\\.', 'g'), '');
+			}
+			html += '<div class="config-option-summary">' + Util.textToHtml(summary) + '</div>';
+		}
 		html += '</div>';
 
 		return html;
@@ -1439,7 +1453,7 @@ var Config = (new function($)
 					if (SystemHealth.isHealthCheckEnabled())
 					{
 						var errorBadges = SystemHealth.makeBadges(SystemHealth.getSection(section.id));
-						link.append(errorBadges);
+						if (errorBadges) link.append(errorBadges.addClass('config-health-badges'));
 					}
 
 					html.append(link);
@@ -1747,6 +1761,14 @@ var Config = (new function($)
 		Config.showSection(sectionId, true);
 	}
 
+	function showOptionRows(rows)
+	{
+		rows.show();
+		// Closed list rows are hidden with !important, so jQuery cannot infer
+		// their grid display when a section or search reveals them.
+		rows.filter('.config-option-tile').css('display', 'grid');
+	}
+
 	this.showSection = function(sectionId, animateScroll)
 	{
 		this.currentSectionID = sectionId;
@@ -1839,7 +1861,7 @@ var Config = (new function($)
 
 		$ConfigData.children().hide();
 		var opts = $('.' + sectionId, $ConfigData);
-		opts.show();
+		showOptionRows(opts);
 		markLastControlGroup();
 
 		var section = findSectionById(sectionId);
@@ -2021,7 +2043,7 @@ var Config = (new function($)
 		I18n.translatePage(addButton);
 
 		// insert before add-button, using a temporary div for slide effect
-		var div = $('<div>' + html + '</div>');
+		var div = $('<div class="config-set-insertion">' + html + '</div>');
 		I18n.translatePage(div);
 		div.hide();
 		addButton.parent().before(div);
@@ -2155,6 +2177,36 @@ var Config = (new function($)
 			edit.text(caption).attr('aria-label', caption + ': ' + name);
 			edit.attr('aria-controls', details.find('input[id],.btn-switch[id]').map(function() { return this.id; }).get().join(' '));
 		});
+	}
+
+	this.refreshHealth = function()
+	{
+		if (!config || !$ConfigData) return;
+		// Health may arrive after Settings has rendered. Update decorations only;
+		// rebuilding the page would replace edits, focus and disclosure state.
+		for (var k=0; k < config.length; k++)
+		{
+			var sections = config[k].sections;
+			for (var i=0; i < sections.length; i++)
+			{
+				var section = sections[i];
+				var health = SystemHealth.isHealthCheckEnabled() ? SystemHealth.getSection(section.id) : null;
+				var link = $ConfigNav.find('a').filter(function() { return $(this).attr('href') === '#' + section.id; });
+				link.children('.config-health-badges').remove();
+				var badges = SystemHealth.makeBadges(health);
+				if (badges) link.append(badges.addClass('config-health-badges'));
+				for (var j=0; j < section.options.length; j++)
+				{
+					var option = section.options[j];
+					if (option.template || !option.formId) continue;
+					option.check = SystemHealth.getCheck(health, option.name);
+					var row = $(document.getElementById(option.formId)).closest('.control-group');
+					row.find('.option__check-section').remove();
+					if (option.check) row.children('.controls').append(makeOptionCheckSection(option.check));
+				}
+			}
+		}
+		refreshListRows();
 	}
 
 	function listSectionPrefix(sectionId)
@@ -2713,7 +2765,7 @@ var Config = (new function($)
 							{
 								available++;
 								var opt = $('#' + option.formId).closest('.control-group');
-								opt.show();
+								showOptionRows(opt);
 							}
 						}
 					}

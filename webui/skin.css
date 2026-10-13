@@ -1434,7 +1434,7 @@ tr.checked:nth-child(odd) .progress-block .progress {
 }
 
 /* review fixes: legacy rules that outrank the controls above */
-.config-header .btn {
+.config-header .btn:not(.btn-primary) {
 	background-color: var(--fill-tertiary);
 	box-shadow: inset 0 0 0 1px var(--separator);
 }
@@ -2630,7 +2630,6 @@ label,
 
 .config-header .btn {
 	margin-top: 0;
-	box-shadow: inset 0 0 0 1px var(--separator);
 }
 
 /* "Server1", "Category2": a set's heading */
@@ -3047,6 +3046,127 @@ td:hover span.none-category {
 .phone #ConfigContent .config-list-edit { min-height: 40px; }
 .phone #ConfigContent .config-help-toggle { width: 36px; height: 40px; top: 0; }
 .phone #ConfigContent .control-group.config-has-help > .controls { padding-right: 40px; }
+
+/* Wide Settings workspace with compact, source-ordered option tiles. */
+.config-header-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.config-option-summary { display: none; }
+
+#ConfigData,
+#ConfigData > .config-set-insertion {
+	--config-option-columns: 3;
+	display: grid;
+	grid-template-columns: repeat(var(--config-option-columns), minmax(0, 1fr));
+	gap: var(--space-3);
+	align-items: start;
+}
+
+#ConfigData > *,
+#ConfigData > .config-set-insertion > * {
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+
+#ConfigData > .config-option-tile,
+#ConfigData > .config-set-insertion > .config-option-tile { grid-column: auto; }
+
+#ConfigContent div.config-option-tile {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-2);
+	align-items: start;
+	padding: var(--space-3);
+	margin: 0;
+	border: 1px solid var(--separator);
+	border-radius: var(--radius-md);
+	background: var(--bg-content);
+}
+
+#ConfigContent div.config-option-tile::before,
+#ConfigContent div.config-option-tile::after { display: none; }
+
+#ConfigContent div.config-option-tile > .control-label {
+	float: none;
+	width: auto;
+	margin: 0;
+	padding: 0 32px 0 0;
+	text-align: left;
+	overflow-wrap: anywhere;
+}
+
+#ConfigContent div.config-option-tile > .controls,
+#ConfigContent div.config-option-tile.config-has-help > .controls {
+	position: static;
+	min-width: 0;
+	margin-left: 0;
+	padding-right: 0;
+}
+
+#ConfigContent div.config-option-tile .config-help-toggle { top: 6px; right: 6px; }
+#ConfigContent div.config-option-tile input[type="text"],
+#ConfigContent div.config-option-tile input[type="password"],
+#ConfigContent div.config-option-tile textarea {
+	width: 100%;
+	min-width: 0;
+	min-height: 32px;
+	box-sizing: border-box;
+}
+#ConfigContent div.config-option-tile .input-append { display: flex; width: 100%; }
+#ConfigContent div.config-option-tile .input-append > input { flex: 1 1 0; }
+#ConfigContent div.config-option-tile .input-append > .add-on {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+	min-height: 32px;
+	box-sizing: border-box;
+}
+#ConfigContent div.config-option-tile .btn-switch { flex-wrap: wrap; max-width: 100%; box-sizing: border-box; }
+
+@media (min-width: 769px) {
+	.config__aside {
+		padding: var(--space-2) var(--space-2) 0 0;
+		border-right: 1px solid var(--separator);
+	}
+
+	.config__main { padding: 0 var(--space-5); }
+
+	#ConfigNav,
+	#ConfigNav.nav-list {
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+	}
+
+	#ConfigNav.nav-list > li > a,
+	#ConfigNav.nav-list.long-list > li > a {
+		min-height: 32px;
+		font-family: var(--font-sans);
+		font-size: 13px;
+		letter-spacing: 0;
+	}
+}
+
+@media (min-width: 769px) and (max-width: 1199px) {
+	#ConfigData,
+	#ConfigData > .config-set-insertion { --config-option-columns: 2; }
+}
+
+@media (max-width: 768px) {
+	#ConfigContent .config-header { gap: var(--space-2); flex-wrap: wrap; }
+	#ConfigData,
+	#ConfigData > .config-set-insertion { --config-option-columns: 1; }
+	.phone #ConfigContent div.config-option-tile > .control-label { padding-right: 40px; }
+	.phone #ConfigContent div.config-option-tile > .controls,
+	.phone #ConfigContent div.config-option-tile.config-has-help > .controls { padding-right: 0; }
+	.phone #ConfigContent div.config-option-tile input[type="text"],
+	.phone #ConfigContent div.config-option-tile input[type="password"],
+	.phone #ConfigContent div.config-option-tile .input-append > .add-on { min-height: 40px; }
+}
 
 .uneditable-mulitline-input {
 	display: inline-block;

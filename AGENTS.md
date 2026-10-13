@@ -1,7 +1,6 @@
 # Agent working instructions
 
-Read [the contribution policy](docs/AI_POLICY.md) and
-[the evidence workflow](docs/EVIDENCE_WORKFLOW.md) before changing or validating
+Read [the evidence workflow](docs/EVIDENCE_WORKFLOW.md) before changing or validating
 this project. Human instructions and current coordination ownership take priority.
 
 ## Preserve work and identity

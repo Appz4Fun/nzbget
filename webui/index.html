@@ -601,11 +601,6 @@
 							</li>
 							<li class="config-static"><a class="text-uppercase" href="#Config-System" data-i18n="nav_system"></a></li>
 						</ul>
-						<div class="visible-desktop">
-							<div class="config-save-desktop">
-								<button type="button" class="btn btn-primary" id="Config_Save" onclick="Config.saveChanges()" data-i18n="btn_save_all_changes"></button>
-							</div>
-						</div>
 					</div>
 
 					<div class="config__main">
@@ -615,6 +610,10 @@
 									<span id="ConfigTitleStatus" style="font-size: initial;"></span>
 								</div>
 									
+								<div class="config-header-actions">
+									<div class="visible-desktop">
+										<button type="button" class="btn btn-primary" id="Config_Save" onclick="Config.saveChanges()" data-i18n="btn_save_all_changes"></button>
+									</div>
 								<div class="btn-group pull-right">
 									<a class="btn dropdown-toggle" id="Config_ViewButton" data-toggle="dropdown"><span data-i18n="btn_view"></span> <span class="caret"></span></a>
 									<ul class="dropdown-menu footer-button-menu" id="Config_ViewMenu">
@@ -622,6 +621,7 @@
 											<li><a href="#" id="Config_ViewCompact" onclick="Config.viewMode()"><i class="material-icon">done</i> <span data-i18n="menu_compact_mode"></span></a></li>
 										</ul>
 									</div>
+								</div>
 								</div>
 
 								<div id="ConfigInfo">
