@@ -315,7 +315,9 @@
 
 <!-- *** DOWNLOADS ************************************************************ -->
 
-		<div id="DownloadsTab" class="tab-pane fade in active">
+		<div id="DownloadsTab" class="tab-pane workspace-page fade in active">
+			<div class="workspace-header"><h2 id="DownloadsPageTitle" data-i18n="tab_downloads"></h2></div>
+			<section class="workspace-panel" aria-labelledby="DownloadsPageTitle">
 
 			<!-- *** DOWNLOADS: TOOLBAR -->
 
@@ -323,7 +325,7 @@
 
 				<!-- ADD BUTTON -->
 				<div class="btn-group" id="TBAddButton">
-					<button class="btn btn-default" onclick="Upload.addClick()" data-i18n-title="btn_add_title" data-i18n-title-arg-1="[A]"><i class="material-icon">add</i><span class="btn-caption" data-i18n="btn_add"></span></button>
+					<button class="btn btn-primary" onclick="Upload.addClick()" data-i18n-title="btn_add_title" data-i18n-title-arg-1="[A]"><i class="material-icon">add</i><span class="btn-caption" data-i18n="btn_add"></span></button>
 				</div>
 
 				<!-- DOWNLOAD ACTIONS -->
@@ -369,6 +371,7 @@
 
 <!-- *** DOWNLOADS: TABLE -->
 
+			<div class="workspace-table-wrap">
 			<table class="table table-striped table-bordered table-check table-cancheck table-drag datatable" id="DownloadsTable">
 				<thead>
 					<tr>
@@ -387,28 +390,31 @@
 				</thead>
 				<tbody></tbody>
 			</table>
+			</div>
 
 			<div class="toolbox-info clearfix">
 				<div id="DownloadsTable_info"></div>
 			</div>
 
-			<div class="alert alert-info alert-block hide" style="margin-top:-15px;" id="DownloadQueueEmpty">
+			<div class="alert alert-info alert-block hide" id="DownloadQueueEmpty">
 				<h4 class="alert-heading" data-i18n="msg_download_queue_empty"></h4>
 				 <span data-i18n-html="msg_download_queue_empty_desc" data-i18n-html-arg-1="<em>" data-i18n-html-arg-2="</em>"></span>
 			</div>
 
-			<br>
+		</section>
 		</div>
 
 <!-- *** HISTORY ************************************************************ -->
 
-		<div id="HistoryTab" class="tab-pane fade">
+		<div id="HistoryTab" class="tab-pane workspace-page fade">
+			<div class="workspace-header"><h2 id="HistoryPageTitle" data-i18n="tab_history"></h2></div>
+			<section class="workspace-panel" aria-labelledby="HistoryPageTitle">
 
 <!-- *** HISTORY: TOOLBAR -->
 
 			<div class="btn-toolbar form-inline section-toolbar" id ="HistoryTab_Toolbar">
 				<div class="btn-group">
-					<button class="btn btn-default" onclick="History.actionClick('DELETE')" data-i18n-title="btn_history_delete_title" data-i18n-title-arg-1="[D]"><i class="material-icon">delete</i><span class="btn-caption" data-i18n="btn_history_delete"></span></button>
+					<button class="btn btn-danger" onclick="History.actionClick('DELETE')" data-i18n-title="btn_history_delete_title" data-i18n-title-arg-1="[D]"><i class="material-icon">delete</i><span class="btn-caption" data-i18n="btn_history_delete"></span></button>
 					<button class="btn btn-default dropdown-toggle" data-toggle="dropdown" data-i18n-title="btn_history_more_title"><span class="btn-caption" data-i18n="btn_history_more"></span> <span class="phone-only inline">&nbsp;</span><span class="caret"></span></button>
 					<ul class="dropdown-menu">
 						<li class="menu-header" data-i18n="menu_history_actions"></li>
@@ -445,11 +451,8 @@
 				<div class="btn-group phone-only inline" id="HistoryRecordsPerPageBlockPhone">
 				</div>
 
-			</div>
 
-<!-- *** HISTORY: TABLE -->
-
-			<div class="form-inline toolbox-top clearfix" id="HistoryTableTopBlock">
+				<div class="form-inline toolbox-top clearfix" id="HistoryTableTopBlock">
 				<div class="pull-left toolbox-length" id="HistoryRecordsPerPageBlock">
 					<select size="1" id="HistoryRecordsPerPage" onchange="History.recordsPerPageChange()">
 						<option value="5">5</option>
@@ -464,7 +467,11 @@
 
 				<div class="pagination pull-right"><ul id="HistoryTable_pager"></ul></div>
 			</div>
+			</div>
 
+<!-- *** HISTORY: TABLE -->
+
+			<div class="workspace-table-wrap">
 			<table class="table table-striped table-bordered table-check table-cancheck datatable" id="HistoryTable">
 				<thead>
 				    <tr>
@@ -482,17 +489,20 @@
 				</thead>
 				<tbody></tbody>
 			</table>
+			</div>
 
 			<div class="toolbox-info clearfix">
 				<div id="HistoryTable_info"></div>
 			</div>
 
-			<br>
+		</section>
 		</div>
 
 <!-- *** MESSAGES ************************************************************ -->
 
-		<div id="MessagesTab" class="tab-pane fade">
+		<div id="MessagesTab" class="tab-pane workspace-page fade">
+			<div class="workspace-header"><h2 id="MessagesPageTitle" data-i18n="tab_messages"></h2></div>
+			<section class="workspace-panel" aria-labelledby="MessagesPageTitle">
 
 <!-- *** MESSAGES: TOOLBAR -->
 
@@ -500,7 +510,7 @@
 
 				<!-- EDIT BUTTONS -->
 				<div class="btn-group">
-					<button class="btn btn-default" onclick="Messages.clearClick()" data-i18n-title="btn_messages_clear_title" data-i18n-title-arg-1="[D]"><i class="material-icon">delete</i> <span class="btn-caption" data-i18n="btn_messages_clear"></span></button>
+					<button class="btn btn-danger" onclick="Messages.clearClick()" data-i18n-title="btn_messages_clear_title" data-i18n-title-arg-1="[D]"><i class="material-icon">delete</i> <span class="btn-caption" data-i18n="btn_messages_clear"></span></button>
 				</div>
 
 				<!-- KIND FILTER BUTTONS -->
@@ -520,11 +530,8 @@
 				<div class="btn-group phone-only inline" id="MessagesRecordsPerPageBlockPhone">
 				</div>
 
-			</div>
 
-<!-- *** MESSAGES: TABLE -->
-
-			<div class="form-inline toolbox-top clearfix" id="MessagesTableTopBlock">
+				<div class="form-inline toolbox-top clearfix" id="MessagesTableTopBlock">
 				<div class="pull-left toolbox-length" id="MessagesRecordsPerPageBlock">
 					<select size="1" id="MessagesRecordsPerPage" onchange="Messages.recordsPerPageChange()">
 						<option value="5">5</option>
@@ -540,7 +547,11 @@
 
 				<div class="pagination pull-right"><ul id="MessagesTable_pager"></ul></div>
 			</div>
+			</div>
 
+<!-- *** MESSAGES: TABLE -->
+
+			<div class="workspace-table-wrap">
 			<table class="table table-striped table-bordered datatable" id="MessagesTable">
 				<thead><tr>
 					<th class="text-center" data-i18n="col_status"></th>
@@ -549,12 +560,13 @@
 				</tr></thead>
 				<tbody></tbody>
 			</table>
+			</div>
 
 			<div class="toolbox-info clearfix">
 				<div id="MessagesTable_info"></div>
 			</div>
 
-			<br>
+		</section>
 		</div>
 
 <!-- *** CONFIG ************************************************************ -->
@@ -1104,11 +1116,8 @@
 		</div>
 
 <!-- *** STATISTICS ************************************************************ -->
-		<div id="StatisticsTab" class="tab-pane fade">
-			<div class="section-title statistics__title-container phone-only">
-				<h3 data-i18n="tab_statistics"></h3>
-				<hr>
-			</div>
+		<div id="StatisticsTab" class="tab-pane workspace-page fade">
+			<div class="workspace-header"><h2 id="StatisticsPageTitle" data-i18n="tab_statistics"></h2></div>
 			<div id="StatisticsTabData" class="statistics">
 				<div id="Statistics_Spinner" class="statistics__spinner-container ">
 					<i class="material-icon spinner statistics__spinner ">progress_activity</i>
@@ -1315,7 +1324,7 @@
 		</div>
 	</div>
 	<div class="modal-footer">
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="LimitDialog_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="LimitDialog_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="LimitDialog_Save" data-i18n="limit_dialog_set_limit"></a>
 	</div>
@@ -1350,7 +1359,7 @@
 			<a data-toggle="modal" href="#ScheduledPauseDialogHelp" class="btn btn-default pull-left" data-i18n="btn_quick_help"></a>
 		</div>
 
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="ScheduledPause_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="ScheduledPause_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" onclick="Status.pauseForClick()" data-i18n="btn_pause_action"></a>
 	</div>
@@ -1512,7 +1521,7 @@
 					<form>
 					<fieldset>
 
-						<div class="control-group">
+						<div class="control-group workspace-field-wide">
 							<label class="control-label" for="DownloadsEdit_NZBNameGroup" data-i18n="edit_nzb_name"></label>
 							<div class="controls" id="DownloadsEdit_NZBNameGroup">
 								<input type="text" class="input-xlarge" id="DownloadsEdit_NZBName" />
@@ -1520,7 +1529,7 @@
 							</div>
 						</div>
 
-						<div class="control-group" id="DownloadsEdit_URLGroup">
+						<div class="control-group workspace-field-wide" id="DownloadsEdit_URLGroup">
 							<label class="control-label text-uppercase" for="DownloadsEdit_URL" data-i18n="edit_link"></label>
 							<div class="controls">
 								<input type="text" class="input-xlarge" id="DownloadsEdit_URL" readonly="true" />
@@ -1543,7 +1552,7 @@
 							</div>
 						</div>
 
-						<div class="control-group control-group-last" id="DownloadsEdit_StatisticsGroup">
+						<div class="control-group control-group-last workspace-field-wide" id="DownloadsEdit_StatisticsGroup">
 							<label class="control-label" for="DownloadsEdit_Statistics" data-i18n="edit_statistics"></label>
 							<div class="controls">
 							<table class="table table-striped table-bordered data-statistics">
@@ -1553,7 +1562,7 @@
 							</div>
 						</div>
 
-						<div class="control-group">
+						<div class="control-group workspace-field-wide">
 							<div class="controls">
 								<div class="modal-bottom-toolbar">
 									<button class="btn btn-default" data-tab="DownloadsEdit_FileTab" data-fullscreen="true" id="DownloadsEdit_File" data-i18n-title="edit_btn_files"><span data-i18n="edit_btn_files"></span> <i class="material-icon" style="opacity:0.6;">arrow_right_alt</i></button>
@@ -1721,7 +1730,7 @@
 			<a class="btn btn-default" id="DownloadsEdit_Actions" data-i18n="edit_actions"></a>
 		</div>
 
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="DownloadsEdit_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="DownloadsEdit_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" id="DownloadsEdit_Close" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="DownloadsEdit_Save" data-i18n="btn_save_changes"></a>
 	</div>
@@ -1843,7 +1852,7 @@
 	</div>
 
 	<div class="modal-footer">
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:360px;" id="DownloadsMulti_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="DownloadsMulti_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="DownloadsMulti_Save" data-i18n="btn_save_changes"></a>
 	</div>
@@ -1874,7 +1883,7 @@
 	</div>
 
 	<div class="modal-footer">
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="DownloadsMerge_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="DownloadsMerge_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="DownloadsMerge_Merge" data-i18n="btn_merge"></a>
 	</div>
@@ -1910,7 +1919,7 @@
 	</div>
 
 	<div class="modal-footer">
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="DownloadsSplit_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="DownloadsSplit_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="DownloadsSplit_Split" data-i18n="btn_split"></a>
 	</div>
@@ -1940,14 +1949,14 @@
 							</div>
 						</div>
 
-						<div class="control-group">
+						<div class="control-group workspace-field-wide">
 							<label class="control-label" for="HistoryEdit_NZBNameGroup" data-i18n="edit_nzb_name"></label>
 							<div class="controls" id="HistoryEdit_NZBNameGroup">
 								<input type="text" class="input-xlarge" id="HistoryEdit_NZBName" />
 							</div>
 						</div>
 
-						<div class="control-group" id="HistoryEdit_URLGroup">
+						<div class="control-group workspace-field-wide" id="HistoryEdit_URLGroup">
 							<label class="control-label text-uppercase" for="HistoryEdit_URL" data-i18n="edit_link"></label>
 							<div class="controls">
 								<input type="text" class="input-xlarge" id="HistoryEdit_URL" readonly="true" />
@@ -1962,14 +1971,14 @@
 							</div>
 						</div>
 
-						<div class="control-group" id="HistoryEdit_PathGroup">
+						<div class="control-group workspace-field-wide" id="HistoryEdit_PathGroup">
 							<label class="control-label" for="HistoryEdit_Path" data-i18n="edit_destination"></label>
 							<div class="controls">
 								<input type="text" class="input-xlarge" id="HistoryEdit_Path" readonly="true" />
 							</div>
 						</div>
 
-						<div class="control-group control-group-last" id="HistoryEdit_StatisticsGroup">
+						<div class="control-group control-group-last workspace-field-wide" id="HistoryEdit_StatisticsGroup">
 							<label class="control-label" for="HistoryEdit_Statistics" data-i18n="edit_statistics"></label>
 							<div class="controls">
 							<table class="table table-striped table-bordered data-statistics">
@@ -1983,7 +1992,7 @@
 							<div class="controls" data-i18n="edit_hidden_history_desc"></div>
 						</div>
 
-						<div class="control-group">
+						<div class="control-group workspace-field-wide">
 							<div class="controls">
 								<div class="modal-bottom-toolbar">
 									<button class="btn btn-default" data-tab="HistoryEdit_ParamTab" id="HistoryEdit_Param" data-i18n-title="edit_btn_postprocess"><span data-i18n="edit_btn_postprocess"></span> <i class="material-icon" style="opacity:0.6;">arrow_right_alt</i></button>
@@ -2115,7 +2124,7 @@
 			<a class="btn btn-default dropdown-toggle" id="HistoryEdit_Actions" data-toggle="dropdown"><span data-i18n="edit_actions"></span> <span class="caret"></span></a>
 		</div>
 
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:320px;" id="HistoryEdit_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="HistoryEdit_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" id="HistoryEdit_Close" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="HistoryEdit_Save" data-i18n="btn_save_changes"></a>
 	</div>
@@ -2204,7 +2213,7 @@
 	</div>
 
 	<div class="modal-footer">
-		<div class="dialog-transmit hide" style="position:absolute;right:220px;" id="FeedDialog_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="FeedDialog_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" id="FeedDialog_Close" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="FeedDialog_Save" onclick="FeedDialog.fetch()" data-i18n="btn_fetch_selected"></a>
 	</div>
@@ -2294,7 +2303,7 @@
 			<a data-toggle="modal" href="#FeedFilterDialogHelp" class="btn btn-default pull-left" data-i18n="btn_quick_help"></a>
 		</div>
 
-		<div class="dialog-transmit hide" style="position:absolute;right:220px;" id="FeedFilterDialog_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="FeedFilterDialog_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_discard"></a>
 		<a href="#" class="btn btn-primary" id="FeedFilterDialog_Save" data-i18n="btn_apply"></a>
 	</div>
@@ -2671,7 +2680,7 @@
 			<form>
 			<fieldset>
 
-				<div class="control-group">
+				<div class="control-group workspace-field-wide">
 					<label class="control-label" for="AddDialog_URL" id="AddDialog_URLLabel"><i class="material-icon">delete</i><img class="hide" src="img/transmit-file.gif" width="16px" height="16px"> <span data-i18n="add_dialog_url_label"></span></label>
 					<div class="controls">
 						<input type="text" class="input-xblarge" id="AddDialog_URL" />&nbsp;
@@ -2679,7 +2688,7 @@
 					</div>
 				</div>
 
-				<div class="control-group">
+				<div class="control-group workspace-field-wide">
 					<label class="control-label" for="AddDialog_Files" data-i18n="add_dialog_files_label"></label>
 					<div class="controls">
 						<div style="margin-top:6px; margin-bottom:10px;"><a href="#" class="btn btn-default" style="margin-top: -6px;" id="AddDialog_Select" data-i18n="add_dialog_select_btn"></a> <span data-i18n="add_dialog_drop_text"></span></div>
@@ -2705,7 +2714,7 @@
 					</div>
 				</div>
 
-				<div class="control-group">
+				<div class="control-group workspace-field-wide">
 					<label class="control-label" data-i18n="add_dialog_options_label"></label>
 					<div class="controls">
 						<label class="checkbox"><input type="checkbox" id="AddDialog_AutoCategory"> <span data-i18n="add_dialog_auto_category"></span></label>
@@ -2714,7 +2723,7 @@
 					</div>
 				</div>
 
-				<div class="control-group">
+				<div class="control-group workspace-field-wide">
 					<label class="control-label" for="AddDialog_Scan" data-i18n="add_dialog_scan_label"></label>
 					<div class="controls">
 						<a href="#" class="btn btn-default" id="AddDialog_Scan" data-i18n="add_dialog_scan_btn"></a>
@@ -2731,7 +2740,7 @@
 			<a data-toggle="modal" href="#AddDialogHelp" class="btn btn-default pull-left" data-i18n="btn_quick_help"></a>
 		</div>
 
-		<div class="dialog-transmit hide" style="position:absolute;margin-left:260px;" id="AddDialog_Transmit"><img src="img/transmit.gif"></div>
+		<div class="dialog-transmit hide" id="AddDialog_Transmit"><img src="img/transmit.gif"></div>
 		<a href="#" class="btn btn-default" data-dismiss="modal" data-i18n="btn_cancel"></a>
 		<a href="#" class="btn btn-primary" id="AddDialog_Submit" data-i18n="btn_submit"></a>
 	</div>
@@ -3436,7 +3445,7 @@
 	</div>
 
 	<div class="statistics__server-container-template">
-		<div class="flex-center statistics__server-container" style="flex-wrap: wrap; min-height: 300px;">
+		<div class="statistics__server-container workspace-panel">
 		</div>
 	</div>
 </div>

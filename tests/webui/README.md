@@ -5,6 +5,8 @@ the browser's unsaved configuration, and intercepts `saveconfig` before it reach
 the daemon.
 
 ```sh
+node tests/webui/workspaces.js http://127.0.0.1:17689/
+node tests/webui/workspace-interactions.js http://127.0.0.1:17689/
 node tests/webui/full-width-layout.js http://127.0.0.1:17689/
 node tests/webui/settings-density.js http://127.0.0.1:17689/
 node tests/webui/settings-lists.js http://127.0.0.1:17689/
@@ -55,3 +57,15 @@ JPEGs from the fixture; never use production values for those pictures.
 
 The health-startup check holds the actual read-only health RPC reply until
 Settings loads, then releases it and verifies the report arrives without errors.
+
+The workspace checks cover Downloads, History, Statistics and Messages in both
+themes at 1920, 1280, 768, 390 and 320 pixels. They verify accessible headings,
+bounded table scrolling and final-column access, nonoverlapping provider charts,
+and Add dialog geometry and payloads. The interaction check exercises native
+keyboard activation, paging, row menus, download/history edits and their RPC
+payloads, filters, status/volume navigation and empty views at desktop and phone
+and tablet widths, including resizing across the phone breakpoint. Delayed
+intercepted download and history saves exercise the real pending indicator timer
+and verify disabled buttons remain readable without spinner overlap. Offline sanitized replies retain the real renderers; tested mutations
+are intercepted. Both checks reject non-loopback targets. Optional JPEG captures
+use an existing `NZBGET_UI_CAPTURE_DIR`; use a fresh directory for each attempt.
