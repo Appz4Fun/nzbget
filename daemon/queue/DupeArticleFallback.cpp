@@ -23,6 +23,14 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#if defined(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH)
+#ifndef NZBGET_USE_RUST
+#error Experimental article matcher requires the Rust backend
+#endif
+#include <cctype>
+#include <stdexcept>
+#include "nzbget_rs.h"
+#endif
 #include "DupeArticleFallback.h"
 #include "ParDamage.h"
 #include "TwinCheck.h"
@@ -999,6 +1007,50 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 	std::string byContent = donorNzbId && !ownIdentity.empty() && !Util::EmptyStr(donorPrint) ?
 		TwinCheck::MatchByContent(own->GetId(), ownIdentity.c_str(), targetFile->GetFilename(),
 			targetNzbFilename, donorNzbId, donorPrint) : "";
+#ifdef NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH
+	// Candidate-only full caller route: capture while the queue lock protects
+	// the real FileInfo objects. Snapshot/ownership/locale/FFI costs are part
+	// of the future complete-caller measurement; this is disabled by default.
+	std::vector<std::vector<NzbgetRsIdentityPart>> partStorage;
+	partStorage.reserve(donorNzb->GetFileList()->size() + 1);
+	auto capture = [&partStorage](FileInfo* file) -> NzbgetRsIdentityFile
+	{
+		partStorage.emplace_back();
+		auto& parts = partStorage.back();
+		parts.reserve(file->GetArticles()->size());
+		for (ArticleInfo* article : file->GetArticles())
+		{
+			parts.push_back({article->GetPartNumber(), article->GetSize()});
+		}
+		const char* name = file->GetFilename();
+		const char* subject = file->GetSubject();
+		return {reinterpret_cast<const uint8_t*>(name), name ? strlen(name) : 0,
+			reinterpret_cast<const uint8_t*>(subject), subject ? strlen(subject) : 0,
+			file->GetSize(), file->GetTotalArticles(), IsParFile(file) ? 1 : 0,
+			parts.data(), parts.size()};
+	};
+	NzbgetRsIdentityFile target = capture(targetFile);
+	std::vector<NzbgetRsIdentityFile> donors;
+	donors.reserve(donorNzb->GetFileList()->size());
+	for (FileInfo* donor : donorNzb->GetFileList()) { donors.push_back(capture(donor)); }
+	uint8_t fold[256], whitespace[256];
+	for (int byte = 0; byte < 256; byte++)
+	{
+		fold[byte] = static_cast<uint8_t>(std::tolower(byte));
+		whitespace[byte] = std::isspace(byte) ? 1 : 0;
+	}
+	const int64 matched = nzbget_rs_article_match(&target, donors.data(), donors.size(),
+		reinterpret_cast<const uint8_t*>(targetNzbFilename), targetNzbFilename ? strlen(targetNzbFilename) : 0,
+		reinterpret_cast<const uint8_t*>(byContent.data()), byContent.size(), fold, whitespace);
+	if (matched < -1 || (matched >= 0 && static_cast<size_t>(matched) >= donors.size()))
+	{
+		// A rejected candidate invalidates qualification, rather than silently
+		// falling through to C++ and falsely counting a Rust operation hit.
+		throw std::runtime_error("Experimental Rust article matcher rejected its snapshot");
+	}
+	return matched >= 0 && static_cast<size_t>(matched) < donors.size() ?
+		donorNzb->GetFileList()->at(static_cast<size_t>(matched)).get() : nullptr;
+#else
 	if (byContent == "-")
 	{
 		return nullptr;
@@ -1093,6 +1145,7 @@ FileInfo* DupeArticleFallback::MatchDonorFile(FileInfo* targetFile, NzbInfo* don
 		}
 	}
 	return stepMatch;
+#endif
 }
 
 uint64 DupeArticleFallback::ArticleSizeStepsHash(FileInfo* fileInfo)

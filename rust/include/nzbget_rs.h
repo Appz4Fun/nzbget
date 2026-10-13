@@ -38,6 +38,25 @@ typedef struct {
 int64_t nzbget_rs_article_geometry(const NzbgetRsGeometryArticle* input, size_t count,
     int64_t decoded_size, NzbgetRsGeometryResult* output, size_t capacity);
 
+// Candidate article matcher: internal synchronous immutable DTO views only.
+// All nonempty spans are live/initialized/aligned and immutable for the call;
+// no daemon-object pointers are passed or retained. Empty counted spans may be
+// NULL. fold/whitespace each have 256 bytes from the actual caller LC_CTYPE.
+// Returns donor ordinal, -1 for none, -2 for rejected numeric span/allocation.
+// Allocation failure while owning strings/parts aborts under the crate policy.
+typedef struct { int32_t part, size; } NzbgetRsIdentityPart;
+typedef struct {
+    const uint8_t* name; size_t name_len;
+    const uint8_t* subject; size_t subject_len;
+    int64_t encoded_size; int32_t total_articles, is_par;
+    const NzbgetRsIdentityPart* parts; size_t part_count;
+} NzbgetRsIdentityFile;
+int64_t nzbget_rs_article_match(const NzbgetRsIdentityFile* target,
+    const NzbgetRsIdentityFile* donors, size_t donor_count,
+    const uint8_t* alternate, size_t alternate_len,
+    const uint8_t* evidence, size_t evidence_len,
+    const uint8_t* fold, const uint8_t* whitespace);
+
 // Stream-repair floor: arrays remain C++ owned and borrowed only during the call.
 // Nonempty arrays are readable/aligned for count entries; empty arrays may be NULL.
 // Probe indexes must identify donor entries. Invalid indexes abort before an

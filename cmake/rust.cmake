@@ -1,3 +1,12 @@
+option(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH "Qualify Rust donor matching through the real caller" OFF)
+# An explicitly requested qualification route must never silently use C++.
+macro(nzbget_rust_backend_unavailable)
+    if(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH)
+        message(FATAL_ERROR "Experimental article matcher requested but the Rust backend is unavailable")
+    endif()
+    return()
+endmacro()
+
 # Cargo owns dependency tracking (including newly added modules, Cargo.lock,
 # build scripts and .cargo/config.toml). Invoke it on every build; a fresh crate
 # is a cheap no-op, and consumers relink only when the archive changes.
@@ -11,7 +20,7 @@ endif()
 # In particular, never link a host Cargo archive into a cross-compiled binary.
 if(CMAKE_CROSSCOMPILING AND NOT APPLE AND NOT NZBGET_RUST_TARGET)
 	message(STATUS "Cross build without NZBGET_RUST_TARGET: using C++ web encoders")
-	return()
+	nzbget_rust_backend_unavailable()
 endif()
 
 find_program(CARGO cargo HINTS "$ENV{HOME}/.cargo/bin")
@@ -21,7 +30,7 @@ if(NOT CARGO OR NOT RUSTC)
 		message(FATAL_ERROR "Building the Rust encoders requires cargo and rustc")
 	endif()
 	message(STATUS "Cargo or rustc unavailable: using C++ web encoders")
-	return()
+	nzbget_rust_backend_unavailable()
 endif()
 
 set(RUST_ENV)
@@ -46,7 +55,7 @@ if(NOT NZBGET_RUST_TARGET)
 		ERROR_VARIABLE RUST_VERSION_ERROR RESULT_VARIABLE RUST_STATUS)
 	if(NOT RUST_STATUS EQUAL 0 OR NOT RUST_VERSION MATCHES "host: ([^\r\n]+)")
 		message(STATUS "Rust host toolchain unavailable: using C++ web encoders")
-		return()
+		nzbget_rust_backend_unavailable()
 	endif()
 	set(NZBGET_RUST_TARGET "${CMAKE_MATCH_1}")
 	# A native compiler invoked with -m32 is not a CMake cross build.
@@ -68,7 +77,7 @@ foreach(RUST_TOOL CARGO RUSTC)
 			message(FATAL_ERROR "Building the Rust encoders requires Cargo and rustc 1.99 or later")
 		endif()
 		message(STATUS "Cargo or rustc older than 1.99 or unusable: using C++ web encoders")
-		return()
+		nzbget_rust_backend_unavailable()
 	endif()
 endforeach()
 list(APPEND RUST_ENV "RUSTC=${RUSTC}")
@@ -80,7 +89,7 @@ if(CMAKE_CONFIGURATION_TYPES AND CMAKE_GENERATOR MATCHES "Ninja" AND CMAKE_VERSI
 		message(FATAL_ERROR "Building the Rust encoders with ${CMAKE_GENERATOR} requires CMake 3.20 or later")
 	endif()
 	message(STATUS "${CMAKE_GENERATOR} with CMake older than 3.20: using C++ web encoders")
-	return()
+	nzbget_rust_backend_unavailable()
 endif()
 
 # Match the CRT selection to the final C++ link. Without this, GNU targets
@@ -109,7 +118,7 @@ if(NOT RUST_STATUS EQUAL 0)
 		message(FATAL_ERROR "Rust target ${NZBGET_RUST_TARGET} is unavailable: ${RUST_NATIVE_ERROR}")
 	endif()
 	message(STATUS "Rust target ${NZBGET_RUST_TARGET} is unavailable: using C++ web encoders")
-	return()
+	nzbget_rust_backend_unavailable()
 endif()
 if(NOT "${RUST_NATIVE_OUTPUT}${RUST_NATIVE_ERROR}" MATCHES "native-static-libs: ([^\r\n]+)")
 	message(FATAL_ERROR "Could not determine Rust native link libraries")
@@ -181,3 +190,9 @@ target_link_libraries(nzbget-rs INTERFACE ${RUST_NATIVE_LIBS})
 target_include_directories(nzbget-rs INTERFACE "${CMAKE_SOURCE_DIR}/rust/include")
 target_compile_definitions(nzbget-rs INTERFACE NZBGET_USE_RUST)
 list(APPEND LIBS nzbget-rs)
+
+# Qualification candidate only; OFF keeps the current production routing.
+if(NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH)
+    target_compile_definitions(nzbget-rs INTERFACE NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH)
+    message(STATUS "EXPERIMENTAL Rust article matching enabled: requires separate qualification")
+endif()

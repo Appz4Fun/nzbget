@@ -73,3 +73,19 @@ Next: local Codex review of this owner, Rust donor identity/matching, then full 
 - Local Docker startup failed even for an empty container; source-build and startup timeouts are preserved separately, owned containers removed. Light dependency-free single-file Mac validation continued, without Cargo builds or performance measurements. The shared worker is disconnected and its last build outcome is unknown; no native stage or replacement was inferred complete.
 
 Next runtime milestone remains actual article recovery-caller integration and source-bound original/fair C++/Rust benchmarking, then Linux/full build/offline/live qualification, removal of replaced C++, local and final-head PR Codex review and signed integration. No production C++ algorithm has been deleted or Runtime PR accepted from these foundation tests.
+
+## Actual caller candidate (disabled by default)
+
+A candidate route now exists inside the real `DupeArticleFallback::MatchDonorFile`, enabled only by `NZBGET_RS_EXPERIMENTAL_ARTICLE_MATCH` on a Rust-enabled build. It captures the real FileInfo/ArticleInfo names, subject, encoded geometry and parity flags under the existing lock, preserves counted std::string content evidence, captures actual LC_CTYPE fold/whitespace, and dispatches through `nzbget_rs_article_match`. Rejected numeric snapshots invalidate the candidate rather than silently falling back to C++.
+
+The bridge test observed missing API RED then passed **16/16** matching tests. The actual guarded function body/adapter compiled in the bounded getter fixture and passed **20,000** capture/ABI route cases. These getter objects are not a full libnzbget/daemon build or a production-caller speed control; the earlier immutable historical-body comparison remains a separate artifact. The candidate has not been enabled in production, qualified, or used to delete its C++ implementation.
+
+Next: compile the entire candidate with the real library, prove active-route counts and actual bytes/errors, compare original C++, a fairly optimized C++ control and Rust across complete caller fixtures, and retain any HOLD. Heavy Linux/full Cargo/build/live and native benchmark stages remain with the coordinating worker; its last remote build outcome is unknown until connectivity/custody recovery.
+
+## Candidate activation review
+
+Local Codex follow-up reviewed the new C ABI, nested snapshot ownership, locale/authority transfer and disabled-by-default caller route. It found no pointer-lifetime or DTO-layout regression in that synchronous scope, and identified two P2 activation issues. Both have source fixes: explicit ON rejects every Rust-unavailable early return; the fixture now requires the enabled macro and a separately enabled untimed Rust boundary counter.
+
+The trace fixture passed 20,000 cases with **18,823 actual Rust bridge calls**, and compilation without the candidate definitions failed as required. The source guard confirms the actual guarded production function is the fixture body. CMake script execution is still unverified locally because `cmake` is absent; its failed launch is retained and is not counted as a RED or pass. The candidate's unexpected negative/out-of-range result also fails qualification explicitly.
+
+The matcher plus internal bridge/numeric span tests passed **17/17**. Trace collection is a separate Cargo feature, disabled for all eventual timing. Full library/Cargo/platform builds, real daemon route proof, complete-caller original/fair CPP/Rust timing, live repair and published-head PR gates remain open. Original production C++ remains the default and no replacement deletion or performance HOLD release has occurred.

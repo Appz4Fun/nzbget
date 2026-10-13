@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 use std::collections::{BTreeMap, BTreeSet};
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EncodedPart {
     pub part: i32,
@@ -320,6 +321,123 @@ pub fn match_donor_file_with_space(
     matched
 }
 
+#[cfg(feature = "article-match-trace")]
+static MATCH_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(feature = "article-match-trace")]
+#[no_mangle]
+pub extern "C" fn nzbget_rs_article_match_trace_count() -> u64 {
+    MATCH_CALLS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Daemon-internal immutable file view, borrowed only for one synchronous call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct IdentityFileView {
+    pub name: *const u8,
+    pub name_len: usize,
+    pub subject: *const u8,
+    pub subject_len: usize,
+    pub encoded_size: i64,
+    pub total_articles: i32,
+    pub is_par: i32,
+    pub parts: *const EncodedPart,
+    pub part_count: usize,
+}
+
+unsafe fn view_slice<'a, T>(pointer: *const T, count: usize) -> Option<&'a [T]> {
+    if count == 0 {
+        return Some(&[]);
+    }
+    let bytes = count.checked_mul(std::mem::size_of::<T>())?;
+    let address = pointer as usize;
+    if address == 0
+        || address % std::mem::align_of::<T>() != 0
+        || bytes > isize::MAX as usize
+        || address.checked_add(bytes).is_none()
+    {
+        return None;
+    }
+    // SAFETY: numeric span checked, caller provides live initialized read-only allocation.
+    Some(unsafe { std::slice::from_raw_parts(pointer, count) })
+}
+
+unsafe fn own_view(view: &IdentityFileView) -> Option<FileIdentity> {
+    Some(FileIdentity {
+        name: unsafe { view_slice(view.name, view.name_len) }?.to_vec(),
+        subject: unsafe { view_slice(view.subject, view.subject_len) }?.to_vec(),
+        encoded_size: view.encoded_size,
+        total_articles: view.total_articles,
+        is_par: view.is_par != 0,
+        parts: unsafe { view_slice(view.parts, view.part_count) }?.to_vec(),
+    })
+}
+
+/// Return donor ordinal, -1 for no match, -2 for invalid numeric spans.
+/// Allocation failure aborts, as in the existing crate ABI. No pointers survive.
+/// # Safety
+/// Every numerically valid nonempty span refers to live initialized memory,
+/// aligned for its type, immutable throughout the call. Target is one valid view;
+/// fold and whitespace each contain 256 bytes captured from the calling locale.
+/// Empty counted spans may be null. This is an internal adapter, not an RPC parser.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_article_match(
+    target: *const IdentityFileView,
+    donors: *const IdentityFileView,
+    donor_count: usize,
+    alternate: *const u8,
+    alternate_len: usize,
+    evidence: *const u8,
+    evidence_len: usize,
+    fold: *const u8,
+    whitespace: *const u8,
+) -> i64 {
+    #[cfg(feature = "article-match-trace")]
+    MATCH_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let Some(target) = (unsafe { view_slice(target, 1) }) else {
+        return -2;
+    };
+    let Some(target) = (unsafe { own_view(&target[0]) }) else {
+        return -2;
+    };
+    let Some(views) = (unsafe { view_slice(donors, donor_count) }) else {
+        return -2;
+    };
+    let mut owned = Vec::new();
+    if owned.try_reserve(views.len()).is_err() {
+        return -2;
+    }
+    for view in views {
+        let Some(file) = (unsafe { own_view(view) }) else {
+            return -2;
+        };
+        owned.push(file);
+    }
+    let Some(alternate) = (unsafe { view_slice(alternate, alternate_len) }) else {
+        return -2;
+    };
+    let Some(evidence) = (unsafe { view_slice(evidence, evidence_len) }) else {
+        return -2;
+    };
+    let Some(fold) = (unsafe { view_slice(fold, 256) }) else {
+        return -2;
+    };
+    let Some(whitespace) = (unsafe { view_slice(whitespace, 256) }) else {
+        return -2;
+    };
+    let fold: &[u8; 256] = fold.try_into().unwrap();
+    let space = std::array::from_fn(|i| whitespace[i] != 0);
+    match_donor_file_with_space(
+        &target,
+        &owned,
+        alternate,
+        &ContentEvidence::KnownName(evidence.to_vec()),
+        fold,
+        &space,
+    )
+    .map_or(-1, |index| i64::try_from(index).unwrap_or(-2))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +710,121 @@ mod tests {
                 &fold()
             ),
             Some(0)
+        );
+    }
+    #[test]
+    fn caller_bridge_selects_counted_file_views() {
+        let parts = [EncodedPart { part: 1, size: 100 }];
+        let target = IdentityFileView {
+            name: b"file.bin".as_ptr(),
+            name_len: 8,
+            subject: std::ptr::null(),
+            subject_len: 0,
+            encoded_size: 100,
+            total_articles: 1,
+            is_par: 0,
+            parts: parts.as_ptr(),
+            part_count: 1,
+        };
+        let donor = target;
+        let fold = fold();
+        let space = std::array::from_fn::<_, 256, _>(|i| u8::from(C_SPACE[i]));
+        assert_eq!(
+            unsafe {
+                nzbget_rs_article_match(
+                    &target,
+                    &donor,
+                    1,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    fold.as_ptr(),
+                    space.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                nzbget_rs_article_match(
+                    &target,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    fold.as_ptr(),
+                    space.as_ptr(),
+                )
+            },
+            -1
+        );
+    }
+    #[test]
+    fn caller_bridge_rejects_numeric_spans_before_borrow() {
+        assert_eq!(
+            unsafe {
+                nzbget_rs_article_match(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            -2
+        );
+        assert_eq!(
+            unsafe {
+                nzbget_rs_article_match(
+                    3_usize as *const IdentityFileView,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            -2
+        );
+        let parts = [EncodedPart { part: 1, size: 100 }];
+        let target = IdentityFileView {
+            name: b"file.bin".as_ptr(),
+            name_len: 8,
+            subject: std::ptr::null(),
+            subject_len: 0,
+            encoded_size: 100,
+            total_articles: 1,
+            is_par: 0,
+            parts: parts.as_ptr(),
+            part_count: 1,
+        };
+        let fold = fold();
+        let space = std::array::from_fn::<_, 256, _>(|i| u8::from(C_SPACE[i]));
+        assert_eq!(
+            unsafe {
+                nzbget_rs_article_match(
+                    &target,
+                    &target,
+                    usize::MAX,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    fold.as_ptr(),
+                    space.as_ptr(),
+                )
+            },
+            -2
         );
     }
 }
