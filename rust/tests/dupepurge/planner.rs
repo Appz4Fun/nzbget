@@ -4,7 +4,8 @@
 use nzbget_rs::dupepurge::{
     prepare, Action, AnchorComparison, ComparisonContext, CustodyReceipt, DirectBinding, EntryKind,
     InventoryEntry, MemberBinding, MemberKind, MemberRecord, NamespaceProof, OutsideClaim,
-    OwnershipReceipt, ParentMembership, Phase, PurgeError, RootRecord, Snapshot, SourceValidation,
+    OwnershipReceipt, PairCustodyReceipt, PairMembershipReceipt, ParentMembership, Phase,
+    PurgeError, RootRecord, Snapshot, SourceValidation,
 };
 
 fn binding(id: i32) -> MemberBinding {
@@ -94,6 +95,8 @@ fn snapshot(members: Vec<MemberRecord>, comparisons: Vec<AnchorComparison>) -> S
         },
         comparisons,
         direct_bindings: vec![],
+        pair_memberships: vec![],
+        pair_custody_receipts: vec![],
         roots: vec![RootRecord {
             id: 10,
             descriptor_identity: b"posix-v1:root:10".to_vec(),
@@ -203,7 +206,9 @@ fn direct_bindings_include_queue_post_history_compact() {
             candidate: binding(id),
             seed_source_validation_id: 1,
             candidate_source_validation_id: id as u64,
+            pair_membership_receipt_id: [id as u8 + 60; 32],
         });
+        add_pair_authority(&mut s, 1, id);
     }
     for (id, path) in [
         (4, b"compact".as_slice()),
@@ -260,27 +265,11 @@ fn repeated_and_overlapping_seeds_deduplicate_members_and_actions() {
 
 #[test]
 fn file_binding_requires_exact_parent_and_sorts_after_collection() {
-    let mut s = one();
-    let mut f = binding(1);
-    f.file_id = Some(9);
-    f.incarnation = 209;
-    f.posting_source = b"file-source-v1:9".to_vec();
-    let mut m = member(1, b"Release", b"A", MemberKind::Queue);
-    m.binding = f.clone();
-    m.source_validation_id = 9;
-    s.members.push(m);
-    let mut v = source(1);
-    v.id = 9;
-    v.binding = f.clone();
-    v.parent_collection = Some(binding(1));
-    s.source_validations.push(v);
-    s.parents.push(ParentMembership {
-        file: f.clone(),
-        collection: binding(1),
-    });
+    let (mut s, f) = file_snapshot();
     let p = prepare(s.clone(), [1; 16]).unwrap();
-    assert_eq!(p.token.members, vec![binding(1), f.clone()]);
-    assert_eq!(p.actions, vec![]);
+    assert_eq!(p.token.members, vec![binding(1), f]);
+    assert_eq!(p.actions, vec![leaf(9, b"file-owned", EntryKind::Regular)]);
+    assert_eq!(p.snapshot.entries[0].member.file_id, Some(9));
     s.parents[0].collection.incarnation += 1;
     expect_error(s, PurgeError::Conflict);
 }
@@ -433,6 +422,7 @@ fn unselected_direct_edges_cannot_become_closure_anchors() {
         candidate: binding(3),
         seed_source_validation_id: 2,
         candidate_source_validation_id: 3,
+        pair_membership_receipt_id: [63; 32],
     });
     expect_error(s, PurgeError::InvalidInput);
 }
@@ -639,7 +629,9 @@ fn direct_edge_must_resolve_exact_source_validation_and_parent() {
         candidate: binding(2),
         seed_source_validation_id: 1,
         candidate_source_validation_id: 1,
+        pair_membership_receipt_id: [62; 32],
     });
+    add_pair_authority(&mut s, 1, 2);
     expect_error(s, PurgeError::Conflict);
 }
 
@@ -659,4 +651,212 @@ fn file_binding_without_parent_membership_fails() {
     v.parent_collection = Some(binding(1));
     s.source_validations.push(v);
     expect_error(s, PurgeError::MissingInventory);
+}
+
+// Supported test-facing relation schema: owner_kind=1 means the designated
+// fallback owner; receipt/evidence/validator version 1 is the reviewed layout.
+// Real capture independently validates retained owner relation and custody.
+// These synthetic bytes do not authenticate themselves or client assertions.
+fn pair_receipt(seed: i32, candidate: i32) -> PairMembershipReceipt {
+    PairMembershipReceipt {
+        id: [candidate as u8 + 60; 32], version: 1, validator_version: 1, owner_kind: 1,
+        seed: binding(seed), candidate: binding(candidate),
+        seed_source_record_id: [seed as u8; 32], seed_source_bytes_digest: [seed as u8 + 10; 32],
+        candidate_source_record_id: [candidate as u8; 32], candidate_source_bytes_digest: [candidate as u8 + 10; 32],
+        relation_id: format!("owner-pair-v1:{seed}:{candidate}").into_bytes(),
+        evidence_version: 1, evidence_id: [candidate as u8 + 80; 32],
+        evidence_bytes: format!("synthetic retained owner relation: source {seed} is an approved member with source {candidate}").into_bytes(),
+        custody_receipt_id: [candidate as u8 + 100; 32],
+    }
+}
+fn add_pair_authority(s: &mut Snapshot, seed: i32, candidate: i32) {
+    let p = pair_receipt(seed, candidate);
+    s.pair_custody_receipts.push(PairCustodyReceipt {
+        id: p.custody_receipt_id,
+        version: 1,
+        validator_version: 1,
+        owner_kind: 1,
+        relation_id: p.relation_id.clone(),
+        evidence_version: 1,
+        evidence_id: p.evidence_id,
+        evidence_bytes: p.evidence_bytes.clone(),
+        seed: p.seed.clone(),
+        candidate: p.candidate.clone(),
+        seed_source_record_id: p.seed_source_record_id,
+        seed_source_bytes_digest: p.seed_source_bytes_digest,
+        candidate_source_record_id: p.candidate_source_record_id,
+        candidate_source_bytes_digest: p.candidate_source_bytes_digest,
+    });
+    s.pair_memberships.push(p);
+}
+fn unrelated_pair() -> Snapshot {
+    let mut s = snapshot(
+        vec![
+            member(1, b"A", b"A", MemberKind::Queue),
+            member(2, b"B", b"B", MemberKind::History),
+        ],
+        vec![cmp(1, 1, true, true), cmp(1, 2, false, false)],
+    );
+    s.direct_bindings.push(DirectBinding {
+        seed: binding(1),
+        candidate: binding(2),
+        seed_source_validation_id: 1,
+        candidate_source_validation_id: 2,
+        pair_membership_receipt_id: [62; 32],
+    });
+    add_entry(
+        &mut s,
+        entry(2, 2, b"unrelated-payload", EntryKind::Regular),
+    );
+    s
+}
+#[test]
+fn two_valid_unrelated_endpoints_do_not_authorize_pair_deletion() {
+    // Both SourceValidation and individual custody records are intact, but
+    // no owner relation ever approved this pair. Endpoint checks alone fail.
+    expect_error(unrelated_pair(), PurgeError::MissingInventory);
+}
+#[test]
+fn pair_requires_retained_owner_evidence_and_independent_custody() {
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_custody_receipts.clear();
+    expect_error(s, PurgeError::MissingInventory);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].evidence_bytes.clear();
+    expect_error(s, PurgeError::InvalidInput);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_custody_receipts[0].relation_id = b"unrelated-owner-relation".to_vec();
+    expect_error(s, PurgeError::Conflict);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_custody_receipts[0].evidence_id = [99; 32];
+    expect_error(s, PurgeError::Conflict);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].evidence_bytes = b"substituted owner evidence".to_vec();
+    expect_error(s, PurgeError::Conflict);
+}
+#[test]
+fn pair_rejects_wrong_reused_and_conflicting_bindings_or_source_provenance() {
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].candidate.incarnation += 1;
+    s.pair_custody_receipts[0].candidate = s.pair_memberships[0].candidate.clone();
+    expect_error(s, PurgeError::Conflict); // Locally consistent pair, stale actual endpoint.
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].candidate_source_bytes_digest = [99; 32];
+    s.pair_custody_receipts[0].candidate_source_bytes_digest = [99; 32];
+    expect_error(s, PurgeError::Conflict); // Both tables agree, actual retained source differs.
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    let mut reused = s.pair_memberships[0].clone();
+    reused.candidate = binding(3);
+    s.pair_memberships.push(reused);
+    expect_error(s, PurgeError::Conflict);
+    let mut s = unrelated_pair();
+    s.members.push(member(3, b"C", b"C", MemberKind::History));
+    s.source_validations.push(source(3));
+    s.custody_receipts.push(custody(3));
+    s.comparisons.push(cmp(1, 3, false, false));
+    add_pair_authority(&mut s, 1, 2);
+    add_pair_authority(&mut s, 1, 3);
+    // Distinct receipt IDs and fully valid endpoint records do not permit
+    // reusing one retained owner evidence identity for a different pair.
+    s.pair_memberships[1].relation_id = s.pair_memberships[0].relation_id.clone();
+    s.pair_memberships[1].evidence_id = s.pair_memberships[0].evidence_id;
+    s.pair_custody_receipts[1].relation_id = s.pair_memberships[1].relation_id.clone();
+    s.pair_custody_receipts[1].evidence_id = s.pair_memberships[1].evidence_id;
+    expect_error(s, PurgeError::Conflict);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].relation_id = b"another-owner-relation".to_vec();
+    expect_error(s, PurgeError::Conflict);
+}
+#[test]
+fn unknown_pair_owner_validator_or_evidence_versions_reject() {
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].owner_kind = 2;
+    s.pair_custody_receipts[0].owner_kind = 2;
+    expect_error(s, PurgeError::Unsupported);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].evidence_version = 2;
+    s.pair_custody_receipts[0].evidence_version = 2;
+    expect_error(s, PurgeError::Unsupported);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].validator_version = 2;
+    s.pair_custody_receipts[0].validator_version = 2;
+    expect_error(s, PurgeError::Unsupported);
+    let mut s = unrelated_pair();
+    add_pair_authority(&mut s, 1, 2);
+    s.pair_memberships[0].version = 2;
+    s.pair_custody_receipts[0].version = 2;
+    expect_error(s, PurgeError::Unsupported);
+}
+#[test]
+fn pair_relation_evidence_bytes_count_toward_bounded_snapshot_payload() {
+    let mut s = one();
+    let mut p = pair_receipt(1, 2);
+    p.evidence_bytes = vec![b'e'; 65535];
+    s.pair_memberships = vec![p; 1025];
+    expect_error(s, PurgeError::LimitExceeded);
+}
+fn file_snapshot() -> (Snapshot, MemberBinding) {
+    let mut s = one();
+    let mut f = binding(1);
+    f.file_id = Some(9);
+    f.incarnation = 209;
+    f.posting_source = b"file-source-v1:9".to_vec();
+    let mut m = member(1, b"Release", b"A", MemberKind::Queue);
+    m.binding = f.clone();
+    m.source_validation_id = 9;
+    s.members.push(m);
+    let mut v = source(9);
+    v.binding = f.clone();
+    v.parent_collection = Some(binding(1));
+    s.source_validations.push(v);
+    s.custody_receipts.push(custody(9));
+    s.parents.push(ParentMembership {
+        file: f.clone(),
+        collection: binding(1),
+    });
+    let mut e = entry(9, 1, b"file-owned", EntryKind::Regular);
+    e.member = f.clone();
+    add_entry(&mut s, e);
+    (s, f)
+}
+#[test]
+fn internally_consistent_file_parent_must_be_an_included_exact_collection() {
+    let (mut s, _) = file_snapshot();
+    s.members.remove(0); // Keep source validation/custody and parent table intact.
+    s.members.push(member(2, b"Other", b"B", MemberKind::Queue));
+    s.source_validations.push(source(2));
+    s.custody_receipts.push(custody(2));
+    s.seeds = vec![binding(2)];
+    s.comparisons = vec![cmp(2, 2, true, true)];
+    expect_error(s, PurgeError::MissingInventory); // Valid seed exists; parent does not.
+}
+#[test]
+fn parent_collection_source_and_incarnation_must_match_included_member() {
+    let (mut s, _) = file_snapshot();
+    s.parents[0].collection.posting_source = b"reused-parent-source".to_vec();
+    s.source_validations[1].parent_collection = Some(s.parents[0].collection.clone());
+    expect_error(s, PurgeError::Conflict);
+    let (mut s, _) = file_snapshot();
+    s.parents[0].collection.incarnation += 1;
+    s.source_validations[1].parent_collection = Some(s.parents[0].collection.clone());
+    expect_error(s, PurgeError::Conflict);
+}
+#[test]
+fn locally_consistent_parent_file_incarnation_must_match_included_file() {
+    let (mut s, _) = file_snapshot();
+    s.parents[0].file.incarnation += 1;
+    s.source_validations[1].binding = s.parents[0].file.clone();
+    expect_error(s, PurgeError::Conflict);
 }
