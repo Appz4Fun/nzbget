@@ -20,8 +20,17 @@ Bounded Git blob reads; lexical public C ABI export and call-like symbol occurre
 | Rust test C++ implementations | 7 |
 | Rust test C++ include fragments | 2 |
 | Rust test Python drivers | 63 |
+| public Rust C ABI headers | 2 |
 
 The supplemental test audit binds all nine checked-in C++ implementations/fragments and all 63 Python drivers individually in `source-inventory.json`, with unchecked dispositions in `RUST_MIGRATION_STATUS.md`. Python can emit, build, import or orchestrate C++ references; absence of a literal include is not proof of independence. These sources match both the original inventory commit and supplemental audit commit `7d3d6412f93cd43452f1b390b4ed705c7691df54`. Their presence does not establish current harness build readiness or native execution. Preserve differential contracts and historical oracles, translate required regressions to Rust, and retire the C++ test/build paths before marking final removal complete.
+
+Both public boundary headers, `rust/include/nzbget_rs.h` and `rust/include/nzbget_rs_dupesearch_nzb.h`, also have individual immutable bindings and unchecked ABI/ownership dispositions. Header presence is not compiled ABI validation.
+
+## Reproduce the lexical derivation
+
+Run `python3 docs/rust-migration/verify_inventory.py --inventory docs/rust-migration/source-inventory.json` from the repository root. The inventory records the verifier's version and SHA-256. Version 1 preserves the recovered original export/call/module regex rules, verifies every derived field/count against immutable Git objects, and checks the supplemental source sets/blobs and Python literal classifications. Recovery of the original commands was retrospective; the current verifier is preserved as reproducible source, without describing old generation as prospectively recorded.
+
+The export pattern matches public optionally unsafe `extern "C"` functions named `nzbget_rs_*`; C++ call-like occurrences match a word boundary, that symbol, optional whitespace and `(`. Module cross-references match `crate::` followed by the Rust filename stem; `ffi`/`lib` cross-reference scans are excluded. Line counts use UTF-8 source `splitlines()` and include comments/tests. Supplemental Python flags match include/build/artifact literals; they are not a transitive dependency graph. The exact regexes, path/size limits and type-preserving comparisons are in [verify_inventory.py](rust-migration/verify_inventory.py). Manual boundary/dependency descriptions still require independent source review. The command reads local Git objects and metadata; it builds/runs no native code and does not rewrite the inventory.
 
 ## Rust modules
 
@@ -102,5 +111,6 @@ These require individual classification as benchmark-only, helper/indirect ABI u
 - `Crc32::Combine` already routes to Rust in Rust-enabled builds; its historical 135x claim compares a different algorithm. `rust/src/crc.rs` explicitly identifies its later-zlib multiplication method, so qualification requires the same improved algorithm in the fair C++ control.
 - `NzbFile` retains libxml2 SAX parsing and C++ queue objects; the 17x duplicate-name claim is not proof that the whole parser or submission path is 17x faster.
 - `TwinCheck` disables twin labels and content matching without Rust (`#else` in `daemon/queue/TwinCheck.cpp`); remaining legacy C++ PAR-repair helpers do not supply equivalent feature behavior. A non-Rust build cannot qualify a twin feature speed comparison by omitting that work.
+- `DupeIdentity` returns empty identity/fetch results and constant missing/PAR decisions without Rust, with simplified health/matching fallbacks. `DupeSearch` also omits native preparation/ranking/Expand work. These are not equivalent C++ controls; the boundary map records feature absence separately from retained C++ work.
 
 The complete machine-readable occurrence locations and immutable Git blob identities are in [source-inventory.json](rust-migration/source-inventory.json).

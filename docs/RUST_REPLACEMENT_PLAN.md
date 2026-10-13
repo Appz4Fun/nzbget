@@ -21,7 +21,7 @@ For every Rust module, record:
 - Whether the Rust function is linked into the daemon and reachable on the target build/platform.
 - Whether it is a complete routine, a partial/helper port, or Rust-only functionality.
 - Fallback behavior and the platforms that require it.
-- Features disabled without Rust, including TwinCheck labels/content matching. A baseline that omits required behavior is not an equivalent C++ control; source-bound review must select a real equivalent implementation or explicitly record comparison nonapplicability before measurement.
+- Features disabled or stubbed without Rust, including DupeIdentity identity/fetch/PAR decisions, DupeSearch native preparation/ranking/Expand and TwinCheck labels/content matching. A baseline that omits required behavior is not an equivalent C++ control; source-bound review must select a real equivalent implementation or explicitly record comparison nonapplicability before measurement. Retained fallback source in any other row also needs operation-specific equivalence review.
 - Available differential tests and complete-caller benchmark evidence, with source revisions.
 - Existing correctness, review, performance, or deployment holds.
 

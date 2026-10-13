@@ -2765,6 +2765,15 @@
       "rust_symbol_mentions": []
     }
   ],
+  "derivation": {
+    "capture_provenance": "Original core/supplemental derivation commands recovered retrospectively; current version preserves their rules and verifies exact output, without rewriting earlier evidence.",
+    "invocation": "python3 docs/rust-migration/verify_inventory.py --inventory docs/rust-migration/source-inventory.json",
+    "parser_path": "docs/rust-migration/verify_inventory.py",
+    "parser_sha256": "e00e7dabfc23142e7343db9458a5a9f6f0987ae2cd3b5761bfd335c5d2cbb5e6",
+    "parser_version": 1,
+    "scope": "reproduce all original lexical fields, source bindings and supplemental ABI/test file sets/classifications; manual boundary/dependency annotations require independent review",
+    "working_directory": "repository root"
+  },
   "exports": {
     "nzbget_rs_alpha_num": {
       "line": 617,
@@ -6349,6 +6358,22 @@
       "path": "rust/src/wildmask.rs"
     }
   ],
+  "rust_public_abi_headers": [
+    {
+      "compiled_abi_coverage": "unknown",
+      "disposition": "preserve struct/callback/ownership/ABI contracts; replace C++ consumers/adapters and migrate required interface declarations under reviewed Rust ownership before final retirement",
+      "git_blob": "2c3b7f6d4b97edcdfba168a031ec1dd1fae2dee6",
+      "kind": "public C ABI header",
+      "path": "rust/include/nzbget_rs.h"
+    },
+    {
+      "compiled_abi_coverage": "unknown",
+      "disposition": "preserve struct/callback/ownership/ABI contracts; replace C++ consumers/adapters and migrate required interface declarations under reviewed Rust ownership before final retirement",
+      "git_blob": "0c5580ffe83f01088592f0c1ec988e1d0226599c",
+      "kind": "public C ABI header",
+      "path": "rust/include/nzbget_rs_dupesearch_nzb.h"
+    }
+  ],
   "rust_test_python_drivers": [
     {
       "classification": "emitted C++ source",
@@ -8152,6 +8177,14 @@
       "blob": "e8c7a06540f798abf05bce740c7bd180d361443c",
       "size": 2739
     },
+    "rust/include/nzbget_rs.h": {
+      "blob": "2c3b7f6d4b97edcdfba168a031ec1dd1fae2dee6",
+      "size": 71723
+    },
+    "rust/include/nzbget_rs_dupesearch_nzb.h": {
+      "blob": "0c5580ffe83f01088592f0c1ec988e1d0226599c",
+      "size": 631
+    },
     "rust/src/binrpc.rs": {
       "blob": "9c175fc01bf4f11aba47b08ac329fa4f38f4c7ff",
       "size": 61256
@@ -8957,6 +8990,7 @@
     "daemon_headers": 149,
     "rust_cpp_test_harness_files": 7,
     "rust_cpp_test_include_fragments": 2,
+    "rust_public_abi_headers": 2,
     "rust_src_files": 50,
     "rust_src_total_lines_including_tests_comments": 24487,
     "rust_test_python_drivers": 63

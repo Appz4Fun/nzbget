@@ -11,6 +11,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/webdownload_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/webdownload.rs",
         "rust/src/url.rs"
@@ -28,6 +29,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/deadpostings_cpp_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/deadpostings.rs"
       ],
@@ -44,6 +46,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/donorscore_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/donorscore.rs"
       ],
@@ -56,10 +59,12 @@
       "cpp_blob": "ca73204fe907c17d928645bb2419721ad59c8717",
       "cpp_file_deleted": false,
       "cpp_path": "daemon/dupesearch/DupeIdentity.cpp",
-      "cpp_work_retained": "Article transport, C++ metadata, health snapshots and caller decisions",
+      "cpp_work_retained": "Article transport, C++ metadata, health snapshots and caller decisions; no-Rust identity/PAR features are stubs, with simplified matching/health fallbacks, not equivalent controls",
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupeidentity_differential.py",
+      "non_rust_fallback_equivalence": "not equivalent for identity extraction/fetch/PAR decisions and conservative matching/health logic",
+      "non_rust_feature_availability": "FromArticle/Read return empty identities; FetchArticle returns empty result; UnlistedMissing returns zero; ParDoomed returns false; health/matching paths use simplified legacy fallbacks",
       "rust_paths": [
         "rust/src/dupeidentity.rs",
         "rust/src/dupewatch.rs",
@@ -75,10 +80,12 @@
       "cpp_blob": "cf6f7129c7b1ed805a8934f56182630e17b9662b",
       "cpp_file_deleted": false,
       "cpp_path": "daemon/dupesearch/DupeSearch.cpp",
-      "cpp_work_retained": "Queue/history locks, searches, transport, caching, state/progress writes and failover orchestration",
+      "cpp_work_retained": "Queue/history locks, searches, transport, caching, state/progress writes and failover orchestration; Rust-dependent native preparation/ranking/Expand features are absent without Rust, not equivalent legacy controls",
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupewatch_cpp_differential.py",
+      "non_rust_fallback_equivalence": "not equivalent for native preparation/ranking and expanded duplicate identity/PAR search work",
+      "non_rust_feature_availability": "PrepareNative returns false, native duplicate ranking notification work is omitted, and Expand body is compiled out without Rust; legacy search work remains",
       "rust_paths": [
         "rust/src/dupewatch.rs",
         "rust/src/releasename.rs"
@@ -96,6 +103,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/src/dupewatch.rs",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/dupewatch.rs"
       ],
@@ -112,6 +120,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupesearch_nzb/README.md",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/dupesearch_nzb.rs",
         "rust/src/dupewatch.rs"
@@ -129,6 +138,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/posting_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/posting.rs"
       ],
@@ -145,6 +155,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/releasename_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/releasename.rs"
       ],
@@ -161,6 +172,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/extload_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/extload.rs"
       ],
@@ -177,6 +189,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/manifest_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/manifest.rs",
         "rust/src/json.rs"
@@ -194,6 +207,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/feedfilter_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/feedfilter.rs",
         "rust/src/wildmask.rs"
@@ -211,6 +225,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/cmdline_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/cmdline.rs"
       ],
@@ -227,6 +242,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/options_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/options.rs"
       ],
@@ -243,6 +259,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/scheduler_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/scheduler.rs"
       ],
@@ -259,6 +276,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/decoder_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/decoder.rs"
       ],
@@ -275,6 +293,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/nntp_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/nntp.rs"
       ],
@@ -291,6 +310,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/statmeter_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/statmeter.rs"
       ],
@@ -307,6 +327,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/collection_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/collection.rs",
         "rust/src/deobfuscation.rs",
@@ -326,6 +347,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/parparser_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/parparser.rs"
       ],
@@ -342,6 +364,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/parrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/parrenamer.rs",
         "rust/src/renameanalyzer.rs",
@@ -360,6 +383,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/rarreader_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/rarreader.rs"
       ],
@@ -376,6 +400,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/rarrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/rarrenamer.rs"
       ],
@@ -392,6 +417,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/deobfuscation_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/deobfuscation.rs"
       ],
@@ -408,6 +434,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/directrenamer_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/directrenamer.rs",
         "rust/src/renameanalyzer.rs"
@@ -425,23 +452,24 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/streamcompare.md",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/streampatchparts.rs",
         "rust/src/streamcompare.rs"
       ],
       "rust_route_conditions": {
-        "build_guard": "NZBGET_USE_RUST",
+        "RequiredCompareFloor": {
+          "holes_minimum": 4096,
+          "probe_parts_nonempty": true,
+          "symbol": "nzbget_rs_stream_compare_floor"
+        },
         "SelectPatchParts": {
           "donor_ranges_nonempty": true,
           "holes_nonempty": true,
           "margin_parts_minimum": 0,
           "symbol": "nzbget_rs_stream_patch_parts"
         },
-        "RequiredCompareFloor": {
-          "probe_parts_nonempty": true,
-          "holes_minimum": 4096,
-          "symbol": "nzbget_rs_stream_compare_floor"
-        }
+        "build_guard": "NZBGET_USE_RUST"
       },
       "rust_work_in_current_source": "PatchParts for nonempty donor ranges and holes with marginParts >= 0; coverage floor for nonempty probes and at least 4096 holes"
     },
@@ -456,6 +484,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/nzbfile_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/nzbfile.rs"
       ],
@@ -472,12 +501,12 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/src/twin.rs",
+      "non_rust_fallback_equivalence": "not equivalent for twin labels/content matching",
+      "non_rust_feature_availability": "twin labels and content matching disabled; legacy C++ PAR-repair helpers remain",
       "rust_paths": [
         "rust/src/twin.rs"
       ],
-      "rust_work_in_current_source": "PAR/NZB signatures, fingerprints, persisted store and matching",
-      "non_rust_feature_availability": "twin labels and content matching disabled; legacy C++ PAR-repair helpers remain",
-      "non_rust_fallback_equivalence": "not equivalent for twin labels/content matching"
+      "rust_work_in_current_source": "PAR/NZB signatures, fingerprints, persisted store and matching"
     },
     {
       "boundary_id": "B29",
@@ -490,6 +519,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/urlcoord_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/urlcoord.rs",
         "rust/src/text.rs"
@@ -507,6 +537,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/binrpc_lists_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/binrpc.rs"
       ],
@@ -523,6 +554,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/binrpc_client_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/binrpc.rs"
       ],
@@ -539,6 +571,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/webserver_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/webserver.rs"
       ],
@@ -555,6 +588,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/rpcroute_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/rpcparams.rs",
         "rust/src/rpcroute.rs",
@@ -573,6 +607,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/fsops_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/fsops.rs",
         "rust/src/fsdelete.rs",
@@ -591,6 +626,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/filetypes_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/filetypes.rs"
       ],
@@ -607,6 +643,7 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/textutil_differential.py",
+      "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
       "rust_paths": [
         "rust/src/escape.rs",
         "rust/src/decode.rs",
@@ -646,7 +683,8 @@
   "method": "Manual caller ownership inspection over the 36 files from the reviewed lexical inventory. Modules listed can include their internal dependencies. This is not a compiler-derived call graph or executed boundary coverage; no speed/deployment claim follows. Correctness-entrypoint availability is source presence only, not an executed check. Listed checks are partial; they do not establish parity for all retained C++ work.",
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
-  "source_inventory_blob": "bebfac0aad92eceb469e6a05124d7cf9554797c1",
-  "source_inventory_commit": "8355217d822300183fb55f0009e64202c9b9fcc4",
+  "source_inventory_binding": "companion blob in the same reviewed tree",
+  "source_inventory_blob": "d0cff5055f8dfce5f1c763577983252b2401a9ce",
+  "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }

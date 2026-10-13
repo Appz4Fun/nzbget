@@ -426,6 +426,13 @@ Ruling: execute the approved differential-benchmark plan through an isolated har
 - [ ] `tests/util/Utf8.cpp` — platform or test support remains in completion scope.
 - [ ] `tests/util/Util.cpp` — platform or test support remains in completion scope.
 
+## Public Rust C ABI headers
+
+These headers are part of the real daemon/generated-oracle boundary. Immutable bindings are in `source-inventory.json`; struct layout, callbacks, ownership and declarations require a reviewed disposition, independently of compiled ABI proof.
+
+- [ ] `rust/include/nzbget_rs.h` — preserve struct/callback/ownership/ABI contracts; replace C++ consumers/adapters and migrate required interface declarations under reviewed Rust ownership before final retirement.
+- [ ] `rust/include/nzbget_rs_dupesearch_nzb.h` — preserve struct/callback/ownership/ABI contracts; replace C++ consumers/adapters and migrate required interface declarations under reviewed Rust ownership before final retirement.
+
 ## C++ oracles and drivers under Rust tests
 
 Every retained source below has an immutable identity in `source-inventory.json`. Preserve and translate its contracts before retiring C++ compilation; source classification does not establish readiness or runtime execution. Python analysis/orchestration needs an explicit C++-coupling disposition, including transitive imports, rather than an assumed whole-file deletion.
