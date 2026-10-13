@@ -15,12 +15,15 @@ Source file checkboxes record deletion after replacement and integration, not in
 - [x] Ask current source/integration owners for the single worker scheduler, reserved lanes, holds, and largest measured opportunities.
 - [ ] Receive scheduling ownership and a concrete nonoverlapping runtime task.
 - [x] Map all 36 source-level Rust-backed caller boundaries, retained C++ work and build/bypass guards; classify the 11 exports without call-shaped references.
+- [x] Audit linked C++ dependency targets, verify pinned RapidYenc/PAR2 source identities, and identify remaining platform/package surfaces without claiming native execution.
 - [ ] Confirm compiled Rust route coverage on representative offline daemon fixtures.
 - [ ] Rank candidates with current profile evidence and complete-caller cost.
 - [ ] Freeze and review the first candidate qualification plan.
 - [ ] Implement, qualify, review, and integrate the first C++ deletion.
 
 Source boundary details and partial-check coverage gaps are in [BOUNDARY_MAP.md](rust-migration/BOUNDARY_MAP.md).
+
+Linked dependencies and final package/platform retirement gates are in [DEPENDENCY_RETIREMENT.md](rust-migration/DEPENDENCY_RETIREMENT.md).
 
 ## Initial investigation priority
 
@@ -410,6 +413,10 @@ Source boundary details and partial-check coverage gaps are in [BOUNDARY_MAP.md]
 - [ ] Replace optional Rust build selection and every C++ fallback with supported mandatory Rust builds on all supported targets.
 - [ ] Replace C++ application CMake/source registration and C++ ABI adapters once their Rust owners exist.
 - [ ] Inventory third-party libraries and downloads in build scripts; record which dependencies still compile C++ and replace or eliminate them before claiming C++-free operation.
+- [ ] Replace RapidYenc's C++ decode/CRC/platform backend and remove its library and callbacks after full caller qualification.
+- [ ] Replace PAR2-turbo repair interfaces and inventory/retire its GF16/hasher nested native targets after qualification.
+- [ ] Replace runtime Boost JSON/Asio and carry Boost Test assertions into Rust before removing the C++ targets and test entry point.
+- [ ] Audit and retire or explicitly reconcile packaged unpacker executables against the complete Rust migration objective.
 - [ ] Retire checked-in C++ differential harnesses under `rust/tests` after preserving historical evidence and translating regression assertions into Rust.
 - [ ] Audit Objective-C/platform wrappers, packaging, installer entry points, and cross-compilation support; record every retained non-Rust surface and resolve it against the full migration objective.
 - [ ] Prove final source inventory and runtime build contain no remaining application C++ or C++ dependencies covered by the objective.
