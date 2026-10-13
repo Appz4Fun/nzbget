@@ -73,6 +73,8 @@ Re-run parity, build, relevant test/sanitizer/differential suites, and the froze
 
 Immediate held work: PR #80 native duplicate watcher has unresolved correctness and caller-performance findings. PR #87 stream repair has a dense PatchParts result about 24.6% slower than fair C++ and an invalid revised floor packet. Do not switch those production paths or treat them as candidates that merely need a call-site edit.
 
+Current Rust-enabled source already routes PatchParts to Rust for nonempty donor ranges and holes with nonnegative margin, including zero margin and ordinary inputs below 4096 holes. Only the separate coverage-floor helper has a 4096-hole threshold, after the no-probe/no-hole bypasses. Inventory source wiring independently from compiled route coverage, performance qualification and deployment; a held candidate is not proof that its Rust source is unwired.
+
 ## Required deliverables
 
 - Rust/C++ ownership and reachability inventory.

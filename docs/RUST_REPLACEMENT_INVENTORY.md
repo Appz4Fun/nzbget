@@ -93,7 +93,7 @@ These require individual classification as benchmark-only, helper/indirect ABI u
 
 ## Corrections to earlier chat estimates
 
-- Stream patch selection and the large-input hybrid floor have Rust calls in `daemon/queue/DupeStreamRepair.cpp`; they are not wholly unwired prototypes. Their current source inclusion does not resolve recorded performance holds.
+- Stream patch selection invokes Rust for nonempty donor ranges and holes with nonnegative margin, including zero margin and inputs below 4096 holes. The separate coverage floor invokes Rust for nonempty probes and at least 4096 holes in `daemon/queue/DupeStreamRepair.cpp`. These are wired source paths; compiled coverage and recorded performance holds remain unresolved.
 - `Crc32::Combine` already routes to Rust in Rust-enabled builds; its historical 135x claim compares a different algorithm. `rust/src/crc.rs` explicitly identifies its later-zlib multiplication method, so qualification requires the same improved algorithm in the fair C++ control.
 - `NzbFile` retains libxml2 SAX parsing and C++ queue objects; the 17x duplicate-name claim is not proof that the whole parser or submission path is 17x faster.
 

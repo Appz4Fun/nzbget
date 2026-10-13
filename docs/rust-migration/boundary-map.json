@@ -429,7 +429,21 @@
         "rust/src/streampatchparts.rs",
         "rust/src/streamcompare.rs"
       ],
-      "rust_work_in_current_source": "PatchParts and floor only for the selected large-input route"
+      "rust_route_conditions": {
+        "build_guard": "NZBGET_USE_RUST",
+        "SelectPatchParts": {
+          "donor_ranges_nonempty": true,
+          "holes_nonempty": true,
+          "margin_parts_minimum": 0,
+          "symbol": "nzbget_rs_stream_patch_parts"
+        },
+        "RequiredCompareFloor": {
+          "probe_parts_nonempty": true,
+          "holes_minimum": 4096,
+          "symbol": "nzbget_rs_stream_compare_floor"
+        }
+      },
+      "rust_work_in_current_source": "PatchParts for nonempty donor ranges and holes with marginParts >= 0; coverage floor for nonempty probes and at least 4096 holes"
     },
     {
       "boundary_id": "B27",
