@@ -1172,7 +1172,8 @@
       "existing_partial_check_entrypoint": "rust/tests/streamcompare.md",
       "existing_partial_check_entrypoints": [
         "rust/tests/streamcompare_differential.py",
-        "rust/tests/streampatchparts_differential.py"
+        "rust/tests/streampatchparts_differential.py",
+        "rust/tests/streampatchparts_mutations.py"
       ],
       "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
@@ -1196,6 +1197,14 @@
           "operation_scope": "Actual SelectPatchParts caller versus exact-base and C++ fallback",
           "path": "rust/tests/streampatchparts_differential.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "7a6fdb3c9e8c740231606f25c4c0e31dff20b5fb",
+          "limitations": "Compiles temporary Rust module mutants and checks failure output. Source-only UNRUN; source scheduling/toolchain/locking prerequisites require reconciliation before execution. No real StreamRepair caller/FFI/allocation/current archive or native latency proof.",
+          "operation_scope": "Five standalone PatchParts module mutants: sorted/inclusive adjacency, zero/negative size handling, margin marking and prefix maximum; module tests must reject each.",
+          "path": "rust/tests/streampatchparts_mutations.py",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d"
         }
       ],
       "partial_check_documentation": "rust/tests/streamcompare.md describes compare-floor driver only; PatchParts has its independent entrypoint and route requirements.",
@@ -1807,7 +1816,9 @@
         "rust/tests/wildmask_differential.py",
         "rust/tests/util_differential.py",
         "rust/tests/differential.py",
-        "rust/tests/latin1_caller/run.py"
+        "rust/tests/latin1_caller/run.py",
+        "rust/tests/latin1_caller/summarize.py",
+        "rust/tests/latin1_caller/test_runner.py"
       ],
       "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
@@ -1924,6 +1935,22 @@
           "operation_scope": "Current WebUtil::Latin1ToUtf8/JsonEncode wrapper and bounded helper source providers with actual NString/CString allocation/ownership and driver.cpp byte/length comparisons before selected wrapper timings",
           "path": "rust/tests/latin1_caller/run.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "09f0c049a75ed732d357ece27a1b6090e16e52f4",
+          "limitations": "Historical specialized summarizer, not the campaign v1 fail-closed validator or >=2x decision. UNRUN; missing/duplicated/nonfinite/floor/round validation and current native lineage/qualifier applicability require separate review. Does not replay retained historical evidence.",
+          "operation_scope": "Required runtime summarizer invoked by run.py: parses per-trial before/after RAW logs, process medians, descriptive process-block bootstrap intervals and legacy summary/raw output.",
+          "path": "rust/tests/latin1_caller/summarize.py",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "613b0b893e2fc49f8c2c0c1ab9100045f097c190",
+          "limitations": "Mocked compiler/timing while real Git/tar/path fixture operations can run; source-only UNRUN, not native compiler, caller parity, performance or deployment proof.",
+          "operation_scope": "Runner contract checks with fake compiler/timing subprocesses: absolute/relative paths, stable full runtime-patch hash independent of Git abbreviation, and existing output/source preservation.",
+          "path": "rust/tests/latin1_caller/test_runner.py",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d"
         }
       ],
       "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
@@ -2215,6 +2242,13 @@
     "source_scope": "Checked-in harness drives scratch daemon plus its test NNTP server offline; stream/live/retry/encrypted/decompression/cleanup source cases are preservation leads, not exhaustive caller or executed Rust-route coverage. Generator/focused sources and Local/Docker/ADB runner contracts remain required."
   },
   "method": "Manual caller ownership inspection over the 36 files from the reviewed lexical inventory. Modules listed can include their internal dependencies. This is not a compiler-derived call graph or executed boundary coverage; no speed/deployment claim follows. Correctness-entrypoint availability is source presence only, not an executed check. Listed checks are partial; they do not establish parity for all retained C++ work.",
+  "native_fixture_preservation_catalog": {
+    "execution_status": "UNRUN in this source audit",
+    "inputs": 70,
+    "limits": "Fixture names/content bindings are not executed input semantics, native coverage, active Rust routes or current lineage/speed proof.",
+    "scope": "Entire tracked tests/testdata corpus; original bytes independent of C++ target retirement; opaque binary fixture bytes are not decoded",
+    "source_inventory_field": "native_test_fixtures"
+  },
   "partial_driver_catalog_method": {
     "execution": "UNRUN; no new native/test/coverage/speed claim",
     "match_rules": [
@@ -2233,10 +2267,22 @@
     "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
     "source_inventory_field": "rust_preserved_test_inputs"
   },
+  "rust_benchmark_preservation_catalog": {
+    "execution_status": "UNRUN in this source audit",
+    "harness": false,
+    "inputs": 3,
+    "limits": "Source/manifest registration is not build readiness, benchmark execution, publication activation, fair C++ comparison, current Rust preservation or campaign speed proof.",
+    "registered_targets": [
+      "ports",
+      "criterion_ports"
+    ],
+    "scope": "ports.rs Rust-only regression history; criterion_ports.rs selected Rust-kernel diagnostics; README defines separate matched complete-caller qualification",
+    "source_inventory_field": "rust_benchmark_sources"
+  },
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",
-  "source_inventory_blob": "3b1eedd935acc9712cb9b8fea4009cf9511a203a",
+  "source_inventory_blob": "a4988f4a06f1d0efb6df1a1c2ff847708d35f219",
   "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }

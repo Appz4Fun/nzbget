@@ -22,7 +22,7 @@ import stat
 import subprocess
 import time
 
-VERSION = 7
+VERSION = 8
 INVENTORY_SCHEMA_VERSION = 1
 INVENTORY_KEYS = frozenset({
     'cpp_call_like_occurrences', 'daemon_cpp', 'derivation', 'exports',
@@ -30,14 +30,17 @@ INVENTORY_KEYS = frozenset({
     'rust_cpp_test_sources', 'rust_modules', 'rust_public_abi_headers',
     'rust_test_python_drivers', 'schema_version', 'source_blobs', 'source_commit',
     'source_tree', 'summary', 'supplementary_test_audit_commit', 'rust_preserved_test_inputs',
+    'native_test_fixtures', 'rust_benchmark_sources',
 })
-TREE_ROOTS = ('rust/src', 'rust/tests', 'rust/include', 'daemon', 'tests',
+TREE_ROOTS = ('rust/src', 'rust/tests', 'rust/include', 'rust/benches', 'daemon', 'tests',
               'platforms', 'cmake/rust.cmake', 'CMakeLists.txt')
 TREE_BYTE_LIMIT = 2 * 1024 * 1024
 TREE_ENTRY_LIMIT = 4096
 GIT_STDERR_LIMIT = 65536
 GIT_TIMEOUT_SECONDS = 30
 PRESERVED_TEST_DISPOSITION = 'Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.'
+NATIVE_FIXTURE_DISPOSITION = 'Preserve original fixture bytes and immutable identity independently before C++ test/target retirement; carry malformed/repair/archive/encoding and other required input contracts into reviewed Rust/native caller tests. Source-only UNRUN; fixture presence is not executed correctness, current lineage or performance proof.'
+BENCHMARK_DISPOSITION = 'Preserve registered benchmark sources, documentation and independent existing Rust regression/diagnostic history before Cargo/native target retirement. Maintain required target/features/toolchain contracts under reviewed ownership; Rust-only kernel diagnostics do not establish fair C++ or complete-caller campaign speed.'
 METHOD_DECLARATION = 'Bounded Git blob reads; lexical public C ABI export and call-like symbol occurrence inventory. Comments, preprocessor branches and dead code can match. No compile, linking, reachability, benchmark, or deployment result inferred. Rust source line counts include test code and comments. No language percentage inferred.'
 FUNCTIONAL_SOURCE_DISPOSITION = 'Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.'
 DERIVATION_DECLARATION = {
@@ -169,7 +172,7 @@ def table(revision):
     return entries
 
 
-def read_sources(entries):
+def read_sources(entries, text_paths=None):
     bindings = {}
     for name, (mode, kind, blob, size) in entries.items():
         require(kind == 'blob' and mode in ('100644', '100755'), 'nonregular source: ' + name)
@@ -188,7 +191,9 @@ def read_sources(entries):
         require(len(body) == info['size'], 'incomplete Git blob')
         identity = hashlib.sha1(b'blob ' + str(len(body)).encode() + b'\0' + body).hexdigest()
         require(identity == info['blob'], 'Git blob content identity mismatch')
-        sources[name] = body.decode('utf-8')
+        # Binary fixture/archive bytes have an independent preservation contract.
+        # Decode only the inputs whose text the caller actually interprets.
+        sources[name] = body.decode('utf-8') if text_paths is None or name in text_paths else body
         at += info['size']
         require(output[at:at + 1] == b'\n', 'missing Git object delimiter')
         at += 1
@@ -274,8 +279,9 @@ def verify(path):
     selected = {p: v for p, v in supplemental.items()
                 if p.startswith('rust/tests/')
                 or (p.startswith('rust/include/') and p.endswith(('.h', '.hpp', '.hh')))
-                or p.startswith('tests/functional/')}
-    extra_bindings, extra_sources = read_sources(selected)
+                or p.startswith(('tests/functional/', 'tests/testdata/', 'rust/benches/'))}
+    classifier_paths = {p for p in selected if p.startswith('rust/tests/') and p.endswith('.py')}
+    extra_bindings, extra_sources = read_sources(selected, text_paths=classifier_paths)
     original = table(revision)
     for p, row in extra_bindings.items():
         require(original.get(p) == supplemental[p], 'supplemental source differs from original: ' + p)
@@ -286,6 +292,8 @@ def verify(path):
     abi_paths = {p for p in selected if p.startswith('rust/include/')}
     functional_paths = {p for p in selected if p.startswith('tests/functional/')}
     preserved_paths = {p for p in selected if p.startswith('rust/tests/')} - cpp_paths - py_paths
+    fixture_paths = {p for p in selected if p.startswith('tests/testdata/')}
+    benchmark_paths = {p for p in selected if p.startswith('rust/benches/')}
     for key, expected in [('rust_cpp_test_sources', cpp_paths), ('rust_test_python_drivers', py_paths),
                           ('rust_public_abi_headers', abi_paths), ('functional_test_sources', functional_paths)]:
         rows = inventory[key]
@@ -341,6 +349,23 @@ def verify(path):
     } for p in sorted(preserved_paths)]
     require(same_json(inventory['rust_preserved_test_inputs'], expected_preserved_inputs),
             'preserved Rust test input declarations mismatch')
+    expected_native_fixtures = [{
+        'path': p, 'git_blob': bindings[p]['blob'],
+        'source_audit_commit': inventory['supplementary_test_audit_commit'],
+        'kind': 'checked-in native test fixture', 'disposition': NATIVE_FIXTURE_DISPOSITION,
+        'execution_status': 'UNRUN in this inventory audit',
+    } for p in sorted(fixture_paths)]
+    require(same_json(inventory['native_test_fixtures'], expected_native_fixtures),
+            'native fixture declarations mismatch')
+    expected_benchmark_sources = [{
+        'path': p, 'git_blob': bindings[p]['blob'],
+        'source_audit_commit': inventory['supplementary_test_audit_commit'],
+        'kind': 'Rust benchmark source' if p.endswith('.rs') else 'benchmark documentation',
+        'disposition': BENCHMARK_DISPOSITION,
+        'execution_status': 'UNRUN in this inventory audit',
+    } for p in sorted(benchmark_paths)]
+    require(same_json(inventory['rust_benchmark_sources'], expected_benchmark_sources),
+            'Rust benchmark source declarations mismatch')
     expected_summary = dict(derived['summary'])
     expected_summary.update({
         'rust_cpp_test_harness_files': sum(p.endswith('.cpp') for p in cpp_paths),
@@ -352,6 +377,8 @@ def verify(path):
         'rust_preserved_test_inputs': len(preserved_paths),
         'rust_latin1_historical_evidence_inputs': sum(p.startswith('rust/tests/latin1_caller/evidence/') for p in preserved_paths),
         'rust_integration_test_sources': sum(p.endswith('.rs') for p in preserved_paths),
+        'native_test_fixture_inputs': len(fixture_paths),
+        'rust_benchmark_source_inputs': len(benchmark_paths),
     })
     require(type(inventory['summary']) is dict and same_json(inventory['summary'], expected_summary),
             'summary key set/type/count mismatch')

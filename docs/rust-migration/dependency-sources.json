@@ -350,7 +350,39 @@
     "tests/functional/rename/rename_opt2_test.py": "81edf968806a33db60f98332a0d7f5886bb1939e",
     "tests/functional/rename/rename_opt3_test.py": "a6fbfe892ea2642b9919051329adceb96c87878e",
     "tests/functional/rename/rename_opt4_test.py": "95319c7d1a9af0f8325d8696eaa57121846816bf",
-    "tests/functional/rename/rename_opt5_test.py": "660371b39589be240cdf4ac81698bfffaa365336"
+    "tests/functional/rename/rename_opt5_test.py": "660371b39589be240cdf4ac81698bfffaa365336",
+    "docs/RUST_COVERAGE_PROCEDURES.md": "0a6d7e8822c2dfbea2bd8429e3df71cccbab15df",
+    "rust/PORTING.md": "9e672a72de2ffa91a6f52a4e050b8a49d9542fdc",
+    "scripts/bench/adapters/postprocess.py": "6a4750f9f8f7f64bc99e57ddb26ff057968290e9",
+    "scripts/bench/adapters/rpc.py": "b33c40a6261a22b157564973e2856a20d201eff1",
+    "scripts/bench/collect_receipt.py": "ea449ac68a8af43eb00c332ae88cabef413e45fd",
+    "scripts/bench/preflight.py": "028f7d4825ac209e65107d3f9ec8e27ea74832dd",
+    "scripts/bench/publish.py": "070ac892bf562a4a286bcec7f1edd46a3141c04e",
+    "scripts/bench/run.py": "3471eae03c961fe49653b347df9843bc050e80e4",
+    "scripts/bench/schema/manifest.schema.json": "6886268a55bfc2c34af4ac4d9507f1f57bb09bf1",
+    "scripts/bench/schema/qualification.schema.json": "67885b13ed47b85e74305d73f44b94a540c05388",
+    "scripts/bench/schema/sample.schema.json": "6081b3ff21492948a041a3479a7ba7b0f47bb5e1",
+    "scripts/bench/summarize.py": "37fe10b8f5e0c657d3c2f9da0db959907e9abb79",
+    "scripts/bench/tests/fixtures/action-resolution.json": "5806442478d896916e17139370cc7a3c3f827fd7",
+    "scripts/bench/tests/fixtures/synthetic-manifest.json": "64a3a6e152e43a138af0e9a288253bf5cea17a60",
+    "scripts/bench/tests/fixtures/synthetic-samples.jsonl": "9681128eab7fa87b5061f2b1c351808cef26f1cc",
+    "scripts/bench/tests/test_action_pins.py": "0b57c670a8e63d148df242dab9a2c6e39a2c8210",
+    "scripts/bench/tests/test_archive.py": "bec6b558036b4d90288f58d474853976da81b9eb",
+    "scripts/bench/tests/test_collect_receipt.py": "d028e49cfeb0d4c05c36e702400e191298ac61f9",
+    "scripts/bench/tests/test_pipeline.py": "db5c2e5ecfc05937439f20dde1ea4f935cc32685",
+    "scripts/bench/tests/test_postprocess_adapter.py": "73c6bae366d15eaa7b9f50aabd2abdb7e31b4e0f",
+    "scripts/bench/tests/test_preflight.py": "8518bc61e730e52e53e2450cf34d7440d9b1a036",
+    "scripts/bench/tests/test_publish.py": "79659958aceaa7c00315c6b1e71ef37221aaf3f4",
+    "scripts/bench/tests/test_rpc_adapter.py": "32564097f5aaa0d9bdfb534cd71f3da23705d5c2",
+    "scripts/bench/tests/test_run.py": "7858156d91ffdb6462fe1043aff10f9f70980940",
+    "scripts/bench/tests/test_summarize.py": "1070e84ae3534c77fae2184d23871ea916594a47",
+    "scripts/coverage/assess.py": "d9d5269c3104e0dcd289229c4e5841af4d565137",
+    "scripts/coverage/schema/scope.schema.json": "d913c3919e55597a6edb5ae32317dc48919b0892",
+    "scripts/coverage/tests/test_assess.py": "7b971bc84f7e4d24a58f6df8b4a958bb6fd3739a",
+    "site/build.py": "9316ffd739cdae2bdcd48a295bb0b9d317159c5c",
+    "rust/benches/README.md": "e1842e56173c0c9617d3292bdf136d1fe10adc7c",
+    "rust/benches/criterion_ports.rs": "8be78304ead45afb7e49e40746884a8fb1c6e82c",
+    "rust/benches/ports.rs": "6c93b4396963115e10e1a227a54ca8e14e41a3fd"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -361,7 +393,65 @@
     "primary_source_url": "https://github.com/TheDancingDeveloper-org/Rust-PAR2/blob/dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf/Cargo.toml",
     "repository": "TheDancingDeveloper-org/Rust-PAR2",
     "source_commit": "dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf",
-    "tree_response_complete": true
+    "tree_response_complete": true,
+    "prior_unbound_statement": {
+      "values": {
+        "direct_build_script_paths": [],
+        "direct_foreign_source_paths": [],
+        "tree_response_complete": true
+      },
+      "status": "historical statement retained; original tree response/derivation custody not authenticated by this fresh audit"
+    },
+    "source_tree": "87fd4de46f64db73f3ac7f87fc4dc5dbed2b8f88",
+    "tree_evidence": {
+      "capture": "fresh prospective identified read-only upstream tree audit, not recovery of original capture",
+      "plan_id": "pr100-static-fix-v16b-rust-par2-tree",
+      "commit_api_argv": [
+        "gh",
+        "api",
+        "repos/TheDancingDeveloper-org/Rust-PAR2/git/commits/dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf"
+      ],
+      "tree_api_argv": [
+        "gh",
+        "api",
+        "repos/TheDancingDeveloper-org/Rust-PAR2/git/trees/87fd4de46f64db73f3ac7f87fc4dc5dbed2b8f88?recursive=1"
+      ],
+      "commit_response_base64": "eyJzaGEiOiJkYWM1MzExNzBhYjZhODk1NGQ1YTBjMmNmOGRhNmQ0YWRjZTBhMmJmIiwibm9kZV9pZCI6IkNfa3dET1JzNEdWOW9BS0dSaFl6VXpNVEUzTUdGaU5tRTRPVFUwWkRWaE1HTXlZMlk0WkdFMlpEUmhaR05sTUdFeVltWSIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9jb21taXRzL2RhYzUzMTE3MGFiNmE4OTU0ZDVhMGMyY2Y4ZGE2ZDRhZGNlMGEyYmYiLCJodG1sX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvY29tbWl0L2RhYzUzMTE3MGFiNmE4OTU0ZDVhMGMyY2Y4ZGE2ZDRhZGNlMGEyYmYiLCJhdXRob3IiOnsibmFtZSI6IkF1c0FnZW50U21pdGgiLCJlbWFpbCI6ImFkbWluQHJ1c3RuemIuZGV2IiwiZGF0ZSI6IjIwMjYtMDctMDdUMjI6NTc6MjRaIn0sImNvbW1pdHRlciI6eyJuYW1lIjoiQXVzQWdlbnRTbWl0aCIsImVtYWlsIjoiYWRtaW5AcnVzdG56Yi5kZXYiLCJkYXRlIjoiMjAyNi0wNy0wN1QyMjo1ODo0MFoifSwidHJlZSI6eyJzaGEiOiI4N2ZkNGRlNDZmNjRkYjczZjNhYzdmODdmYzRkYzVkYmVkMmI4Zjg4IiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L3RyZWVzLzg3ZmQ0ZGU0NmY2NGRiNzNmM2FjN2Y4N2ZjNGRjNWRiZWQyYjhmODgifSwibWVzc2FnZSI6ImZpeDogcHJlc2VydmUgUEFSMiBmaWxlIG9yZGVyIGFuZCBjb3VudCBhbGwgcmVjb3Zlcnkgc2xpY2VzIiwicGFyZW50cyI6W3sic2hhIjoiMWI4OTkwZjE0NjUxNjljY2M4YzIxYTg0MGYxMTgzM2Y2OWM4N2ZjMSIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9jb21taXRzLzFiODk5MGYxNDY1MTY5Y2NjOGMyMWE4NDBmMTE4MzNmNjljODdmYzEiLCJodG1sX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvY29tbWl0LzFiODk5MGYxNDY1MTY5Y2NjOGMyMWE4NDBmMTE4MzNmNjljODdmYzEifV0sInZlcmlmaWNhdGlvbiI6eyJ2ZXJpZmllZCI6ZmFsc2UsInJlYXNvbiI6InVuc2lnbmVkIiwic2lnbmF0dXJlIjpudWxsLCJwYXlsb2FkIjpudWxsLCJ2ZXJpZmllZF9hdCI6bnVsbH19",
+      "commit_response_sha256": "225b46cc6e9348fef2e0a75f173edbe78599dc914d425984f5c2ec111470f5d2",
+      "tree_response_base64": "eyJzaGEiOiI4N2ZkNGRlNDZmNjRkYjczZjNhYzdmODdmYzRkYzVkYmVkMmI4Zjg4IiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L3RyZWVzLzg3ZmQ0ZGU0NmY2NGRiNzNmM2FjN2Y4N2ZjNGRjNWRiZWQyYjhmODgiLCJ0cmVlIjpbeyJwYXRoIjoiLmdpdGlnbm9yZSIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImVhOGM0YmY3ZjM1ZjZmNzdmNzVkOTJhZDhjZTgzNDlmNmU4MWRkYmEiLCJzaXplIjo4LCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvZWE4YzRiZjdmMzVmNmY3N2Y3NWQ5MmFkOGNlODM0OWY2ZTgxZGRiYSJ9LHsicGF0aCI6Ii53b29kcGVja2VyLnltbCIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6IjY4ZWUwY2EwYjMxY2Q3OGYwZWEzNzIzODdlYmNjZjIyZWZmZjNhN2IiLCJzaXplIjoyOTIyLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvNjhlZTBjYTBiMzFjZDc4ZjBlYTM3MjM4N2ViY2NmMjJlZmZmM2E3YiJ9LHsicGF0aCI6IkNhcmdvLmxvY2siLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI3NDdjODhhYzE0YjZjNmRmMzgzMzE2MzhlMjRmMzY0ZTA5MTFjZDMxIiwic2l6ZSI6MTg3NjksInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy83NDdjODhhYzE0YjZjNmRmMzgzMzE2MzhlMjRmMzY0ZTA5MTFjZDMxIn0seyJwYXRoIjoiQ2FyZ28udG9tbCIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6IjVmYWNjMmVhZWY3MDA3ZWJlNWIwNGJkNzkzNmUwNGYwYmM2NDE3N2UiLCJzaXplIjo3NDYsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy81ZmFjYzJlYWVmNzAwN2ViZTViMDRiZDc5MzZlMDRmMGJjNjQxNzdlIn0seyJwYXRoIjoiTElDRU5TRS1BUEFDSEUiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiIyNjY5M2NlYTE2ZjFmMmM1MmEyZDhlNWY1OTM1Yzg5NzRhOTU3YzBlIiwic2l6ZSI6MTA3NzAsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy8yNjY5M2NlYTE2ZjFmMmM1MmEyZDhlNWY1OTM1Yzg5NzRhOTU3YzBlIn0seyJwYXRoIjoiTElDRU5TRS1NSVQiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI2OTAxZGEwZTUzNzEwOTdkYmRjZDQzY2U0OTE2NDBiNmMzNWJkNDU5Iiwic2l6ZSI6MTA3OSwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzLzY5MDFkYTBlNTM3MTA5N2RiZGNkNDNjZTQ5MTY0MGI2YzM1YmQ0NTkifSx7InBhdGgiOiJSRUFETUUubWQiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI3ODIzMDBjMmRiNTBlM2IwMWY2ZjI2OGQ4NjM1ZWI3MDIxYmQ1MWQ5Iiwic2l6ZSI6MTExNTgsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy83ODIzMDBjMmRiNTBlM2IwMWY2ZjI2OGQ4NjM1ZWI3MDIxYmQ1MWQ5In0seyJwYXRoIjoiZXhhbXBsZXMiLCJtb2RlIjoiMDQwMDAwIiwidHlwZSI6InRyZWUiLCJzaGEiOiIyYjcxODc3YmI3YjU3Nzg4ZWUzYTk1ODM3YzUzNDBkMjAwM2Q4OTI4IiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L3RyZWVzLzJiNzE4NzdiYjdiNTc3ODhlZTNhOTU4MzdjNTM0MGQyMDAzZDg5MjgifSx7InBhdGgiOiJleGFtcGxlcy9kZWJ1Z19yZXBhaXIucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJiZDI2N2U0MzkxNmY3Y2Q2MDYyZTdlZDlkZjA4YjFiY2E4ZGQ4OTg2Iiwic2l6ZSI6MjM0MywidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzL2JkMjY3ZTQzOTE2ZjdjZDYwNjJlN2VkOWRmMDhiMWJjYThkZDg5ODYifSx7InBhdGgiOiJleGFtcGxlcy9taWNyb2JlbmNoLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiZWNmYjg2MjdmMjRjYWE3NTQ2OTBmNDI3YzBmZmUwNDEyMzk5MTg5MCIsInNpemUiOjg4NTIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9lY2ZiODYyN2YyNGNhYTc1NDY5MGY0MjdjMGZmZTA0MTIzOTkxODkwIn0seyJwYXRoIjoicmVub3ZhdGUuanNvbiIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImNlMTBiNmIxMWNmNzIxNWRhZTlkNTIzZWI3MTcxZWM1NWFlMTEwYTIiLCJzaXplIjoyMDAsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9jZTEwYjZiMTFjZjcyMTVkYWU5ZDUyM2ViNzE3MWVjNTVhZTExMGEyIn0seyJwYXRoIjoic3JjIiwibW9kZSI6IjA0MDAwMCIsInR5cGUiOiJ0cmVlIiwic2hhIjoiYjBlYmE4Y2Y0ZWNiYTI2ZDJlM2I3N2NiY2RiMDY4YmJmOWExNjM5MiIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC90cmVlcy9iMGViYThjZjRlY2JhMjZkMmUzYjc3Y2JjZGIwNjhiYmY5YTE2MzkyIn0seyJwYXRoIjoic3JjL2dmLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiMDAxZDkzNmMzNzIyNzcyZDQ0N2I2MWZhYzdlOTQ0ZjczMzcyOTA5MiIsInNpemUiOjc1NDIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy8wMDFkOTM2YzM3MjI3NzJkNDQ3YjYxZmFjN2U5NDRmNzMzNzI5MDkyIn0seyJwYXRoIjoic3JjL2dmX3NpbWQucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJmYzA0YzNmMGY1NTk3NzBkYjcwNzFmZTQ5NTBmZDE4NzhkZmI1MWY5Iiwic2l6ZSI6MjYwNjMsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9mYzA0YzNmMGY1NTk3NzBkYjcwNzFmZTQ5NTBmZDE4NzhkZmI1MWY5In0seyJwYXRoIjoic3JjL2xpYi5ycyIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImQ5NjBiZTk3YTliYWQyZjFiNmJmMGY2NGVhNzFhYzRhYTBhM2ZhZDEiLCJzaXplIjoxNDc2LCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvZDk2MGJlOTdhOWJhZDJmMWI2YmYwZjY0ZWE3MWFjNGFhMGEzZmFkMSJ9LHsicGF0aCI6InNyYy9tYXRyaXgucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiIwZjMyZjQyNGRkOTUwYWJjZWU3ODJiY2UxZWZiZTE1ZGMzM2MzMDA5Iiwic2l6ZSI6ODgzMiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzLzBmMzJmNDI0ZGQ5NTBhYmNlZTc4MmJjZTFlZmJlMTVkYzMzYzMwMDkifSx7InBhdGgiOiJzcmMvcGFja2V0cy5ycyIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImVhYWFlN2RjNWIwYjg1ZDg1YTRjMDNmNGU5NjJhNTY5YjZhYjk0YTYiLCJzaXplIjoyMDY2OCwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzL2VhYWFlN2RjNWIwYjg1ZDg1YTRjMDNmNGU5NjJhNTY5YjZhYjk0YTYifSx7InBhdGgiOiJzcmMvcmVjb3ZlcnkucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJkZGVmNGFlZmZmYzUyMTJlMjcyYjIzMGY3MTkzMmUxNjczYWI3NGUyIiwic2l6ZSI6NDcyOSwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzL2RkZWY0YWVmZmZjNTIxMmUyNzJiMjMwZjcxOTMyZTE2NzNhYjc0ZTIifSx7InBhdGgiOiJzcmMvcmVwYWlyLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiMDVlN2Y5YTljMDg1OWJhNDhmZjI0ZDYyNDhkN2FkNTE2OWY4MGJhNCIsInNpemUiOjMwOTE1LCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvMDVlN2Y5YTljMDg1OWJhNDhmZjI0ZDYyNDhkN2FkNTE2OWY4MGJhNCJ9LHsicGF0aCI6InNyYy90eXBlcy5ycyIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImUyOTA1MWZmNTA3MjMyNzI3NDRjY2ZhMmY5ZWVlZTg1ZTgyMzllYmEiLCJzaXplIjo0Mjc1LCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvZTI5MDUxZmY1MDcyMzI3Mjc0NGNjZmEyZjllZWVlODVlODIzOWViYSJ9LHsicGF0aCI6InNyYy92ZXJpZnkucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI1YWM3NmJmY2E1ZTJkNDI0MzRlM2VmZDEwOWMwYWJlNDhhZDdiNGJlIiwic2l6ZSI6MTQ3NzUsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy81YWM3NmJmY2E1ZTJkNDI0MzRlM2VmZDEwOWMwYWJlNDhhZDdiNGJlIn0seyJwYXRoIjoidGVzdHMiLCJtb2RlIjoiMDQwMDAwIiwidHlwZSI6InRyZWUiLCJzaGEiOiI2YWMxOWM1MmJkODEwNTY5MzkyYTdiMWZkOWIyMzdmOGM3MzQwNWRmIiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L3RyZWVzLzZhYzE5YzUyYmQ4MTA1NjkzOTJhN2IxZmQ5YjIzN2Y4YzczNDA1ZGYifSx7InBhdGgiOiJ0ZXN0cy9lZGdlX2Nhc2VzLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiZDNmMGNmZDQ3Zjg3Yjg5MDQzMWQ0ZjRmNWIxY2FmZTRjNWQ2M2FjMiIsInNpemUiOjE1MDgsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9kM2YwY2ZkNDdmODdiODkwNDMxZDRmNGY1YjFjYWZlNGM1ZDYzYWMyIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMiLCJtb2RlIjoiMDQwMDAwIiwidHlwZSI6InRyZWUiLCJzaGEiOiJhMmQwNTBjNDI2NGU5Njk3NWNhNWI2NmEwZWVkZjdlOWUwOTY1N2U1IiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L3RyZWVzL2EyZDA1MGM0MjY0ZTk2OTc1Y2E1YjY2YTBlZWRmN2U5ZTA5NjU3ZTUifSx7InBhdGgiOiJ0ZXN0cy9maXh0dXJlcy9kYW1hZ2VkIiwibW9kZSI6IjA0MDAwMCIsInR5cGUiOiJ0cmVlIiwic2hhIjoiZjQxM2NiOGRlZTkwZjMzMmU2NWE1MDMwMTFjMGU2ODI3NmQzY2ExYSIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC90cmVlcy9mNDEzY2I4ZGVlOTBmMzMyZTY1YTUwMzAxMWMwZTY4Mjc2ZDNjYTFhIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvZGFtYWdlZC90ZXN0ZGF0YS5iaW4iLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI5ODYwMTBhMGY1MDJhMzVjNzU5YWIyNWU4M2FmYjRhNzM2Y2ZlYzZlIiwic2l6ZSI6MTAwMDAwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvOTg2MDEwYTBmNTAyYTM1Yzc1OWFiMjVlODNhZmI0YTczNmNmZWM2ZSJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2RhbWFnZWQvdGVzdGRhdGEuYmluLjEiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI5ODYwMTBhMGY1MDJhMzVjNzU5YWIyNWU4M2FmYjRhNzM2Y2ZlYzZlIiwic2l6ZSI6MTAwMDAwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvOTg2MDEwYTBmNTAyYTM1Yzc1OWFiMjVlODNhZmI0YTczNmNmZWM2ZSJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2RhbWFnZWQvdGVzdGRhdGEuYmluLnBhcjIiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJmZDc4YWUwNmZmY2VjYWIzOThlZWIyMzQ1YTc5NTBiNWZiNjc2NzgwIiwic2l6ZSI6NDUyLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvZmQ3OGFlMDZmZmNlY2FiMzk4ZWViMjM0NWE3OTUwYjVmYjY3Njc4MCJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2RhbWFnZWQvdGVzdGRhdGEuYmluLnZvbDArMS5wYXIyIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiNzRjMWVhZjY2ZmUyNWUwOWJkODU4MWE1NDNhNzQyYTY4YmRlMmExYiIsInNpemUiOjUwNTIwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvNzRjMWVhZjY2ZmUyNWUwOWJkODU4MWE1NDNhNzQyYTY4YmRlMmExYiJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2ludGFjdCIsIm1vZGUiOiIwNDAwMDAiLCJ0eXBlIjoidHJlZSIsInNoYSI6Ijk1MGRmMjBkODIxZTQwNTZkNjE1MGRiOWVmOWIyZmQ3ODYzYWQzNzciLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvdHJlZXMvOTUwZGYyMGQ4MjFlNDA1NmQ2MTUwZGI5ZWY5YjJmZDc4NjNhZDM3NyJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2ludGFjdC90ZXN0ZGF0YS5iaW4iLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI3NzAzOWUxMzA2NTIxZjUzNjk4NTkxOTBiOWI5MWI1NTRmMjNiYzllIiwic2l6ZSI6MTAwMDAwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvNzcwMzllMTMwNjUyMWY1MzY5ODU5MTkwYjliOTFiNTU0ZjIzYmM5ZSJ9LHsicGF0aCI6InRlc3RzL2ZpeHR1cmVzL2ludGFjdC90ZXN0ZGF0YS5iaW4ucGFyMiIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImZkNzhhZTA2ZmZjZWNhYjM5OGVlYjIzNDVhNzk1MGI1ZmI2NzY3ODAiLCJzaXplIjo0NTIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9mZDc4YWUwNmZmY2VjYWIzOThlZWIyMzQ1YTc5NTBiNWZiNjc2NzgwIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvaW50YWN0L3Rlc3RkYXRhLmJpbi52b2wwKzEucGFyMiIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6Ijc0YzFlYWY2NmZlMjVlMDliZDg1ODFhNTQzYTc0MmE2OGJkZTJhMWIiLCJzaXplIjo1MDUyMCwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzLzc0YzFlYWY2NmZlMjVlMDliZDg1ODFhNTQzYTc0MmE2OGJkZTJhMWIifSx7InBhdGgiOiJ0ZXN0cy9maXh0dXJlcy9taXNzaW5nIiwibW9kZSI6IjA0MDAwMCIsInR5cGUiOiJ0cmVlIiwic2hhIjoiNTIyMmQ1MzhlM2ViMWY0MzA2ZDE1ZTM3YWE5OGM2YmE4MTYwMjUwYSIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC90cmVlcy81MjIyZDUzOGUzZWIxZjQzMDZkMTVlMzdhYTk4YzZiYTgxNjAyNTBhIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvbWlzc2luZy90ZXN0ZGF0YS5iaW4ucGFyMiIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6ImE3YzVmMjFlODI2YzAwYjkwMWU5N2RiN2I4OTAyYTZjMjljN2Q2NjEiLCJzaXplIjo0NTIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9hN2M1ZjIxZTgyNmMwMGI5MDFlOTdkYjdiODkwMmE2YzI5YzdkNjYxIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvbWlzc2luZy90ZXN0ZGF0YS5iaW4udm9sMCsxLnBhcjIiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJlNGMyNjM4YWFkMDg5MGIxNGE0ZTkwOGQ5MzZlN2ZhYjU0NTU5YjQzIiwic2l6ZSI6NTA1MjAsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9lNGMyNjM4YWFkMDg5MGIxNGE0ZTkwOGQ5MzZlN2ZhYjU0NTU5YjQzIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvbWlzc2luZy90ZXN0ZGF0YS5iaW4udm9sMSsxLnBhcjIiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiI4MmViNjI2NTkxNGQ3ZTdkMDliOTAxNGJjNWQ5MDlhNTc5OTQ2ZDMwIiwic2l6ZSI6NTA1MjAsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy84MmViNjI2NTkxNGQ3ZTdkMDliOTAxNGJjNWQ5MDlhNTc5OTQ2ZDMwIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvdW5yZXBhaXJhYmxlIiwibW9kZSI6IjA0MDAwMCIsInR5cGUiOiJ0cmVlIiwic2hhIjoiMTM4YzA3MTg4NGUyYzExNDdiYmM5YzBkOGQwMjMyYmVlMTBiZWI2ZCIsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC90cmVlcy8xMzhjMDcxODg0ZTJjMTE0N2JiYzljMGQ4ZDAyMzJiZWUxMGJlYjZkIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvdW5yZXBhaXJhYmxlL3Rlc3RkYXRhLmJpbiIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6IjE3NGE1OTkzOTQzZjZlMDRkODIxY2U4MWFjMTVlMjAzN2ZmODZjOGIiLCJzaXplIjoyMDAwMDAsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy8xNzRhNTk5Mzk0M2Y2ZTA0ZDgyMWNlODFhYzE1ZTIwMzdmZjg2YzhiIn0seyJwYXRoIjoidGVzdHMvZml4dHVyZXMvdW5yZXBhaXJhYmxlL3Rlc3RkYXRhLmJpbi5wYXIyIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiMzdlNmIzMjVjZjFkOGYxMDg4ODhjYTkyZDA4NTQ4MWQ1ODdlOGEyMyIsInNpemUiOjQ5MiwidXJsIjoiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy9UaGVEYW5jaW5nRGV2ZWxvcGVyLW9yZy9SdXN0LVBBUjIvZ2l0L2Jsb2JzLzM3ZTZiMzI1Y2YxZDhmMTA4ODg4Y2E5MmQwODU0ODFkNTg3ZThhMjMifSx7InBhdGgiOiJ0ZXN0cy9maXh0dXJlcy91bnJlcGFpcmFibGUvdGVzdGRhdGEuYmluLnZvbDArMS5wYXIyIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiOWIwNzY2YjE5YmViOGQ2ZWZmZTQ4M2E3MzQzYjAyMTRmYTdjOWYxNCIsInNpemUiOjUwNTYwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvOWIwNzY2YjE5YmViOGQ2ZWZmZTQ4M2E3MzQzYjAyMTRmYTdjOWYxNCJ9LHsicGF0aCI6InRlc3RzL2dmX3NwZWNfY29tcGxpYW5jZS5ycyIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6IjFmMzEwZTEzMWFlYzI1OTZjMWNhMTFlMjU1YmI1NWY1N2ZkZTdiNjMiLCJzaXplIjo4NjQwLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvMWYzMTBlMTMxYWVjMjU5NmMxY2ExMWUyNTViYjU1ZjU3ZmRlN2I2MyJ9LHsicGF0aCI6InRlc3RzL2ludGVncmF0aW9uLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiYWQyZjA0YjA4MmIzNTBiYTQ2YmRjOWIwMWJjNWFmM2E2MTE4N2Y4MiIsInNpemUiOjQ5NjUsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9hZDJmMDRiMDgyYjM1MGJhNDZiZGM5YjAxYmM1YWYzYTYxMTg3ZjgyIn0seyJwYXRoIjoidGVzdHMvcmVlZF9zb2xvbW9uLnJzIiwibW9kZSI6IjEwMDY0NCIsInR5cGUiOiJibG9iIiwic2hhIjoiYjNiODAzNTAyMWM1Y2M5MzI2YWMzNzc2ZDc4ZjRhMmVmMWJmNWVhYiIsInNpemUiOjExMzM1LCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvYjNiODAzNTAyMWM1Y2M5MzI2YWMzNzc2ZDc4ZjRhMmVmMWJmNWVhYiJ9LHsicGF0aCI6InRlc3RzL3JlcGFpcl9zY2VuYXJpb3MucnMiLCJtb2RlIjoiMTAwNjQ0IiwidHlwZSI6ImJsb2IiLCJzaGEiOiJmMjFhMTliYTQwYWI3YTlkZjdhZmEyYTg1OGUxYjUyNDA4NDI1NzRkIiwic2l6ZSI6MTM3OTMsInVybCI6Imh0dHBzOi8vYXBpLmdpdGh1Yi5jb20vcmVwb3MvVGhlRGFuY2luZ0RldmVsb3Blci1vcmcvUnVzdC1QQVIyL2dpdC9ibG9icy9mMjFhMTliYTQwYWI3YTlkZjdhZmEyYTg1OGUxYjUyNDA4NDI1NzRkIn0seyJwYXRoIjoidGVzdHMvc2ltZF9jb3JyZWN0bmVzcy5ycyIsIm1vZGUiOiIxMDA2NDQiLCJ0eXBlIjoiYmxvYiIsInNoYSI6IjhlMGQxYWEzM2Q4ZDdkMzBhODk1ZDdkY2I4MDBmMmVlYTEwYjdiMmIiLCJzaXplIjo5MDUxLCJ1cmwiOiJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL1RoZURhbmNpbmdEZXZlbG9wZXItb3JnL1J1c3QtUEFSMi9naXQvYmxvYnMvOGUwZDFhYTMzZDhkN2QzMGE4OTVkN2RjYjgwMGYyZWVhMTBiN2IyYiJ9XSwidHJ1bmNhdGVkIjpmYWxzZX0=",
+      "tree_response_sha256": "1a1a7fefe754286544058046b05569605c76a6d999bd71268a8a10f7a7d6b63b",
+      "source_commit": "dac531170ab6a8954d5a0c2cf8da6d4adce0a2bf",
+      "source_tree": "87fd4de46f64db73f3ac7f87fc4dc5dbed2b8f88",
+      "recursive_parameter": 1,
+      "truncated": false,
+      "entry_count": 46,
+      "blob_count": 38,
+      "direct_source_derivation": {
+        "entry_type": "blob",
+        "suffix_case": "lowercase path suffix comparison",
+        "foreign_suffixes": [
+          ".c",
+          ".cc",
+          ".cpp",
+          ".cxx",
+          ".c++",
+          ".h",
+          ".hh",
+          ".hpp",
+          ".hxx",
+          ".h++"
+        ],
+        "build_script_rule": "blob path basename exactly build.rs",
+        "unfiltered_tree_preserved": true
+      },
+      "capture_limits": {
+        "stdout_bytes": 8388608,
+        "stderr_bytes": 65536,
+        "deadline_seconds": 45
+      },
+      "tool_version_stdout_base64": "Z2ggdmVyc2lvbiAyLjEwMi4wICgyMDI2LTA5LTMwKQpodHRwczovL2dpdGh1Yi5jb20vY2xpL2NsaS9yZWxlYXNlcy90YWcvdjIuMTAyLjAK",
+      "limits": "direct repository filename manifest only; symlink targets, gitlink descendants, transitive dependencies and linked archives remain unproved"
+    }
   },
   "schema_version": 1,
   "subject_default_commit": "badf75a2007ad01e21eedfd677b835ff9860cd51",
@@ -6832,8 +6922,8 @@
   "dependency_reference_scan_scope": "Boost uses separately declared expanded case-insensitive code/build/link/package scan; PAR2 uses exact retrospectively recovered case-sensitive git-grep and suffix filter in par2_reference_scan. Neither is transitive or a compiled graph.",
   "subject_feature_commit_role": "historical collection checkout; not required or assumed available in single-head reviewed history",
   "historical_subject_feature_availability": "not reachable from the canonical reviewed ancestry; earlier signed working history is preserved separately",
-  "local_blob_source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
-  "local_blob_source_role": "reachable ancestor supplying every local source blob in this record; independently verified; historical collection subjects remain descriptive",
+  "local_blob_source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+  "local_blob_source_role": "reachable fresh default source binding; original bindings retained and new controller/canonical-doc/benchmark inputs separately identified",
   "boost_reference_scan": {
     "source_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
     "roots": [
@@ -7330,7 +7420,7 @@
       "retirement": "replace both unpacker generations/7za, aliases/installer/config/licenses and preserve supported targets"
     }
   ],
-  "local_blob_source_verification": "every local_source_blobs path/object independently matched reachable local_blob_source_commit",
+  "local_blob_source_verification": "all 382 local_source_blobs path/object identities independently matched reachable dad395285b4fba2392aed6b1fbff0fd305d5792d; original 350 bindings preserved; fresh source metadata is not executable lineage",
   "supersedes_rejected_draft_git_blob_role": "historical rejected-draft identity only; not required for reproducing current inputs",
   "shipped_unpacker_configuration": {
     "path": "nzbget.conf",
@@ -10572,5 +10662,275 @@
       "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
     }
   ],
-  "functional_test_input_scope": "All40 checked-in tests/functional regular source entries at immutable audit7d, identical original4cf and reachable1be; includes exact9 dupefallback harness/generator/focused/platform inputs. Source selection and preservation only; no tests, daemon, Docker/ADB runner, provider/RPC or timings executed. Other test evidence and new complete-caller/Rust-route/equivalent-control qualification remain separately required."
+  "functional_test_input_scope": "All40 checked-in tests/functional regular source entries at immutable audit7d, identical original4cf and reachable1be; includes exact9 dupefallback harness/generator/focused/platform inputs. Source selection and preservation only; no tests, daemon, Docker/ADB runner, provider/RPC or timings executed. Other test evidence and new complete-caller/Rust-route/equivalent-control qualification remain separately required.",
+  "migration_controller_inputs": [
+    {
+      "path": "docs/RUST_COVERAGE_PROCEDURES.md",
+      "git_blob": "0a6d7e8822c2dfbea2bd8429e3df71cccbab15df",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "coverage assessment source/schema/regression/guide input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/adapters/postprocess.py",
+      "git_blob": "6a4750f9f8f7f64bc99e57ddb26ff057968290e9",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/adapters/rpc.py",
+      "git_blob": "b33c40a6261a22b157564973e2856a20d201eff1",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/collect_receipt.py",
+      "git_blob": "ea449ac68a8af43eb00c332ae88cabef413e45fd",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/preflight.py",
+      "git_blob": "028f7d4825ac209e65107d3f9ec8e27ea74832dd",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/publish.py",
+      "git_blob": "070ac892bf562a4a286bcec7f1edd46a3141c04e",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/run.py",
+      "git_blob": "3471eae03c961fe49653b347df9843bc050e80e4",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/schema/manifest.schema.json",
+      "git_blob": "6886268a55bfc2c34af4ac4d9507f1f57bb09bf1",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/schema/qualification.schema.json",
+      "git_blob": "67885b13ed47b85e74305d73f44b94a540c05388",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/schema/sample.schema.json",
+      "git_blob": "6081b3ff21492948a041a3479a7ba7b0f47bb5e1",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/summarize.py",
+      "git_blob": "37fe10b8f5e0c657d3c2f9da0db959907e9abb79",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/fixtures/action-resolution.json",
+      "git_blob": "5806442478d896916e17139370cc7a3c3f827fd7",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/fixtures/synthetic-manifest.json",
+      "git_blob": "64a3a6e152e43a138af0e9a288253bf5cea17a60",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/fixtures/synthetic-samples.jsonl",
+      "git_blob": "9681128eab7fa87b5061f2b1c351808cef26f1cc",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_action_pins.py",
+      "git_blob": "0b57c670a8e63d148df242dab9a2c6e39a2c8210",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_archive.py",
+      "git_blob": "bec6b558036b4d90288f58d474853976da81b9eb",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_collect_receipt.py",
+      "git_blob": "d028e49cfeb0d4c05c36e702400e191298ac61f9",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_pipeline.py",
+      "git_blob": "db5c2e5ecfc05937439f20dde1ea4f935cc32685",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_postprocess_adapter.py",
+      "git_blob": "73c6bae366d15eaa7b9f50aabd2abdb7e31b4e0f",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_preflight.py",
+      "git_blob": "8518bc61e730e52e53e2450cf34d7440d9b1a036",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_publish.py",
+      "git_blob": "79659958aceaa7c00315c6b1e71ef37221aaf3f4",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_rpc_adapter.py",
+      "git_blob": "32564097f5aaa0d9bdfb534cd71f3da23705d5c2",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_run.py",
+      "git_blob": "7858156d91ffdb6462fe1043aff10f9f70980940",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/bench/tests/test_summarize.py",
+      "git_blob": "1070e84ae3534c77fae2184d23871ea916594a47",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "shared benchmark pipeline input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/coverage/assess.py",
+      "git_blob": "d9d5269c3104e0dcd289229c4e5841af4d565137",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "coverage assessment source/schema/regression/guide input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/coverage/schema/scope.schema.json",
+      "git_blob": "d913c3919e55597a6edb5ae32317dc48919b0892",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "coverage assessment source/schema/regression/guide input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "scripts/coverage/tests/test_assess.py",
+      "git_blob": "7b971bc84f7e4d24a58f6df8b4a958bb6fd3739a",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "coverage assessment source/schema/regression/guide input",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    }
+  ],
+  "migration_controller_input_scope": {
+    "roots": [
+      "scripts/bench",
+      "scripts/coverage"
+    ],
+    "additional_guide": "docs/RUST_COVERAGE_PROCEDURES.md",
+    "bench_inputs": 23,
+    "coverage_inputs": 4,
+    "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+    "limits": "Whole tracked source/schema/model fixture input sets, not tool execution, produced qualification, configuration/activation or authenticated publication."
+  },
+  "canonical_rust_port_documentation_inputs": [
+    {
+      "path": "rust/PORTING.md",
+      "git_blob": "9e672a72de2ffa91a6f52a4e050b8a49d9542fdc",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "canonical Rust port content",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "site/build.py",
+      "git_blob": "9316ffd739cdae2bdcd48a295bb0b9d317159c5c",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "role": "site content generator",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    }
+  ],
+  "registered_rust_benchmark_inputs": [
+    {
+      "path": "rust/benches/README.md",
+      "git_blob": "e1842e56173c0c9617d3292bdf136d1fe10adc7c",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "rust/benches/criterion_ports.rs",
+      "git_blob": "8be78304ead45afb7e49e40746884a8fb1c6e82c",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "rust/benches/ports.rs",
+      "git_blob": "6c93b4396963115e10e1a227a54ca8e14e41a3fd",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
+      "execution_status": "UNRUN in this source audit"
+    }
+  ]
 }
