@@ -302,7 +302,9 @@
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupesearch_nzb/README.md",
       "existing_partial_check_entrypoints": [
-        "rust/tests/dupesearch_nzb/run.py"
+        "rust/tests/dupesearch_nzb/run.py",
+        "rust/tests/dupesearch_nzb/mutations.py",
+        "rust/tests/dupesearch_nzb/test_evidence.py"
       ],
       "lexical_rust_symbols": [
         "nzbget_rs_dupe_part_counts",
@@ -317,6 +319,22 @@
           "limitations": "Required locale/XML corpus, current archive/real route/lineage and source bench/sanitizer/mutation readiness remain unproved; ordinary Rust archive is not Rust sanitizer coverage; one caller benchmark is not full download throughput or campaign >=2x qualification.",
           "operation_scope": "Real NzbReader::Parse caller/independent reference harness, subject/PAR/part-geometry helper and XML summary cases described in its README",
           "path": "rust/tests/dupesearch_nzb/run.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "6a22776d2ae910f58dc511588e1f8e8cc959c765",
+          "limitations": "Requires the prior regular Rust-enabled caller object/build; not automatically invoked by run.py, not a Rust-disabled fallback run, and not whole-caller parity or timing/qualification proof.",
+          "operation_scope": "Sensitivity check: four deliberately broken Rust implementations linked to the existing real caller must be rejected for part counts, PAR case folding, yEnc whitespace and trim whitespace.",
+          "path": "rust/tests/dupesearch_nzb/mutations.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "831aa43a9f70fb90214b061013ca2a3731e90ed3",
+          "limitations": "Synthetic summarizer packets and assertion-based unit checks only; no native caller execution, real collected packet validation, speed or campaign >=2x qualification. Not automatically invoked by run.py.",
+          "operation_scope": "Evidence-integrity check: complete eight-case reporting and rejection of empty/omitted/duplicate/missing-pair/missing-round/mismatched-output/nonfinite timing packets through summarize.py under Python -O.",
+          "path": "rust/tests/dupesearch_nzb/test_evidence.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
         }
       ],
@@ -2192,7 +2210,7 @@
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",
-  "source_inventory_blob": "f4950a5665aed3b9d03fb7ced1f3ed67bbcc75ac",
+  "source_inventory_blob": "55a3bdfb5dcb16a5310766e0527220e63b88c5fd",
   "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }

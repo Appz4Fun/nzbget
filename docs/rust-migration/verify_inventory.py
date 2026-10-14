@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Reproduce the lexical inventory and verify its immutable source bindings.
 
-Run from the repository root. This reads local Git objects and metadata only.
+Run from the repository root on supported POSIX Python (including WSL).
+Native Windows Python is unsupported: safe directory-descriptor traversal is required.
+This reads local Git objects and metadata only.
 It does not build, run tests, infer compiled coverage, or update the inventory.
 The original core scan was recovered from its recorded derivation command;
 version 1 preserves those regex rules and verifies the supplemental file sets.
@@ -18,7 +20,7 @@ import re
 import stat
 import subprocess
 
-VERSION = 5
+VERSION = 6
 INVENTORY_SCHEMA_VERSION = 1
 INVENTORY_KEYS = frozenset({
     'cpp_call_like_occurrences', 'daemon_cpp', 'derivation', 'exports',
@@ -54,7 +56,22 @@ def same_json(left, right):
     return json.dumps(left, sort_keys=True, separators=(',', ':')) == json.dumps(right, sort_keys=True, separators=(',', ':'))
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, 'duplicate JSON member: ' + key)
+        result[key] = value
+    return result
+
+
+def reject_constant(value):
+    raise ValueError('nonstandard JSON constant: ' + value)
+
+
 def bounded_file(path, limit=4 * 1024 * 1024):
+    require(all(hasattr(os, flag) for flag in ('O_DIRECTORY', 'O_NOFOLLOW', 'O_NONBLOCK'))
+            and os.open in os.supports_dir_fd,
+            'supported POSIX Python directory-descriptor traversal required; use WSL on Windows')
     path = Path(path)
     parts = path.parts[1:] if path.is_absolute() else path.parts
     require(bool(parts) and len(parts) <= 256, 'bounded file path required')
@@ -181,7 +198,8 @@ def core_inventory(revision):
 
 
 def verify(path):
-    inventory = json.loads(bounded_file(path))
+    inventory = json.loads(bounded_file(path), object_pairs_hook=unique_object,
+                           parse_constant=reject_constant)
     require(type(inventory) is dict and set(inventory) == INVENTORY_KEYS, 'unsupported inventory key set')
     require(inventory['method'] == METHOD_DECLARATION, 'unsupported method declaration')
     schema = inventory.get('schema_version')
@@ -234,12 +252,35 @@ def verify(path):
     } for p in sorted(functional_paths)]
     require(same_json(inventory['functional_test_sources'], expected_functional_sources),
             'functional source declarations mismatch')
-    for row in inventory['rust_test_python_drivers']:
-        text = extra_sources[row['path']]
+    expected_cpp_sources = [{
+        'path': p, 'git_blob': bindings[p]['blob'],
+        'kind': 'C++ include fragment' if p.endswith('.inc') else 'C++ test/caller harness',
+        'compiled_readiness': 'unknown',
+        'disposition': 'preserve contracts, translate to Rust tests, retire C++ source',
+    } for p in sorted(cpp_paths)]
+    require(same_json(inventory['rust_cpp_test_sources'], expected_cpp_sources),
+            'C++ test source declarations mismatch')
+    expected_abi_headers = [{
+        'path': p, 'git_blob': bindings[p]['blob'], 'kind': 'public C ABI header',
+        'compiled_abi_coverage': 'unknown',
+        'disposition': 'preserve struct/callback/ownership/ABI contracts; replace C++ consumers/adapters and migrate required interface declarations under reviewed Rust ownership before final retirement',
+    } for p in sorted(abi_paths)]
+    require(same_json(inventory['rust_public_abi_headers'], expected_abi_headers),
+            'public ABI header declarations mismatch')
+    expected_python_drivers = []
+    for p in sorted(py_paths):
+        text = extra_sources[p]
         include, build = bool(INCLUDE_RE.search(text)), bool(BUILD_RE.search(text))
         classification = ('emitted C++ source' if include else 'C++-related driver candidate' if build
                           else 'analysis/orchestration source; transitive C++ dependency review pending')
-        require(same_json([row['cpp_include_literal'], row['cpp_build_or_artifact_literal'], row['classification']], [include, build, classification]), 'Python classification mismatch')
+        expected_python_drivers.append({
+            'path': p, 'git_blob': bindings[p]['blob'],
+            'cpp_include_literal': include, 'cpp_build_or_artifact_literal': build,
+            'classification': classification, 'execution': 'not inferred from source',
+            'disposition': 'preserve assertions/evidence; translate or remove C++ coupling before native target retirement; retain justified Python analysis',
+        })
+    require(same_json(inventory['rust_test_python_drivers'], expected_python_drivers),
+            'Python driver declarations mismatch')
     expected_summary = dict(derived['summary'])
     expected_summary.update({
         'rust_cpp_test_harness_files': sum(p.endswith('.cpp') for p in cpp_paths),
