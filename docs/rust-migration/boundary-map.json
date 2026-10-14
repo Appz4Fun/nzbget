@@ -2129,6 +2129,55 @@
       "line": 63
     }
   },
+  "functional_caller_contract_sources": {
+    "execution_status": "UNRUN in this inventory audit",
+    "inputs": [
+      {
+        "git_blob": "4a2731512da346f8068bc4aececd2b0f4c7742b5",
+        "path": "tests/functional/dupefallback/archive_stall_test.py"
+      },
+      {
+        "git_blob": "350937399485cf04bf9f2c23e5cf244f8faca9b1",
+        "path": "tests/functional/dupefallback/generators.py"
+      },
+      {
+        "git_blob": "8d13e2445784a5178e6b00e57015947832682f0d",
+        "path": "tests/functional/dupefallback/harness.py"
+      },
+      {
+        "git_blob": "06cca40f31cd8fb250185e0fb0ff8043cd8c16c7",
+        "path": "tests/functional/dupefallback/history_retry_test.py"
+      },
+      {
+        "git_blob": "4a117ac65535f79d5bcf81365f5c562507223a53",
+        "path": "tests/functional/dupefallback/par_first_test.py"
+      },
+      {
+        "git_blob": "0698f3a0075685db43d6df363dafd602a00da4a1",
+        "path": "tests/functional/dupefallback/queue_format_test.py"
+      },
+      {
+        "git_blob": "0e01e8362227149beaf9f00baf82aca93c96af27",
+        "path": "tests/functional/dupefallback/run-android.sh"
+      },
+      {
+        "git_blob": "9b38065e6ac03f9b0e95bc783d7a8ae4e74720fd",
+        "path": "tests/functional/dupefallback/run-linux-docker.sh"
+      },
+      {
+        "git_blob": "d9bcda23a818bea0d3adfa73347563d0c28996ad",
+        "path": "tests/functional/dupefallback/run-local.sh"
+      }
+    ],
+    "limitations": "No current binary/ABI/build lineage, actual route hits, equivalent omitted C++ features, fair optimized control, per-fixture speed or native-platform qualification; platform runners can require specific architecture/tools/packages and must be separately admitted.",
+    "native_consumers": [
+      "daemon/queue/DupeArticleFallback.cpp",
+      "daemon/queue/DupeStreamRepair.cpp",
+      "daemon/dupesearch/DupeSearch.cpp"
+    ],
+    "source_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+    "source_scope": "Checked-in harness drives scratch daemon plus its test NNTP server offline; stream/live/retry/encrypted/decompression/cleanup source cases are preservation leads, not exhaustive caller or executed Rust-route coverage. Generator/focused sources and Local/Docker/ADB runner contracts remain required."
+  },
   "method": "Manual caller ownership inspection over the 36 files from the reviewed lexical inventory. Modules listed can include their internal dependencies. This is not a compiler-derived call graph or executed boundary coverage; no speed/deployment claim follows. Correctness-entrypoint availability is source presence only, not an executed check. Listed checks are partial; they do not establish parity for all retained C++ work.",
   "partial_driver_catalog_method": {
     "execution": "UNRUN; no new native/test/coverage/speed claim",
@@ -2143,7 +2192,7 @@
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",
-  "source_inventory_blob": "48a3ddbbe7271efa17bd5e8e4e41da0b7da51dfd",
+  "source_inventory_blob": "f4950a5665aed3b9d03fb7ced1f3ed67bbcc75ac",
   "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }

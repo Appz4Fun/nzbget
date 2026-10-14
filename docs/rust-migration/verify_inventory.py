@@ -18,8 +18,24 @@ import re
 import stat
 import subprocess
 
-VERSION = 4
+VERSION = 5
 INVENTORY_SCHEMA_VERSION = 1
+INVENTORY_KEYS = frozenset({
+    'cpp_call_like_occurrences', 'daemon_cpp', 'derivation', 'exports',
+    'exports_without_daemon_cpp_occurrence', 'functional_test_sources', 'method',
+    'rust_cpp_test_sources', 'rust_modules', 'rust_public_abi_headers',
+    'rust_test_python_drivers', 'schema_version', 'source_blobs', 'source_commit',
+    'source_tree', 'summary', 'supplementary_test_audit_commit',
+})
+METHOD_DECLARATION = 'Bounded Git blob reads; lexical public C ABI export and call-like symbol occurrence inventory. Comments, preprocessor branches and dead code can match. No compile, linking, reachability, benchmark, or deployment result inferred. Rust source line counts include test code and comments. No language percentage inferred.'
+FUNCTIONAL_SOURCE_DISPOSITION = 'Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.'
+DERIVATION_DECLARATION = {
+    'capture_provenance': 'Original core/Rust ABI-test derivation commands recovered retrospectively; their unchanged results are preserved. Checked-in functional test inputs are a separately identified source audit; no historical execution is recast as prospective.',
+    'invocation': 'python3 docs/rust-migration/verify_inventory.py --inventory docs/rust-migration/source-inventory.json',
+    'parser_path': 'docs/rust-migration/verify_inventory.py',
+    'scope': 'reproduce original lexical fields and immutable source bindings; verify supplemental Rust ABI/test classifications and separately indexed checked-in functional source inputs; manual boundary/dependency annotations and capture-event authenticity require independent review',
+    'working_directory': 'repository root',
+}
 EXPORT_RE = re.compile(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(nzbget_rs_\w+)\s*\(')
 CPP_SYMBOL_RE = re.compile(r'\bnzbget_rs_\w+\s*(?=\()')
 INCLUDE_RE = re.compile(r'#\s*include\b')
@@ -71,7 +87,7 @@ def bounded_file(path, limit=4 * 1024 * 1024):
 
 
 def git(*args, payload=None):
-    return subprocess.check_output(['git', *args], input=payload, timeout=30)
+    return subprocess.check_output(['git', '--no-replace-objects', *args], input=payload, timeout=30)
 
 
 def table(revision):
@@ -166,12 +182,17 @@ def core_inventory(revision):
 
 def verify(path):
     inventory = json.loads(bounded_file(path))
+    require(type(inventory) is dict and set(inventory) == INVENTORY_KEYS, 'unsupported inventory key set')
+    require(inventory['method'] == METHOD_DECLARATION, 'unsupported method declaration')
     schema = inventory.get('schema_version')
     require(type(schema) is int and schema == INVENTORY_SCHEMA_VERSION, 'unsupported inventory schema version')
     derivation = inventory['derivation']
     require(type(derivation['parser_version']) is int and derivation['parser_version'] == VERSION, 'unsupported parser version')
     require(derivation['parser_path'] == 'docs/rust-migration/verify_inventory.py', 'unexpected parser path')
     require(derivation['parser_sha256'] == hashlib.sha256(bounded_file(Path(__file__))).hexdigest(), 'parser identity mismatch')
+    expected_derivation = dict(DERIVATION_DECLARATION, parser_version=VERSION,
+                              parser_sha256=derivation['parser_sha256'])
+    require(same_json(derivation, expected_derivation), 'unsupported derivation key set/types/values')
     revision = inventory['source_commit']
     require(isinstance(revision, str) and re.fullmatch(r'[0-9a-f]{40}', revision) is not None, 'full immutable source commit required')
     require(git('cat-file', '-t', revision).decode().strip() == 'commit', 'source ID must name a commit object')
@@ -186,7 +207,8 @@ def verify(path):
     supplemental = table(inventory['supplementary_test_audit_commit'])
     selected = {p: v for p, v in supplemental.items()
                 if (p.startswith('rust/tests/') and p.endswith(CPP_TEST_SUFFIXES + ('.py',)))
-                or (p.startswith('rust/include/') and p.endswith(('.h', '.hpp', '.hh')))}
+                or (p.startswith('rust/include/') and p.endswith(('.h', '.hpp', '.hh')))
+                or p.startswith('tests/functional/')}
     extra_bindings, extra_sources = read_sources(selected)
     original = table(revision)
     for p, row in extra_bindings.items():
@@ -194,13 +216,24 @@ def verify(path):
     bindings.update(extra_bindings)
     require(same_json(inventory['source_blobs'], bindings), 'source binding set/content mismatch')
     cpp_paths = {p for p in selected if p.startswith('rust/tests/') and p.endswith(CPP_TEST_SUFFIXES)}
-    py_paths = {p for p in selected if p.endswith('.py')}
+    py_paths = {p for p in selected if p.startswith('rust/tests/') and p.endswith('.py')}
     abi_paths = {p for p in selected if p.startswith('rust/include/')}
-    for key, expected in [('rust_cpp_test_sources', cpp_paths), ('rust_test_python_drivers', py_paths), ('rust_public_abi_headers', abi_paths)]:
+    functional_paths = {p for p in selected if p.startswith('tests/functional/')}
+    for key, expected in [('rust_cpp_test_sources', cpp_paths), ('rust_test_python_drivers', py_paths),
+                          ('rust_public_abi_headers', abi_paths), ('functional_test_sources', functional_paths)]:
         rows = inventory[key]
         require(len(rows) == len(expected) and {r['path'] for r in rows} == expected, 'supplemental file set mismatch: ' + key)
         for row in rows:
             require(row['git_blob'] == bindings[row['path']]['blob'], 'supplemental blob mismatch')
+    expected_functional_sources = [{
+        'path': p, 'git_blob': bindings[p]['blob'],
+        'source_audit_commit': inventory['supplementary_test_audit_commit'],
+        'disposition': FUNCTIONAL_SOURCE_DISPOSITION,
+        'execution_status': 'UNRUN in this inventory audit',
+        'source_role': 'platform runner' if p.endswith('.sh') else 'functional test, fixture provider or generator source',
+    } for p in sorted(functional_paths)]
+    require(same_json(inventory['functional_test_sources'], expected_functional_sources),
+            'functional source declarations mismatch')
     for row in inventory['rust_test_python_drivers']:
         text = extra_sources[row['path']]
         include, build = bool(INCLUDE_RE.search(text)), bool(BUILD_RE.search(text))
@@ -213,6 +246,8 @@ def verify(path):
         'rust_cpp_test_include_fragments': sum(p.endswith('.inc') for p in cpp_paths),
         'rust_test_python_drivers': len(py_paths),
         'rust_public_abi_headers': len(abi_paths),
+        'functional_test_source_inputs': len(functional_paths),
+        'functional_dupefallback_source_inputs': sum(p.startswith('tests/functional/dupefallback/') for p in functional_paths),
     })
     require(type(inventory['summary']) is dict and same_json(inventory['summary'], expected_summary),
             'summary key set/type/count mismatch')

@@ -310,7 +310,47 @@
     "site/content/contributing.md": "4b85fa64cb8af7b65fb2739394ebef19476d7997",
     "site/content/rust-port.md": "6e70c2d275f9afd0b002a7d1ee1ffca261c31a4a",
     "site/content/performance.md": "4a057f26f2df7694a5b2c5a6ec7121e542c3ec67",
-    "docs/PERFORMANCE.md": "b516347b52a8b82787b196866860656fec7ce81e"
+    "docs/PERFORMANCE.md": "b516347b52a8b82787b196866860656fec7ce81e",
+    "tests/functional/conftest.py": "af1b24fe13d6cbb9911fcbec3496ee641463c407",
+    "tests/functional/download/conftest.py": "e08b4b1730339b68c5454fe3d8f4dafbe3ee05b1",
+    "tests/functional/download/download_base_test.py": "1d087ee885efb5b0176f7955f7bcbe2acdf121c4",
+    "tests/functional/download/download_filename_test.py": "0c1282d290329f8543d49827d4f1844d004c6c9a",
+    "tests/functional/download/download_opt1_test.py": "5828198160b5c4d2d7bc1279e1267b6b93b66c5d",
+    "tests/functional/download/download_opt2_test.py": "a5c4998f4c09a8124d0dd7f458d2d9d5a6a8ff31",
+    "tests/functional/download/download_opt3_test.py": "cc7cc513be6fb166d828bb02cd754ba0ee95f747",
+    "tests/functional/download/dupecheck_test.py": "c75d48cec52ced0a9d6b356465a9b3ffb7482159",
+    "tests/functional/download/health_test.py": "b2bf653074e1ceaa1cd465c4f295e1b21ef29e9f",
+    "tests/functional/download/propagation_test.py": "732007cb1f31118b6f4b7b4d7021cf9d7e4cf984",
+    "tests/functional/download/retry_base_test.py": "1f69a8d776a8ed06d8ebc01d649afa0126c71ab8",
+    "tests/functional/download/retry_opt1_test.py": "4faafb4054d9737b704a9cba3393744d57ee4f7e",
+    "tests/functional/download/retry_opt2_test.py": "f410b3ff0259840fb6db931d3661e4f42e6430cb",
+    "tests/functional/download/unpack_test.py": "6b1f451655a449fa47a52f2bd1bf2a13343fce9e",
+    "tests/functional/dupefallback/archive_stall_test.py": "4a2731512da346f8068bc4aececd2b0f4c7742b5",
+    "tests/functional/dupefallback/generators.py": "350937399485cf04bf9f2c23e5cf244f8faca9b1",
+    "tests/functional/dupefallback/harness.py": "8d13e2445784a5178e6b00e57015947832682f0d",
+    "tests/functional/dupefallback/history_retry_test.py": "06cca40f31cd8fb250185e0fb0ff8043cd8c16c7",
+    "tests/functional/dupefallback/par_first_test.py": "4a117ac65535f79d5bcf81365f5c562507223a53",
+    "tests/functional/dupefallback/queue_format_test.py": "0698f3a0075685db43d6df363dafd602a00da4a1",
+    "tests/functional/dupefallback/run-android.sh": "0e01e8362227149beaf9f00baf82aca93c96af27",
+    "tests/functional/dupefallback/run-linux-docker.sh": "9b38065e6ac03f9b0e95bc783d7a8ae4e74720fd",
+    "tests/functional/dupefallback/run-local.sh": "d9bcda23a818bea0d3adfa73347563d0c28996ad",
+    "tests/functional/editqueue/editqueue_move_test.py": "541d9e614209f54e438d7c15206f7bb364fb664c",
+    "tests/functional/parcheck/conftest.py": "ae573c57fa7c5b0d14a4799f9fcbb761559cb8aa",
+    "tests/functional/parcheck/parcheck_base_test.py": "b9ea12563ed4770535367394a2a8bfe9d55ff9ce",
+    "tests/functional/parcheck/parcheck_opt1_test.py": "6effb69a7def149d3b8aa0029b86164c14fbd4f4",
+    "tests/functional/parcheck/parcheck_opt2_test.py": "77b6c5de33b789a4a406cd6933b3d40ce1a0b3b9",
+    "tests/functional/parcheck/parcheck_opt3_test.py": "169477fc5b838e78e617521d0e963d16e707b023",
+    "tests/functional/parcheck/parcheck_opt4_test.py": "144c4b915873643f3eb7ed375ee6966127c807fc",
+    "tests/functional/parcheck/parcheck_opt5_test.py": "8bfafabeb6669aa268e85882b0acaca774624d86",
+    "tests/functional/parcheck/parcheck_opt6_test.py": "4a2b0987f02c2d07f767dfc150e40e641858dfc0",
+    "tests/functional/parcheck/parcheck_opt7_test.py": "fa3afd632452ccca0ecb4537d0d2d98bf61aacff",
+    "tests/functional/rename/conftest.py": "701d24d2df4a36158c06efb3783d1adedc2accab",
+    "tests/functional/rename/rename_base_test.py": "a93ea64408e5c0811c14dbdb6d5cb86322ed00bc",
+    "tests/functional/rename/rename_opt1_test.py": "e54d62990bee825feae35e64d885f74679a4b1c3",
+    "tests/functional/rename/rename_opt2_test.py": "81edf968806a33db60f98332a0d7f5886bb1939e",
+    "tests/functional/rename/rename_opt3_test.py": "a6fbfe892ea2642b9919051329adceb96c87878e",
+    "tests/functional/rename/rename_opt4_test.py": "95319c7d1a9af0f8325d8696eaa57121846816bf",
+    "tests/functional/rename/rename_opt5_test.py": "660371b39589be240cdf4ac81698bfffaa365336"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -10169,5 +10209,368 @@
       "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
     }
   ],
-  "build_guide_scope": "Current four platform build guides and published install source plus root installation/README, contributor and Rust/performance guides. Other docs/site/API/generated assets and actual published outputs require final source/link/content reconciliation; guide bindings are a snapshot at reachable local_blob_source_commit, not live publication proof."
+  "build_guide_scope": "Current four platform build guides and published install source plus root installation/README, contributor and Rust/performance guides. Other docs/site/API/generated assets and actual published outputs require final source/link/content reconciliation; guide bindings are a snapshot at reachable local_blob_source_commit, not live publication proof.",
+  "functional_test_inputs": [
+    {
+      "path": "tests/functional/conftest.py",
+      "git_blob": "af1b24fe13d6cbb9911fcbec3496ee641463c407",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/conftest.py",
+      "git_blob": "e08b4b1730339b68c5454fe3d8f4dafbe3ee05b1",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/download_base_test.py",
+      "git_blob": "1d087ee885efb5b0176f7955f7bcbe2acdf121c4",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/download_filename_test.py",
+      "git_blob": "0c1282d290329f8543d49827d4f1844d004c6c9a",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/download_opt1_test.py",
+      "git_blob": "5828198160b5c4d2d7bc1279e1267b6b93b66c5d",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/download_opt2_test.py",
+      "git_blob": "a5c4998f4c09a8124d0dd7f458d2d9d5a6a8ff31",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/download_opt3_test.py",
+      "git_blob": "cc7cc513be6fb166d828bb02cd754ba0ee95f747",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/dupecheck_test.py",
+      "git_blob": "c75d48cec52ced0a9d6b356465a9b3ffb7482159",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/health_test.py",
+      "git_blob": "b2bf653074e1ceaa1cd465c4f295e1b21ef29e9f",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/propagation_test.py",
+      "git_blob": "732007cb1f31118b6f4b7b4d7021cf9d7e4cf984",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/retry_base_test.py",
+      "git_blob": "1f69a8d776a8ed06d8ebc01d649afa0126c71ab8",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/retry_opt1_test.py",
+      "git_blob": "4faafb4054d9737b704a9cba3393744d57ee4f7e",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/retry_opt2_test.py",
+      "git_blob": "f410b3ff0259840fb6db931d3661e4f42e6430cb",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/download/unpack_test.py",
+      "git_blob": "6b1f451655a449fa47a52f2bd1bf2a13343fce9e",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/archive_stall_test.py",
+      "git_blob": "4a2731512da346f8068bc4aececd2b0f4c7742b5",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/generators.py",
+      "git_blob": "350937399485cf04bf9f2c23e5cf244f8faca9b1",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/harness.py",
+      "git_blob": "8d13e2445784a5178e6b00e57015947832682f0d",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/history_retry_test.py",
+      "git_blob": "06cca40f31cd8fb250185e0fb0ff8043cd8c16c7",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/par_first_test.py",
+      "git_blob": "4a117ac65535f79d5bcf81365f5c562507223a53",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/queue_format_test.py",
+      "git_blob": "0698f3a0075685db43d6df363dafd602a00da4a1",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/run-android.sh",
+      "git_blob": "0e01e8362227149beaf9f00baf82aca93c96af27",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "platform runner",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/run-linux-docker.sh",
+      "git_blob": "9b38065e6ac03f9b0e95bc783d7a8ae4e74720fd",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "platform runner",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/dupefallback/run-local.sh",
+      "git_blob": "d9bcda23a818bea0d3adfa73347563d0c28996ad",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "platform runner",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/editqueue/editqueue_move_test.py",
+      "git_blob": "541d9e614209f54e438d7c15206f7bb364fb664c",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/conftest.py",
+      "git_blob": "ae573c57fa7c5b0d14a4799f9fcbb761559cb8aa",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_base_test.py",
+      "git_blob": "b9ea12563ed4770535367394a2a8bfe9d55ff9ce",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt1_test.py",
+      "git_blob": "6effb69a7def149d3b8aa0029b86164c14fbd4f4",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt2_test.py",
+      "git_blob": "77b6c5de33b789a4a406cd6933b3d40ce1a0b3b9",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt3_test.py",
+      "git_blob": "169477fc5b838e78e617521d0e963d16e707b023",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt4_test.py",
+      "git_blob": "144c4b915873643f3eb7ed375ee6966127c807fc",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt5_test.py",
+      "git_blob": "8bfafabeb6669aa268e85882b0acaca774624d86",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt6_test.py",
+      "git_blob": "4a2b0987f02c2d07f767dfc150e40e641858dfc0",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/parcheck/parcheck_opt7_test.py",
+      "git_blob": "fa3afd632452ccca0ecb4537d0d2d98bf61aacff",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/conftest.py",
+      "git_blob": "701d24d2df4a36158c06efb3783d1adedc2accab",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_base_test.py",
+      "git_blob": "a93ea64408e5c0811c14dbdb6d5cb86322ed00bc",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_opt1_test.py",
+      "git_blob": "e54d62990bee825feae35e64d885f74679a4b1c3",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_opt2_test.py",
+      "git_blob": "81edf968806a33db60f98332a0d7f5886bb1939e",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_opt3_test.py",
+      "git_blob": "a6fbfe892ea2642b9919051329adceb96c87878e",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_opt4_test.py",
+      "git_blob": "95319c7d1a9af0f8325d8696eaa57121846816bf",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    },
+    {
+      "path": "tests/functional/rename/rename_opt5_test.py",
+      "git_blob": "660371b39589be240cdf4ac81698bfffaa365336",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
+      "disposition": "Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.",
+      "execution_status": "UNRUN in this inventory audit",
+      "source_role": "functional test, fixture provider or generator source",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+    }
+  ],
+  "functional_test_input_scope": "All40 checked-in tests/functional regular source entries at immutable audit7d, identical original4cf and reachable1be; includes exact9 dupefallback harness/generator/focused/platform inputs. Source selection and preservation only; no tests, daemon, Docker/ADB runner, provider/RPC or timings executed. Other test evidence and new complete-caller/Rust-route/equivalent-control qualification remain separately required."
 }
