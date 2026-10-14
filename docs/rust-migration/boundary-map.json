@@ -990,8 +990,8 @@
         {
           "execution_status": "UNRUN in this source audit",
           "git_blob": "6469c6f4da49df0625d6a00bee33a78ccd3ba160",
-          "limitations": "The Latin1 test uses the owned-buffer API; this does not qualify the current caller-owned _n boundary, C++ adapter or whole text caller.",
-          "operation_scope": "XmlDecode, XmlStripTags, XmlRemoveEntities, HttpUnquote, UrlDecode, UrlEncode and Latin1ToUtf8",
+          "limitations": "Source contains both owned-buffer and current bounded Latin1 _n/helper comparisons. These unrun source checks do not prove native execution, archive/compiler/ABI lineage, selected caller hit counts or whole text caller ownership/emission parity.",
+          "operation_scope": "XmlDecode, XmlStripTags, XmlRemoveEntities, HttpUnquote, UrlDecode, UrlEncode and Latin1ToUtf8; actual production byte/XML classifiers and caller-owned bounded Latin1 _n encoding through RustEncodedKnownResult, capacity/canary/measurement cases alongside the owned-buffer API",
           "path": "rust/tests/text_differential.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
         },
@@ -1020,7 +1020,7 @@
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
         }
       ],
-      "remaining_partial_check_gaps": "No listed driver establishes XML/JSON encode complete-caller parity, current Latin1 caller-owned _n wrapper/ABI parity, free/ownership/emission cleanup or retained C++ regex/locale/adapter bodies. Source unit tests and helper drivers do not replace new complete-operation checks.",
+      "remaining_partial_check_gaps": "No listed driver establishes executed XML/JSON encode complete-caller parity, selected-caller ownership/free/emission cleanup, native ABI/lineage or retained C++ regex/locale/adapter body replacement. Existing Latin1 _n/helper source checks remain indexed; source unit tests and partial drivers do not replace new complete-operation qualification.",
       "rust_paths": [
         "rust/src/escape.rs",
         "rust/src/decode.rs",
