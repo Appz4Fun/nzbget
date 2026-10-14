@@ -6328,6 +6328,17 @@
         ],
         "classification": "case-insensitive lexical code/build/link/package reference; comments and disabled branches may match",
         "retirement_contract": "Preserve test/oracle assertions and original evidence, translate them into independent Rust regressions, then retire C++ compiler/header/library coupling."
+      },
+      {
+        "path": "tests/CMakeLists.txt",
+        "git_blob": "da2cd1b5ac2302de14c9b7147338ded863457286",
+        "lines": [
+          1,
+          2,
+          25
+        ],
+        "classification": "case-insensitive lexical code/build/link/package reference; comments and disabled branches may match",
+        "retirement_contract": "Retire Boost header/target/link/package/fetch references only after required C++ caller/oracle contracts are translated and native consumer/build paths removed; preserve version/error/interface behavior."
       }
     ],
     "par2": [
@@ -6641,7 +6652,11 @@
     ],
     "pattern": "boost",
     "case_sensitive": false,
-    "scope": "lexical literal groups including headers/namespaces/macros/CMake targets/link arguments/source URLs/distro packages; comments/disabled branches can match; no transitive or compiled graph"
+    "scope": "lexical literal groups including headers/namespaces/macros/CMake targets/link arguments/source URLs/distro packages; comments/disabled branches can match; no transitive or compiled graph",
+    "special_basenames": [
+      "CMakeLists.txt"
+    ],
+    "special_basenames_role": "eligible at every depth within declared roots; includes native test target discovery/linkage"
   },
   "packaged_unpacker_inputs": [
     {
