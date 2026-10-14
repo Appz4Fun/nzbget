@@ -513,6 +513,24 @@ Every retained source below has an immutable identity in `source-inventory.json`
 - [ ] `rust/tests/webutil_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
 - [ ] `rust/tests/wildmask_differential.py` — emitted C++ source; preserve contracts and resolve C++ coupling before native retirement.
 
+## Packaged unpacker source and release inputs
+
+Each input is bound in `dependency-sources.json`. These rows track selected native assets/configuration and their required Rust retirement contracts; source presence is not package/image content or execution proof.
+
+- [ ] `docker/Dockerfile` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `docker/docker-compose.yml` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `linux/build-nzbget.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `linux/installer.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `linux/pkg/build-pkg.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `linux/pkg/deb/DEBIAN/control` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `linux/pkg/rpm/nzbget.spec` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `platforms/android/build.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `platforms/android/installer.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `platforms/macos/build.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `platforms/macos/sign/nzbget-sign.sh` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `platforms/windows/build.ps1` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+- [ ] `unpackers.env` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
+
 ## Build and dependency retirement
 
 - [ ] Replace optional Rust build selection and every C++ fallback with supported mandatory Rust builds on all supported targets.

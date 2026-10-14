@@ -17,7 +17,8 @@ import re
 import stat
 import subprocess
 
-VERSION = 1
+VERSION = 2
+INVENTORY_SCHEMA_VERSION = 1
 EXPORT_RE = re.compile(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(nzbget_rs_\w+)\s*\(')
 CPP_SYMBOL_RE = re.compile(r'\bnzbget_rs_\w+\s*(?=\()')
 INCLUDE_RE = re.compile(r'#\s*include\b')
@@ -151,6 +152,8 @@ def core_inventory(revision):
 
 def verify(path):
     inventory = json.loads(bounded_file(path))
+    schema = inventory.get('schema_version')
+    require(type(schema) is int and schema == INVENTORY_SCHEMA_VERSION, 'unsupported inventory schema version')
     derivation = inventory['derivation']
     require(type(derivation['parser_version']) is int and derivation['parser_version'] == VERSION, 'unsupported parser version')
     require(derivation['parser_path'] == 'docs/rust-migration/verify_inventory.py', 'unexpected parser path')

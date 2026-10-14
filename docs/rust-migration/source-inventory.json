@@ -2769,8 +2769,8 @@
     "capture_provenance": "Original core/supplemental derivation commands recovered retrospectively; current version preserves their rules and verifies exact output, without rewriting earlier evidence.",
     "invocation": "python3 docs/rust-migration/verify_inventory.py --inventory docs/rust-migration/source-inventory.json",
     "parser_path": "docs/rust-migration/verify_inventory.py",
-    "parser_sha256": "e00e7dabfc23142e7343db9458a5a9f6f0987ae2cd3b5761bfd335c5d2cbb5e6",
-    "parser_version": 1,
+    "parser_sha256": "d79e9e5327ba13a190d83fb14b655ab21897d66ae36fdefda939f9d661beea60",
+    "parser_version": 2,
     "scope": "reproduce all original lexical fields, source bindings and supplemental ABI/test file sets/classifications; manual boundary/dependency annotations require independent review",
     "working_directory": "repository root"
   },
