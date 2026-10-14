@@ -3478,6 +3478,11 @@ body.phone,
 	gap: var(--space-3);
 }
 
+/* Explanations and tables are full rows, rather than field-sized columns. */
+.modal .form-horizontal fieldset > :not(.control-group) {
+	grid-column: 1 / -1;
+}
+
 .modal .form-horizontal .control-group {
 	min-width: 0;
 	margin: 0;
@@ -3503,6 +3508,22 @@ body.phone,
 .modal .form-horizontal textarea {
 	box-sizing: border-box;
 	max-width: 100%;
+	min-height: var(--size-control-lg);
+}
+
+.modal .form-horizontal .input-append,
+.modal .form-horizontal .input-prepend {
+	display: inline-flex;
+	max-width: 100%;
+}
+
+.modal .form-horizontal .input-append > .add-on,
+.modal .form-horizontal .input-prepend > .add-on {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+	box-sizing: border-box;
+	height: auto;
 	min-height: var(--size-control-lg);
 }
 

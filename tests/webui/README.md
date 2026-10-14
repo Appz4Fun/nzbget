@@ -23,6 +23,18 @@ keyboard help disclosure, server Edit/Close, unsaved summary updates, adding,
 reordering, deleting and renumbering servers, search navigation, and the raw save
 payload after closing an editor.
 
+The dialog layout regression needs no daemon. It uses the same loopback-only
+target guard, fulfills committed assets locally, and omits automatic startup.
+Actual modal templates, styles, Bootstrap and the merge renderer/caller remain
+active; the merge RPC is intercepted. It checks full-width explanations and
+merge lists, the final entry, matching speed/unit edges, and retained field
+columns at 1280/768/390/320 pixels in both themes. Optional JPEGs use the same
+existing `NZBGET_UI_CAPTURE_DIR` convention.
+
+```sh
+node tests/webui/dialog-layout.js http://127.0.0.1:17689/
+```
+
 The locale check verifies the server health label exists in all 20 translated
 catalogs and renders translated summaries and help names in German, Spanish and
 Turkish.
