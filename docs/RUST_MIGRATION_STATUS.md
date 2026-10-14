@@ -579,13 +579,50 @@ Source-bound dispositions in `dependency-sources.json` cover all 31 checked-in C
 - [ ] `toolchains/android/android-llvm.cmake` — Replace C/C++/LLVM cross-tool/SDK/architecture selection with supported Rust target tooling; preserve documented supported platform/ABI/SDK deployment and linker/package behavior.
 - [ ] `toolchains/macos/macos-llvm.cmake` — Replace C/C++/LLVM cross-tool/SDK/architecture selection with supported Rust target tooling; preserve documented supported platform/ABI/SDK deployment and linker/package behavior.
 
+## Rust crate and toolchain inputs
+
+All three production Cargo/toolchain inputs have immutable bindings and individual pending dispositions in `dependency-sources.json`. Source declarations do not prove compiler availability, actual archive lineage or qualified native behavior.
+
+- [ ] `rust/Cargo.toml` — Preserve or deliberately replace crate/dependency features, staticlib/rlib exports, rust-version, release/dev panic, opt/LTO/codegen/debug settings and registered diagnostic benchmark targets. Prove selected target/profile/archive/ABI and native/transitive dependency closure; no kernel benchmark substitutes for caller qualification.
+- [ ] `rust/Cargo.lock` — Preserve independently bound locked resolution, versions/checksums and immutable Git dependency revisions; review any replacement lock and selected platform features/transitive native content. cargo --locked success does not prove C++-free or performance-qualified binaries.
+- [ ] `rust/rust-toolchain.toml` — Preserve or deliberately replace pinned compiler/channel/target/component selection and supported CMake Cargo/rustc compatibility, cross-platform availability and actual compiler identity. A toolchain source pin is not installed readiness or build lineage.
+
+## Shipped dependency disclosure assets
+
+Each source/generated asset and its generation/selection consumer is bound in `dependency-sources.json`. Both RapidYenc and PAR2-turbo retirement require reviewed retention or replacement notices and consistent generated/rendered localization.
+
+- [ ] `webui/index.html` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/locales.source.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/cs/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/da/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/de/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/el/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/es/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/fi/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/fr/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/hu/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/it/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/nb/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/nl/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/pl/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/pt-BR/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/pt-PT/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/ro/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/ru/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/sr/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/sv/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/tr/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/_locales/uk/messages.json` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `scripts/generate_locales.py` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+- [ ] `webui/i18n.js` — Preserve required notices/attribution and reconcile actual dependency names/licenses, heading/message/link arguments and generated/default/localized behavior before retiring either backend.
+
 ## Build and dependency retirement
 
 - [ ] Replace optional Rust build selection and every C++ fallback with supported mandatory Rust builds on all supported targets.
 - [ ] Replace C++ application CMake/source registration and C++ ABI adapters once their Rust owners exist.
 - [ ] Inventory third-party libraries and downloads in build scripts; record which dependencies still compile C++ and replace or eliminate them before claiming C++-free operation.
 - [ ] Replace RapidYenc's C++ decode/CRC/platform backend and remove its library and callbacks after full caller qualification.
-- [ ] Replace PAR2-turbo repair interfaces and inventory/retire its GF16/hasher nested native targets after qualification.
+- [ ] Replace PAR2-turbo repair interfaces and inventory/retire its GF16/hasher nested native targets after qualification; reconcile every shipped license/disclosure asset.
 - [ ] Replace runtime Boost JSON/Asio and carry Boost Test assertions into Rust before removing the C++ targets and test entry point.
 - [ ] Audit and retire or explicitly reconcile packaged unpacker executables against the complete Rust migration objective.
 - [ ] Retire checked-in C++ differential harnesses under `rust/tests` after preserving historical evidence and translating regression assertions into Rust.

@@ -17,7 +17,7 @@ import re
 import stat
 import subprocess
 
-VERSION = 2
+VERSION = 3
 INVENTORY_SCHEMA_VERSION = 1
 EXPORT_RE = re.compile(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(nzbget_rs_\w+)\s*\(')
 CPP_SYMBOL_RE = re.compile(r'\bnzbget_rs_\w+\s*(?=\()')
@@ -63,6 +63,7 @@ def git(*args, payload=None):
 
 def table(revision):
     require(re.fullmatch(r'[0-9a-f]{40}', revision) is not None, 'full immutable commit ID required')
+    require(git('cat-file', '-t', revision).decode().strip() == 'commit', 'source ID must name a commit object')
     entries = {}
     for raw in git('ls-tree', '-rlz', revision).split(b'\0'):
         if not raw:
@@ -160,6 +161,7 @@ def verify(path):
     require(derivation['parser_sha256'] == hashlib.sha256(bounded_file(Path(__file__))).hexdigest(), 'parser identity mismatch')
     revision = inventory['source_commit']
     require(isinstance(revision, str) and re.fullmatch(r'[0-9a-f]{40}', revision) is not None, 'full immutable source commit required')
+    require(git('cat-file', '-t', revision).decode().strip() == 'commit', 'source ID must name a commit object')
     require(git('rev-parse', revision + '^{tree}').decode().strip() == inventory['source_tree'], 'source tree mismatch')
     bindings, derived = core_inventory(revision)
     for key, value in derived.items():

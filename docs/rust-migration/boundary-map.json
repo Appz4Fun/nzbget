@@ -47,10 +47,33 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/deadpostings_cpp_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/deadpostings_cpp_differential.py",
+        "rust/tests/deadpostings_locale.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; UNRUN and partial, not whole caller/current lineage/compiled coverage/campaign qualification.",
       "lexical_rust_symbols": [
         "nzbget_rs_deadpostings_parse"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "d6e5d8483a7606c3ccbec116370ce82c675cbb41",
+          "limitations": "Generated caller subset; no prune/save/mutex/lifecycle or current archive/whole caller qualification.",
+          "operation_scope": "Extracted complete-record parser source comparison",
+          "path": "rust/tests/deadpostings_cpp_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "87ec8cff4133eaa4e196cc78997ce64d4ee54796",
+          "limitations": "Linux localedef/libc-specific source; locale availability/skip semantics and extracted harness are not executed supported-platform, full caller or current Rust preservation proof.",
+          "operation_scope": "Imports the C++ complete-record harness; all 256 leading bytes in timestamp/count fields across C/C.UTF-8/en_US.UTF-8 and isolated ISO-8859-1 LC_CTYPE with 0xA0 space",
+          "path": "rust/tests/deadpostings_locale.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
       "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
       "related_source_driver_candidates": [
         {
@@ -125,6 +148,11 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupeidentity_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/dupeidentity_differential.py",
+        "rust/tests/dupewatch_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; UNRUN and partial, not whole caller/current lineage/compiled coverage/campaign qualification.",
       "lexical_rust_symbols": [
         "nzbget_rs_dupe_candidate",
         "nzbget_rs_dupe_effective_alive",
@@ -141,6 +169,24 @@
       ],
       "non_rust_fallback_equivalence": "not equivalent for identity extraction/fetch/PAR decisions and conservative matching/health logic",
       "non_rust_feature_availability": "FromArticle/Read return empty identities; FetchArticle returns empty result; UnlistedMissing returns zero; ParDoomed returns false; health/matching paths use simplified legacy fallbacks",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "1a01aa136ce4144bd6e37e9b0a3593ab97b0dcb8",
+          "limitations": "Backend/Python source subsets; no equivalent C++ identity/fetch/PAR stub control or whole caller/transport proof.",
+          "operation_scope": "Inner identity and same-data source comparisons",
+          "path": "rust/tests/dupeidentity_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "ed9bf04808f66f36b7da9f2f31d63b64daefa97a",
+          "limitations": "Direct Rust module/backend with Python mathematical oracle, not actual C++ health/PAR caller, equivalent omitted native feature control, production archive/ABI or campaign performance proof.",
+          "operation_scope": "W/U/E/D fixtures for whole_bytes, unlisted_missing, effective_alive and par_doomed; also part-count and weighted-alive helper cases",
+          "path": "rust/tests/dupewatch_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
       "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
       "related_source_driver_candidates": [],
       "rust_paths": [
@@ -2097,7 +2143,7 @@
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",
-  "source_inventory_blob": "a9c91a2e49f90d01146f3e6636e2d2229bcf6345",
+  "source_inventory_blob": "77c5e27a49501952038b4de6683db52dc6be0a11",
   "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }

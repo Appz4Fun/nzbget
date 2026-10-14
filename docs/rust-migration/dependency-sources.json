@@ -155,7 +155,33 @@
     "tests/systemhealth/systemhealth.cmake": "84d6b2a3bf2b4464d1a2fc70c976c5d56d829b72",
     "tests/util/util.cmake": "6ee133d142cd01c9084d53690d582df1e5ca8630",
     "toolchains/android/android-llvm.cmake": "1d321926af5e344febb67c8ca931160743881ba3",
-    "toolchains/macos/macos-llvm.cmake": "6b4247b54c51dd043c3056c991bcd96244543195"
+    "toolchains/macos/macos-llvm.cmake": "6b4247b54c51dd043c3056c991bcd96244543195",
+    "rust/Cargo.lock": "52bf5a62339d8102416bbf4830894b42f6f5cc3e",
+    "rust/rust-toolchain.toml": "b6cff89e61d4d3bd3d8fbfd302f49a3e3a9dc211",
+    "webui/index.html": "b7972e5f371ab23cc1e90aaa736e44bf09195b9c",
+    "webui/locales.source.json": "40e8ccfd0da1550616c0248a3cf2b2d26ee47815",
+    "webui/_locales/cs/messages.json": "6797e3d8e4803e7191d402d08df9d72cb10f6d2c",
+    "webui/_locales/da/messages.json": "8cee5c37d1729318a891b4b238c7384455f83746",
+    "webui/_locales/de/messages.json": "c8cd09df7e59203ac25885e6d8ff8cfcf7fbc907",
+    "webui/_locales/el/messages.json": "6753922a072075723d7236650a4bf5b3f64844d3",
+    "webui/_locales/es/messages.json": "d122e52641df83e1766712159e78ee798d4aec65",
+    "webui/_locales/fi/messages.json": "93d32af16bf42fa586cfe0a046c98a63ab69c8ba",
+    "webui/_locales/fr/messages.json": "dd497a55194a5f6ecf3fe83e4b74d52304ed189e",
+    "webui/_locales/hu/messages.json": "7d898e57aa2941875ba4ad0fa4c2a8b3dde457d7",
+    "webui/_locales/it/messages.json": "d45e36e626508f268e35a50b50eaec0f647f8401",
+    "webui/_locales/nb/messages.json": "2750af64be6ae6cba9479410a097c1b13975658c",
+    "webui/_locales/nl/messages.json": "8a06ff28d35aabc2f8214a4bc35c37d729402ee6",
+    "webui/_locales/pl/messages.json": "cfe0b3fa3c6b9845d954438f4c907cc1289f9514",
+    "webui/_locales/pt-BR/messages.json": "217742e9a4d4b1a5384497a2dbec7faaa887beb1",
+    "webui/_locales/pt-PT/messages.json": "1dc081217bd28b69ebe78a3c771c6829b9f79a89",
+    "webui/_locales/ro/messages.json": "62c13a2825d53ce72ec9020e12ead09af5060102",
+    "webui/_locales/ru/messages.json": "3b5fe07691e7aeb870e339b9d92b860f2b181604",
+    "webui/_locales/sr/messages.json": "316742c9f1f8a82ab0101bae90b33ea9d57136d4",
+    "webui/_locales/sv/messages.json": "b2e4fea4c86ce859b4023fcd977d39addfee04ee",
+    "webui/_locales/tr/messages.json": "b767432c68a84d681819c8b1ca23b2e7deb8e501",
+    "webui/_locales/uk/messages.json": "61cde1949609ff8a2c8c1911e44ca0e96c777892",
+    "scripts/generate_locales.py": "bd6d26b91e582f325bec93e23588b8827a81ab03",
+    "webui/i18n.js": "ee066ca0e192603500c0169f732c30002d5909af"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -7504,5 +7530,224 @@
     "paths": "all tracked rust/tests/**/*.py",
     "pattern": "case-insensitive literal rapidyenc, rapid_yenc or rapid-yenc",
     "scope": "explicit source references, including generated calls and include/archive flags; does not resolve implicit nzbget.h/libnzbget transitive consumers or prove build selection"
-  }
+  },
+  "rust_build_inputs": [
+    {
+      "path": "rust/Cargo.toml",
+      "git_blob": "741a75a870e9e998a7572f2539e87c88ddaa672e",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or deliberately replace crate/dependency features, staticlib/rlib exports, rust-version, release/dev panic, opt/LTO/codegen/debug settings and registered diagnostic benchmark targets. Prove selected target/profile/archive/ABI and native/transitive dependency closure; no kernel benchmark substitutes for caller qualification.",
+      "retirement_status": "pending; source input only, no build/ABI/performance/retirement proof"
+    },
+    {
+      "path": "rust/Cargo.lock",
+      "git_blob": "52bf5a62339d8102416bbf4830894b42f6f5cc3e",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve independently bound locked resolution, versions/checksums and immutable Git dependency revisions; review any replacement lock and selected platform features/transitive native content. cargo --locked success does not prove C++-free or performance-qualified binaries.",
+      "retirement_status": "pending; source input only, no build/ABI/performance/retirement proof"
+    },
+    {
+      "path": "rust/rust-toolchain.toml",
+      "git_blob": "b6cff89e61d4d3bd3d8fbfd302f49a3e3a9dc211",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or deliberately replace pinned compiler/channel/target/component selection and supported CMake Cargo/rustc compatibility, cross-platform availability and actual compiler identity. A toolchain source pin is not installed readiness or build lineage.",
+      "retirement_status": "pending; source input only, no build/ABI/performance/retirement proof"
+    }
+  ],
+  "rust_build_input_scope": "Three checked-in production crate manifest/lock/toolchain inputs consumed by cmake/rust.cmake; effective flags/environment/features, fetched dependencies, native linking and executed archive lineage remain separate.",
+  "webui_dependency_disclosures": [
+    {
+      "path": "webui/index.html",
+      "git_blob": "b7972e5f371ab23cc1e90aaa736e44bf09195b9c",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "license UI HTML heading/key",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/locales.source.json",
+      "git_blob": "40e8ccfd0da1550616c0248a3cf2b2d26ee47815",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "canonical default-language license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/cs/messages.json",
+      "git_blob": "6797e3d8e4803e7191d402d08df9d72cb10f6d2c",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/da/messages.json",
+      "git_blob": "8cee5c37d1729318a891b4b238c7384455f83746",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/de/messages.json",
+      "git_blob": "c8cd09df7e59203ac25885e6d8ff8cfcf7fbc907",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/el/messages.json",
+      "git_blob": "6753922a072075723d7236650a4bf5b3f64844d3",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/es/messages.json",
+      "git_blob": "d122e52641df83e1766712159e78ee798d4aec65",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/fi/messages.json",
+      "git_blob": "93d32af16bf42fa586cfe0a046c98a63ab69c8ba",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/fr/messages.json",
+      "git_blob": "dd497a55194a5f6ecf3fe83e4b74d52304ed189e",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/hu/messages.json",
+      "git_blob": "7d898e57aa2941875ba4ad0fa4c2a8b3dde457d7",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/it/messages.json",
+      "git_blob": "d45e36e626508f268e35a50b50eaec0f647f8401",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/nb/messages.json",
+      "git_blob": "2750af64be6ae6cba9479410a097c1b13975658c",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/nl/messages.json",
+      "git_blob": "8a06ff28d35aabc2f8214a4bc35c37d729402ee6",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/pl/messages.json",
+      "git_blob": "cfe0b3fa3c6b9845d954438f4c907cc1289f9514",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/pt-BR/messages.json",
+      "git_blob": "217742e9a4d4b1a5384497a2dbec7faaa887beb1",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/pt-PT/messages.json",
+      "git_blob": "1dc081217bd28b69ebe78a3c771c6829b9f79a89",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/ro/messages.json",
+      "git_blob": "62c13a2825d53ce72ec9020e12ead09af5060102",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/ru/messages.json",
+      "git_blob": "3b5fe07691e7aeb870e339b9d92b860f2b181604",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/sr/messages.json",
+      "git_blob": "316742c9f1f8a82ab0101bae90b33ea9d57136d4",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/sv/messages.json",
+      "git_blob": "b2e4fea4c86ce859b4023fcd977d39addfee04ee",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/tr/messages.json",
+      "git_blob": "b767432c68a84d681819c8b1ca23b2e7deb8e501",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/_locales/uk/messages.json",
+      "git_blob": "61cde1949609ff8a2c8c1911e44ca0e96c777892",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "generated localized license message",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "scripts/generate_locales.py",
+      "git_blob": "bd6d26b91e582f325bec93e23588b8827a81ab03",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "locale generation/selection consumer",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    },
+    {
+      "path": "webui/i18n.js",
+      "git_blob": "ee066ca0e192603500c0169f732c30002d5909af",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "role": "locale generation/selection consumer",
+      "disposition": "Preserve required dependency/license/attribution and localization behavior; when retiring RapidYenc or PAR2-turbo, explicitly update heading, canonical license_desc_par2 message and every generated locale to describe actual retained/replacement dependencies with reviewed licenses. Regenerate translations with preserved keys/arguments/links and verify rendered default/localized UI; do not silently drop required notices or leave stale dependency claims.",
+      "retirement_status": "pending; source-bound assets only, no generation/render/deployment or license replacement qualification"
+    }
+  ],
+  "webui_dependency_disclosure_scope": "Both native dependency retirements require shipped license UI reconciliation: heading/data-i18n key, canonical source, all 20 checked-in generated locale messages, generator and runtime locale selector. Actual shipped package assets/transitive notices and rendered default/localized behavior require separate verification."
 }
