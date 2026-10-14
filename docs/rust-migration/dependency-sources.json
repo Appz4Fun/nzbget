@@ -8359,7 +8359,7 @@
       "bytes": 1348,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8370,7 +8370,7 @@
       "bytes": 1961,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8381,7 +8381,7 @@
       "bytes": 478,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8392,7 +8392,7 @@
       "bytes": 311,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8403,7 +8403,7 @@
       "bytes": 1489,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8414,7 +8414,7 @@
       "bytes": 5356,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8425,7 +8425,7 @@
       "bytes": 1515,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8436,7 +8436,7 @@
       "bytes": 805,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     },
     {
@@ -8447,7 +8447,7 @@
       "bytes": 2108,
       "input_entry_type": "regular tracked blob",
       "role": "Snap or Flatpak release/build/launcher/desktop/document input",
-      "disposition": "Replace or explicitly reconcile Snap/Flatpak installer download/staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect actual downloaded installer/package contents and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
+      "disposition": "Replace or explicitly reconcile Snap explicit installer download or Flatpak supplied/local installer selection and staging and runtime payload with exact qualified Rust artifacts; preserve architecture/version/source/channel selection, sandbox/runtime permissions, command/launcher/desktop/metainfo/icons/config/install/upgrade and user data contracts. Bind and inspect the actual selected installer/package contents and source-selection provenance and required licenses; metadata or upstream .run names do not prove Rust-only or fresh build lineage.",
       "retirement_status": "pending source-bound input; no build, target closure, package, license, supported-platform or native qualification"
     }
   ],
