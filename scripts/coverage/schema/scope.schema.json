@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet supplied coverage scope v1",
+  "$comment": "Structural validation and source-byte matching do not authenticate execution, activation, review or binary/profile lineage. All producer/configuration identities are unverified assertions. Exclusions cannot remove expected production or caller files. Runtime code additionally checks actual file hashes, descriptor aliases, export mapping completeness and positive matched function records. The >70% target is advisory and independent of native speed qualification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scope_id",
+    "source_files",
+    "caller_files",
+    "capture",
+    "required_boundaries",
+    "exclusions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "scope_id": {
+      "$ref": "#/$defs/text"
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/replacement"
+      }
+    },
+    "caller_files": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variant",
+        "mode",
+        "production_only",
+        "test_cfg_enabled",
+        "completion",
+        "export_sha256",
+        "binary_sha256",
+        "profile_sha256"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "production_caller",
+            "unit_diagnostic"
+          ]
+        },
+        "production_only": {
+          "type": "boolean"
+        },
+        "test_cfg_enabled": {
+          "type": "boolean"
+        },
+        "completion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "exit_code"
+          ],
+          "properties": {
+            "state": {
+              "const": "EXITED"
+            },
+            "exit_code": {
+              "type": "integer",
+              "const": 0
+            }
+          }
+        },
+        "export_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "binary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "variant": {
+          "enum": [
+            "rust_candidate",
+            "rust_current"
+          ]
+        }
+      }
+    },
+    "required_boundaries": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rust_file",
+          "rust_function",
+          "caller_file",
+          "caller_function"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/text"
+          },
+          "rust_file": {
+            "$ref": "#/$defs/path"
+          },
+          "rust_function": {
+            "$ref": "#/$defs/text"
+          },
+          "caller_file": {
+            "$ref": "#/$defs/path"
+          },
+          "caller_function": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "exclusions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "kind",
+          "reason",
+          "review_sha256"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/path"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "kind": {
+            "enum": [
+              "test",
+              "benchmark",
+              "example",
+              "dependency",
+              "generated_nonproduction"
+            ]
+          },
+          "reason": {
+            "$ref": "#/$defs/text"
+          },
+          "review_sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "capture": {
+            "properties": {
+              "mode": {
+                "const": "production_caller"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "capture": {
+            "properties": {
+              "production_only": {
+                "const": true
+              },
+              "test_cfg_enabled": {
+                "const": false
+              }
+            }
+          },
+          "caller_files": {
+            "minItems": 1
+          },
+          "required_boundaries": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\u0000-\u001f\u007f]+$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\u0000-\u001f\u007f]+(?:/[^/\u0000-\u001f\u007f]+)*$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "replacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "cpp_origin",
+        "production_symbols",
+        "activation_predicate",
+        "applicability"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cpp_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "symbols",
+            "sha256",
+            "applicability"
+          ],
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/path"
+            },
+            "symbols": {
+              "$ref": "#/$defs/symbols"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "applicability": {
+              "const": "baseline_metadata_only"
+            }
+          }
+        },
+        "production_symbols": {
+          "$ref": "#/$defs/symbols"
+        },
+        "activation_predicate": {
+          "$ref": "#/$defs/text"
+        },
+        "applicability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "variant",
+            "kind",
+            "boundary_ids",
+            "review_sha256",
+            "source_sha256"
+          ],
+          "properties": {
+            "variant": {
+              "enum": [
+                "rust_candidate",
+                "rust_current"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "direct_boundary",
+                "helper"
+              ]
+            },
+            "boundary_ids": {
+              "$ref": "#/$defs/symbols"
+            },
+            "review_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "source_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    }
+  }
+}
