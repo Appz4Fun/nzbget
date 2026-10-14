@@ -298,7 +298,19 @@
     "toolchains/android/setup-android-toolchain.sh": "02f818facb25f7a526aec3ec4383b0df54697513",
     "toolchains/macos/build-libcxx.sh": "6d73a2dcaa60c5fc9cfc93aae46ab7ad513d8fe1",
     "cmake/config.h.in": "1ef21843155437b83bf899b52bec25c15d7689af",
-    "COPYING": "ecbc0593737be657aef92e3adcf3bcbd6fdb812e"
+    "COPYING": "ecbc0593737be657aef92e3adcf3bcbd6fdb812e",
+    "docs/POSIX.md": "65d635b27c93adfb1163e3a5d1dfabc055f481a0",
+    "docs/WINDOWS.md": "59113841e3831efcdf7f683f0782b3af9d73ae07",
+    "docs/MACOS.md": "0e1f852863872f98835d7c2f864c6011f1193144",
+    "docs/ANDROID.md": "beea6e795f25f53207ddfb403baf6a6616a5993d",
+    "site/content/install.md": "54394d2f43c617fdd2c3bbd9e3b8a6866611fe35",
+    "README.md": "a737e05b7873883ea2676645c8688aa968ab8b5b",
+    "INSTALLATION.md": "7a708fd7a1e599619f7af032580a71633cc37ad7",
+    "docs/CONTRIBUTING.md": "483997fb8c0b4251b6eb159c2bcfa78ebbf5e912",
+    "site/content/contributing.md": "4b85fa64cb8af7b65fb2739394ebef19476d7997",
+    "site/content/rust-port.md": "6e70c2d275f9afd0b002a7d1ee1ffca261c31a4a",
+    "site/content/performance.md": "4a057f26f2df7694a5b2c5a6ec7121e542c3ec67",
+    "docs/PERFORMANCE.md": "b516347b52a8b82787b196866860656fec7ce81e"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -10070,5 +10082,92 @@
     "provenance": "Exact scope recovered retrospectively from preserved source audit checker; not relabeled as prospectively captured original generation. Original twelve result groups are unchanged.",
     "recovered_checker_sha256": "e0dd7f0eab546bd80da576183c36c5e72a7eeae2962e7506ea3a57b9b47461de",
     "limitations": "Case-sensitive scoped lexical references only; excludes CMake/package/disclosure text and transitive/compiled graph. Separate source-bound dependency/build/package/disclosure tables cover their declared inputs; no runtime/ABI/native qualification."
-  }
+  },
+  "build_guide_inputs": [
+    {
+      "path": "docs/POSIX.md",
+      "git_blob": "65d635b27c93adfb1163e3a5d1dfabc055f481a0",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "docs/WINDOWS.md",
+      "git_blob": "59113841e3831efcdf7f683f0782b3af9d73ae07",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "docs/MACOS.md",
+      "git_blob": "0e1f852863872f98835d7c2f864c6011f1193144",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "docs/ANDROID.md",
+      "git_blob": "beea6e795f25f53207ddfb403baf6a6616a5993d",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "site/content/install.md",
+      "git_blob": "54394d2f43c617fdd2c3bbd9e3b8a6866611fe35",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "README.md",
+      "git_blob": "a737e05b7873883ea2676645c8688aa968ab8b5b",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "INSTALLATION.md",
+      "git_blob": "7a708fd7a1e599619f7af032580a71633cc37ad7",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "docs/CONTRIBUTING.md",
+      "git_blob": "483997fb8c0b4251b6eb159c2bcfa78ebbf5e912",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "site/content/contributing.md",
+      "git_blob": "4b85fa64cb8af7b65fb2739394ebef19476d7997",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "site/content/rust-port.md",
+      "git_blob": "6e70c2d275f9afd0b002a7d1ee1ffca261c31a4a",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "site/content/performance.md",
+      "git_blob": "4a057f26f2df7694a5b2c5a6ec7121e542c3ec67",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    },
+    {
+      "path": "docs/PERFORMANCE.md",
+      "git_blob": "b516347b52a8b82787b196866860656fec7ce81e",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or update supported build/install/contribution/performance documentation and published site source to match qualified mandatory Rust targets and actual retained dependencies, compiler/toolchain/version/features/platforms/commands/link flags/presets/packages/ABI and config/upgrade contracts. Remove obsolete C++/Boost/native instructions and unsupported equivalence or speed claims only with source-bound replacement evidence. Verify links and generated publication separately; source documentation is not an executed build or deployed site.",
+      "retirement_status": "pending source-bound guide; no prose/site build/publication, platform or performance qualification"
+    }
+  ],
+  "build_guide_scope": "Current four platform build guides and published install source plus root installation/README, contributor and Rust/performance guides. Other docs/site/API/generated assets and actual published outputs require final source/link/content reconciliation; guide bindings are a snapshot at reachable local_blob_source_commit, not live publication proof."
 }

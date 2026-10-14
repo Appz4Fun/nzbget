@@ -9,6 +9,7 @@ Manual boundary/dependency annotations require separate source review.
 """
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ import re
 import stat
 import subprocess
 
-VERSION = 3
+VERSION = 4
 INVENTORY_SCHEMA_VERSION = 1
 EXPORT_RE = re.compile(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(nzbget_rs_\w+)\s*\(')
 CPP_SYMBOL_RE = re.compile(r'\bnzbget_rs_\w+\s*(?=\()')
@@ -38,8 +39,22 @@ def same_json(left, right):
 
 
 def bounded_file(path, limit=4 * 1024 * 1024):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
+    path = Path(path)
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    require(bool(parts) and len(parts) <= 256, 'bounded file path required')
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+    # Pin each directory object; O_NOFOLLOW on the final file alone does not
+    # prevent an ancestor symlink from redirecting the input or parser path.
+    with ExitStack() as descriptors:
+        parent = os.open('/' if path.is_absolute() else '.', directory_flags)
+        descriptors.callback(os.close, parent)
+        require(stat.S_ISDIR(os.fstat(parent).st_mode), 'directory input required')
+        for component in parts[:-1]:
+            parent = os.open(component, directory_flags, dir_fd=parent)
+            descriptors.callback(os.close, parent)
+            require(stat.S_ISDIR(os.fstat(parent).st_mode), 'directory input required')
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        descriptors.callback(os.close, fd)
         before = os.fstat(fd)
         require(stat.S_ISREG(before.st_mode) and before.st_size <= limit, 'bounded regular input required')
         chunks, remaining = [], before.st_size
@@ -53,8 +68,6 @@ def bounded_file(path, limit=4 * 1024 * 1024):
         fields = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
         require(fields(before) == fields(after), 'input changed during read')
         return b''.join(chunks)
-    finally:
-        os.close(fd)
 
 
 def git(*args, payload=None):
@@ -194,12 +207,17 @@ def verify(path):
         classification = ('emitted C++ source' if include else 'C++-related driver candidate' if build
                           else 'analysis/orchestration source; transitive C++ dependency review pending')
         require(same_json([row['cpp_include_literal'], row['cpp_build_or_artifact_literal'], row['classification']], [include, build, classification]), 'Python classification mismatch')
-    for key, count in [('rust_cpp_test_harness_files', sum(p.endswith('.cpp') for p in cpp_paths)),
-                       ('rust_cpp_test_include_fragments', sum(p.endswith('.inc') for p in cpp_paths)),
-                       ('rust_test_python_drivers', len(py_paths)), ('rust_public_abi_headers', len(abi_paths))]:
-        require(same_json(inventory['summary'][key], count), 'supplemental count mismatch: ' + key)
+    expected_summary = dict(derived['summary'])
+    expected_summary.update({
+        'rust_cpp_test_harness_files': sum(p.endswith('.cpp') for p in cpp_paths),
+        'rust_cpp_test_include_fragments': sum(p.endswith('.inc') for p in cpp_paths),
+        'rust_test_python_drivers': len(py_paths),
+        'rust_public_abi_headers': len(abi_paths),
+    })
+    require(type(inventory['summary']) is dict and same_json(inventory['summary'], expected_summary),
+            'summary key set/type/count mismatch')
     return {'result': 'VERIFIED_LEXICAL_INVENTORY_ONLY', 'parser_version': VERSION,
-            'source_commit': revision, 'summary': inventory['summary'], 'source_bindings': len(bindings),
+            'source_commit': revision, 'summary': expected_summary, 'source_bindings': len(bindings),
             'limitations': 'No transitive graph, native build, compiled coverage, parity, speed or deletion proof.'}
 
 

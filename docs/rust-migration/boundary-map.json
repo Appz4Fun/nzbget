@@ -2143,7 +2143,7 @@
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",
-  "source_inventory_blob": "77c5e27a49501952038b4de6683db52dc6be0a11",
+  "source_inventory_blob": "48a3ddbbe7271efa17bd5e8e4e41da0b7da51dfd",
   "source_inventory_path": "docs/rust-migration/source-inventory.json",
   "source_tree": "e6d29b14b9eee1e7400118ac64767030233bd1e0"
 }
