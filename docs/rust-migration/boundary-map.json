@@ -829,6 +829,11 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/fsops_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/fsops_differential.py",
+        "rust/tests/fsdelete_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only. Listed drivers are unrun, use historical/control subsets and do not cover the entire deletion unit or establish current lineage, route hits or speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_delete_directory",
         "nzbget_rs_delete_directory_with_content",
@@ -847,6 +852,24 @@
         "nzbget_rs_reserved_char"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "88e82286dd72a777636c987deab28d743d4c9e74",
+          "limitations": "Driver deliberately uses the fixed GetLastErrorMessage in all variants; independent original error-contract/caller and native target review remains pending.",
+          "operation_scope": "FileExists, DirectoryExists, ForceDirectories, MakeUniqueFilename and ExpandHomePath; results/errors/tree under source-selected POSIX conditions",
+          "path": "rust/tests/fsops_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "178dd31689f739a50db1aad08bf5e187017eeaad",
+          "limitations": "Partial helper/wrapper comparisons; actual full filesystem caller, Windows route, current build lineage and current-source oracle execution remain unproven.",
+          "operation_scope": "DeleteDirectory, DeleteDirectoryWithContent, RenameBak and GetFileExtension; symlink containment, failures/error text/errno, resulting tree/link modes and outside tree",
+          "path": "rust/tests/fsdelete_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
       "rust_paths": [
         "rust/src/fsops.rs",
         "rust/src/fsdelete.rs",
@@ -886,6 +909,17 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/textutil_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/textutil_differential.py",
+        "rust/tests/crc_differential.py",
+        "rust/tests/decode_differential.py",
+        "rust/tests/url_differential.py",
+        "rust/tests/text_differential.py",
+        "rust/tests/webutil_differential.py",
+        "rust/tests/wildmask_differential.py",
+        "rust/tests/util_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only. Listed drivers are unrun, use historical/control subsets and do not cover the entire deletion unit or establish current lineage, route hits or speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_alpha_num",
         "nzbget_rs_content_disposition_filename",
@@ -920,6 +954,73 @@
         "nzbget_rs_xml_strip_tags"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "5629d9cd46ca0f7315a63f559daf47ee0443e06a",
+          "limitations": "Generated stand-in pre-port/fallback classes; sanitizer/date/locale variants have explicit source limits. Real emission/caller and current-source execution remain pending.",
+          "operation_scope": "SplitCommandLine, TrimRight/TrimLeft/Trim, SanitizeLine, EndsWith, FormatBuffer and ParseRfc822DateTime",
+          "path": "rust/tests/textutil_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "509e6bec24fda6bd5aad1538c66b1a671e5bb33e",
+          "limitations": "Kernel comparison and embedded timing are not complete-caller qualification or fair optimized-C++ >=2x proof; no script run by this audit.",
+          "operation_scope": "Crc32::Combine against pre-port GF(2) matrix C++",
+          "path": "rust/tests/crc_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "fedefc5279a48784ec9cdb60247782d7a8c14402",
+          "limitations": "Selected decoder boundaries; source sanitizer/large-mapping options are not Rust archive instrumentation, current execution or native cross-target proof.",
+          "operation_scope": "DecodeBase64, JsonDecode and JsonNextValue",
+          "path": "rust/tests/decode_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "93a26a62695e9f1f4101dabb0c9006a002328d51",
+          "limitations": "Selected parser adapter/locale/char-signedness cases; complete owning caller and actual current binary lineage remain pending.",
+          "operation_scope": "URL::ParseUrl field results including validity/protocol/user/password/host/resource/port",
+          "path": "rust/tests/url_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "6469c6f4da49df0625d6a00bee33a78ccd3ba160",
+          "limitations": "The Latin1 test uses the owned-buffer API; this does not qualify the current caller-owned _n boundary, C++ adapter or whole text caller.",
+          "operation_scope": "XmlDecode, XmlStripTags, XmlRemoveEntities, HttpUnquote, UrlDecode, UrlEncode and Latin1ToUtf8",
+          "path": "rust/tests/text_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "f5d89a4f0e4e5723c10469347cff10c8f2580de7",
+          "limitations": "Selected helpers/locale conditions; native response/header/ownership/emission callers remain pending.",
+          "operation_scope": "XmlFindTag, JsonFindField and ParseContentDispositionFilename",
+          "path": "rust/tests/webutil_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "3a5254f4a7c4f09016f50c2436f1e048a771dacd",
+          "limitations": "Selected real/legacy wrapper source plus locale cases; no compiler/sanitizer/locale readiness or actual execution proved.",
+          "operation_scope": "WildMask result and capture lists against pre-port C++",
+          "path": "rust/tests/wildmask_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "8738f041a53287425565d22060c33ac6332895e1",
+          "limitations": "Selected helpers; locale/sanitizer/char variants do not qualify remaining utility bodies or native output paths.",
+          "operation_scope": "FormatSize, FormatSpeed, AlphaNum, HashBJ96, ReduceStr and MatchFileExt with Tokenizer/WildMask",
+          "path": "rust/tests/util_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "remaining_partial_check_gaps": "No listed driver establishes XML/JSON encode complete-caller parity, current Latin1 caller-owned _n wrapper/ABI parity, free/ownership/emission cleanup or retained C++ regex/locale/adapter bodies. Source unit tests and helper drivers do not replace new complete-operation checks.",
       "rust_paths": [
         "rust/src/escape.rs",
         "rust/src/decode.rs",

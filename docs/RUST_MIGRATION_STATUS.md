@@ -531,6 +531,18 @@ Each input is bound in `dependency-sources.json`. These rows track selected nati
 - [ ] `platforms/windows/build.ps1` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
 - [ ] `unpackers.env` — replace native unpacker packaging/recommendations/configuration while preserving supported extraction, error, license and target contracts.
 
+- [ ] `nzbget.conf` — migrate shipped extractor defaults and config upgrade/stream-repair command contracts with qualified Rust extraction owners; preserve user overrides.
+
+## Windows installer, resource and update inputs
+
+- [ ] `platforms/windows/nzbget-setup.nsi` — retain installer language/assets or replace installer owner with Rust-compatible packaging; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/version.nsi.in` — retain generated installer version metadata through replacement build; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/version-uninstall.nsi.in` — retain generated uninstall registry version through replacement build; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/resources/nzbget.rc` — retain menu/dialog/icon assets and resource identifiers; replace native controller/build integration; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/resources/version.rc.in` — retain executable version resources through replacement build; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/install-update.bat` — retain or replace updater with the same lifecycle and authenticity contract; preserve the source-bound lifecycle/resource contract before completion.
+- [ ] `platforms/windows/nzbget-command-shell.bat` — retain or replace Windows command-shell convenience entrypoint; preserve the source-bound lifecycle/resource contract before completion.
+
 ## Build and dependency retirement
 
 - [ ] Replace optional Rust build selection and every C++ fallback with supported mandatory Rust builds on all supported targets.

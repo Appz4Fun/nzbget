@@ -124,7 +124,15 @@
     "rust/tests/scheduler_differential.py": "563e3d41bdd8f5d79728f2df63803e7740a58a61",
     "rust/tests/textutil_differential.py": "5629d9cd46ca0f7315a63f559daf47ee0443e06a",
     "rust/tests/urlcoord_differential.py": "b0744f1e2608ad93241b04ca1037b282ca04c95a",
-    "unpackers.env": "86038eb491250334a66a225393b277ae8010531e"
+    "unpackers.env": "86038eb491250334a66a225393b277ae8010531e",
+    "nzbget.conf": "c18adb630c8546a938697246fdd14c4faaf8562d",
+    "platforms/windows/nzbget-setup.nsi": "faf0ebada55e750cfb1b2868349b8c3d52a989de",
+    "platforms/windows/version.nsi.in": "2732fc0cb2dc8cec9cefa5fe877ae93b0043cb1d",
+    "platforms/windows/version-uninstall.nsi.in": "1558a3f4778d086320bcbcc97b8f67da59198205",
+    "platforms/windows/resources/nzbget.rc": "fa71c96485eac7ebc113558d20c4f9c2383137cc",
+    "platforms/windows/resources/version.rc.in": "9a5838b8e82fd9d24b715318b78fea4b0838a023",
+    "platforms/windows/install-update.bat": "ff3866e2540ae21451b9c2982a0f7af41667ea52",
+    "platforms/windows/nzbget-command-shell.bat": "8da6311932f3834c7b6c272443c6a6962403e9ab"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -6606,8 +6614,8 @@
   "dependency_reference_scan_scope": "Boost uses the separately declared expanded case-insensitive code/build/link/package scan; PAR2 retains its original declared case-sensitive scoped source scan. Neither is a transitive or compiled graph.",
   "subject_feature_commit_role": "historical collection checkout; not required or assumed available in single-head reviewed history",
   "historical_subject_feature_availability": "not reachable from the canonical reviewed ancestry; earlier signed working history is preserved separately",
-  "local_blob_source_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
-  "local_blob_source_role": "reachable ancestor supplying every local source blob in this record; verified independently of historical collection subject",
+  "local_blob_source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+  "local_blob_source_role": "reachable ancestor supplying every local source blob in this record; independently verified; historical collection subjects remain descriptive",
   "boost_reference_scan": {
     "source_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54",
     "roots": [
@@ -6950,6 +6958,21 @@
       ],
       "disposition": "Preserve supported extraction/config/installer/license/architecture behavior; replace packaged or recommended native unpackers with qualified Rust owners and audit selected source/binary/transitive contents before C++-free release claim. Packaging reference removal alone is incomplete.",
       "artifact_language_and_hash_audit": "pending; source/reference presence is not downloaded package/image content proof"
+    },
+    {
+      "path": "nzbget.conf",
+      "git_blob": "c18adb630c8546a938697246fdd14c4faaf8562d",
+      "reference_lines": [
+        867,
+        895,
+        932,
+        950,
+        1910,
+        1916,
+        1920
+      ],
+      "disposition": "Preserve config option names, PATH/full executable resolution, extra switches/password/output semantics and opt-in stream-repair decompression of temporary donor archives; move shipped UnrarCmd/SevenZipCmd defaults and documented command contracts to qualified Rust extraction owners before removing native executables. Update installation/config upgrade behavior without clobbering user overrides. Removing binaries while retaining native defaults is incomplete.",
+      "artifact_language_and_hash_audit": "pending; config binding does not qualify extractor bytes/errors/crypto or release package selection"
     }
   ],
   "packaged_unpacker_versions": {
@@ -7090,5 +7113,119 @@
     }
   ],
   "local_blob_source_verification": "every local_source_blobs path/object independently matched reachable local_blob_source_commit",
-  "supersedes_rejected_draft_git_blob_role": "historical rejected-draft identity only; not required for reproducing current inputs"
+  "supersedes_rejected_draft_git_blob_role": "historical rejected-draft identity only; not required for reproducing current inputs",
+  "shipped_unpacker_configuration": {
+    "path": "nzbget.conf",
+    "git_blob": "c18adb630c8546a938697246fdd14c4faaf8562d",
+    "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+    "source_defaults": {
+      "UnrarCmd": "unrar",
+      "SevenZipCmd": "7z",
+      "DupeStreamDecompress": "no"
+    },
+    "reference_lines": [
+      867,
+      895,
+      932,
+      950,
+      1910,
+      1916,
+      1920
+    ],
+    "stream_repair_contract": "Opt-in materialization/decompression through UnrarCmd/SevenZipCmd recovers plaintext donor bytes before verification/patching; preserve temporary cleanup, compression/password/reencryption, failure and configuration semantics. Source defaults do not establish live configuration or invoked binary identity.",
+    "retirement_status": "pending; defaults, command/API replacement and config upgrade require caller-bound proof"
+  },
+  "windows_installer_resource_inputs": [
+    {
+      "path": "platforms/windows/nzbget-setup.nsi",
+      "git_blob": "faf0ebada55e750cfb1b2868349b8c3d52a989de",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 287,
+      "disposition": "retain installer language/assets or replace installer owner with Rust-compatible packaging",
+      "retained_contract": "Preserve supported architecture/forced32 selection, privilege and install-directory handling, portable/app-data scripts and permissions, stop/retry/update/cancel behavior, shortcuts, NZB association, run/tray handoff, service stop/removal, uninstall registry/path cleanup and user-visible failures. Replace native executable payload only with qualified Rust artifacts; NSIS itself is not an application C++ algorithm.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/version.nsi.in",
+      "git_blob": "2732fc0cb2dc8cec9cefa5fe877ae93b0043cb1d",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 8,
+      "disposition": "retain generated installer version metadata through replacement build",
+      "retained_contract": "Preserve numeric file/product versions, VERSION/VERSION_SUFFIX and build-type metadata; replace CMake substitutions with the supported Rust packaging generation without stale identity/version fields.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/version-uninstall.nsi.in",
+      "git_blob": "1558a3f4778d086320bcbcc97b8f67da59198205",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 1,
+      "disposition": "retain generated uninstall registry version through replacement build",
+      "retained_contract": "Preserve DisplayVersion registration using VERSION/VERSION_SUFFIX and corresponding installer/uninstaller lifecycle.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/resources/nzbget.rc",
+      "git_blob": "fa71c96485eac7ebc113558d20c4f9c2383137cc",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 241,
+      "disposition": "retain menu/dialog/icon assets and resource identifiers; replace native controller/build integration",
+      "retained_contract": "Carry resource.h IDs, tray and application icons, menus, About/preferences/reset/running dialogs, text/fonts/localization and current controller dispatch contracts into the Rust Windows application. Existing resource language/assets are not C++ algorithm bodies; remove obsolete native controller/compiler coupling only after replacement resource/build proof.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/resources/version.rc.in",
+      "git_blob": "9a5838b8e82fd9d24b715318b78fea4b0838a023",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 47,
+      "disposition": "retain executable version resources through replacement build",
+      "retained_contract": "Preserve file/product version numbers and strings, debug flags, language/code-page identity and executable/product metadata in the Rust PE artifact; replace CMake/native target generation with verified Rust packaging.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/install-update.bat",
+      "git_blob": "ff3866e2540ae21451b9c2982a0f7af41667ea52",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 282,
+      "disposition": "retain or replace updater with the same lifecycle and authenticity contract",
+      "retained_contract": "Preserve update environment/branch metadata, daemon webget and verify modes, public-key signature check and expected success code93, failure messages, script self-copy/staged console handoff, stop waiting, silent installer, cleanup and service/app restart behavior. Rust CLI/update artifact must honor these contracts before changing/removing the batch entrypoint.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    },
+    {
+      "path": "platforms/windows/nzbget-command-shell.bat",
+      "git_blob": "8da6311932f3834c7b6c272443c6a6962403e9ab",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "source_line_count": 34,
+      "disposition": "retain or replace Windows command-shell convenience entrypoint",
+      "retained_contract": "Preserve executable-relative PATH setup, user-profile working directory and interactive Unicode shell/CLI invocation behavior with the replacement Rust executable.",
+      "retirement_status": "pending; no installer/resource/updater execution or Rust packaging proof"
+    }
+  ],
+  "windows_installer_resource_consumers": [
+    {
+      "path": "platforms/windows/build.ps1",
+      "git_blob": "41ca0e8c21e1ea0f51e26aee3e1be9dc6aca68af",
+      "reference_lines": [
+        126,
+        127,
+        220,
+        221,
+        222,
+        224
+      ]
+    },
+    {
+      "path": "CMakeLists.txt",
+      "git_blob": "f11edd39f224ba585ea8d3370fb188687e4d4f55",
+      "reference_lines": [
+        107,
+        109,
+        110,
+        113,
+        114,
+        118,
+        119,
+        122
+      ]
+    }
+  ]
 }
