@@ -2,13 +2,19 @@
 """Validate v1 matched measurements and compute conservative numerical eligibility.
 
 CLI: --manifest MANIFEST --samples SAMPLES --output-dir OUTPUT
+Opt-in: --qualification-profile rust-replacement-campaign-v1 writes separate
+campaign artifacts; the default selected-baseline v1 contract is retained.
 Exit 0 includes HOLD; exit 2 rejects invalid proof and clears old owned artifacts.
 This tool cannot independently verify git/build identity, output correctness,
 hardware stability, process independence, or unchanged-control attribution.
 Those assertions require trusted evidence before a runtime replacement is approved.
 """
 import argparse
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
+from decimal import (Decimal, Context, DecimalException, ROUND_FLOOR, ROUND_CEILING,
+                     ROUND_HALF_EVEN, InvalidOperation, DivisionByZero, Overflow,
+                     Underflow, Subnormal, Clamped, FloatOperation)
+from functools import cmp_to_key
 import hashlib
 import html
 import json
@@ -24,6 +30,9 @@ import tempfile
 
 VARIANTS = {"cpp_current", "cpp_optimized", "rust_current", "rust_candidate"}
 OUTPUTS = ("summary.json", "bencher.json", "qualification.json", "report.md")
+CAMPAIGN_OUTPUTS = ("campaign-qualification.json", "campaign-report.md")
+CAMPAIGN_SELECTOR = "rust-replacement-campaign-v1"
+CAMPAIGN_ID = "rust-replacement-campaign"
 DEFAULT_POLICY = {"min_processes": 8, "min_rounds": 10, "min_each_order": 2,
                   "max_relative_ci_width": 0.10}
 REPLICATES = 5000
@@ -32,6 +41,13 @@ MAX_FIXTURES = 64
 MAX_ROWS = 100000
 MAX_PROCESSES = 128
 MAX_BOOTSTRAP_SELECTIONS = 4000000
+CAMPAIGN_ARITHMETIC_POLICY_SHA256 = "4fe3e8086c88da789540bdbed6825e65f8adc18c41c73840a3aaaf7895092d39"
+CAMPAIGN_PRECISIONS = (80, 160, 320, 640)
+CAMPAIGN_ARITHMETIC_LIMITS = {
+    "integer_bits": 16800000, "cache_bytes": 67108864, "ordering_calls": 250000,
+    "materializations": 20000, "root_probes": 1024, "limb_work": 2**44,
+    "coefficient_bits": 8192, "witness_bytes": 32768,
+    "refinement_visits": 16000000, "exp_calls": 7680}
 
 
 class ValidationError(ValueError):
@@ -87,11 +103,13 @@ def policy_for(manifest):
     return policy
 
 
-def validate_manifest(manifest):
+def validate_manifest(manifest, *, campaign=False):
     fields(manifest, ("schema_version", "base_sha", "candidate_sha", "testbed", "toolchain",
                       "fixtures", "comparison"), "manifest")
     require(type(manifest["schema_version"]) is int and manifest["schema_version"] == 1,
             "schema_version must be 1")
+    require(campaign or "qualification_profile" not in manifest,
+            "qualification_profile requires explicit campaign selector; no generic fallback")
     digest(manifest["base_sha"], "base_sha", 40)
     digest(manifest["candidate_sha"], "candidate_sha", 40)
     text(manifest["testbed"], "testbed")
@@ -142,7 +160,7 @@ def validate_manifest(manifest):
     policy_for(manifest)
 
 
-def validate_rows(manifest, rows):
+def validate_rows(manifest, rows, *, campaign=False):
     require(isinstance(rows, list) and len(rows) <= MAX_ROWS, f"samples limited to {MAX_ROWS} rows")
     fixture_map = {f["id"]: f for f in manifest["fixtures"]}
     pair = [manifest["comparison"][k] for k in ("baseline", "candidate")]
@@ -199,7 +217,7 @@ def validate_rows(manifest, rows):
         rust_pair = complete and "rust_current" in required and pair[1] != "rust_current"
         calls = len(observed[case]) + int(complete) + int(rust_pair)
         planned_selections += REPLICATES * len(grouped[case]) * calls
-    require(planned_selections <= MAX_BOOTSTRAP_SELECTIONS,
+    require(campaign or planned_selections <= MAX_BOOTSTRAP_SELECTIONS,
             "bootstrap work budget exceeded; split independent fixture sets")
     return grouped, observed
 
@@ -223,7 +241,7 @@ def cluster_interval(values, statistic, rng):
     return percentile(draws, 0.025), percentile(draws, 0.975)
 
 
-def paired_measurement(processes, baseline, candidate, policy, rng):
+def paired_measurement(processes, baseline, candidate, policy, rng, *, exact_batches=False):
     process_logs = []
     balanced = True
     for _, rounds in sorted(processes.items()):
@@ -232,7 +250,14 @@ def paired_measurement(processes, baseline, candidate, policy, rng):
             a, b = block[baseline], block[candidate]
             # Subtract logs rather than dividing first: finite positive
             # latencies may still overflow a direct ratio division.
-            logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
+            if exact_batches:
+                # Campaign inputs are bounded integers. Products stay exact
+                # before a single finite division; exact 1/2 and 1 boundaries
+                # do not acquire error from subtracting two large logarithms.
+                logs.append(math.log((b["elapsed_ns"] * a["iterations"]) /
+                                     (a["elapsed_ns"] * b["iterations"])))
+            else:
+                logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
             orders[int(a["order"] > b["order"])] += 1
         process_logs.append(statistics.fmean(logs))
         balanced &= min(orders) >= policy["min_each_order"]
@@ -365,6 +390,650 @@ def summarize(manifest, rows):
     return summary, bmf, qualification
 
 
+def exact_fields(obj, names, label):
+    fields(obj, names, label)
+    require(set(obj) == set(names), f"{label} has unknown fields")
+
+
+def campaign_design(manifest):
+    """Validate declarations and bound planned work before examining samples."""
+    validate_manifest(manifest, campaign=True)
+    require(manifest["comparison"]["baseline"] in ("cpp_current", "cpp_optimized") and
+            manifest["comparison"]["candidate"] == "rust_candidate",
+            "campaign comparison must select a C++ baseline and rust_candidate")
+    exact_fields(manifest.get("qualification_policy"), DEFAULT_POLICY, "campaign qualification_policy")
+    profile = manifest.get("qualification_profile")
+    exact_fields(profile, ("id", "version", "plan_id", "plan_sha256", "variant_bindings", "collection_design"),
+                 "qualification_profile")
+    require(profile["id"] == CAMPAIGN_ID and type(profile["version"]) is int and profile["version"] == 1,
+            "unsupported campaign profile id/version")
+    text(profile["plan_id"], "campaign plan_id")
+    digest(profile["plan_sha256"], "campaign plan_sha256")
+    fixtures = {f["id"]: f for f in manifest["fixtures"]}
+    designs = profile["collection_design"]
+    require(isinstance(designs, dict) and set(designs) == set(fixtures),
+            "collection_design must match every declared fixture")
+    all_variants = set()
+    planned_rows = selections = 0
+    for case, fixture in fixtures.items():
+        fields(fixture, ("role", "required_variants"), "campaign fixture")
+        variants = fixture["required_variants"]
+        all_variants.update(variants)
+        design = designs[case]
+        exact_fields(design, ("elapsed_floor_ns", "process_count", "round_count", "order_cycle"),
+                     "collection_design entry")
+        integer(design["elapsed_floor_ns"], "elapsed_floor_ns", 1)
+        integer(design["process_count"], "process_count", 1, MAX_PROCESSES)
+        integer(design["round_count"], "round_count", 1, MAX_ROWS)
+        cycle = design["order_cycle"]
+        require(isinstance(cycle, list) and 1 <= len(cycle) <= 24, "order_cycle must contain 1..24 permutations")
+        for permutation in cycle:
+            require(isinstance(permutation, list) and len(permutation) == len(variants) and
+                    all(isinstance(v, str) for v in permutation) and set(permutation) == set(variants),
+                    "order_cycle needs complete unique variant permutations")
+        require(design["round_count"] % len(cycle) == 0, "round_count must complete the frozen order cycle")
+        planned_rows += design["process_count"] * design["round_count"] * len(variants)
+        comparisons = 2 + int(fixture.get("rust_preservation_applicability") == "required")
+        selections += REPLICATES * design["process_count"] * comparisons
+    require(planned_rows <= MAX_ROWS, "campaign planned row budget exceeded")
+    require(selections <= MAX_BOOTSTRAP_SELECTIONS, "campaign bootstrap work budget exceeded")
+    bindings = profile["variant_bindings"]
+    require(isinstance(bindings, dict) and set(bindings) == all_variants,
+            "variant_bindings must match all required variants")
+    for variant, binding in bindings.items():
+        names = ["source_sha", "source_content_sha256", "executable_sha256"]
+        if variant.startswith("rust_"):
+            names.append("rust_archive_sha256")
+        exact_fields(binding, names, "campaign variant binding")
+        for key, value in binding.items():
+            digest(value, key, 40 if key == "source_sha" else 64)
+        if variant in ("cpp_current", "rust_current"):
+            require(binding["source_sha"] == manifest["base_sha"],
+                    "current variant source differs from canonical baseline")
+        elif variant == "rust_candidate":
+            require(binding["source_sha"] == manifest["candidate_sha"],
+                    "candidate variant source differs from candidate SHA")
+    return profile, designs
+
+
+class CampaignArithmetic:
+    """Campaign-local, precharged arithmetic; exhaustion is invalid analysis."""
+
+    def __init__(self):
+        self.used = defaultdict(int)
+        self.peak_cache_bytes = 0
+
+    def charge(self, name, amount=1):
+        require(type(amount) is int and amount >= 0, "invalid campaign arithmetic charge")
+        proposed = self.used[name] + amount
+        require(proposed <= CAMPAIGN_ARITHMETIC_LIMITS[name],
+                "campaign arithmetic resource limit: " + name)
+        self.used[name] = proposed
+
+    def bits(self, value, *, coefficient=False):
+        limit = CAMPAIGN_ARITHMETIC_LIMITS["coefficient_bits" if coefficient else "integer_bits"]
+        require(value.bit_length() <= limit, "campaign arithmetic integer size limit")
+        return value
+
+    def allocation(self, bits, *, coefficient=False):
+        limit = CAMPAIGN_ARITHMETIC_LIMITS["coefficient_bits" if coefficient else "integer_bits"]
+        require(bits <= limit, "campaign arithmetic preallocation size limit")
+
+    def mul(self, x, y, *, coefficient=False):
+        if not x or not y:
+            return 0
+        if x == 1:
+            return self.bits(y, coefficient=coefficient)
+        if y == 1:
+            return self.bits(x, coefficient=coefficient)
+        self.allocation(x.bit_length() + y.bit_length(), coefficient=coefficient)
+        self.charge("limb_work", ((x.bit_length() + 29) // 30) * ((y.bit_length() + 29) // 30))
+        return self.bits(x * y, coefficient=coefficient)
+
+    def add(self, x, y, *, coefficient=False):
+        self.allocation(max(x.bit_length(), y.bit_length()) + 1, coefficient=coefficient)
+        self.charge("limb_work", (x.bit_length() + y.bit_length() + 59) // 30)
+        return self.bits(x + y, coefficient=coefficient)
+
+    def divide(self, x, y):
+        require(y > 0, "campaign arithmetic zero divisor")
+        self.charge("limb_work", 8 * (((x.bit_length() + 29) // 30) +
+                                    ((y.bit_length() + 29) // 30)) ** 2)
+        return x // y
+
+    def gcd(self, x, y):
+        self.charge("limb_work", 8 * (((x.bit_length() + 29) // 30) +
+                                    ((y.bit_length() + 29) // 30)) ** 2)
+        return math.gcd(x, y)
+
+    def rational(self, n, d=1, *, coefficient=False):
+        require(d > 0, "campaign arithmetic nonpositive denominator")
+        self.bits(n, coefficient=coefficient)
+        self.bits(d, coefficient=coefficient)
+        common = self.gcd(abs(n), d)
+        return self.divide(n, common), self.divide(d, common)
+
+    def rmul(self, a, b, *, coefficient=False):
+        g = self.gcd(abs(a[0]), b[1])
+        h = self.gcd(abs(b[0]), a[1])
+        n = self.mul(self.divide(a[0], g), self.divide(b[0], h), coefficient=coefficient)
+        d = self.mul(self.divide(a[1], h), self.divide(b[1], g), coefficient=coefficient)
+        return self.rational(n, d, coefficient=coefficient)
+
+    def radd(self, a, b, *, coefficient=False):
+        g = self.gcd(a[1], b[1])
+        x, y = self.divide(a[1], g), self.divide(b[1], g)
+        n = self.add(self.mul(a[0], y, coefficient=coefficient),
+                     self.mul(b[0], x, coefficient=coefficient), coefficient=coefficient)
+        return self.rational(n, self.mul(x, b[1], coefficient=coefficient), coefficient=coefficient)
+
+    def rcompare(self, a, b):
+        x, y = self.mul(a[0], b[1]), self.mul(b[0], a[1])
+        return (x > y) - (x < y)
+
+    def power(self, x, exponent):
+        result = 1
+        while exponent:
+            if exponent & 1:
+                result = self.mul(result, x)
+            exponent //= 2
+            if exponent:
+                x = self.mul(x, x)
+        return result
+
+    def rpower(self, a, exponent):
+        return self.power(a[0], exponent), self.power(a[1], exponent)
+
+    def capped_power(self, x, exponent, maximum):
+        """Metered power comparison without allocating a value above maximum."""
+        result = 1
+        above = self.add(maximum, 1)
+        while exponent:
+            if exponent & 1:
+                if x > maximum or result > self.divide(maximum, x):
+                    return above
+                result = self.mul(result, x)
+            exponent //= 2
+            if exponent:
+                if x > maximum or x > self.divide(maximum, x):
+                    x = above
+                else:
+                    x = self.mul(x, x)
+        return result
+
+    def root(self, value, degree):
+        """Exact perfect-power probe, separately charged for each integer."""
+        self.charge("root_probes")
+        if value == 1 or degree == 1:
+            return value
+        if degree >= value.bit_length():
+            return None
+        # Construct the binary-search bound through charged powers, not pow().
+        high = self.power(2, (value.bit_length() + degree - 1) // degree)
+        low = 1
+        while low <= high:
+            middle = self.divide(self.add(low, high), 2)
+            powered = self.capped_power(middle, degree, value)
+            if powered == value:
+                return middle
+            if powered < value:
+                low = self.add(middle, 1)
+            else:
+                high = self.add(middle, -1)
+        return None
+
+    def rational_root(self, value, degree):
+        n = self.root(value[0], degree)
+        d = self.root(value[1], degree)
+        return None if n is None or d is None else self.rational(n, d, coefficient=True)
+
+
+class CampaignProducts:
+    """Lazy products for exact ordering; evictions release payload accounting."""
+
+    def __init__(self, arithmetic, process_products):
+        self.arithmetic = arithmetic
+        self.process_products = process_products
+        self.cache = OrderedDict()
+        self.resident = 0
+
+    def get(self, counts):
+        if counts in self.cache:
+            self.cache.move_to_end(counts)
+            return self.cache[counts][0]
+        a = self.arithmetic
+        a.charge("materializations")
+        value = (1, 1)
+        for product, count in zip(self.process_products, counts):
+            if count:
+                value = a.rmul(value, a.rpower(product, count))
+        payload = sum((v.bit_length() + 7) // 8 for v in value)
+        require(payload <= CAMPAIGN_ARITHMETIC_LIMITS["cache_bytes"], "campaign exact product cache limit")
+        while self.cache and (self.resident + payload > CAMPAIGN_ARITHMETIC_LIMITS["cache_bytes"] or
+                              len(self.cache) >= REPLICATES):
+            _, (_, released) = self.cache.popitem(last=False)
+            self.resident -= released
+        self.cache[counts] = value, payload
+        self.resident += payload
+        a.peak_cache_bytes = max(a.peak_cache_bytes, self.resident)
+        return value
+
+    def compare(self, left, right):
+        self.arithmetic.charge("ordering_calls")
+        return self.arithmetic.rcompare(self.get(left), self.get(right))
+
+
+class CampaignIntervals:
+    """Outward enclosures using explicit contexts, independent of ambient state."""
+
+    def __init__(self, precision, arithmetic):
+        traps = [InvalidOperation, DivisionByZero, Overflow, Underflow, Subnormal, Clamped, FloatOperation]
+        self.down = Context(prec=precision, rounding=ROUND_FLOOR, Emin=-999999, Emax=999999, traps=traps)
+        self.up = Context(prec=precision, rounding=ROUND_CEILING, Emin=-999999, Emax=999999, traps=traps)
+        self.near = Context(prec=precision, rounding=ROUND_HALF_EVEN, Emin=-999999, Emax=999999, traps=traps)
+        self.arithmetic = arithmetic
+
+    def rational(self, value):
+        n, d = (Decimal(v, context=self.near) for v in value)
+        return self.down.divide(n, d), self.up.divide(n, d)
+
+    def add(self, x, y):
+        return self.down.add(x[0], y[0]), self.up.add(x[1], y[1])
+
+    def scale(self, x, n, d=1):
+        numerator, denominator = Decimal(n, context=self.near), Decimal(d, context=self.near)
+        return (self.down.divide(self.down.multiply(x[0], numerator), denominator),
+                self.up.divide(self.up.multiply(x[1], numerator), denominator))
+
+    def subtract(self, x, y):
+        return self.down.subtract(x[0], y[1]), self.up.subtract(x[1], y[0])
+
+    def product(self, x, y):
+        require(x[0] >= 0 and y[0] >= 0, "campaign interval product needs positive bounds")
+        return self.down.multiply(x[0], y[0]), self.up.multiply(x[1], y[1])
+
+    def log(self, value):
+        if value == (1, 1):
+            return Decimal(0), Decimal(0)
+        bounds = self.rational(value)
+        def endpoint(v, lower):
+            if v == 1:
+                return Decimal(0)
+            rounded = self.near.ln(v)
+            return self.near.next_minus(rounded) if lower else self.near.next_plus(rounded)
+        return endpoint(bounds[0], True), endpoint(bounds[1], False)
+
+    def exp(self, value):
+        def endpoint(v, lower):
+            self.arithmetic.charge("exp_calls")
+            if v == 0:
+                return Decimal(1)
+            rounded = self.near.exp(v)
+            return self.near.next_minus(rounded) if lower else self.near.next_plus(rounded)
+        return endpoint(value[0], True), endpoint(value[1], False)
+
+
+def campaign_relation(bounds):
+    if bounds[1] < 0:
+        return "LT"
+    if bounds[0] > 0:
+        return "GT"
+    if bounds[0] == bounds[1] == 0:
+        return "EQ"
+    return None
+
+
+def campaign_exact_ranks(logs, draws, products):
+    """Sort only closed-overlap components containing the four needed ranks."""
+    ordered = sorted(range(REPLICATES), key=lambda i: (logs[i][0], i))
+    ranks = (124, 125, 4874, 4875)
+    selected = {}
+    start = 0
+    while start < len(ordered):
+        end, upper = start + 1, logs[ordered[start]][1]
+        while end < len(ordered) and logs[ordered[end]][0] <= upper:
+            upper = max(upper, logs[ordered[end]][1])
+            end += 1
+        needed = [rank for rank in ranks if start <= rank < end]
+        if needed:
+            def compare(i, j):
+                relation = products.compare(draws[i], draws[j])
+                return relation or ((i > j) - (i < j))
+            component = sorted(ordered[start:end], key=cmp_to_key(compare))
+            selected.update((rank, component[rank - start]) for rank in needed)
+        start = end
+    return selected
+
+
+def campaign_quantile_equality(terms, threshold, products, degree, arithmetic):
+    """A positive rational sum of two positive roots is rational only if both are."""
+    total = (0, 1)
+    for counts, weight in terms:
+        root = arithmetic.rational_root(products.get(counts), degree)
+        if root is None:
+            return False
+        total = arithmetic.radd(total, arithmetic.rmul(root, weight, coefficient=True), coefficient=True)
+    return arithmetic.rcompare(total, threshold) == 0
+
+
+def campaign_width_equality(terms, products, degree, arithmetic):
+    """Group positive radicals by exact rational quotient, without factorization.
+
+    Linear independence of distinct rational-quotient classes of positive roots
+    makes a zero sum equivalent to zero rational coefficient in every class.
+    """
+    groups = []
+    for counts, coefficient in terms:
+        if not coefficient[0]:
+            continue
+        value = products.get(counts)
+        for group in groups:
+            quotient = arithmetic.rmul(value, (group[0][1], group[0][0]))
+            root = arithmetic.rational_root(quotient, degree)
+            if root is not None:
+                group[1] = arithmetic.radd(group[1], arithmetic.rmul(coefficient, root, coefficient=True),
+                                           coefficient=True)
+                break
+        else:
+            groups.append([value, coefficient])
+    return all(coefficient[0] == 0 for _, coefficient in groups)
+
+
+def campaign_measurement(processes, baseline, candidate, policy, threshold, arithmetic, bindings):
+    """Certify campaign predicates; displayed floats never select a disposition."""
+    a = arithmetic
+    process_products, balanced = [], True
+    round_count = None
+    for _, rounds in sorted(processes.items()):
+        round_count = len(rounds) if round_count is None else round_count
+        require(len(rounds) == round_count, "campaign needs equal frozen rounds")
+        product, before = (1, 1), 0
+        for _, block in sorted(rounds.items()):
+            c, b = block[candidate], block[baseline]
+            q = a.rational(a.mul(c["elapsed_ns"], b["iterations"]),
+                           a.mul(b["elapsed_ns"], c["iterations"]))
+            product = a.rmul(product, q)
+            before += b["order"] < c["order"]
+        balanced &= min(before, len(rounds) - before) >= policy["min_each_order"]
+        process_products.append(product)
+    count = len(process_products)
+    degree = count * round_count
+    rng = random.Random(SEED)
+    draws = []
+    for _ in range(REPLICATES):
+        multiplicities = [0] * count
+        for _ in range(count):
+            multiplicities[rng.randrange(count)] += 1
+        draws.append(tuple(multiplicities))
+    draw_hash = hashlib.sha256()
+    for multiplicities in draws:
+        draw_hash.update((",".join(str(value) for value in multiplicities) + "\n").encode("ascii"))
+    estimate_counts = (1,) * count
+    width = policy["max_relative_ci_width"]
+    width_rational = (width, 1) if type(width) is int else width.as_integer_ratio()
+    width_rational = a.rational(*width_rational, coefficient=True)
+    target = (1, 1) if threshold == 1 else (1, 2)
+    products = CampaignProducts(a, process_products)
+    uniform = all(p == process_products[0] for p in process_products)
+    relations, proof = {}, {}
+    selected = None
+    rank_contributors = None
+    last_bounds = None
+    try:
+        for precision in CAMPAIGN_PRECISIONS:
+            intervals = CampaignIntervals(precision, a)
+            if uniform:
+                log = intervals.scale(intervals.log(process_products[0]), 1, round_count)
+                estimate = lower = upper = intervals.exp(log)
+                compare_target = a.rcompare(process_products[0], a.rpower(target, round_count))
+                compare_one = a.rcompare(process_products[0], (1, 1))
+                word = lambda relation: "LT" if relation < 0 else "GT" if relation > 0 else "EQ"
+                relations = {"upper_vs_limit": word(compare_target), "lower_vs_one": word(compare_one),
+                             "upper_vs_one": word(compare_one), "width_vs_policy": "LT"}
+                proof = {key: "uniform_exact_process_product" for key in relations}
+                selected = {rank: rank for rank in (124, 125, 4874, 4875)}
+                last_bounds = lower, upper, estimate
+                break
+            a.charge("refinement_visits", REPLICATES * count)
+            means = [intervals.scale(intervals.log(p), 1, round_count) for p in process_products]
+            def mean_log(multiplicities):
+                total = (Decimal(0), Decimal(0))
+                for value, weight in zip(means, multiplicities):
+                    if weight:
+                        total = intervals.add(total, intervals.scale(value, weight))
+                return intervals.scale(total, 1, count)
+            logs = [mean_log(multiplicities) for multiplicities in draws]
+            lo_order = sorted(range(REPLICATES), key=lambda i: (logs[i][0], i))
+            hi_order = sorted(range(REPLICATES), key=lambda i: (logs[i][1], i))
+            rank_contributors = {str(rank): {"lower_id": lo_order[rank], "upper_id": hi_order[rank],
+                                            "lower_process_multiplicities": draws[lo_order[rank]],
+                                            "upper_process_multiplicities": draws[hi_order[rank]]}
+                                 for rank in (124, 125, 4874, 4875)}
+            rank_log_bounds = {rank: (logs[lo_order[rank]][0], logs[hi_order[rank]][1])
+                               for rank in (124, 125, 4874, 4875)}
+            rank_bounds = {rank: intervals.exp(rank_log_bounds[rank])
+                           for rank in (124, 125, 4874, 4875)}
+            lower = intervals.scale(intervals.add(rank_bounds[124], intervals.scale(rank_bounds[125], 39)), 1, 40)
+            upper = intervals.scale(intervals.add(intervals.scale(rank_bounds[4874], 39), rank_bounds[4875]), 1, 40)
+            estimate = intervals.exp(mean_log(estimate_counts))
+            last_bounds = lower, upper, estimate
+            width_expression = intervals.subtract(intervals.subtract(upper, lower),
+                                                  intervals.product(intervals.rational(width_rational), estimate))
+            relations = {"upper_vs_limit": campaign_relation(intervals.subtract(upper, intervals.rational(target))),
+                         "lower_vs_one": campaign_relation(intervals.subtract(lower, (Decimal(1), Decimal(1)))),
+                         "upper_vs_one": campaign_relation(intervals.subtract(upper, (Decimal(1), Decimal(1)))),
+                         "width_vs_policy": campaign_relation(width_expression)}
+            proof = {key: "directed_decimal_enclosure" for key, value in relations.items() if value is not None}
+            if all(value is not None for value in relations.values()):
+                break
+            if precision == CAMPAIGN_PRECISIONS[-1]:
+                selected = campaign_exact_ranks(logs, draws, products)
+                lower_terms = [(draws[selected[124]], (1, 40)), (draws[selected[125]], (39, 40))]
+                upper_terms = [(draws[selected[4874]], (39, 40)), (draws[selected[4875]], (1, 40))]
+                for key, terms, limit in (("upper_vs_limit", upper_terms, target),
+                                           ("lower_vs_one", lower_terms, (1, 1)),
+                                           ("upper_vs_one", upper_terms, (1, 1))):
+                    if relations[key] is None and campaign_quantile_equality(terms, limit, products, degree, a):
+                        relations[key], proof[key] = "EQ", "exact_rational_root_quantile"
+                if relations["width_vs_policy"] is None:
+                    terms = upper_terms + [(counts, (-weight[0], weight[1])) for counts, weight in lower_terms]
+                    terms.append((estimate_counts, (-width_rational[0], width_rational[1])))
+                    if campaign_width_equality(terms, products, degree, a):
+                        relations["width_vs_policy"], proof["width_vs_policy"] = "EQ", "exact_radical_quotient_classes"
+                require(all(value is not None for value in relations.values()),
+                        "campaign precision unresolved after exact equality certification")
+    except DecimalException as error:
+        raise ValidationError("campaign decimal arithmetic rejected") from error
+    lower, upper, estimate = last_bounds
+    # Floats are display-only approximations. The relation/proof fields decide.
+    ratio = {"estimate": float(estimate[0]), "lower": float(lower[0]), "upper": float(upper[1])}
+    require(all(math.isfinite(value) and value > 0 for value in ratio.values()), "campaign display range exceeded")
+    witness = {"policy_sha256": CAMPAIGN_ARITHMETIC_POLICY_SHA256, "bindings": bindings,
+               "method_id": "campaign-exact-threshold-source-design-20261014-v2",
+               "bootstrap_multiplicities_sha256": draw_hash.hexdigest(),
+               "bootstrap_multiplicities_encoding": "5000 rows in replicate order; decimal process counts comma-separated plus LF",
+               "common_root_degree": degree, "precision": precision, "relations": relations, "proof": proof,
+               "quantile_ranks": {"lower": [[124, 1, 40], [125, 39, 40]],
+                                  "upper": [[4874, 39, 40], [4875, 1, 40]]},
+               "width_policy_rational": {"numerator": str(width_rational[0]), "denominator": str(width_rational[1])},
+               "bounds": {name: [str(v) for v in bounds] for name, bounds in
+                          (("lower", lower), ("upper", upper), ("estimate", estimate))},
+               "bounding_contributors": rank_contributors,
+               "rank_enclosures": {
+                   "route": "uniform_exact_process_product" if uniform else "log_endpoint_order_statistics",
+                   "uniform": {"log": [str(v) for v in log],
+                               "ratio": [str(v) for v in estimate]} if uniform else None,
+                   "selected": None if uniform else {
+                       str(rank): {"log": [str(v) for v in rank_log_bounds[rank]],
+                                   "ratio": [str(v) for v in rank_bounds[rank]]}
+                       for rank in (124, 125, 4874, 4875)}},
+               "exact_order_statistics": None if selected is None else
+                   {str(rank): {"replicate_id": index, "process_multiplicities": draws[index]} for rank, index in selected.items()},
+               "work_cumulative": dict(a.used), "peak_cache_payload_bytes": a.peak_cache_bytes,
+               "display": "approximate only; certified relations decide eligibility"}
+    require(len(json.dumps(witness, sort_keys=True, allow_nan=False).encode()) <=
+            CAMPAIGN_ARITHMETIC_LIMITS["witness_bytes"], "campaign arithmetic witness byte limit")
+    return ratio, balanced, witness
+
+
+def summarize_campaign(manifest, rows, analysis_sha256, input_hashes=None):
+    """Campaign-v1 numerical eligibility; no execution or approval attestation."""
+    profile, designs = campaign_design(manifest)
+    require(isinstance(rows, list) and len(rows) <= MAX_ROWS, "campaign sample row budget exceeded")
+    fixtures = {f["id"]: f for f in manifest["fixtures"]}
+    for index, row in enumerate(rows):
+        label = f"campaign sample row {index + 1}"
+        fields(row, ("case", "variant", "process", "round", "order", "elapsed_ns"), label)
+        require(isinstance(row["case"], str) and row["case"] in fixtures, f"{label} unknown fixture")
+        design = designs[row["case"]]
+        integer(row["elapsed_ns"], f"{label} elapsed_ns", 1)
+        require(row["elapsed_ns"] >= design["elapsed_floor_ns"], f"{label} elapsed_ns is under frozen floor")
+        integer(row["process"], f"{label} process", 0, design["process_count"] - 1)
+        integer(row["round"], f"{label} round", 0, design["round_count"] - 1)
+        permutation = design["order_cycle"][row["round"] % len(design["order_cycle"])]
+        require(isinstance(row["variant"], str) and row["variant"] in permutation,
+                f"{label} variant outside frozen order")
+        integer(row["order"], f"{label} order", 0, len(permutation) - 1)
+        require(permutation[row["order"]] == row["variant"], f"{label} differs from frozen order")
+    grouped, observed = validate_rows(manifest, rows, campaign=True)
+    try:
+        encoded = json.dumps((manifest, rows), allow_nan=False)
+        require(len(encoded) <= 40 * 1024 * 1024, "parsed evidence exceeds byte budget")
+    except (TypeError, ValueError, OverflowError, RecursionError) as error:
+        raise ValidationError("evidence extensions must be bounded finite JSON") from error
+    digest(analysis_sha256, "analysis_sha256")
+    policy = policy_for(manifest)
+    arithmetic = CampaignArithmetic()
+    result = {k: manifest[k] for k in ("schema_version", "base_sha", "candidate_sha", "testbed")}
+    result.update(qualification_profile=profile, analysis_sha256=analysis_sha256,
+                  eligibility_scope="numerical_only", status="HOLD", reasons=[], cases=[],
+                  methodology={"ratio_estimator": "exp(mean(process mean(log(paired candidate/baseline ns/op))))",
+                    "resampling_unit": "whole process cluster; every paired round retained",
+                    "interval": "95% percentile bootstrap; linear quantiles at 0.025 and 0.975",
+                    "bootstrap_replicates": REPLICATES, "seed": SEED, "policy": policy,
+                    "comparison_rng": "each named comparison resets the fixed seed",
+                    "arithmetic": "campaign directed enclosures with bounded exact equality certification; floats display only",
+                    "arithmetic_policy_sha256": CAMPAIGN_ARITHMETIC_POLICY_SHA256,
+                    "analysis_identity": "invocation source snapshot sampled for stability; not loaded-code or pre-load race authentication",
+                    "coverage": "per-case intervals; no simultaneous family coverage guarantee",
+                    "outliers": "all retained; no trimming or independent round resampling",
+                    "limits": "numerical eligibility only; declarations do not attest caller/domain/ABI, native execution, build lineage, independence, reviewed applicability, retirement or hold release"})
+    for fixture in manifest["fixtures"]:
+        case_id, required = fixture["id"], set(fixture["required_variants"])
+        design, processes = designs[case_id], grouped[case_id]
+        applicability = fixture.get("rust_preservation_applicability")
+        reasons = []
+        if not {"cpp_current", "cpp_optimized", "rust_candidate"} <= required:
+            reasons.append("missing_campaign_variants")
+        if applicability is None and fixture["scope"] == "complete_caller":
+            reasons.append("missing_rust_preservation_applicability")
+        elif applicability == "required" and "rust_current" not in required:
+            reasons.append("missing_current_rust_baseline")
+        if observed[case_id] != required:
+            reasons.append("missing_required_variants")
+        complete_grid = (set(processes) == set(range(design["process_count"])) and
+                         all(set(rounds) == set(range(design["round_count"])) for rounds in processes.values()))
+        if not complete_grid:
+            reasons.append("incomplete_frozen_grid")
+        case = {"case": case_id, "scope": fixture["scope"], "role": fixture["role"],
+                "fixture_sha256": fixture["sha256"], "provenance": fixture.get("provenance", {}),
+                "required_variants": fixture["required_variants"],
+                "rust_preservation_applicability": applicability, "collection_design": design,
+                "raw_count": sum(len(block) for rounds in processes.values() for block in rounds.values()),
+                "process_count": len(processes), "round_counts": {str(p): len(r) for p, r in sorted(processes.items())},
+                "complete": not reasons, "comparisons": {}, "status": "HOLD", "reasons": reasons}
+        # Never compute eligibility from a surviving subset of the frozen design.
+        if not reasons:
+            baselines = ["cpp_current", "cpp_optimized"]
+            if applicability == "required":
+                baselines.append("rust_current")
+            for baseline in baselines:
+                threshold = 1 if baseline == "rust_current" else 0.5
+                ratio, balanced, certificate = campaign_measurement(
+                    processes, baseline, "rust_candidate", policy, threshold, arithmetic,
+                    {"analysis_sha256": analysis_sha256, "input_hashes": input_hashes,
+                     "plan_sha256": profile["plan_sha256"], "fixture_sha256": fixture["sha256"],
+                     "case": case_id, "baseline": baseline, "candidate": "rust_candidate"})
+                relations = certificate["relations"]
+                check_reasons = []
+                if len(processes) < policy["min_processes"]:
+                    check_reasons.append("insufficient_processes")
+                if design["round_count"] < policy["min_rounds"]:
+                    check_reasons.append("insufficient_rounds")
+                if not balanced:
+                    check_reasons.append("unbalanced_pair_order")
+                # Require equal before/after counts, in addition to the minimum.
+                for rounds in processes.values():
+                    before = sum(b[baseline]["order"] < b["rust_candidate"]["order"] for b in rounds.values())
+                    if before * 2 != len(rounds):
+                        if "unbalanced_pair_order" not in check_reasons:
+                            check_reasons.append("unbalanced_pair_order")
+                if relations["width_vs_policy"] == "GT":
+                    check_reasons.append("noisy_ratio_interval")
+                if fixture["role"] == "unchanged_control":
+                    if relations["lower_vs_one"] == "GT" or relations["upper_vs_one"] == "LT":
+                        check_reasons.append("unchanged_control_drift")
+                elif relations["upper_vs_limit"] == "GT":
+                    check_reasons.append("not_preserved" if baseline == "rust_current" else "below_twofold_cpp_gate")
+                case["comparisons"][baseline] = {"baseline": baseline, "candidate": "rust_candidate",
+                    "ratio": ratio, "certificate": certificate, "upper_bound_limit": threshold,
+                    "rule": "interval_contains_one" if fixture["role"] == "unchanged_control" else "upper_bound_limit",
+                    "status": "HOLD" if check_reasons else "PASS", "reasons": check_reasons}
+                if check_reasons:
+                    reasons.append(baseline + "_on_hold")
+        if fixture["scope"] != "complete_caller":
+            reasons.append("kernel_cannot_qualify_campaign")
+        case["status"] = "HOLD" if reasons else "PASS"
+        result["cases"].append(case)
+    if not any(c["scope"] == "complete_caller" and c["role"] == "changed" for c in result["cases"]):
+        result["reasons"].append("no_changed_complete_caller_evidence")
+    if not any(c["scope"] == "complete_caller" and c["role"] == "unchanged_control" and
+               c["status"] == "PASS" for c in result["cases"]):
+        result["reasons"].append("no_passing_unchanged_complete_caller_control")
+    if any(c["status"] != "PASS" for c in result["cases"]):
+        result["reasons"].append("campaign_cases_on_hold")
+    result["status"] = "HOLD" if result["reasons"] else "PASS"
+    result["methodology"]["arithmetic_work_cumulative"] = dict(arithmetic.used)
+    return result
+
+
+def render_campaign_report(qualification):
+    lines = [f"Campaign-v1 numerical eligibility: **{qualification['status']}**", "",
+             "PASS does not attest caller/domain/ABI correctness, native execution, independent processes, "
+             "build lineage, reviewed preservation applicability, retirement, or release of any hold.", "",
+             "Displayed ratios are approximate; the certified relations decide numerical eligibility.", "",
+             "| Case / baseline | Status | Approximate candidate/baseline [95% CI] | Rule / certificate | Reasons |",
+             "| --- | --- | --- | --- | --- |"]
+    for case in qualification["cases"]:
+        if not case["comparisons"]:
+            lines.append("| " + " | ".join(markdown(x) for x in
+                         (case["case"], case["status"], "not computed: incomplete declarations/grid", "none",
+                          ", ".join(case["reasons"]))) + " |")
+        for baseline, check in case["comparisons"].items():
+            ratio = check["ratio"]
+            rule = "interval contains 1" if check["rule"] == "interval_contains_one" else f"upper <= {check['upper_bound_limit']}"
+            rule += "; certified " + json.dumps(check["certificate"]["relations"], sort_keys=True)
+            lines.append("| " + " | ".join(markdown(x) for x in
+                         (case["case"] + " / " + baseline, check["status"],
+                          f"{ratio['estimate']:.6g} [{ratio['lower']:.6g}, {ratio['upper']:.6g}]", rule,
+                          ", ".join(check["reasons"] + case["reasons"]) or "eligible numerically")) + " |")
+    lines.extend(["", "Every required row uses exact integer batch elapsed nanoseconds at or above its frozen floor. "
+                  "Every declared process/round/variant/order key must be complete; missing grid evidence is not analyzed as a subset. "
+                  "The paired log-ratio estimator weights processes equally. The 95% percentile bootstrap resamples whole "
+                  f"processes ({REPLICATES} replicates, seed {SEED} reset per comparison); every paired round and outlier is retained. "
+                  "Intervals are per case, without simultaneous family coverage assurance. No fixture pooling or workload weights.", "",
+                  "Explicit prospective policy: " + markdown(json.dumps(qualification["methodology"]["policy"], sort_keys=True)), "",
+                  "Plan SHA256: `" + qualification["qualification_profile"]["plan_sha256"] + "`. "
+                  "Analysis SHA256: `" + qualification["analysis_sha256"] + "`.", "",
+                  "Analysis identity is a sampled invocation source snapshot with stability rechecks, "
+                  "not authentication of loaded code or closure of a pre-load race. "
+                  "Arithmetic resource exhaustion, decimal failure, or an unresolved nonzero comparison rejects "
+                  "analysis (exit 2) and clears owned campaign outputs; it is not numerical HOLD or PASS.", "",
+                  "Manifest SHA256: `" + qualification["input_hashes"]["manifest_sha256"] + "`. "
+                  "Samples SHA256: `" + qualification["input_hashes"]["samples_sha256"] + "`."])
+    return "\n".join(lines) + "\n"
+
+
 def markdown(value):
     escaped = html.escape(str(value), quote=False)
     return re.sub(r"([\\`*_{}\[\]()#+.!|])", r"\\\1", escaped)
@@ -491,7 +1160,7 @@ def traversed_entries(path):
     return visited
 
 
-def read_bounded(path, limit):
+def read_bounded(path, limit, *, stable=False):
     # Opening a FIFO normally blocks before any size check. Open nonblocking,
     # then inspect the descriptor actually opened before attempting any read.
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
@@ -501,10 +1170,37 @@ def read_bounded(path, limit):
         require(metadata.st_size <= limit, "input exceeds byte budget")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             data = stream.read(limit + 1)
+        if stable:
+            after = os.fstat(descriptor)
+            identity = lambda m: (m.st_dev, m.st_ino, m.st_size, m.st_mtime_ns, m.st_ctime_ns)
+            require(len(data) == metadata.st_size and identity(metadata) == identity(after),
+                    "campaign evidence input changed or read was incomplete")
     finally:
         os.close(descriptor)
     require(len(data) <= limit, "input exceeds byte budget")
     return data
+
+
+# This is a source snapshot taken during this invocation, including private
+# runpy loads. It deliberately does not authenticate already-loaded code or
+# close a race before this sample. A failed sample is rejected only after the
+# campaign's input protections and owned stale-output cleanup have run.
+INVOCATION_SOURCE_PATH = Path(__file__).absolute()
+INVOCATION_SOURCE_SHA256 = None
+INVOCATION_SOURCE_ERROR = None
+try:
+    INVOCATION_SOURCE_SHA256 = hashlib.sha256(
+        read_bounded(INVOCATION_SOURCE_PATH, 1024 * 1024, stable=True)).hexdigest()
+except (OSError, ValueError, TypeError, OverflowError) as error:
+    INVOCATION_SOURCE_ERROR = str(error)
+
+
+def campaign_source_guard():
+    require(INVOCATION_SOURCE_SHA256 is not None and INVOCATION_SOURCE_ERROR is None,
+            "campaign invocation source snapshot unavailable")
+    current = hashlib.sha256(read_bounded(INVOCATION_SOURCE_PATH, 1024 * 1024, stable=True)).hexdigest()
+    require(current == INVOCATION_SOURCE_SHA256, "campaign invocation source changed")
+    return INVOCATION_SOURCE_SHA256
 
 
 def main(argv=None):
@@ -512,12 +1208,30 @@ def main(argv=None):
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--samples", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--qualification-profile", default=None,
+                        help="explicit rust-replacement-campaign-v1; default keeps generic v1")
     args = parser.parse_args(argv)
-    targets = [args.output_dir / name for name in OUTPUTS]
+    campaign = args.qualification_profile is not None
+    # Classify ownership from the same bounded, stable bytes later consumed.
+    # Keep read/parse failure pending until protected legacy targets are cleared,
+    # preserving malformed generic reimport invalidation without a second read.
+    manifest_bytes = manifest = None
+    manifest_error = None
+    try:
+        manifest_bytes = read_bounded(args.manifest, 1024 * 1024, stable=True)
+        manifest = strict_json(manifest_bytes)
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError) as error:
+        manifest_error = error
+    campaign_attempt = campaign or (isinstance(manifest, dict) and "qualification_profile" in manifest)
+    owned_outputs = CAMPAIGN_OUTPUTS if campaign_attempt else OUTPUTS
+    targets = [args.output_dir / name for name in owned_outputs]
     try:
         # Preserve original traversal components before resolving: a symlink
         # traversed before a later '..' is still needed to reach the input.
-        originals = [p if p.is_absolute() else Path.cwd() / p for p in (args.manifest, args.samples)]
+        inputs = [args.manifest, args.samples]
+        if campaign_attempt:
+            inputs.extend((Path(__file__), INVOCATION_SOURCE_PATH))
+        originals = [p if p.is_absolute() else Path.cwd() / p for p in inputs]
         protected = {ancestor for p in originals for ancestor in (p, *p.parents)}
         for path in originals:
             protected.update(traversed_entries(path))
@@ -533,24 +1247,39 @@ def main(argv=None):
         # revalidation so a rejected import cannot leave a stale PASS behind.
         for path in targets:
             path.unlink(missing_ok=True)
-        manifest_bytes = read_bounded(args.manifest, 1024 * 1024)
-        sample_bytes = read_bounded(args.samples, 32 * 1024 * 1024)
-        manifest = strict_json(manifest_bytes)
+        if campaign_attempt:
+            campaign_source_guard()
+        if campaign:
+            require(args.qualification_profile == CAMPAIGN_SELECTOR, "unsupported qualification profile selector")
+        elif campaign_attempt:
+            raise ValidationError("qualification_profile requires explicit campaign selector; no generic fallback")
+        if manifest_error is not None:
+            raise manifest_error
+        sample_bytes = read_bounded(args.samples, 32 * 1024 * 1024, stable=campaign_attempt)
         raw_lines = sample_bytes.splitlines()
         require(len(raw_lines) <= MAX_ROWS, "sample row budget exceeded")
         require(all(line.strip() for line in raw_lines), "blank JSONL sample row")
         rows = [strict_json(line) for line in raw_lines]
-        summary, bmf, qualification = summarize(manifest, rows)
         hashes = {"manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                   "samples_sha256": hashlib.sha256(sample_bytes).hexdigest()}
-        summary["input_hashes"] = qualification["input_hashes"] = hashes
-        payloads = [json.dumps(obj, indent=2, sort_keys=True, allow_nan=False) + "\n"
-                    for obj in (summary, bmf, qualification)] + [render_report(summary, qualification)]
+        if campaign:
+            analysis_hash = INVOCATION_SOURCE_SHA256
+            qualification = summarize_campaign(manifest, rows, analysis_hash, hashes)
+            qualification["input_hashes"] = hashes
+            payloads = [json.dumps(qualification, indent=2, sort_keys=True, allow_nan=False) + "\n",
+                        render_campaign_report(qualification)]
+        else:
+            summary, bmf, qualification = summarize(manifest, rows)
+            summary["input_hashes"] = qualification["input_hashes"] = hashes
+            payloads = [json.dumps(obj, indent=2, sort_keys=True, allow_nan=False) + "\n"
+                        for obj in (summary, bmf, qualification)] + [render_report(summary, qualification)]
         args.output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".summary-", dir=args.output_dir) as temporary:
             for path, payload in zip(targets, payloads):
                 staged = Path(temporary) / path.name
                 staged.write_text(payload, encoding="utf-8")
+            if campaign:
+                campaign_source_guard()
             for path in targets:
                 (Path(temporary) / path.name).replace(path)
         return 0
