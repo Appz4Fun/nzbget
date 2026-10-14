@@ -109,6 +109,7 @@ target_sources(libnzbget PRIVATE
 	${CMAKE_SOURCE_DIR}/daemon/remote/XmlRpc.cpp
 	${CMAKE_SOURCE_DIR}/daemon/remote/MessageBase.h
 
+	${CMAKE_SOURCE_DIR}/daemon/util/PurgeJournalOps.cpp
 	${CMAKE_SOURCE_DIR}/daemon/util/FileSystem.cpp
 	${CMAKE_SOURCE_DIR}/daemon/util/FileTypes.cpp
 	${CMAKE_SOURCE_DIR}/daemon/util/Log.cpp

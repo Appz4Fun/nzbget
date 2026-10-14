@@ -1,4 +1,5 @@
 list(APPEND TESTS_SRC
+	${CMAKE_CURRENT_SOURCE_DIR}/queue/PurgeJournal.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/NzbFile.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/Deobfuscation.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/queue/ArchiveProcessor.cpp

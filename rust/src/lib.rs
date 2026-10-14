@@ -55,3 +55,5 @@ pub mod deadpostings;
 pub mod dupewatch;
 
 pub mod dupepurge;
+
+pub mod purgejournal;

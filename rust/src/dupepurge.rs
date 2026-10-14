@@ -53,6 +53,10 @@ pub enum PurgeError {
     LimitExceeded,
     Unsupported,
     AllocationFailure,
+    Persistence,
+    HostFailure,
+    CorruptJournal,
+    RecoveryRequired,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberRecord {
@@ -209,7 +213,7 @@ pub struct Snapshot {
     pub ownership_receipts: Vec<OwnershipReceipt>,
     pub outside_claims: Vec<OutsideClaim>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgeToken {
     pub request: [u8; 16],
     pub generation: u64,
@@ -237,6 +241,7 @@ pub struct Plan {
     pub token: PurgeToken,
     pub phase: Phase,
     pub actions: Vec<Action>,
+    pub journal: Option<crate::purgejournal::JournalState>,
 }
 
 pub(crate) fn reserved<T>(n: usize) -> Result<Vec<T>, PurgeError> {
@@ -536,6 +541,92 @@ fn children_first(a: &[u8], b: &[u8]) -> Ordering {
             (None, None) => return Ordering::Equal,
         }
     }
+}
+
+/// Conservative sum of every allocation made by prepare, excluding its owned
+/// input. Index/path vectors and output copies are all included simultaneously;
+/// unstable sorting allocates no workspace. This is a readiness bound only.
+pub(crate) fn planning_allocation_bound(s: &Snapshot) -> Result<usize, PurgeError> {
+    const _: () = {
+        assert!(
+            2 * std::mem::size_of::<&u8>()
+                + 2 * std::mem::size_of::<PathRef<'static>>()
+                + std::mem::size_of::<(&InventoryEntry, bool)>()
+                + std::mem::size_of::<Action>()
+                <= 2 * std::mem::size_of::<InventoryEntry>()
+        );
+        assert!(
+            std::mem::size_of::<&u8>()
+                + std::mem::size_of::<bool>()
+                + std::mem::size_of::<MemberBinding>()
+                <= 2 * std::mem::size_of::<MemberRecord>()
+        );
+        assert!(
+            std::mem::size_of::<&u8>() + std::mem::size_of::<PathRef<'static>>()
+                <= 2 * std::mem::size_of::<OutsideClaim>()
+        );
+        assert!(
+            std::mem::size_of::<&u8>() + std::mem::size_of::<PathRef<'static>>()
+                <= 2 * std::mem::size_of::<NamespaceProof>()
+        );
+        assert!(3 * std::mem::size_of::<&u8>() <= 2 * std::mem::size_of::<PairMembershipReceipt>());
+        assert!(2 * std::mem::size_of::<&u8>() <= 2 * std::mem::size_of::<RootRecord>());
+    };
+    payload(s)?;
+    let mut n = 0usize;
+    let mut add = |count: usize, width: usize| -> Result<(), PurgeError> {
+        n = n
+            .checked_add(count.checked_mul(width).ok_or(PurgeError::LimitExceeded)?)
+            .ok_or(PurgeError::LimitExceeded)?;
+        Ok(())
+    };
+    let pointer = std::mem::size_of::<&u8>();
+    for count in [
+        s.members.len(),
+        s.source_validations.len(),
+        s.custody_receipts.len(),
+        s.parents.len(),
+        s.roots.len(),
+        s.roots.len(),
+        s.namespace_proofs.len(),
+        s.entries.len(),
+        s.entries.len(),
+        s.ownership_receipts.len(),
+        s.outside_claims.len(),
+        s.pair_memberships.len(),
+        s.pair_memberships.len(),
+        s.pair_memberships.len(),
+        s.pair_custody_receipts.len(),
+        s.seeds.len(),
+        s.comparisons.len(),
+        s.direct_bindings.len(),
+    ] {
+        add(count, pointer)?;
+    }
+    add(s.members.len(), std::mem::size_of::<bool>())?;
+    add(s.outside_claims.len(), std::mem::size_of::<PathRef<'_>>())?;
+    add(s.entries.len(), 2 * std::mem::size_of::<PathRef<'_>>())?;
+    add(s.namespace_proofs.len(), std::mem::size_of::<PathRef<'_>>())?;
+    add(
+        s.entries.len(),
+        std::mem::size_of::<(&InventoryEntry, bool)>(),
+    )?;
+    add(s.entries.len(), std::mem::size_of::<Action>())?;
+    add(s.members.len(), std::mem::size_of::<MemberBinding>())?;
+    for e in &s.entries {
+        add(e.relative_path.len(), 1)?;
+        add(e.object_identity.len(), 1)?;
+    }
+    for m in &s.members {
+        add(m.binding.posting_source.len(), 1)?;
+    }
+    // Fixed scratch/output per source record is <= twice its charged record;
+    // copied variable bytes are a subset of the charged input bytes. Thus 3S
+    // covers all input geometries, without reducing the public 64 MiB limit.
+    if n > 3 * MAX_PAYLOAD {
+        return Err(PurgeError::LimitExceeded);
+    }
+    Ok(n)
 }
 
 pub fn prepare(snapshot: Snapshot, request: [u8; 16]) -> Result<Plan, PurgeError> {
@@ -1008,6 +1099,7 @@ pub fn prepare(snapshot: Snapshot, request: [u8; 16]) -> Result<Plan, PurgeError
             members: token_members,
         },
         phase: Phase::Prepared,
+        journal: None,
         actions,
         snapshot,
     })

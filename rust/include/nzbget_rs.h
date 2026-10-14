@@ -1463,6 +1463,180 @@ int32_t nzbget_rs_purge_prepare(const NzbgetRsPurgeSnapshotV1* snapshot,
     const uint8_t request[16], void** out);
 void nzbget_rs_purge_destroy(void* handle);
 
+/* One opaque Rust allocator/lease registry per exact private journal domain.
+ * Host serializes registry use, never reenters from a callback, catches foreign
+ * exceptions, and holds no queue/provider/global lock across callback waits.
+ * Call views expire when callback returns; returned ACK views must remain valid
+ * until the enclosing API returns. No borrowed storage is retained afterward.
+ * HostOps is copied by value before output writes; create/recover output may be
+ * &ops.registry. Pointer targets (context, owner arrays, frames and handle-owned
+ * storage) remain valid with the documented immutable/exclusive lifetimes and
+ * must not overlap output storage. Copying HostOps does not copy those targets.
+ * capabilities=1 asserts ALL checked lifecycle and publication capabilities.
+ * Errors additionally: 8 persistence, 9 host failure, 10 corrupt journal,
+ * 11 recovery required. Error never permits clearing a fence or deleting state.
+ * Operation: fence=1, drain=2, revalidate=3, remove=4, reconcile=5, cleanup=6,
+ * persist removal=7, release=8. Outcome: ACK=0, removed=1, absent=2,
+ * identity mismatch=3, pending=4, cleanup failed=5. A reconcile ACK must resolve the exact retained
+ * pending object; a path now naming another object is identity mismatch.
+ * Phase: prepared=0, stopping=1, quiescent=2, cleaning=3, persisting=4,
+ * complete=5, failed=6. Complete alone is NOT successful release: released=1
+ * requires a durable ReleaseAck and recovery_required=0.
+ * Revalidate ACK must confirm every remaining scoped cleanup/publication receipt
+ * fits receipt_budget before filesystem/artifact mutation. This allowance already
+ * reserves the complete ACK token and fixed record envelope inside the 64 MiB
+ * ACK limit; it also cannot exceed the remaining retained receipt allowance.
+ * If the owner cannot
+ * establish bounded complete coverage, return error and retain the fence.
+ * Every versioned record uses version=1 and exact sizeof(record). */
+typedef struct NzbgetRsPurgeRegistryV1 NzbgetRsPurgeRegistryV1;
+typedef struct {
+    uint32_t version, struct_size;
+    uint8_t domain[16];
+    uint64_t manifest_sequence;
+    uint8_t request[16];
+    uint64_t generation;
+    const NzbgetRsPurgeBindingV1* members;
+    uint32_t members_count;
+    uint64_t state_revision, receipt_sequence;
+    uint8_t payload_digest[32];
+} NzbgetRsPurgeAckIdentityV1;
+typedef struct {
+    uint32_t owner_kind;
+    uint64_t barrier_revision, queued, active, pinned, publication, unacknowledged_deltas;
+} NzbgetRsPurgeOwnerBarrierV1;
+typedef struct {
+    uint32_t present, recursive;
+    uint64_t entry_id, root_id;
+    NzbgetRsPurgeBytesV1 relative_path;
+    uint32_t kind;
+    NzbgetRsPurgeBytesV1 object_identity;
+} NzbgetRsPurgeActionV1;
+typedef struct {
+    uint32_t version, struct_size;
+    NzbgetRsPurgeAckIdentityV1 identity;
+    uint32_t operation;
+    NzbgetRsPurgeActionV1 action;
+    NzbgetRsPurgeBytesV1 root_descriptor_identity;
+    uint64_t completed_actions, action_receipt_high_water, cleanup_receipt_sequence;
+    uint32_t receipt_budget;
+    uint64_t barrier_revision;
+    const uint32_t* required_owners;
+    uint32_t required_owners_count;
+    uint64_t inventory_revision;
+} NzbgetRsPurgeCallV1;
+/* Stop dispositions: no_work=0, cancel_requested=1, already_stopped=2.
+ * Artifact kinds: parsed/bad donor=1, article pins=2, twin/signature/attempt=3,
+ * probe pending=4, PAR damage=5, discovery directory/checkpoint/sent=6,
+ * persisted search=7.
+ * Every category has explicit complete/count coverage, including empty sets.
+ * Artifact failed outcome=5 carries a nonzero error. Retained store identity
+ * references an exact checked StoreReceipt; empty identity means volatile only.
+ * Filesystem artifact entry IDs resolve retained validated inventory; member,
+ * object identity and entry binding must agree. No title/current-path guessing. */
+typedef struct { uint32_t owner_kind; uint64_t barrier_revision; uint32_t disposition; } NzbgetRsPurgeStopDispositionV1;
+typedef struct { uint32_t already_fenced; const NzbgetRsPurgeStopDispositionV1* dispositions; uint32_t dispositions_count; } NzbgetRsPurgeFenceReceiptV1;
+typedef struct { uint32_t owner_kind; uint64_t barrier_revision; uint32_t complete; } NzbgetRsPurgeOwnerCoverageV1;
+typedef struct { uint32_t kind, count, complete; } NzbgetRsPurgeArtifactCoverageV1;
+typedef struct {
+    NzbgetRsPurgeBytesV1 identity;
+    uint64_t revision;
+    uint32_t file_synced, published, directory_synced;
+} NzbgetRsPurgeStoreReceiptV1;
+typedef struct {
+    uint32_t kind;
+    NzbgetRsPurgeBindingV1 member;
+    NzbgetRsPurgeBytesV1 identity;
+    uint32_t has_entry;
+    uint64_t entry_id;
+    uint32_t outcome;
+    int32_t error;
+    NzbgetRsPurgeBytesV1 retained_store;
+} NzbgetRsPurgeArtifactReceiptV1;
+typedef struct {
+    const NzbgetRsPurgeOwnerCoverageV1* owners; uint32_t owners_count;
+    const NzbgetRsPurgeArtifactCoverageV1* coverage; uint32_t coverage_count;
+    const NzbgetRsPurgeArtifactReceiptV1* artifacts; uint32_t artifacts_count;
+    const NzbgetRsPurgeStoreReceiptV1* stores; uint32_t stores_count;
+} NzbgetRsPurgeCleanupReceiptV1;
+typedef struct {
+    uint64_t completed_actions, action_receipt_high_water, cleanup_receipt_sequence;
+    const NzbgetRsPurgeOwnerCoverageV1* owners; uint32_t owners_count;
+    const NzbgetRsPurgeStoreReceiptV1* stores; uint32_t stores_count;
+} NzbgetRsPurgePersistenceReceiptV1;
+typedef struct {
+    uint32_t version, struct_size;
+    NzbgetRsPurgeAckIdentityV1 identity;
+    uint32_t outcome;
+    uint64_t inventory_revision;
+    const NzbgetRsPurgeOwnerBarrierV1* owners;
+    uint32_t owners_count;
+    const NzbgetRsPurgeFenceReceiptV1* fence;
+    const NzbgetRsPurgeCleanupReceiptV1* cleanup;
+    const NzbgetRsPurgePersistenceReceiptV1* persistence;
+} NzbgetRsPurgeAckV1;
+typedef struct {
+    uint32_t version, struct_size;
+    uint64_t sequence;
+    NzbgetRsPurgeBytesV1 frame;
+    uint32_t file_synced, published, directory_synced;
+} NzbgetRsPurgePublicationAckV1;
+typedef struct {
+    uint32_t version, struct_size;
+    NzbgetRsPurgeRegistryV1* registry;
+    void* context;
+    uint32_t capabilities;
+    /* Read the ACTUAL retained private directory FD each call: NZBPJID1 (8 bytes),
+     * device, inode, owner as three little-endian uint64 values. Check directory,
+     * effective UID ownership and mode 0700; reject errors/unsupported platforms.
+     * This callback must use the same held descriptor as publication/recovery,
+     * never a caller-provided identity label. Context/descriptor stay serialized. */
+    int32_t (*journal_identity)(void*, uint8_t out[32]);
+    int32_t (*publish)(void*, uint64_t, NzbgetRsPurgeBytesV1, NzbgetRsPurgePublicationAckV1*);
+    int32_t (*execute)(void*, const NzbgetRsPurgeCallV1*, NzbgetRsPurgeAckV1*);
+    const uint32_t* required_owners;
+    uint32_t required_owners_count;
+} NzbgetRsPurgeHostOpsV1;
+typedef struct {
+    uint32_t version, struct_size, phase, released;
+    uint64_t generation, state_revision, receipt_sequence;
+    uint32_t recovery_required;
+    int32_t error;
+} NzbgetRsPurgeStatusV1;
+typedef struct {
+    uint64_t entry_id;
+    const NzbgetRsPurgeEntryV1* before;
+    const NzbgetRsPurgeEntryV1* after;
+    const NzbgetRsPurgeOwnershipV1* ownership;
+    uint32_t prior_absent;
+} NzbgetRsPurgeInventoryChangeV1;
+typedef struct {
+    uint32_t version, struct_size;
+    uint64_t producer_ticket, sequence, prior_inventory_revision;
+    const NzbgetRsPurgeInventoryChangeV1* changes;
+    uint32_t changes_count, final_for_producer;
+} NzbgetRsPurgeOutputDeltaV1;
+/* create requires a checked EMPTY private descriptor domain. Failure/ambiguous
+ * publication requires checked recovery; never initialize over existing frames.
+ * recover requires scan_complete=1 from an exhaustive checked descriptor scan.
+ * Domain bytes/checksums are bindings, not authentication of the caller/scan.
+ * Orphan chunks are retained RecoveryRequired, never ignored or reused. */
+int32_t nzbget_rs_purge_registry_create(const uint8_t domain[16],
+    const NzbgetRsPurgeHostOpsV1* ops, NzbgetRsPurgeRegistryV1** out);
+int32_t nzbget_rs_purge_registry_recover(const uint8_t domain[16],
+    const NzbgetRsPurgeBytesV1* frames, uint32_t count, uint32_t scan_complete,
+    const NzbgetRsPurgeHostOpsV1* ops, NzbgetRsPurgeRegistryV1** out);
+void nzbget_rs_purge_registry_destroy(NzbgetRsPurgeRegistryV1* registry);
+/* prepare generation is provisional. tick enrolls through the supplied Registry
+ * and publishes its complete intent before any fence/cancel callback. retry=1
+ * explicitly retries a Failed retained operation after revalidation. */
+int32_t nzbget_rs_purge_tick(const void* handle, const NzbgetRsPurgeHostOpsV1* ops,
+    uint32_t retry, NzbgetRsPurgeStatusV1* status, int32_t* out_error);
+int32_t nzbget_rs_purge_inventory_store(const NzbgetRsPurgeBindingV1* binding,
+    const NzbgetRsPurgeOutputDeltaV1* delta, const NzbgetRsPurgeHostOpsV1* ops,
+    int32_t* out_error);
+
+
 #ifdef __cplusplus
 }
 #endif

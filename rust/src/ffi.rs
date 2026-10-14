@@ -6753,6 +6753,10 @@ fn purge_error_code(e: purge::PurgeError) -> i32 {
         LimitExceeded => 5,
         Unsupported => 6,
         AllocationFailure => 7,
+        Persistence => 8,
+        HostFailure => 9,
+        CorruptJournal => 10,
+        RecoveryRequired => 11,
     }
 }
 fn purge_bool(v: u32) -> Result<bool, purge::PurgeError> {
@@ -7289,4 +7293,987 @@ pub unsafe extern "C" fn nzbget_rs_purge_destroy(handle: *mut std::ffi::c_void) 
         std::ptr::drop_in_place(p);
         std::alloc::dealloc(handle.cast(), std::alloc::Layout::new::<purge::Plan>());
     }
+}
+
+// Version-one durable journal ABI. The host serializes each registry and must
+// not reenter it from a callback. All callback views expire with that callback;
+// returned views must remain accessible until the enclosing API returns.
+use crate::purgejournal as journal;
+#[repr(C)]
+pub struct PurgeRegistryC {
+    inner: journal::Registry,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeAckIdentityC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub domain: [u8; 16],
+    pub manifest_sequence: u64,
+    pub request: [u8; 16],
+    pub generation: u64,
+    pub members: *const PurgeBindingC,
+    pub members_count: u32,
+    pub state_revision: u64,
+    pub receipt_sequence: u64,
+    pub payload_digest: [u8; 32],
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeOwnerBarrierC {
+    pub owner_kind: u32,
+    pub barrier_revision: u64,
+    pub queued: u64,
+    pub active: u64,
+    pub pinned: u64,
+    pub publication: u64,
+    pub unacknowledged_deltas: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeActionC {
+    pub present: u32,
+    pub recursive: u32,
+    pub entry_id: u64,
+    pub root_id: u64,
+    pub relative_path: PurgeBytesC,
+    pub kind: u32,
+    pub object_identity: PurgeBytesC,
+}
+#[repr(C)]
+pub struct PurgeCallC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub identity: PurgeAckIdentityC,
+    pub operation: u32,
+    pub action: PurgeActionC,
+    pub root_descriptor_identity: PurgeBytesC,
+    pub completed_actions: u64,
+    pub action_receipt_high_water: u64,
+    pub cleanup_receipt_sequence: u64,
+    pub receipt_budget: u32,
+    pub barrier_revision: u64,
+    pub required_owners: *const u32,
+    pub required_owners_count: u32,
+    pub inventory_revision: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeStopDispositionC {
+    pub owner_kind: u32,
+    pub barrier_revision: u64,
+    pub disposition: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeFenceReceiptC {
+    pub already_fenced: u32,
+    pub dispositions: *const PurgeStopDispositionC,
+    pub dispositions_count: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeOwnerCoverageC {
+    pub owner_kind: u32,
+    pub barrier_revision: u64,
+    pub complete: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeArtifactCoverageC {
+    pub kind: u32,
+    pub count: u32,
+    pub complete: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeStoreReceiptC {
+    pub identity: PurgeBytesC,
+    pub revision: u64,
+    pub file_synced: u32,
+    pub published: u32,
+    pub directory_synced: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeArtifactReceiptC {
+    pub kind: u32,
+    pub member: PurgeBindingC,
+    pub identity: PurgeBytesC,
+    pub has_entry: u32,
+    pub entry_id: u64,
+    pub outcome: u32,
+    pub error: i32,
+    pub retained_store: PurgeBytesC,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeCleanupReceiptC {
+    pub owners: *const PurgeOwnerCoverageC,
+    pub owners_count: u32,
+    pub coverage: *const PurgeArtifactCoverageC,
+    pub coverage_count: u32,
+    pub artifacts: *const PurgeArtifactReceiptC,
+    pub artifacts_count: u32,
+    pub stores: *const PurgeStoreReceiptC,
+    pub stores_count: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgePersistenceReceiptC {
+    pub completed_actions: u64,
+    pub action_receipt_high_water: u64,
+    pub cleanup_receipt_sequence: u64,
+    pub owners: *const PurgeOwnerCoverageC,
+    pub owners_count: u32,
+    pub stores: *const PurgeStoreReceiptC,
+    pub stores_count: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeAckC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub identity: PurgeAckIdentityC,
+    pub outcome: u32,
+    pub inventory_revision: u64,
+    pub owners: *const PurgeOwnerBarrierC,
+    pub owners_count: u32,
+    pub fence: *const PurgeFenceReceiptC,
+    pub cleanup: *const PurgeCleanupReceiptC,
+    pub persistence: *const PurgePersistenceReceiptC,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgePublicationAckC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub sequence: u64,
+    pub frame: PurgeBytesC,
+    pub file_synced: u32,
+    pub published: u32,
+    pub directory_synced: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeHostOpsC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub registry: *mut PurgeRegistryC,
+    pub context: *mut std::ffi::c_void,
+    /// Exactly 1 means all checked journal/lifecycle capabilities are present.
+    pub capabilities: u32,
+    pub journal_identity: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8) -> i32>,
+    pub publish: Option<
+        unsafe extern "C" fn(
+            *mut std::ffi::c_void,
+            u64,
+            PurgeBytesC,
+            *mut PurgePublicationAckC,
+        ) -> i32,
+    >,
+    pub execute: Option<
+        unsafe extern "C" fn(*mut std::ffi::c_void, *const PurgeCallC, *mut PurgeAckC) -> i32,
+    >,
+    pub required_owners: *const u32,
+    pub required_owners_count: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeStatusC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub phase: u32,
+    pub released: u32,
+    pub generation: u64,
+    pub state_revision: u64,
+    pub receipt_sequence: u64,
+    pub recovery_required: u32,
+    pub error: i32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PurgeInventoryChangeC {
+    pub entry_id: u64,
+    pub before: *const PurgeEntryC,
+    pub after: *const PurgeEntryC,
+    pub ownership: *const PurgeOwnershipC,
+    pub prior_absent: u32,
+}
+#[repr(C)]
+pub struct PurgeOutputDeltaC {
+    pub version: u32,
+    pub struct_size: u32,
+    pub producer_ticket: u64,
+    pub sequence: u64,
+    pub prior_inventory_revision: u64,
+    pub changes: *const PurgeInventoryChangeC,
+    pub changes_count: u32,
+    pub final_for_producer: u32,
+}
+fn purge_view(bytes: &[u8]) -> PurgeBytesC {
+    PurgeBytesC {
+        data: bytes.as_ptr(),
+        len: bytes.len() as u32,
+    }
+}
+fn purge_binding_view(b: &purge::MemberBinding) -> PurgeBindingC {
+    PurgeBindingC {
+        collection_id: b.collection_id,
+        file_id: b.file_id.unwrap_or(0),
+        has_file: u32::from(b.file_id.is_some()),
+        incarnation: b.incarnation,
+        posting_source: purge_view(&b.posting_source),
+    }
+}
+unsafe fn purge_record<'a, T>(p: *const T) -> Result<&'a T, purge::PurgeError> {
+    if p.is_null() || !(p as usize).is_multiple_of(std::mem::align_of::<T>()) {
+        return Err(purge::PurgeError::InvalidInput);
+    }
+    Ok(&*p)
+}
+unsafe fn purge_versioned<'a, T>(p: *const T) -> Result<&'a T, purge::PurgeError> {
+    if p.is_null() || !(p as usize).is_multiple_of(std::mem::align_of::<T>()) {
+        return Err(purge::PurgeError::InvalidInput);
+    }
+    let h = p.cast::<u32>();
+    if h.read() != 1 || h.add(1).read() != std::mem::size_of::<T>() as u32 {
+        return Err(purge::PurgeError::InvalidInput);
+    }
+    Ok(&*p)
+}
+// The readiness allowance reserves these bounded repeated-token/envelope terms.
+// Unsupported ABI widths fail compilation instead of overstating safe capacity.
+const _: () = assert!(std::mem::size_of::<PurgeBindingC>() <= 128);
+const _: () = assert!(std::mem::size_of::<purge::MemberBinding>() <= 128);
+const _: () = assert!(std::mem::size_of::<PurgeAckC>() <= 1024);
+const _: () = assert!(std::mem::size_of::<journal::Ack>() <= 1024);
+unsafe fn purge_host_ops(p: *const PurgeHostOpsC) -> Result<PurgeHostOpsC, purge::PurgeError> {
+    // Only fixed scalars and pointers: no allocation and no borrowed reference
+    // to the caller's record survives an output write to ops.registry.
+    Ok(*purge_versioned(p)?)
+}
+struct PurgeHostAdapter<'a>(&'a PurgeHostOpsC);
+impl journal::Host for PurgeHostAdapter<'_> {
+    fn supported(&self) -> bool {
+        self.0.capabilities == 1
+            && self.0.journal_identity.is_some()
+            && self.0.publish.is_some()
+            && self.0.execute.is_some()
+    }
+    fn journal_identity(&self) -> Result<[u8; 32], purge::PurgeError> {
+        let callback = self
+            .0
+            .journal_identity
+            .ok_or(purge::PurgeError::Unsupported)?;
+        let mut bytes = [0; 32];
+        let code = unsafe { callback(self.0.context, bytes.as_mut_ptr()) };
+        if code != 0 {
+            return Err(purge_receipt_error(code)?.unwrap_or(purge::PurgeError::HostFailure));
+        }
+        if &bytes[..8] != b"NZBPJID1" {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+        Ok(bytes)
+    }
+    fn publish(
+        &mut self,
+        sequence: u64,
+        frame: &[u8],
+    ) -> Result<journal::PublicationAck, purge::PurgeError> {
+        let callback = self.0.publish.ok_or(purge::PurgeError::Unsupported)?;
+        // A zeroed output is invalid until the callback explicitly fills v1.
+        let mut out: PurgePublicationAckC = unsafe { std::mem::zeroed() };
+        if unsafe { callback(self.0.context, sequence, purge_view(frame), &mut out) } != 0 {
+            return Err(purge::PurgeError::Persistence);
+        }
+        unsafe {
+            purge_versioned(&out)?;
+        }
+        let mut budget = purge::Budget::new();
+        let bytes = unsafe { purge_raw_bytes(out.frame, purge::MAX_PAYLOAD, &mut budget)? };
+        Ok(journal::PublicationAck {
+            sequence: out.sequence,
+            frame: purge::copy_bytes(bytes)?,
+            file_synced: purge_bool(out.file_synced)?,
+            published: purge_bool(out.published)?,
+            directory_synced: purge_bool(out.directory_synced)?,
+        })
+    }
+    fn execute(&mut self, c: &journal::Call<'_>) -> Result<journal::Ack, purge::PurgeError> {
+        let callback = self.0.execute.ok_or(purge::PurgeError::Unsupported)?;
+        let mut members = purge::reserved(c.identity.token.members.len())?;
+        for b in &c.identity.token.members {
+            members.push(purge_binding_view(b));
+        }
+        let identity = PurgeAckIdentityC {
+            version: 1,
+            struct_size: std::mem::size_of::<PurgeAckIdentityC>() as u32,
+            domain: c.identity.domain,
+            manifest_sequence: c.identity.manifest_sequence,
+            request: c.identity.token.request,
+            generation: c.identity.token.generation,
+            members: members.as_ptr(),
+            members_count: members.len() as u32,
+            state_revision: c.identity.state_revision,
+            receipt_sequence: c.identity.receipt_sequence,
+            payload_digest: c.identity.payload_digest,
+        };
+        let action = match c.action {
+            None => unsafe { std::mem::zeroed() },
+            Some(purge::Action::RemoveEntry {
+                entry_id,
+                root_id,
+                relative_path,
+                kind,
+                object_identity,
+            }) => PurgeActionC {
+                present: 1,
+                recursive: 0,
+                entry_id: *entry_id,
+                root_id: *root_id,
+                relative_path: purge_view(relative_path),
+                kind: match kind {
+                    purge::EntryKind::Regular => 0,
+                    purge::EntryKind::Directory => 1,
+                    purge::EntryKind::Symlink => 2,
+                    purge::EntryKind::Unsupported => 3,
+                },
+                object_identity: purge_view(object_identity),
+            },
+            Some(purge::Action::RemoveTree {
+                entry_id,
+                root_id,
+                relative_path,
+                object_identity,
+            }) => PurgeActionC {
+                present: 1,
+                recursive: 1,
+                entry_id: *entry_id,
+                root_id: *root_id,
+                relative_path: purge_view(relative_path),
+                kind: 1,
+                object_identity: purge_view(object_identity),
+            },
+        };
+        let j = c
+            .plan
+            .journal
+            .as_ref()
+            .ok_or(purge::PurgeError::CorruptJournal)?;
+        let root_descriptor_identity = if action.present == 1 {
+            purge_view(
+                &c.plan
+                    .snapshot
+                    .roots
+                    .iter()
+                    .find(|r| r.id == action.root_id)
+                    .ok_or(purge::PurgeError::CorruptJournal)?
+                    .descriptor_identity,
+            )
+        } else {
+            PurgeBytesC {
+                data: std::ptr::null(),
+                len: 0,
+            }
+        };
+        let call = PurgeCallC {
+            version: 1,
+            struct_size: std::mem::size_of::<PurgeCallC>() as u32,
+            identity,
+            operation: match c.operation {
+                journal::Operation::Fence => 1,
+                journal::Operation::Drain => 2,
+                journal::Operation::Revalidate => 3,
+                journal::Operation::Remove => 4,
+                journal::Operation::Reconcile => 5,
+                journal::Operation::Cleanup => 6,
+                journal::Operation::PersistRemoval => 7,
+                journal::Operation::Release => 8,
+            },
+            action,
+            root_descriptor_identity,
+            completed_actions: j.actions.iter().filter(|a| a.outcome.is_some()).count() as u64,
+            action_receipt_high_water: j
+                .actions
+                .iter()
+                .map(|a| a.receipt_sequence)
+                .max()
+                .unwrap_or(0),
+            cleanup_receipt_sequence: j
+                .receipts
+                .iter()
+                .rev()
+                .find(|r| {
+                    r.operation == journal::Operation::Cleanup
+                        && r.outcome == journal::Outcome::Acknowledged
+                })
+                .map(|r| r.receipt_sequence)
+                .unwrap_or(0),
+            receipt_budget: c.receipt_budget as u32,
+            barrier_revision: c.barrier_revision,
+            required_owners: c.required_owners.as_ptr(),
+            required_owners_count: c.required_owners.len() as u32,
+            inventory_revision: c.inventory_revision,
+        };
+        let mut out: PurgeAckC = unsafe { std::mem::zeroed() };
+        if unsafe { callback(self.0.context, &call, &mut out) } != 0 {
+            return Err(purge::PurgeError::HostFailure);
+        }
+        unsafe {
+            purge_versioned(&out)?;
+            purge_versioned(&out.identity)?;
+        }
+        let mut budget = purge::Budget::new();
+        let bindings = unsafe {
+            purge_slice(
+                out.identity.members,
+                out.identity.members_count,
+                purge::MAX_MEMBERS,
+                &mut budget,
+            )?
+        };
+        let owners = unsafe {
+            purge_slice(
+                out.owners,
+                out.owners_count,
+                purge::MAX_MEMBERS,
+                &mut budget,
+            )?
+        };
+        for b in bindings {
+            unsafe {
+                purge_check_binding(b, &mut budget)?;
+            }
+        }
+        let mut retained = purge::reserved(bindings.len())?;
+        for b in bindings {
+            retained.push(unsafe { purge_owned_binding(b)? });
+        }
+        let mut retained_owners = purge::reserved(owners.len())?;
+        for o in owners {
+            retained_owners.push(journal::OwnerBarrier {
+                owner_kind: o.owner_kind,
+                barrier_revision: o.barrier_revision,
+                queued: o.queued,
+                active: o.active,
+                pinned: o.pinned,
+                publication: o.publication,
+                unacknowledged_deltas: o.unacknowledged_deltas,
+            });
+        }
+        let outcome = match out.outcome {
+            0 => journal::Outcome::Acknowledged,
+            1 => journal::Outcome::Removed,
+            2 => journal::Outcome::Absent,
+            3 => journal::Outcome::IdentityMismatch,
+            4 => journal::Outcome::Pending,
+            5 => journal::Outcome::Failed,
+            _ => return Err(purge::PurgeError::InvalidInput),
+        };
+        Ok(journal::Ack {
+            identity: journal::AckIdentity {
+                version: out.identity.version,
+                domain: out.identity.domain,
+                manifest_sequence: out.identity.manifest_sequence,
+                token: purge::PurgeToken {
+                    request: out.identity.request,
+                    generation: out.identity.generation,
+                    members: retained,
+                },
+                state_revision: out.identity.state_revision,
+                receipt_sequence: out.identity.receipt_sequence,
+                payload_digest: out.identity.payload_digest,
+            },
+            outcome,
+            inventory_revision: out.inventory_revision,
+            owners: retained_owners,
+            fence: unsafe { purge_fence_receipt(out.fence, &mut budget)? },
+            cleanup: unsafe { purge_cleanup_receipt(out.cleanup, &mut budget)? },
+            persistence: unsafe { purge_persistence_receipt(out.persistence, &mut budget)? },
+        })
+    }
+}
+unsafe fn purge_registry_allocate(
+    out: *mut *mut PurgeRegistryC,
+    create: impl FnOnce() -> Result<journal::Registry, purge::PurgeError>,
+) -> i32 {
+    if out.is_null() {
+        return purge_error_code(purge::PurgeError::InvalidInput);
+    }
+    out.write(std::ptr::null_mut());
+    let layout = std::alloc::Layout::new::<PurgeRegistryC>();
+    let p = std::alloc::alloc(layout).cast::<PurgeRegistryC>();
+    if p.is_null() {
+        return purge_error_code(purge::PurgeError::AllocationFailure);
+    }
+    match create() {
+        Ok(inner) => {
+            p.write(PurgeRegistryC { inner });
+            out.write(p);
+            0
+        }
+        Err(e) => {
+            std::alloc::dealloc(p.cast(), layout);
+            purge_error_code(e)
+        }
+    }
+}
+/// # Safety
+/// Domain covers 16 bytes; ops and output are valid versioned records. Output
+/// may be ops.registry; its fixed record is copied before output mutation. The host
+/// owns an empty private descriptor domain and all callbacks catch exceptions.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_purge_registry_create(
+    domain: *const u8,
+    ops: *const PurgeHostOpsC,
+    out: *mut *mut PurgeRegistryC,
+) -> i32 {
+    let copied_ops = purge_host_ops(ops);
+    let mut id = [0; 16];
+    if !domain.is_null() {
+        std::ptr::copy_nonoverlapping(domain, id.as_mut_ptr(), 16);
+    }
+    if !out.is_null() {
+        out.write(std::ptr::null_mut());
+    }
+    if domain.is_null() {
+        return purge_error_code(purge::PurgeError::InvalidInput);
+    }
+    let ops = match copied_ops {
+        Ok(v) => v,
+        Err(e) => return purge_error_code(e),
+    };
+    purge_registry_allocate(out, || {
+        journal::Registry::initialize(id, &mut PurgeHostAdapter(&ops))
+    })
+}
+/// # Safety
+/// Frames are the exhaustive checked descriptor scan in sequence order. Caller
+/// must retain orphan/temporary files and fail the scan for ambiguous enumeration.
+/// scan_complete=1 asserts that contract, not checksum authentication. Output
+/// may be ops.registry, but must not overlap frame/byte storage or callback
+/// pointer targets, which remain valid and immutable through this call.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_purge_registry_recover(
+    domain: *const u8,
+    frames: *const PurgeBytesC,
+    count: u32,
+    scan_complete: u32,
+    ops: *const PurgeHostOpsC,
+    out: *mut *mut PurgeRegistryC,
+) -> i32 {
+    let copied_ops = purge_host_ops(ops);
+    let result = (|| {
+        if domain.is_null() || scan_complete != 1 {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+        let mut budget = purge::Budget::new();
+        let input = purge_slice(frames, count, journal::MAX_FRAMES, &mut budget)?;
+        let mut views = purge::reserved(input.len())?;
+        // Each frame retains its independent 64 MiB bound. Recovery additionally
+        // bounds composed logical images and TOTAL retained owned state.
+        for f in input {
+            views.push(purge_raw_bytes(
+                *f,
+                purge::MAX_PAYLOAD,
+                &mut purge::Budget::new(),
+            )?);
+        }
+        let mut id = [0; 16];
+        std::ptr::copy_nonoverlapping(domain, id.as_mut_ptr(), 16);
+        let ops = copied_ops?;
+        let host = PurgeHostAdapter(&ops);
+        if !journal::Host::supported(&host) {
+            return Err(purge::PurgeError::Unsupported);
+        }
+        Ok((id, journal::Host::journal_identity(&host)?, views))
+    })();
+    if !out.is_null() {
+        out.write(std::ptr::null_mut());
+    }
+    match result {
+        Ok((id, identity, views)) => {
+            purge_registry_allocate(out, || journal::Registry::recover(id, identity, &views))
+        }
+        Err(e) => purge_error_code(e),
+    }
+}
+/// # Safety
+/// Nonnull handle is a live registry from create/recover with all users stopped.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_purge_registry_destroy(p: *mut PurgeRegistryC) {
+    if !p.is_null() {
+        std::ptr::drop_in_place(p);
+        std::alloc::dealloc(p.cast(), std::alloc::Layout::new::<PurgeRegistryC>());
+    }
+}
+unsafe fn purge_result(result: Result<(), purge::PurgeError>, out_error: *mut i32) -> i32 {
+    let code = result.err().map(purge_error_code).unwrap_or(0);
+    if !out_error.is_null() {
+        out_error.write(code);
+    }
+    code
+}
+/// # Safety
+/// handle is live prepare output. Registry is exclusively borrowed for this
+/// entire call; callbacks cannot reenter or retain its views. No global lock is
+/// acquired by Rust. Host must not hold queue/provider/global locks while waiting.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_purge_tick(
+    handle: *const std::ffi::c_void,
+    ops: *const PurgeHostOpsC,
+    retry: u32,
+    status: *mut PurgeStatusC,
+    out_error: *mut i32,
+) -> i32 {
+    let copied_ops = purge_host_ops(ops);
+    if !status.is_null() {
+        status.write(PurgeStatusC {
+            version: 1,
+            struct_size: std::mem::size_of::<PurgeStatusC>() as u32,
+            phase: 6,
+            released: 0,
+            generation: 0,
+            state_revision: 0,
+            receipt_sequence: 0,
+            recovery_required: 0,
+            error: 0,
+        });
+    }
+    let result = (|| {
+        if status.is_null() || out_error.is_null() {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+        let retry = purge_bool(retry)?;
+        let ops = copied_ops?;
+        let registry_ptr = ops.registry;
+        if registry_ptr.is_null() {
+            return Err(purge::PurgeError::RecoveryRequired);
+        }
+        let p = purge_record(handle.cast::<purge::Plan>())?;
+        let mut host = PurgeHostAdapter(&ops);
+        let owners = purge_slice(
+            ops.required_owners,
+            ops.required_owners_count,
+            purge::MAX_MEMBERS,
+            &mut purge::Budget::new(),
+        )?;
+        let registry = &mut (*registry_ptr).inner;
+        let reserved = registry.reserve_prepared(p, owners, &mut host);
+        let i = match reserved {
+            Ok(journal::Reservation::Existing(i) | journal::Reservation::New(i)) => i,
+            Ok(journal::Reservation::Conflict) => return Err(purge::PurgeError::Conflict),
+            Err(e) => {
+                (*status).recovery_required = u32::from(registry.requires_recovery());
+                return Err(e);
+            }
+        };
+        let advanced = if retry {
+            registry.retry(i, &mut host).map(|_| ())
+        } else {
+            registry.advance(i, &mut host).map(|_| ())
+        };
+        let plan = registry.plan(i).ok_or(purge::PurgeError::InvalidInput)?;
+        let state = plan
+            .journal
+            .as_ref()
+            .ok_or(purge::PurgeError::InvalidInput)?;
+        status.write(PurgeStatusC {
+            version: 1,
+            struct_size: std::mem::size_of::<PurgeStatusC>() as u32,
+            phase: match plan.phase {
+                purge::Phase::Prepared => 0,
+                purge::Phase::Stopping => 1,
+                purge::Phase::Quiescent => 2,
+                purge::Phase::Cleaning => 3,
+                purge::Phase::Persisting => 4,
+                purge::Phase::Complete => 5,
+                purge::Phase::Failed => 6,
+            },
+            released: u32::from(state.released && !registry.requires_recovery()),
+            generation: plan.token.generation,
+            state_revision: state.state_revision,
+            receipt_sequence: state.receipt_sequence,
+            recovery_required: u32::from(registry.requires_recovery()),
+            error: state.error.map(purge_error_code).unwrap_or(0),
+        });
+        advanced
+    })();
+    let code = purge_result(result, out_error);
+    if !status.is_null() {
+        (*status).error = code;
+    }
+    code
+}
+/// # Safety
+/// Binding/delta are accessible immutable records for the call; registry and
+/// callback lifetimes/serialization follow tick. Only a durable ACK returns 0.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_purge_inventory_store(
+    binding: *const PurgeBindingC,
+    delta: *const PurgeOutputDeltaC,
+    ops: *const PurgeHostOpsC,
+    out_error: *mut i32,
+) -> i32 {
+    let copied_ops = purge_host_ops(ops);
+    let result = (|| {
+        if out_error.is_null() {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+        let ops = copied_ops?;
+        let registry_ptr = ops.registry;
+        if registry_ptr.is_null() {
+            return Err(purge::PurgeError::RecoveryRequired);
+        }
+        let binding = purge_record(binding)?;
+        let delta = purge_versioned(delta)?;
+        let mut budget = purge::Budget::new();
+        purge_check_binding(binding, &mut budget)?;
+        let changes = purge_slice(
+            delta.changes,
+            delta.changes_count,
+            purge::MAX_ENTRIES,
+            &mut budget,
+        )?;
+        budget.add(
+            changes
+                .len()
+                .checked_mul(
+                    std::mem::size_of::<journal::InventoryChange>()
+                        .saturating_sub(std::mem::size_of::<PurgeInventoryChangeC>()),
+                )
+                .ok_or(purge::PurgeError::LimitExceeded)?,
+        )?;
+        for c in changes {
+            purge_bool(c.prior_absent)?;
+            if !c.before.is_null() {
+                purge_check_entry(purge_record(c.before)?, &mut budget)?;
+            }
+            if !c.after.is_null() {
+                purge_check_entry(purge_record(c.after)?, &mut budget)?;
+            }
+            if !c.ownership.is_null() {
+                purge_check_ownership(purge_record(c.ownership)?, &mut budget)?;
+            }
+        }
+        let final_for_producer = purge_bool(delta.final_for_producer)?;
+        let mut owned = purge::reserved(changes.len())?;
+        for c in changes {
+            owned.push(journal::InventoryChange {
+                entry_id: c.entry_id,
+                before: if c.before.is_null() {
+                    None
+                } else {
+                    Some(purge_owned_entry(&*c.before)?)
+                },
+                after: if c.after.is_null() {
+                    None
+                } else {
+                    Some(purge_owned_entry(&*c.after)?)
+                },
+                ownership: if c.ownership.is_null() {
+                    None
+                } else {
+                    Some(purge_owned_ownership(&*c.ownership)?)
+                },
+                prior_absent: c.prior_absent == 1,
+            });
+        }
+        (*registry_ptr).inner.store_inventory(
+            purge_owned_binding(binding)?,
+            journal::OutputDelta {
+                producer_ticket: delta.producer_ticket,
+                sequence: delta.sequence,
+                prior_inventory_revision: delta.prior_inventory_revision,
+                changes: owned,
+                final_for_producer,
+            },
+            &mut PurgeHostAdapter(&ops),
+        )
+    })();
+    purge_result(result, out_error)
+}
+
+unsafe fn purge_fence_receipt(
+    p: *const PurgeFenceReceiptC,
+    b: &mut purge::Budget,
+) -> Result<Option<journal::FenceReceipt>, purge::PurgeError> {
+    if p.is_null() {
+        return Ok(None);
+    }
+    let f = purge_record(p)?;
+    b.table::<journal::FenceReceipt>(1)?;
+    let values = purge_slice(f.dispositions, f.dispositions_count, purge::MAX_MEMBERS, b)?;
+    let already_fenced = purge_bool(f.already_fenced)?;
+    let mut dispositions = purge::reserved(values.len())?;
+    for v in values {
+        dispositions.push(journal::StopDisposition {
+            owner_kind: v.owner_kind,
+            barrier_revision: v.barrier_revision,
+            disposition: v.disposition,
+        });
+    }
+    Ok(Some(journal::FenceReceipt {
+        already_fenced,
+        dispositions,
+    }))
+}
+unsafe fn purge_owner_coverage(
+    p: *const PurgeOwnerCoverageC,
+    n: u32,
+    b: &mut purge::Budget,
+) -> Result<Vec<journal::OwnerCoverage>, purge::PurgeError> {
+    let values = purge_slice(p, n, purge::MAX_MEMBERS, b)?;
+    let mut out = purge::reserved(values.len())?;
+    for v in values {
+        out.push(journal::OwnerCoverage {
+            owner_kind: v.owner_kind,
+            barrier_revision: v.barrier_revision,
+            complete: purge_bool(v.complete)?,
+        });
+    }
+    Ok(out)
+}
+unsafe fn purge_store_receipts(
+    p: *const PurgeStoreReceiptC,
+    n: u32,
+    b: &mut purge::Budget,
+) -> Result<Vec<journal::StoreReceipt>, purge::PurgeError> {
+    let values = purge_slice(p, n, purge::MAX_ENTRIES, b)?;
+    b.add(
+        values
+            .len()
+            .checked_mul(
+                std::mem::size_of::<journal::StoreReceipt>()
+                    .saturating_sub(std::mem::size_of::<PurgeStoreReceiptC>()),
+            )
+            .ok_or(purge::PurgeError::LimitExceeded)?,
+    )?;
+    for v in values {
+        purge_raw_bytes(v.identity, purge::MAX_IDENTITY, b)?;
+        purge_bool(v.file_synced)?;
+        purge_bool(v.published)?;
+        purge_bool(v.directory_synced)?;
+    }
+    let mut out = purge::reserved(values.len())?;
+    for v in values {
+        out.push(journal::StoreReceipt {
+            identity: purge_owned_bytes(v.identity)?,
+            revision: v.revision,
+            file_synced: v.file_synced == 1,
+            published: v.published == 1,
+            directory_synced: v.directory_synced == 1,
+        });
+    }
+    Ok(out)
+}
+fn purge_receipt_error(code: i32) -> Result<Option<purge::PurgeError>, purge::PurgeError> {
+    use purge::PurgeError::*;
+    Ok(match code {
+        0 => None,
+        1 => Some(InvalidInput),
+        2 => Some(MissingSeed),
+        3 => Some(MissingInventory),
+        4 => Some(Conflict),
+        5 => Some(LimitExceeded),
+        6 => Some(Unsupported),
+        7 => Some(AllocationFailure),
+        8 => Some(Persistence),
+        9 => Some(HostFailure),
+        10 => Some(CorruptJournal),
+        11 => Some(RecoveryRequired),
+        _ => return Err(InvalidInput),
+    })
+}
+unsafe fn purge_cleanup_receipt(
+    p: *const PurgeCleanupReceiptC,
+    b: &mut purge::Budget,
+) -> Result<Option<journal::CleanupReceipt>, purge::PurgeError> {
+    if p.is_null() {
+        return Ok(None);
+    }
+    let c = purge_record(p)?;
+    b.table::<journal::CleanupReceipt>(1)?;
+    let owners = purge_owner_coverage(c.owners, c.owners_count, b)?;
+    let coverage = purge_slice(c.coverage, c.coverage_count, 7, b)?;
+    let artifacts = purge_slice(c.artifacts, c.artifacts_count, purge::MAX_ENTRIES, b)?;
+    b.add(
+        artifacts
+            .len()
+            .checked_mul(
+                std::mem::size_of::<journal::ArtifactReceipt>()
+                    .saturating_sub(std::mem::size_of::<PurgeArtifactReceiptC>()),
+            )
+            .ok_or(purge::PurgeError::LimitExceeded)?,
+    )?;
+    // Preflight every nested byte before allocating any artifact record.
+    for a in artifacts {
+        purge_check_binding(&a.member, b)?;
+        purge_raw_bytes(a.identity, purge::MAX_IDENTITY, b)?;
+        purge_raw_bytes(a.retained_store, purge::MAX_IDENTITY, b)?;
+        if !purge_bool(a.has_entry)? && a.entry_id != 0 {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+        purge_receipt_error(a.error)?;
+        if !matches!(a.outcome, 1 | 2 | 5) {
+            return Err(purge::PurgeError::InvalidInput);
+        }
+    }
+    let stores = purge_store_receipts(c.stores, c.stores_count, b)?;
+    let mut covered = purge::reserved(coverage.len())?;
+    for v in coverage {
+        covered.push(journal::ArtifactCoverage {
+            kind: v.kind,
+            count: v.count,
+            complete: purge_bool(v.complete)?,
+        });
+    }
+    let mut retained = purge::reserved(artifacts.len())?;
+    for a in artifacts {
+        retained.push(journal::ArtifactReceipt {
+            kind: a.kind,
+            member: purge_owned_binding(&a.member)?,
+            identity: purge_owned_bytes(a.identity)?,
+            entry_id: if a.has_entry == 1 {
+                Some(a.entry_id)
+            } else {
+                None
+            },
+            outcome: match a.outcome {
+                1 => journal::Outcome::Removed,
+                2 => journal::Outcome::Absent,
+                _ => journal::Outcome::Failed,
+            },
+            error: purge_receipt_error(a.error)?,
+            retained_store: if a.retained_store.len == 0 {
+                None
+            } else {
+                Some(purge_owned_bytes(a.retained_store)?)
+            },
+        });
+    }
+    Ok(Some(journal::CleanupReceipt {
+        owners,
+        coverage: covered,
+        artifacts: retained,
+        stores,
+    }))
+}
+unsafe fn purge_persistence_receipt(
+    p: *const PurgePersistenceReceiptC,
+    b: &mut purge::Budget,
+) -> Result<Option<journal::PersistenceReceipt>, purge::PurgeError> {
+    if p.is_null() {
+        return Ok(None);
+    }
+    let v = purge_record(p)?;
+    b.table::<journal::PersistenceReceipt>(1)?;
+    Ok(Some(journal::PersistenceReceipt {
+        completed_actions: v.completed_actions,
+        action_receipt_high_water: v.action_receipt_high_water,
+        cleanup_receipt_sequence: v.cleanup_receipt_sequence,
+        owners: purge_owner_coverage(v.owners, v.owners_count, b)?,
+        stores: purge_store_receipts(v.stores, v.stores_count, b)?,
+    }))
 }

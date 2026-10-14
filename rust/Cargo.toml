@@ -22,6 +22,10 @@ criterion = { version = "=0.8.2", default-features = false, features = ["cargo_b
 name = "dupepurge_planner"
 path = "tests/dupepurge/planner.rs"
 
+[[test]]
+name = "dupepurge_journal"
+path = "tests/dupepurge/journal.rs"
+
 [[bench]]
 name = "ports"
 harness = false
