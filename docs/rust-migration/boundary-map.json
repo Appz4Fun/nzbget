@@ -313,7 +313,8 @@
       "existing_partial_check_entrypoints": [
         "rust/tests/dupesearch_nzb/run.py",
         "rust/tests/dupesearch_nzb/mutations.py",
-        "rust/tests/dupesearch_nzb/test_evidence.py"
+        "rust/tests/dupesearch_nzb/test_evidence.py",
+        "rust/tests/dupesearch_nzb/summarize.py"
       ],
       "lexical_rust_symbols": [
         "nzbget_rs_dupe_part_counts",
@@ -345,6 +346,14 @@
           "operation_scope": "Evidence-integrity check: complete eight-case reporting and rejection of empty/omitted/duplicate/missing-pair/missing-round/mismatched-output/nonfinite timing packets through summarize.py under Python -O.",
           "path": "rust/tests/dupesearch_nzb/test_evidence.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "path": "rust/tests/dupesearch_nzb/summarize.py",
+          "git_blob": "942a3ed0bfb44ad56dce4b10dcb6c984b821489a",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+          "operation_scope": "Separate required real-capture CSV analyzer from companion README: exact eight shapes, 15 rounds and C++/Rust pairs, unique samples, positive finite ns and matching positive observable checksums; per-shape paired medians and deterministic 10000-resample bootstrap interval. run.py does not invoke it; test_evidence.py supplies synthetic packets only.",
+          "execution_status": "UNRUN in this source audit",
+          "limitations": "Specialized historical within-run sample analysis, not current campaign validator: no independently bound process hierarchy, exact integer batch duration floor, fair optimized-C++/current-Rust preservation/control-drift/campaign >=2x qualification or native/source/archive/route proof. It validates float ns values for its legacy CSV, not the current frozen-floor contract."
         }
       ],
       "partial_check_documentation": "rust/tests/dupesearch_nzb/README.md",
