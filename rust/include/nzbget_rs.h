@@ -1279,6 +1279,190 @@ int nzbget_rs_dupe_par_doomed(uint64_t dataBytes, uint64_t articleBytes, const u
 
 int nzbget_rs_dupe_outer_ok(const char* title, size_t titleLen, const char* name, size_t len);
 
+
+/* Version 1 owned purge preflight. Trusted host capture is required: matching
+ * records do not authenticate client claims. All pointers/counts must describe
+ * aligned initialized memory that remains immutable until prepare returns.
+ * Only owned bytes are retained. No filesystem or daemon state is mutated. */
+typedef struct {
+    const uint8_t* data;
+    uint32_t len;
+} NzbgetRsPurgeBytesV1;
+typedef struct {
+    int32_t collection_id;
+    int32_t file_id;
+    uint32_t has_file;
+    uint64_t incarnation;
+    NzbgetRsPurgeBytesV1 posting_source;
+} NzbgetRsPurgeBindingV1;
+typedef struct {
+    NzbgetRsPurgeBindingV1 binding;
+    NzbgetRsPurgeBytesV1 name;
+    NzbgetRsPurgeBytesV1 key;
+    uint32_t kind;
+    uint32_t complete_inventory;
+    uint64_t source_validation_id;
+} NzbgetRsPurgeMemberV1;
+typedef struct {
+    uint64_t id;
+    uint32_t version;
+    uint32_t validator_version;
+    uint8_t source_record_id[32];
+    uint8_t source_bytes_digest[32];
+    NzbgetRsPurgeBindingV1 binding;
+    uint32_t has_parent;
+    NzbgetRsPurgeBindingV1 parent;
+    uint8_t custody_receipt_id[32];
+} NzbgetRsPurgeSourceV1;
+typedef struct {
+    uint8_t id[32];
+    uint32_t validator_version;
+    uint8_t source_record_id[32];
+    uint8_t source_bytes_digest[32];
+} NzbgetRsPurgeCustodyV1;
+typedef struct {
+    NzbgetRsPurgeBindingV1 file;
+    NzbgetRsPurgeBindingV1 collection;
+} NzbgetRsPurgeParentV1;
+typedef struct {
+    NzbgetRsPurgeBindingV1 seed;
+    NzbgetRsPurgeBindingV1 candidate;
+    uint32_t name_equal;
+    uint32_t key_equal;
+} NzbgetRsPurgeComparisonV1;
+typedef struct {
+    NzbgetRsPurgeBindingV1 seed;
+    NzbgetRsPurgeBindingV1 candidate;
+    uint64_t seed_source_validation_id;
+    uint64_t candidate_source_validation_id;
+    uint8_t pair_membership_receipt_id[32];
+} NzbgetRsPurgeDirectV1;
+typedef struct {
+    uint8_t id[32];
+    uint32_t version;
+    uint32_t validator_version;
+    uint32_t owner_kind;
+    NzbgetRsPurgeBindingV1 seed;
+    NzbgetRsPurgeBindingV1 candidate;
+    uint8_t seed_source_record_id[32];
+    uint8_t seed_source_bytes_digest[32];
+    uint8_t candidate_source_record_id[32];
+    uint8_t candidate_source_bytes_digest[32];
+    NzbgetRsPurgeBytesV1 relation_id;
+    uint32_t evidence_version;
+    uint8_t evidence_id[32];
+    NzbgetRsPurgeBytesV1 evidence_bytes;
+    uint8_t custody_receipt_id[32];
+} NzbgetRsPurgePairV1;
+typedef struct {
+    uint8_t id[32];
+    uint32_t version;
+    uint32_t validator_version;
+    uint32_t owner_kind;
+    NzbgetRsPurgeBytesV1 relation_id;
+    uint32_t evidence_version;
+    uint8_t evidence_id[32];
+    NzbgetRsPurgeBytesV1 evidence_bytes;
+    NzbgetRsPurgeBindingV1 seed;
+    NzbgetRsPurgeBindingV1 candidate;
+    uint8_t seed_source_record_id[32];
+    uint8_t seed_source_bytes_digest[32];
+    uint8_t candidate_source_record_id[32];
+    uint8_t candidate_source_bytes_digest[32];
+} NzbgetRsPurgePairCustodyV1;
+typedef struct {
+    uint64_t id;
+    NzbgetRsPurgeBytesV1 descriptor_identity;
+    uint32_t configured_container;
+} NzbgetRsPurgeRootV1;
+typedef struct {
+    uint8_t id[32];
+    uint64_t root_id;
+    NzbgetRsPurgeBytesV1 relative_path;
+    NzbgetRsPurgeBytesV1 root_identity;
+    NzbgetRsPurgeBytesV1 ancestor_identity;
+    NzbgetRsPurgeBytesV1 mount_identity;
+    uint32_t exclusive;
+} NzbgetRsPurgeNamespaceV1;
+typedef struct {
+    uint64_t id;
+    uint64_t root_id;
+    NzbgetRsPurgeBytesV1 relative_path;
+    uint32_t kind;
+    NzbgetRsPurgeBytesV1 object_identity;
+    NzbgetRsPurgeBindingV1 member;
+    uint8_t namespace_proof_id[32];
+    uint8_t ownership_receipt_id[32];
+    uint64_t inventory_revision;
+} NzbgetRsPurgeEntryV1;
+typedef struct {
+    uint8_t id[32];
+    NzbgetRsPurgeBindingV1 member;
+    uint64_t root_id;
+    NzbgetRsPurgeBytesV1 relative_path;
+    uint32_t kind;
+    NzbgetRsPurgeBytesV1 object_identity;
+    uint8_t namespace_proof_id[32];
+    uint64_t inventory_revision;
+} NzbgetRsPurgeOwnershipV1;
+typedef struct {
+    uint64_t id;
+    uint64_t root_id;
+    NzbgetRsPurgeBytesV1 relative_path;
+    NzbgetRsPurgeBindingV1 claimant;
+    NzbgetRsPurgeBytesV1 object_identity;
+} NzbgetRsPurgeOutsideV1;
+typedef struct {
+    uint32_t version;
+    uint32_t struct_size;
+    uint64_t revision;
+    uint64_t generation;
+    NzbgetRsPurgeBytesV1 captured_context;
+    NzbgetRsPurgeBytesV1 current_context;
+    const NzbgetRsPurgeBindingV1* seeds;
+    uint32_t seeds_count;
+    const NzbgetRsPurgeMemberV1* members;
+    uint32_t members_count;
+    const NzbgetRsPurgeSourceV1* sources;
+    uint32_t sources_count;
+    const NzbgetRsPurgeCustodyV1* custody;
+    uint32_t custody_count;
+    const NzbgetRsPurgeParentV1* parents;
+    uint32_t parents_count;
+    const NzbgetRsPurgeComparisonV1* comparisons;
+    uint32_t comparisons_count;
+    const NzbgetRsPurgeDirectV1* direct;
+    uint32_t direct_count;
+    const NzbgetRsPurgePairV1* pairs;
+    uint32_t pairs_count;
+    const NzbgetRsPurgePairCustodyV1* pair_custody;
+    uint32_t pair_custody_count;
+    const NzbgetRsPurgeRootV1* roots;
+    uint32_t roots_count;
+    const NzbgetRsPurgeNamespaceV1* namespaces;
+    uint32_t namespaces_count;
+    const NzbgetRsPurgeEntryV1* entries;
+    uint32_t entries_count;
+    const NzbgetRsPurgeOwnershipV1* ownership;
+    uint32_t ownership_count;
+    const NzbgetRsPurgeOutsideV1* outside;
+    uint32_t outside_count;
+} NzbgetRsPurgeSnapshotV1;
+/* Member kinds: queue=0, post=1, history=2, compact_history=3.
+ * Entry kinds: regular=0, directory=1, symlink=2; other tags unsupported.
+ * Booleans and has_file/has_parent tags must be 0 or 1. An absent file has
+ * file_id=0; an absent parent binding is entirely zero/null. Counts and byte
+ * lengths are uint32_t; struct_size must equal sizeof(NzbgetRsPurgeSnapshotV1).
+ * Error statuses: 0 success, 1 invalid input, 2 missing seed, 3 missing inventory,
+ * 4 conflict, 5 limit exceeded, 6 unsupported, 7 allocation failure.
+ * out is cleared before rejection; on success destroy exactly once after all
+ * users have stopped. Request is binary and may contain NUL. Null destroy is OK.
+ * This interface plans filesystem actions only. Later persistence/cleanup ACKs
+ * are required before deleting daemon records or publishing purge success. */
+int32_t nzbget_rs_purge_prepare(const NzbgetRsPurgeSnapshotV1* snapshot,
+    const uint8_t request[16], void** out);
+void nzbget_rs_purge_destroy(void* handle);
+
 #ifdef __cplusplus
 }
 #endif

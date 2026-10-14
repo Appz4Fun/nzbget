@@ -860,3 +860,333 @@ fn locally_consistent_parent_file_incarnation_must_match_included_file() {
     s.source_validations[1].binding = s.parents[0].file.clone();
     expect_error(s, PurgeError::Conflict);
 }
+
+// Allocation injection is local to this test thread. Every other crate/test
+// allocation still uses System, including fixture construction and assertions.
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+struct FailingAllocator;
+thread_local! {
+    static FAIL_ALLOCATION: Cell<usize> = const { Cell::new(usize::MAX) };
+    static ALLOCATION_CALLS: Cell<usize> = const { Cell::new(0) };
+    static COUNT_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+}
+fn should_fail_allocation() -> bool {
+    if COUNT_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
+        let _ = ALLOCATION_CALLS.try_with(|c| c.set(c.get() + 1));
+    }
+    FAIL_ALLOCATION
+        .try_with(|c| {
+            let n = c.get();
+            if n == usize::MAX {
+                false
+            } else if n == 0 {
+                c.set(usize::MAX);
+                true
+            } else {
+                c.set(n - 1);
+                false
+            }
+        })
+        .unwrap_or(false)
+}
+unsafe impl GlobalAlloc for FailingAllocator {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        if should_fail_allocation() {
+            std::ptr::null_mut()
+        } else {
+            System.alloc(l)
+        }
+    }
+    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        if should_fail_allocation() {
+            std::ptr::null_mut()
+        } else {
+            System.alloc_zeroed(l)
+        }
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+        if should_fail_allocation() {
+            std::ptr::null_mut()
+        } else {
+            System.realloc(p, l, n)
+        }
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        System.dealloc(p, l)
+    }
+}
+#[global_allocator]
+static TEST_ALLOCATOR: FailingAllocator = FailingAllocator;
+
+#[test]
+fn each_planner_allocation_failure_returns_no_plan() {
+    let mut s = one();
+    add_entry(&mut s, entry(1, 1, b"owned", EntryKind::Regular));
+    let fixture = s.clone();
+    ALLOCATION_CALLS.with(|c| c.set(0));
+    COUNT_ALLOCATIONS.with(|c| c.set(true));
+    let result = prepare(s, [1; 16]);
+    COUNT_ALLOCATIONS.with(|c| c.set(false));
+    let calls = ALLOCATION_CALLS.with(Cell::get);
+    assert!(calls > 0);
+    assert!(result.is_ok());
+    drop(result);
+    for failure in 0..calls {
+        let input = fixture.clone();
+        FAIL_ALLOCATION.with(|c| c.set(failure));
+        let result = prepare(input, [1; 16]);
+        FAIL_ALLOCATION.with(|c| c.set(usize::MAX));
+        assert_eq!(
+            result.unwrap_err(),
+            PurgeError::AllocationFailure,
+            "allocation {failure}"
+        );
+    }
+}
+
+use nzbget_rs::ffi::{
+    nzbget_rs_purge_destroy, nzbget_rs_purge_prepare, PurgeBindingC, PurgeBytesC, PurgeComparisonC,
+    PurgeCustodyC, PurgeMemberC, PurgeNamespaceC, PurgeRootC, PurgeSnapshotC, PurgeSourceC,
+};
+fn abi_bytes(b: &'static [u8]) -> PurgeBytesC {
+    PurgeBytesC {
+        data: b.as_ptr(),
+        len: b.len() as u32,
+    }
+}
+struct AbiFixture {
+    snapshot: PurgeSnapshotC,
+    seeds: Vec<PurgeBindingC>,
+    members: Vec<PurgeMemberC>,
+    sources: Vec<PurgeSourceC>,
+    custody: Vec<PurgeCustodyC>,
+    _roots: Vec<PurgeRootC>,
+    _namespaces: Vec<PurgeNamespaceC>,
+    _comparisons: Vec<PurgeComparisonC>,
+}
+fn abi_fixture() -> AbiFixture {
+    // POD records contain only integers, byte arrays and raw pointers; zeroing
+    // absent counted arrays/optional parents is their canonical wire encoding.
+    let b = PurgeBindingC {
+        collection_id: 1,
+        file_id: 0,
+        has_file: 0,
+        incarnation: 101,
+        posting_source: abi_bytes(b"source-v1:1"),
+    };
+    let seeds = vec![b];
+    let members = vec![PurgeMemberC {
+        binding: b,
+        name: abi_bytes(b"Release"),
+        key: abi_bytes(b"A"),
+        kind: 0,
+        complete_inventory: 1,
+        source_validation_id: 1,
+    }];
+    let sources = vec![PurgeSourceC {
+        id: 1,
+        version: 1,
+        validator_version: 1,
+        source_record_id: [1; 32],
+        source_bytes_digest: [11; 32],
+        binding: b,
+        has_parent: 0,
+        parent: unsafe { std::mem::zeroed() },
+        custody_receipt_id: [21; 32],
+    }];
+    let custody = vec![PurgeCustodyC {
+        id: [21; 32],
+        validator_version: 1,
+        source_record_id: [1; 32],
+        source_bytes_digest: [11; 32],
+    }];
+    let roots = vec![PurgeRootC {
+        id: 10,
+        descriptor_identity: abi_bytes(b"posix-v1:root:10"),
+        configured_container: 0,
+    }];
+    let namespaces = vec![PurgeNamespaceC {
+        id: [1; 32],
+        root_id: 10,
+        relative_path: abi_bytes(b""),
+        root_identity: abi_bytes(b"posix-v1:root:10"),
+        ancestor_identity: abi_bytes(b"ancestors"),
+        mount_identity: abi_bytes(b"mount"),
+        exclusive: 0,
+    }];
+    let comparisons = vec![PurgeComparisonC {
+        seed: b,
+        candidate: b,
+        name_equal: 1,
+        key_equal: 1,
+    }];
+    let mut snapshot: PurgeSnapshotC = unsafe { std::mem::zeroed() };
+    snapshot.version = 1;
+    snapshot.struct_size = std::mem::size_of::<PurgeSnapshotC>() as u32;
+    snapshot.revision = 7;
+    snapshot.generation = 8;
+    snapshot.captured_context = abi_bytes(b"posix:C:ctype-v1");
+    snapshot.current_context = snapshot.captured_context;
+    snapshot.seeds = seeds.as_ptr();
+    snapshot.seeds_count = seeds.len() as u32;
+    snapshot.members = members.as_ptr();
+    snapshot.members_count = members.len() as u32;
+    snapshot.sources = sources.as_ptr();
+    snapshot.sources_count = sources.len() as u32;
+    snapshot.custody = custody.as_ptr();
+    snapshot.custody_count = custody.len() as u32;
+    snapshot.roots = roots.as_ptr();
+    snapshot.roots_count = roots.len() as u32;
+    snapshot.namespaces = namespaces.as_ptr();
+    snapshot.namespaces_count = namespaces.len() as u32;
+    snapshot.comparisons = comparisons.as_ptr();
+    snapshot.comparisons_count = comparisons.len() as u32;
+    AbiFixture {
+        snapshot,
+        seeds,
+        members,
+        sources,
+        custody,
+        _roots: roots,
+        _namespaces: namespaces,
+        _comparisons: comparisons,
+    }
+}
+unsafe fn abi_prepare(f: &AbiFixture) -> (i32, *mut std::ffi::c_void) {
+    let mut handle = std::ptr::null_mut();
+    let request = [0; 16];
+    let status = nzbget_rs_purge_prepare(&f.snapshot, request.as_ptr(), &mut handle);
+    (status, handle)
+}
+#[test]
+fn abi_owned_plan_survives_snapshot_storage_and_destroys_once() {
+    let f = abi_fixture();
+    let (status, handle) = unsafe { abi_prepare(&f) };
+    assert_eq!(status, 0);
+    assert!(!handle.is_null());
+    drop(f);
+    let plan = unsafe { &*handle.cast::<nzbget_rs::dupepurge::Plan>() };
+    assert_eq!(plan.token.members, vec![binding(1)]);
+    assert!(plan.actions.is_empty());
+    assert_eq!(plan.token.request, [0; 16]);
+    unsafe {
+        nzbget_rs_purge_destroy(handle);
+        nzbget_rs_purge_destroy(std::ptr::null_mut());
+    }
+}
+#[test]
+fn abi_rejects_invalid_tags_counts_nulls_truncation_and_versions_without_handle() {
+    let mut f = abi_fixture();
+    f.snapshot.version = 2;
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    f.snapshot.version = 1;
+    f.snapshot.struct_size -= 1;
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    f.snapshot.struct_size += 1;
+    f.snapshot.seeds_count = 4097;
+    assert_eq!(unsafe { abi_prepare(&f) }, (5, std::ptr::null_mut()));
+    f.snapshot.seeds_count = 1;
+    f.snapshot.seeds = std::ptr::null();
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    f.snapshot.seeds = f.seeds.as_ptr();
+    f.members[0].binding.has_file = 2;
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    f.members[0].binding.has_file = 0;
+    f.members[0].binding.file_id = 9;
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    f.members[0].binding.file_id = 0;
+    f.snapshot.entries_count = u32::MAX;
+    assert_eq!(unsafe { abi_prepare(&f) }, (5, std::ptr::null_mut()));
+    f.snapshot.entries_count = 0;
+    f.members[0].name = PurgeBytesC {
+        data: std::ptr::null(),
+        len: 1,
+    };
+    assert_eq!(unsafe { abi_prepare(&f) }, (1, std::ptr::null_mut()));
+    let mut out = std::ptr::dangling_mut::<u8>().cast();
+    let request = [0; 16];
+    assert_eq!(
+        unsafe { nzbget_rs_purge_prepare(std::ptr::null(), request.as_ptr(), &mut out) },
+        1
+    );
+    assert!(out.is_null());
+}
+#[test]
+fn abi_independent_receipt_conflict_is_not_an_opaque_success_handle() {
+    let mut f = abi_fixture();
+    f.sources[0].source_bytes_digest = [99; 32];
+    assert_eq!(unsafe { abi_prepare(&f) }, (4, std::ptr::null_mut()));
+    f.sources[0].source_bytes_digest = [11; 32];
+    f.custody[0].validator_version = 2;
+    assert_eq!(unsafe { abi_prepare(&f) }, (4, std::ptr::null_mut()));
+}
+#[test]
+fn abi_every_copy_and_handle_allocation_failure_is_reported_without_handle() {
+    let f = abi_fixture();
+    ALLOCATION_CALLS.with(|c| c.set(0));
+    COUNT_ALLOCATIONS.with(|c| c.set(true));
+    let (status, handle) = unsafe { abi_prepare(&f) };
+    COUNT_ALLOCATIONS.with(|c| c.set(false));
+    let calls = ALLOCATION_CALLS.with(Cell::get);
+    assert!(calls > 0);
+    assert_eq!(status, 0);
+    unsafe {
+        nzbget_rs_purge_destroy(handle);
+    }
+    for failure in 0..calls {
+        FAIL_ALLOCATION.with(|c| c.set(failure));
+        let result = unsafe { abi_prepare(&f) };
+        FAIL_ALLOCATION.with(|c| c.set(usize::MAX));
+        assert_eq!(result, (7, std::ptr::null_mut()), "allocation {failure}");
+    }
+}
+
+#[test]
+fn sibling_names_and_prefixes_have_consistent_children_first_order() {
+    let mut s = one();
+    add_entry(&mut s, entry(4, 1, b"a-foo", EntryKind::Regular));
+    add_entry(&mut s, entry(3, 1, b"a/z", EntryKind::Regular));
+    add_entry(&mut s, entry(2, 1, b"a", EntryKind::Directory));
+    add_entry(&mut s, entry(1, 1, b"a/child/x", EntryKind::Regular));
+    assert_eq!(
+        prepare(s, [1; 16]).unwrap().actions,
+        vec![
+            leaf(1, b"a/child/x", EntryKind::Regular),
+            leaf(3, b"a/z", EntryKind::Regular),
+            leaf(2, b"a", EntryKind::Directory),
+            leaf(4, b"a-foo", EntryKind::Regular)
+        ]
+    );
+}
+#[test]
+fn unselected_inventory_and_nested_namespace_disable_recursive_cleanup() {
+    let mut s = snapshot(
+        vec![
+            member(1, b"A", b"A", MemberKind::Queue),
+            member(2, b"B", b"B", MemberKind::History),
+        ],
+        vec![cmp(1, 1, true, true), cmp(1, 2, false, false)],
+    );
+    s.namespace_proofs[0].exclusive = true;
+    add_entry(&mut s, entry(1, 1, b"download", EntryKind::Directory));
+    add_entry(&mut s, entry(2, 1, b"download/owned", EntryKind::Regular));
+    add_entry(&mut s, entry(3, 2, b"download/outside", EntryKind::Regular));
+    assert_eq!(
+        prepare(s, [1; 16]).unwrap().actions,
+        vec![leaf(2, b"download/owned", EntryKind::Regular)]
+    );
+    let mut s = one();
+    s.namespace_proofs[0].exclusive = true;
+    let mut n = s.namespace_proofs[0].clone();
+    n.id = [2; 32];
+    n.relative_path = b"download/nested".to_vec();
+    n.exclusive = false;
+    s.namespace_proofs.push(n);
+    add_entry(&mut s, entry(1, 1, b"download", EntryKind::Directory));
+    add_entry(&mut s, entry(2, 1, b"download/owned", EntryKind::Regular));
+    assert_eq!(
+        prepare(s, [1; 16]).unwrap().actions,
+        vec![leaf(2, b"download/owned", EntryKind::Regular)]
+    );
+}
