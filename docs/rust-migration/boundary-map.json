@@ -1724,7 +1724,8 @@
         "rust/tests/webutil_differential.py",
         "rust/tests/wildmask_differential.py",
         "rust/tests/util_differential.py",
-        "rust/tests/differential.py"
+        "rust/tests/differential.py",
+        "rust/tests/latin1_caller/run.py"
       ],
       "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
@@ -1832,6 +1833,14 @@
           "limitations": "Allocation-interface stand-in; selected encoder outputs, not actual response/stdio emission or complete caller. Existing source is unrun and does not prove current Rust/ABI/compiler lineage or 2x speed.",
           "operation_scope": "Rust C ABI JsonEncode and XmlEncode versus extracted pre-port C++ encoder bodies",
           "path": "rust/tests/differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "922c8bc6ea322210a8e06660c4518e2dcd47beb1",
+          "limitations": "UNRUN source only. Caller-supplied historical/baseline archive and DSO-bound layout/link topology are not current static production lineage, full daemon/header caller route coverage, preserved current-Rust and fair optimized-C++ campaign qualification. Source timing loops do not satisfy the campaign independently.",
+          "operation_scope": "Current WebUtil::Latin1ToUtf8/JsonEncode wrapper and bounded helper source providers with actual NString/CString allocation/ownership and driver.cpp byte/length comparisons before selected wrapper timings",
+          "path": "rust/tests/latin1_caller/run.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
         }
       ],
