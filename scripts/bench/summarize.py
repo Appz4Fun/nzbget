@@ -2,6 +2,8 @@
 """Validate v1 matched measurements and compute conservative numerical eligibility.
 
 CLI: --manifest MANIFEST --samples SAMPLES --output-dir OUTPUT
+Opt-in: --qualification-profile rust-replacement-campaign-v1 writes separate
+campaign artifacts; the default selected-baseline v1 contract is retained.
 Exit 0 includes HOLD; exit 2 rejects invalid proof and clears old owned artifacts.
 This tool cannot independently verify git/build identity, output correctness,
 hardware stability, process independence, or unchanged-control attribution.
@@ -24,6 +26,9 @@ import tempfile
 
 VARIANTS = {"cpp_current", "cpp_optimized", "rust_current", "rust_candidate"}
 OUTPUTS = ("summary.json", "bencher.json", "qualification.json", "report.md")
+CAMPAIGN_OUTPUTS = ("campaign-qualification.json", "campaign-report.md")
+CAMPAIGN_SELECTOR = "rust-replacement-campaign-v1"
+CAMPAIGN_ID = "rust-replacement-campaign"
 DEFAULT_POLICY = {"min_processes": 8, "min_rounds": 10, "min_each_order": 2,
                   "max_relative_ci_width": 0.10}
 REPLICATES = 5000
@@ -87,11 +92,13 @@ def policy_for(manifest):
     return policy
 
 
-def validate_manifest(manifest):
+def validate_manifest(manifest, *, campaign=False):
     fields(manifest, ("schema_version", "base_sha", "candidate_sha", "testbed", "toolchain",
                       "fixtures", "comparison"), "manifest")
     require(type(manifest["schema_version"]) is int and manifest["schema_version"] == 1,
             "schema_version must be 1")
+    require(campaign or "qualification_profile" not in manifest,
+            "qualification_profile requires explicit campaign selector; no generic fallback")
     digest(manifest["base_sha"], "base_sha", 40)
     digest(manifest["candidate_sha"], "candidate_sha", 40)
     text(manifest["testbed"], "testbed")
@@ -142,7 +149,7 @@ def validate_manifest(manifest):
     policy_for(manifest)
 
 
-def validate_rows(manifest, rows):
+def validate_rows(manifest, rows, *, campaign=False):
     require(isinstance(rows, list) and len(rows) <= MAX_ROWS, f"samples limited to {MAX_ROWS} rows")
     fixture_map = {f["id"]: f for f in manifest["fixtures"]}
     pair = [manifest["comparison"][k] for k in ("baseline", "candidate")]
@@ -199,7 +206,7 @@ def validate_rows(manifest, rows):
         rust_pair = complete and "rust_current" in required and pair[1] != "rust_current"
         calls = len(observed[case]) + int(complete) + int(rust_pair)
         planned_selections += REPLICATES * len(grouped[case]) * calls
-    require(planned_selections <= MAX_BOOTSTRAP_SELECTIONS,
+    require(campaign or planned_selections <= MAX_BOOTSTRAP_SELECTIONS,
             "bootstrap work budget exceeded; split independent fixture sets")
     return grouped, observed
 
@@ -223,7 +230,7 @@ def cluster_interval(values, statistic, rng):
     return percentile(draws, 0.025), percentile(draws, 0.975)
 
 
-def paired_measurement(processes, baseline, candidate, policy, rng):
+def paired_measurement(processes, baseline, candidate, policy, rng, *, exact_batches=False):
     process_logs = []
     balanced = True
     for _, rounds in sorted(processes.items()):
@@ -232,7 +239,14 @@ def paired_measurement(processes, baseline, candidate, policy, rng):
             a, b = block[baseline], block[candidate]
             # Subtract logs rather than dividing first: finite positive
             # latencies may still overflow a direct ratio division.
-            logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
+            if exact_batches:
+                # Campaign inputs are bounded integers. Products stay exact
+                # before a single finite division; exact 1/2 and 1 boundaries
+                # do not acquire error from subtracting two large logarithms.
+                logs.append(math.log((b["elapsed_ns"] * a["iterations"]) /
+                                     (a["elapsed_ns"] * b["iterations"])))
+            else:
+                logs.append(math.log(b["elapsed_ns"] / b["iterations"]) - math.log(a["elapsed_ns"] / a["iterations"]))
             orders[int(a["order"] > b["order"])] += 1
         process_logs.append(statistics.fmean(logs))
         balanced &= min(orders) >= policy["min_each_order"]
@@ -365,6 +379,215 @@ def summarize(manifest, rows):
     return summary, bmf, qualification
 
 
+def exact_fields(obj, names, label):
+    fields(obj, names, label)
+    require(set(obj) == set(names), f"{label} has unknown fields")
+
+
+def campaign_design(manifest):
+    """Validate declarations and bound planned work before examining samples."""
+    validate_manifest(manifest, campaign=True)
+    require(manifest["comparison"]["baseline"] in ("cpp_current", "cpp_optimized") and
+            manifest["comparison"]["candidate"] == "rust_candidate",
+            "campaign comparison must select a C++ baseline and rust_candidate")
+    exact_fields(manifest.get("qualification_policy"), DEFAULT_POLICY, "campaign qualification_policy")
+    profile = manifest.get("qualification_profile")
+    exact_fields(profile, ("id", "version", "plan_id", "plan_sha256", "variant_bindings", "collection_design"),
+                 "qualification_profile")
+    require(profile["id"] == CAMPAIGN_ID and type(profile["version"]) is int and profile["version"] == 1,
+            "unsupported campaign profile id/version")
+    text(profile["plan_id"], "campaign plan_id")
+    digest(profile["plan_sha256"], "campaign plan_sha256")
+    fixtures = {f["id"]: f for f in manifest["fixtures"]}
+    designs = profile["collection_design"]
+    require(isinstance(designs, dict) and set(designs) == set(fixtures),
+            "collection_design must match every declared fixture")
+    all_variants = set()
+    planned_rows = selections = 0
+    for case, fixture in fixtures.items():
+        fields(fixture, ("role", "required_variants"), "campaign fixture")
+        variants = fixture["required_variants"]
+        all_variants.update(variants)
+        design = designs[case]
+        exact_fields(design, ("elapsed_floor_ns", "process_count", "round_count", "order_cycle"),
+                     "collection_design entry")
+        integer(design["elapsed_floor_ns"], "elapsed_floor_ns", 1)
+        integer(design["process_count"], "process_count", 1, MAX_PROCESSES)
+        integer(design["round_count"], "round_count", 1, MAX_ROWS)
+        cycle = design["order_cycle"]
+        require(isinstance(cycle, list) and 1 <= len(cycle) <= 24, "order_cycle must contain 1..24 permutations")
+        for permutation in cycle:
+            require(isinstance(permutation, list) and len(permutation) == len(variants) and
+                    all(isinstance(v, str) for v in permutation) and set(permutation) == set(variants),
+                    "order_cycle needs complete unique variant permutations")
+        require(design["round_count"] % len(cycle) == 0, "round_count must complete the frozen order cycle")
+        planned_rows += design["process_count"] * design["round_count"] * len(variants)
+        comparisons = 2 + int(fixture.get("rust_preservation_applicability") == "required")
+        selections += REPLICATES * design["process_count"] * comparisons
+    require(planned_rows <= MAX_ROWS, "campaign planned row budget exceeded")
+    require(selections <= MAX_BOOTSTRAP_SELECTIONS, "campaign bootstrap work budget exceeded")
+    bindings = profile["variant_bindings"]
+    require(isinstance(bindings, dict) and set(bindings) == all_variants,
+            "variant_bindings must match all required variants")
+    for variant, binding in bindings.items():
+        names = ["source_sha", "source_content_sha256", "executable_sha256"]
+        if variant.startswith("rust_"):
+            names.append("rust_archive_sha256")
+        exact_fields(binding, names, "campaign variant binding")
+        for key, value in binding.items():
+            digest(value, key, 40 if key == "source_sha" else 64)
+        if variant in ("cpp_current", "rust_current"):
+            require(binding["source_sha"] == manifest["base_sha"],
+                    "current variant source differs from canonical baseline")
+        elif variant == "rust_candidate":
+            require(binding["source_sha"] == manifest["candidate_sha"],
+                    "candidate variant source differs from candidate SHA")
+    return profile, designs
+
+
+def summarize_campaign(manifest, rows, analysis_sha256):
+    """Campaign-v1 numerical eligibility; no execution or approval attestation."""
+    profile, designs = campaign_design(manifest)
+    require(isinstance(rows, list) and len(rows) <= MAX_ROWS, "campaign sample row budget exceeded")
+    fixtures = {f["id"]: f for f in manifest["fixtures"]}
+    for index, row in enumerate(rows):
+        label = f"campaign sample row {index + 1}"
+        fields(row, ("case", "variant", "process", "round", "order", "elapsed_ns"), label)
+        require(isinstance(row["case"], str) and row["case"] in fixtures, f"{label} unknown fixture")
+        design = designs[row["case"]]
+        integer(row["elapsed_ns"], f"{label} elapsed_ns", 1)
+        require(row["elapsed_ns"] >= design["elapsed_floor_ns"], f"{label} elapsed_ns is under frozen floor")
+        integer(row["process"], f"{label} process", 0, design["process_count"] - 1)
+        integer(row["round"], f"{label} round", 0, design["round_count"] - 1)
+        permutation = design["order_cycle"][row["round"] % len(design["order_cycle"])]
+        require(isinstance(row["variant"], str) and row["variant"] in permutation,
+                f"{label} variant outside frozen order")
+        integer(row["order"], f"{label} order", 0, len(permutation) - 1)
+        require(permutation[row["order"]] == row["variant"], f"{label} differs from frozen order")
+    grouped, observed = validate_rows(manifest, rows, campaign=True)
+    try:
+        encoded = json.dumps((manifest, rows), allow_nan=False)
+        require(len(encoded) <= 40 * 1024 * 1024, "parsed evidence exceeds byte budget")
+    except (TypeError, ValueError, OverflowError, RecursionError) as error:
+        raise ValidationError("evidence extensions must be bounded finite JSON") from error
+    digest(analysis_sha256, "analysis_sha256")
+    policy = policy_for(manifest)
+    result = {k: manifest[k] for k in ("schema_version", "base_sha", "candidate_sha", "testbed")}
+    result.update(qualification_profile=profile, analysis_sha256=analysis_sha256,
+                  eligibility_scope="numerical_only", status="HOLD", reasons=[], cases=[],
+                  methodology={"ratio_estimator": "exp(mean(process mean(log(paired candidate/baseline ns/op))))",
+                    "resampling_unit": "whole process cluster; every paired round retained",
+                    "interval": "95% percentile bootstrap; linear quantiles at 0.025 and 0.975",
+                    "bootstrap_replicates": REPLICATES, "seed": SEED, "policy": policy,
+                    "comparison_rng": "each named comparison resets the fixed seed",
+                    "coverage": "per-case intervals; no simultaneous family coverage guarantee",
+                    "outliers": "all retained; no trimming or independent round resampling",
+                    "limits": "numerical eligibility only; declarations do not attest caller/domain/ABI, native execution, build lineage, independence, reviewed applicability, retirement or hold release"})
+    for fixture in manifest["fixtures"]:
+        case_id, required = fixture["id"], set(fixture["required_variants"])
+        design, processes = designs[case_id], grouped[case_id]
+        applicability = fixture.get("rust_preservation_applicability")
+        reasons = []
+        if not {"cpp_current", "cpp_optimized", "rust_candidate"} <= required:
+            reasons.append("missing_campaign_variants")
+        if applicability is None and fixture["scope"] == "complete_caller":
+            reasons.append("missing_rust_preservation_applicability")
+        elif applicability == "required" and "rust_current" not in required:
+            reasons.append("missing_current_rust_baseline")
+        if observed[case_id] != required:
+            reasons.append("missing_required_variants")
+        complete_grid = (set(processes) == set(range(design["process_count"])) and
+                         all(set(rounds) == set(range(design["round_count"])) for rounds in processes.values()))
+        if not complete_grid:
+            reasons.append("incomplete_frozen_grid")
+        case = {"case": case_id, "scope": fixture["scope"], "role": fixture["role"],
+                "fixture_sha256": fixture["sha256"], "provenance": fixture.get("provenance", {}),
+                "required_variants": fixture["required_variants"],
+                "rust_preservation_applicability": applicability, "collection_design": design,
+                "raw_count": sum(len(block) for rounds in processes.values() for block in rounds.values()),
+                "process_count": len(processes), "round_counts": {str(p): len(r) for p, r in sorted(processes.items())},
+                "complete": not reasons, "comparisons": {}, "status": "HOLD", "reasons": reasons}
+        # Never compute eligibility from a surviving subset of the frozen design.
+        if not reasons:
+            baselines = ["cpp_current", "cpp_optimized"]
+            if applicability == "required":
+                baselines.append("rust_current")
+            for baseline in baselines:
+                ratio, balanced = paired_measurement(processes, baseline, "rust_candidate", policy,
+                                                     random.Random(SEED), exact_batches=True)
+                check_reasons = []
+                if len(processes) < policy["min_processes"]:
+                    check_reasons.append("insufficient_processes")
+                if design["round_count"] < policy["min_rounds"]:
+                    check_reasons.append("insufficient_rounds")
+                if not balanced:
+                    check_reasons.append("unbalanced_pair_order")
+                # Require equal before/after counts, in addition to the minimum.
+                for rounds in processes.values():
+                    before = sum(b[baseline]["order"] < b["rust_candidate"]["order"] for b in rounds.values())
+                    if before * 2 != len(rounds):
+                        if "unbalanced_pair_order" not in check_reasons:
+                            check_reasons.append("unbalanced_pair_order")
+                if (ratio["upper"] - ratio["lower"]) / ratio["estimate"] > policy["max_relative_ci_width"]:
+                    check_reasons.append("noisy_ratio_interval")
+                threshold = 1 if baseline == "rust_current" else 0.5
+                if fixture["role"] == "unchanged_control":
+                    if not ratio["lower"] <= 1 <= ratio["upper"]:
+                        check_reasons.append("unchanged_control_drift")
+                elif ratio["upper"] > threshold:
+                    check_reasons.append("not_preserved" if baseline == "rust_current" else "below_twofold_cpp_gate")
+                case["comparisons"][baseline] = {"baseline": baseline, "candidate": "rust_candidate",
+                    "ratio": ratio, "upper_bound_limit": threshold,
+                    "rule": "interval_contains_one" if fixture["role"] == "unchanged_control" else "upper_bound_limit",
+                    "status": "HOLD" if check_reasons else "PASS", "reasons": check_reasons}
+                if check_reasons:
+                    reasons.append(baseline + "_on_hold")
+        if fixture["scope"] != "complete_caller":
+            reasons.append("kernel_cannot_qualify_campaign")
+        case["status"] = "HOLD" if reasons else "PASS"
+        result["cases"].append(case)
+    if not any(c["scope"] == "complete_caller" and c["role"] == "changed" for c in result["cases"]):
+        result["reasons"].append("no_changed_complete_caller_evidence")
+    if not any(c["scope"] == "complete_caller" and c["role"] == "unchanged_control" and
+               c["status"] == "PASS" for c in result["cases"]):
+        result["reasons"].append("no_passing_unchanged_complete_caller_control")
+    if any(c["status"] != "PASS" for c in result["cases"]):
+        result["reasons"].append("campaign_cases_on_hold")
+    result["status"] = "HOLD" if result["reasons"] else "PASS"
+    return result
+
+
+def render_campaign_report(qualification):
+    lines = [f"Campaign-v1 numerical eligibility: **{qualification['status']}**", "",
+             "PASS does not attest caller/domain/ABI correctness, native execution, independent processes, "
+             "build lineage, reviewed preservation applicability, retirement, or release of any hold.", "",
+             "| Case / baseline | Status | Candidate/baseline [95% CI] | Rule | Reasons |",
+             "| --- | --- | --- | --- | --- |"]
+    for case in qualification["cases"]:
+        if not case["comparisons"]:
+            lines.append("| " + " | ".join(markdown(x) for x in
+                         (case["case"], case["status"], "not computed: incomplete declarations/grid", "none",
+                          ", ".join(case["reasons"]))) + " |")
+        for baseline, check in case["comparisons"].items():
+            ratio = check["ratio"]
+            rule = "interval contains 1" if check["rule"] == "interval_contains_one" else f"upper <= {check['upper_bound_limit']}"
+            lines.append("| " + " | ".join(markdown(x) for x in
+                         (case["case"] + " / " + baseline, check["status"],
+                          f"{ratio['estimate']:.6g} [{ratio['lower']:.6g}, {ratio['upper']:.6g}]", rule,
+                          ", ".join(check["reasons"] + case["reasons"]) or "eligible numerically")) + " |")
+    lines.extend(["", "Every required row uses exact integer batch elapsed nanoseconds at or above its frozen floor. "
+                  "Every declared process/round/variant/order key must be complete; missing grid evidence is not analyzed as a subset. "
+                  "The paired log-ratio estimator weights processes equally. The 95% percentile bootstrap resamples whole "
+                  f"processes ({REPLICATES} replicates, seed {SEED} reset per comparison); every paired round and outlier is retained. "
+                  "Intervals are per case, without simultaneous family coverage assurance. No fixture pooling or workload weights.", "",
+                  "Explicit prospective policy: " + markdown(json.dumps(qualification["methodology"]["policy"], sort_keys=True)), "",
+                  "Plan SHA256: `" + qualification["qualification_profile"]["plan_sha256"] + "`. "
+                  "Analysis SHA256: `" + qualification["analysis_sha256"] + "`.", "",
+                  "Manifest SHA256: `" + qualification["input_hashes"]["manifest_sha256"] + "`. "
+                  "Samples SHA256: `" + qualification["input_hashes"]["samples_sha256"] + "`."])
+    return "\n".join(lines) + "\n"
+
+
 def markdown(value):
     escaped = html.escape(str(value), quote=False)
     return re.sub(r"([\\`*_{}\[\]()#+.!|])", r"\\\1", escaped)
@@ -491,7 +714,7 @@ def traversed_entries(path):
     return visited
 
 
-def read_bounded(path, limit):
+def read_bounded(path, limit, *, stable=False):
     # Opening a FIFO normally blocks before any size check. Open nonblocking,
     # then inspect the descriptor actually opened before attempting any read.
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
@@ -501,6 +724,11 @@ def read_bounded(path, limit):
         require(metadata.st_size <= limit, "input exceeds byte budget")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             data = stream.read(limit + 1)
+        if stable:
+            after = os.fstat(descriptor)
+            identity = lambda m: (m.st_dev, m.st_ino, m.st_size, m.st_mtime_ns, m.st_ctime_ns)
+            require(len(data) == metadata.st_size and identity(metadata) == identity(after),
+                    "campaign evidence input changed or read was incomplete")
     finally:
         os.close(descriptor)
     require(len(data) <= limit, "input exceeds byte budget")
@@ -512,12 +740,30 @@ def main(argv=None):
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--samples", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--qualification-profile", default=None,
+                        help="explicit rust-replacement-campaign-v1; default keeps generic v1")
     args = parser.parse_args(argv)
-    targets = [args.output_dir / name for name in OUTPUTS]
+    campaign = args.qualification_profile is not None
+    # Classify ownership from the same bounded, stable bytes later consumed.
+    # Keep read/parse failure pending until protected legacy targets are cleared,
+    # preserving malformed generic reimport invalidation without a second read.
+    manifest_bytes = manifest = None
+    manifest_error = None
+    try:
+        manifest_bytes = read_bounded(args.manifest, 1024 * 1024, stable=True)
+        manifest = strict_json(manifest_bytes)
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError) as error:
+        manifest_error = error
+    campaign_attempt = campaign or (isinstance(manifest, dict) and "qualification_profile" in manifest)
+    owned_outputs = CAMPAIGN_OUTPUTS if campaign_attempt else OUTPUTS
+    targets = [args.output_dir / name for name in owned_outputs]
     try:
         # Preserve original traversal components before resolving: a symlink
         # traversed before a later '..' is still needed to reach the input.
-        originals = [p if p.is_absolute() else Path.cwd() / p for p in (args.manifest, args.samples)]
+        inputs = [args.manifest, args.samples]
+        if campaign_attempt:
+            inputs.append(Path(__file__))
+        originals = [p if p.is_absolute() else Path.cwd() / p for p in inputs]
         protected = {ancestor for p in originals for ancestor in (p, *p.parents)}
         for path in originals:
             protected.update(traversed_entries(path))
@@ -533,19 +779,30 @@ def main(argv=None):
         # revalidation so a rejected import cannot leave a stale PASS behind.
         for path in targets:
             path.unlink(missing_ok=True)
-        manifest_bytes = read_bounded(args.manifest, 1024 * 1024)
-        sample_bytes = read_bounded(args.samples, 32 * 1024 * 1024)
-        manifest = strict_json(manifest_bytes)
+        if campaign:
+            require(args.qualification_profile == CAMPAIGN_SELECTOR, "unsupported qualification profile selector")
+        elif campaign_attempt:
+            raise ValidationError("qualification_profile requires explicit campaign selector; no generic fallback")
+        if manifest_error is not None:
+            raise manifest_error
+        sample_bytes = read_bounded(args.samples, 32 * 1024 * 1024, stable=campaign_attempt)
         raw_lines = sample_bytes.splitlines()
         require(len(raw_lines) <= MAX_ROWS, "sample row budget exceeded")
         require(all(line.strip() for line in raw_lines), "blank JSONL sample row")
         rows = [strict_json(line) for line in raw_lines]
-        summary, bmf, qualification = summarize(manifest, rows)
         hashes = {"manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
                   "samples_sha256": hashlib.sha256(sample_bytes).hexdigest()}
-        summary["input_hashes"] = qualification["input_hashes"] = hashes
-        payloads = [json.dumps(obj, indent=2, sort_keys=True, allow_nan=False) + "\n"
-                    for obj in (summary, bmf, qualification)] + [render_report(summary, qualification)]
+        if campaign:
+            analysis_hash = hashlib.sha256(read_bounded(Path(__file__), 1024 * 1024, stable=True)).hexdigest()
+            qualification = summarize_campaign(manifest, rows, analysis_hash)
+            qualification["input_hashes"] = hashes
+            payloads = [json.dumps(qualification, indent=2, sort_keys=True, allow_nan=False) + "\n",
+                        render_campaign_report(qualification)]
+        else:
+            summary, bmf, qualification = summarize(manifest, rows)
+            summary["input_hashes"] = qualification["input_hashes"] = hashes
+            payloads = [json.dumps(obj, indent=2, sort_keys=True, allow_nan=False) + "\n"
+                        for obj in (summary, bmf, qualification)] + [render_report(summary, qualification)]
         args.output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".summary-", dir=args.output_dir) as temporary:
             for path, payload in zip(targets, payloads):

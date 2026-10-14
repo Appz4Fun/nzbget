@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet campaign-v1 numerical eligibility",
+  "$comment": "This separate artifact never replaces generic qualification.json or publication/history. PASS is numerical eligibility only, not native/caller/domain/ABI/build-lineage/independence/review/retirement/hold-release evidence. All declared cases and both C++ controls plus required preserved Rust are gated independently; incomplete frozen designs yield HOLD with no subset intervals. Exit0 includes HOLD; invalid profile attempts clear only their owned campaign artifacts after input protection.",
+  "type": "object",
+  "required": ["schema_version", "base_sha", "candidate_sha", "testbed", "qualification_profile", "analysis_sha256", "input_hashes", "eligibility_scope", "status", "reasons", "methodology", "cases"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "base_sha": {"$ref": "manifest.schema.json#/$defs/sha40"},
+    "candidate_sha": {"$ref": "manifest.schema.json#/$defs/sha40"},
+    "testbed": {"$ref": "manifest.schema.json#/$defs/text"},
+    "qualification_profile": {"$ref": "manifest.schema.json#/$defs/campaign_profile"},
+    "analysis_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+    "eligibility_scope": {"const": "numerical_only"},
+    "status": {"enum": ["PASS", "HOLD"]},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "methodology": {"type": "object"},
+    "input_hashes": {
+      "type": "object", "required": ["manifest_sha256", "samples_sha256"],
+      "properties": {
+        "manifest_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+        "samples_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"}
+      }
+    },
+    "cases": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["case", "scope", "role", "fixture_sha256", "required_variants", "rust_preservation_applicability", "collection_design", "raw_count", "process_count", "round_counts", "complete", "comparisons", "status", "reasons"],
+        "properties": {
+          "case": {"$ref": "manifest.schema.json#/$defs/text"},
+          "scope": {"enum": ["complete_caller", "kernel"]},
+          "role": {"enum": ["changed", "unchanged_control"]},
+          "fixture_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+          "required_variants": {"type": "array", "uniqueItems": true, "items": {"$ref": "manifest.schema.json#/$defs/variant"}},
+          "rust_preservation_applicability": {"enum": ["required", "not_applicable", null]},
+          "collection_design": {"type": "object"},
+          "raw_count": {"type": "integer", "minimum": 0, "maximum": 100000},
+          "process_count": {"type": "integer", "minimum": 0, "maximum": 128},
+          "round_counts": {"type": "object"},
+          "complete": {"type": "boolean"},
+          "status": {"enum": ["PASS", "HOLD"]},
+          "reasons": {"type": "array", "items": {"type": "string"}},
+          "comparisons": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "cpp_current": {"$ref": "#/$defs/comparison"},
+              "cpp_optimized": {"$ref": "#/$defs/comparison"},
+              "rust_current": {"$ref": "#/$defs/comparison"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "comparison": {
+      "type": "object", "required": ["baseline", "candidate", "ratio", "upper_bound_limit", "rule", "status", "reasons"],
+      "properties": {
+        "baseline": {"enum": ["cpp_current", "cpp_optimized", "rust_current"]},
+        "candidate": {"const": "rust_candidate"},
+        "upper_bound_limit": {"enum": [0.5, 1]},
+        "rule": {"enum": ["upper_bound_limit", "interval_contains_one"]},
+        "status": {"enum": ["PASS", "HOLD"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "ratio": {
+          "type": "object", "required": ["estimate", "lower", "upper"],
+          "properties": {
+            "estimate": {"type": "number", "exclusiveMinimum": 0},
+            "lower": {"type": "number", "exclusiveMinimum": 0},
+            "upper": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    }
+  }
+}
