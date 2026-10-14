@@ -87,6 +87,6 @@ Current Rust-enabled source already routes PatchParts to Rust for nonempty donor
 ## Project constraints
 
 - Follow the current `AGENTS.md`, PR template, `docs/EVIDENCE_WORKFLOW.md`, `docs/BENCHMARK_AGENT_PROCEDURES.md`, `docs/RUST_CONVERSION_PROCEDURES.md`, and `docs/DEPLOYMENT_AGENT_PROCEDURES.md`. Canonical commit `7d3d6412` removed `docs/AI_POLICY.md`; do not impose the superseded policy on new PRs.
-- Heavy compilation and Rust validation belong on the designated remote worker; obey the shared lock order, assigned job cap, and evidence retention rules.
+- Heavy compilation uses the currently human-authorized host and the single scheduling owner’s assigned stage. Follow the shared lock order, job cap and evidence retention rules. A local compilation assignment does not by itself admit profiling, timing, deployment or production traffic.
 - Do not run unapproved profiling/benchmark payloads, alter a frozen plan to make it pass, delete prior evidence, or infer deployment from source integration.
 - Keep signed identity, fresh-base integration, current-head review, CI, deployment authorization, installed binary identity, and live checks as separate gates.

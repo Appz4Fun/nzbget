@@ -17,18 +17,27 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import stat
 import subprocess
+import time
 
-VERSION = 6
+VERSION = 7
 INVENTORY_SCHEMA_VERSION = 1
 INVENTORY_KEYS = frozenset({
     'cpp_call_like_occurrences', 'daemon_cpp', 'derivation', 'exports',
     'exports_without_daemon_cpp_occurrence', 'functional_test_sources', 'method',
     'rust_cpp_test_sources', 'rust_modules', 'rust_public_abi_headers',
     'rust_test_python_drivers', 'schema_version', 'source_blobs', 'source_commit',
-    'source_tree', 'summary', 'supplementary_test_audit_commit',
+    'source_tree', 'summary', 'supplementary_test_audit_commit', 'rust_preserved_test_inputs',
 })
+TREE_ROOTS = ('rust/src', 'rust/tests', 'rust/include', 'daemon', 'tests',
+              'platforms', 'cmake/rust.cmake', 'CMakeLists.txt')
+TREE_BYTE_LIMIT = 2 * 1024 * 1024
+TREE_ENTRY_LIMIT = 4096
+GIT_STDERR_LIMIT = 65536
+GIT_TIMEOUT_SECONDS = 30
+PRESERVED_TEST_DISPOSITION = 'Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.'
 METHOD_DECLARATION = 'Bounded Git blob reads; lexical public C ABI export and call-like symbol occurrence inventory. Comments, preprocessor branches and dead code can match. No compile, linking, reachability, benchmark, or deployment result inferred. Rust source line counts include test code and comments. No language percentage inferred.'
 FUNCTIONAL_SOURCE_DISPOSITION = 'Preserve complete-daemon test/provider/generator/runner contract and original evidence; translate assertions and setup to supported Rust daemon/caller owners before retiring native executable/build/platform coupling. Source-only UNRUN, not compiled/route/correctness/performance/deployment proof.'
 DERIVATION_DECLARATION = {
@@ -107,11 +116,50 @@ def git(*args, payload=None):
     return subprocess.check_output(['git', '--no-replace-objects', *args], input=payload, timeout=30)
 
 
+def bounded_tree_output(revision):
+    args = ['git', '--no-replace-objects', 'ls-tree', '-rlz', revision, '--', *TREE_ROOTS]
+    deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, errors, entries = bytearray(), bytearray(), 0
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(child.stdout, selectors.EVENT_READ, output)
+            selector.register(child.stderr, selectors.EVENT_READ, errors)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                require(remaining > 0, 'Git tree read timed out')
+                for key, _ in selector.select(remaining):
+                    chunk = os.read(key.fd, 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    if key.data is output:
+                        entries += chunk.count(b'\0')
+                        require(len(output) + len(chunk) <= TREE_BYTE_LIMIT
+                                and entries <= TREE_ENTRY_LIMIT, 'Git tree output exceeds bound')
+                    else:
+                        require(len(errors) + len(chunk) <= GIT_STDERR_LIMIT,
+                                'Git tree stderr exceeds bound')
+                    key.data.extend(chunk)
+        require(child.wait(timeout=max(0.001, deadline - time.monotonic())) == 0,
+                'Git tree command failed: ' + errors.decode('utf-8', errors='replace'))
+        require(not output or output.endswith(b'\0'), 'incomplete Git tree output')
+        return bytes(output)
+    except BaseException:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+        raise
+    finally:
+        child.stdout.close()
+        child.stderr.close()
+
+
 def table(revision):
     require(re.fullmatch(r'[0-9a-f]{40}', revision) is not None, 'full immutable commit ID required')
     require(git('cat-file', '-t', revision).decode().strip() == 'commit', 'source ID must name a commit object')
     entries = {}
-    for raw in git('ls-tree', '-rlz', revision).split(b'\0'):
+    for raw in bounded_tree_output(revision).split(b'\0'):
         if not raw:
             continue
         meta, name = raw.split(b'\t', 1)
@@ -224,7 +272,7 @@ def verify(path):
             require(same_json(inventory[key], value), 'derived field mismatch: ' + key)
     supplemental = table(inventory['supplementary_test_audit_commit'])
     selected = {p: v for p, v in supplemental.items()
-                if (p.startswith('rust/tests/') and p.endswith(CPP_TEST_SUFFIXES + ('.py',)))
+                if p.startswith('rust/tests/')
                 or (p.startswith('rust/include/') and p.endswith(('.h', '.hpp', '.hh')))
                 or p.startswith('tests/functional/')}
     extra_bindings, extra_sources = read_sources(selected)
@@ -237,6 +285,7 @@ def verify(path):
     py_paths = {p for p in selected if p.startswith('rust/tests/') and p.endswith('.py')}
     abi_paths = {p for p in selected if p.startswith('rust/include/')}
     functional_paths = {p for p in selected if p.startswith('tests/functional/')}
+    preserved_paths = {p for p in selected if p.startswith('rust/tests/')} - cpp_paths - py_paths
     for key, expected in [('rust_cpp_test_sources', cpp_paths), ('rust_test_python_drivers', py_paths),
                           ('rust_public_abi_headers', abi_paths), ('functional_test_sources', functional_paths)]:
         rows = inventory[key]
@@ -281,6 +330,17 @@ def verify(path):
         })
     require(same_json(inventory['rust_test_python_drivers'], expected_python_drivers),
             'Python driver declarations mismatch')
+    expected_preserved_inputs = [{
+        'path': p, 'git_blob': bindings[p]['blob'],
+        'source_audit_commit': inventory['supplementary_test_audit_commit'],
+        'kind': ('checked-in historical evidence artifact' if '/evidence/' in p
+                 else 'Rust integration test source' if p.endswith('.rs')
+                 else 'ancillary test/documentation input'),
+        'disposition': PRESERVED_TEST_DISPOSITION,
+        'execution_status': 'UNRUN in this inventory audit; historical results not requalified',
+    } for p in sorted(preserved_paths)]
+    require(same_json(inventory['rust_preserved_test_inputs'], expected_preserved_inputs),
+            'preserved Rust test input declarations mismatch')
     expected_summary = dict(derived['summary'])
     expected_summary.update({
         'rust_cpp_test_harness_files': sum(p.endswith('.cpp') for p in cpp_paths),
@@ -289,6 +349,9 @@ def verify(path):
         'rust_public_abi_headers': len(abi_paths),
         'functional_test_source_inputs': len(functional_paths),
         'functional_dupefallback_source_inputs': sum(p.startswith('tests/functional/dupefallback/') for p in functional_paths),
+        'rust_preserved_test_inputs': len(preserved_paths),
+        'rust_latin1_historical_evidence_inputs': sum(p.startswith('rust/tests/latin1_caller/evidence/') for p in preserved_paths),
+        'rust_integration_test_sources': sum(p.endswith('.rs') for p in preserved_paths),
     })
     require(type(inventory['summary']) is dict and same_json(inventory['summary'], expected_summary),
             'summary key set/type/count mismatch')

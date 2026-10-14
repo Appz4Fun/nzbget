@@ -2769,8 +2769,8 @@
     "capture_provenance": "Original core/Rust ABI-test derivation commands recovered retrospectively; their unchanged results are preserved. Checked-in functional test inputs are a separately identified source audit; no historical execution is recast as prospective.",
     "invocation": "python3 docs/rust-migration/verify_inventory.py --inventory docs/rust-migration/source-inventory.json",
     "parser_path": "docs/rust-migration/verify_inventory.py",
-    "parser_sha256": "4d1eafaeef8059ee1468befa267e6d29628241e5e9af1009f51c29d7a811e08e",
-    "parser_version": 6,
+    "parser_sha256": "2e6bfa94dd051c09a15181c6d9f8e0e0f0a335ceda164f0d4daf96e0135a3164",
+    "parser_version": 7,
     "scope": "reproduce original lexical fields and immutable source bindings; verify supplemental Rust ABI/test classifications and separately indexed checked-in functional source inputs; manual boundary/dependency annotations and capture-event authenticity require independent review",
     "working_directory": "repository root"
   },
@@ -6680,6 +6680,624 @@
       "path": "rust/src/wildmask.rs"
     }
   ],
+  "rust_preserved_test_inputs": [
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "afbc2f44029720b426eb48b44eceb61e25321919",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/deadpostings/README.md",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "70cfce6936dc01bc2f639861fc2ed9d8881561aa",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/dupesearch_nzb/.gitignore",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "34b1dd5064b4f4a242f232dc3cce8d0a7c570592",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/dupesearch_nzb/README.md",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "70cfce6936dc01bc2f639861fc2ed9d8881561aa",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/latin1_caller/.gitignore",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "b565f4799487570382733997cc6995466b89cc31",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/latin1_caller/README.md",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "96b911d063a03bb1936a5bfc4b2dfb40ed095a0c",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/artifact-sha256.txt",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "19de2897d99dc5b52a168370d71539f97b53e257",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-0-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "b807f55579dae2d967cc2b9e15a9c564055dc5c3",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-0-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "9d3e6e6fc5de39895f48d910c50d8bc5393ea85a",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-1-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "e30d96b80856b129fb8740a389ef158debb6c7a6",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-1-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "1082f4daa0c029b3c6a9d4e0a96f42ca94920906",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-2-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "80bdba3c06b7fb58469026e4d39131eaccc42cfd",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-2-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "7855c04e5d785e3fd48dbfeb86bccf6786fb8cc2",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-3-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "4d85c9079562c9a24caea00e952a41e1d2375ef1",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-3-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "447f8bb925aad069a00cfc999ecebe468153de63",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-4-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "de0e8302cd6690001c1027e77f7aa81310c6c1a8",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-4-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "515ec59f28e12100b651fa06b700a513904878dd",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-5-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "06813a55b5da75b873801b01d3c6559180eefdf3",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-5-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "e5e6ec0bbe6b4f5e7e1b92ee7472ddfa0bf305b3",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-6-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "a20ddccdf0950fba293d581389f6317a3d89bcef",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-6-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "953edeac5fbad146cccb0c905a0284b1dd8fbdb9",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-7-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "3e7bf370a4dbfbfc282d84e79148cdb0afc23e94",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-7-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "924c0a109eaa798d69f66bca25d14d9e52fcb20a",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-8-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "0c5a769618d845880a06b916864c782ad878b1d0",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/current/latin-whole-8-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "57f3bf84f6a1fc42dff305d9110e0321ae52a5b1",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/fixture-sha256.json",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "ccb6f27e304ba96213ffe171051b3d71a4ab5aa4",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/latin-ci-summary.json",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "586ed1d59123fae09bf6a78fb9392f080b49a774",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/latin-whole-summary.json",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "b9785839d378862b4a3829334bbdbf5c1eda35df",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/metadata.json",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "652bf87a50ff7b9e03031c8bd89060dc5616bf12",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-0-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "52eb13cde142d6e40e182c7fadf07e22ca2ecd0d",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-0-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "52f5457355d86315de200ae58fa1539cc53c5a70",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-0-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "dc44b6450c886c332001d9196c078d71ff209469",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-1-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "7282f3190a24bf79741479eed04b4327038f2bf7",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-1-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "bc3b5a395864bf8f2e9cb6d16188f0284dbca996",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-1-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "77d7d80c17d151d275df35fec9c7e7868608353b",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-2-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "d75db8c423457ec284b54bc6651c50b6c6ec525b",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-2-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "7d5a4b285d77dac14f6e7d55db26ac2663ca6d0b",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-2-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "90f529eee764359ba9e92e9f28ffaeeaf2969067",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-3-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "152aa0f2370954db828c941e16b23522e9965e92",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-3-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "486f7eeb22cafe0e1f1ff1998a7910b8248b6ce3",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-3-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "8b9fbc7b9924cbce8e9763911e52a78651839252",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-4-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "ea0feeced1f40aeb8fab1d910bffadc2acc91c9f",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-4-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "edfa86e4784b112005d4db7d8f28c833db0889a4",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-4-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "0ff14244aebf2fa17f29b46d7c5c069d87c231d2",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-5-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "634c54de988badce7922d5664a42f017515c8785",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-5-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "e13d173efab03bd38ea676718f81e1ee28987034",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-5-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "b7b747170baee9901efb9c3883ca083fbeb0bfcc",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-6-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "fab18969ab022e741e015afb9da7371075fc8535",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-6-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "030f839f3c8ac85a73ddb1933280c95729e16f2d",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-6-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "f54977bdab365de3f626b108971e427ad75c945d",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-7-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "70a56e81a9704a87bc9d78017a4c61355e1bc565",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-7-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "459b6a4df0366c46513d9382dcefd45ba95da932",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-7-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "6316d3490e4cddf6c6cb30e5a04ccf412fe5416e",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-8-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "7ded55c3f9f376daa9c9110339e8f97107e5875e",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-8-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "8de4a9b9fe8e53e89be6ff4996e081a9156ae4ce",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-ci-8-standin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "312dbca34e4506b38d5e46ac74622d0f54edd65a",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-0-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "20191bb8bca68a4126d7928e61a4dea3b3d732f4",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-0-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "3b82c8d5a3fe89e5a61e1f293805677c5e2147b6",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-1-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "3426a88ce4d7c3a27a2778ddb258284a3da2e292",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-1-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "ec467ce1e831150c7523a1e1b1e7b18437390890",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-2-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "48277b411d96775d3c04cd1551e49b23fed7d18f",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-native-2-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "82283e17e041e38c5118c06b472947140b5810a3",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-standin-0.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "c5039730034e0e25494f6963bcadf37e3ce37cc1",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-standin-1.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "17d63fd0beb5b27f50921c45fc1ce6163deb6428",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/latin-standin-2.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "874a1978100d72f062e31252bbbd3d1e5d49ca5e",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-0-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "369779f0a1628ea9f846f8119c88ed1df7d88dea",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-0-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "deb9cb082f1e68017e6e1421210ff84caaa617d2",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-1-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "3e787060acc165f59cc034dee6ddc8a5d7662c7e",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-1-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "2db935eae08b306a4fd9d6f3136bc2a243536948",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-2-after.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "67ee5136c006a33dc7f5993d9b3e7ccf57f6af96",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-native-2-before.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "a5de7946018db8015cf69428b4c6eef7e4fbece7",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-standin-differential.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "d202f8dabe38806ee6d15cafe5393f005764237e",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/prior/ready-standin-readylatin.log",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "8204c01d723be0dacff095f2993486e0a0fe4a4d",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/review-verdict.txt",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "d28d40e38cfb37630c9da7f9c7efb80f2f96fe62",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/reviewed-runtime.patch.b64",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "c16a2d50b62e80736756f08efd10ced4b9ec719b",
+      "kind": "checked-in historical evidence artifact",
+      "path": "rust/tests/latin1_caller/evidence/runtime-source-sha256.txt",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "0c5f527976d782090fd292c840a0b2bae4a5c140",
+      "kind": "Rust integration test source",
+      "path": "rust/tests/renameanalyzer_allocations.rs",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    },
+    {
+      "disposition": "Preserve original bytes, source identity and historical evidence independently before any test-directory/native-target retirement; translate required Rust regressions and ancillary test/documentation contracts under reviewed ownership. Stored historical verdicts are not current execution, correctness or campaign performance qualification.",
+      "execution_status": "UNRUN in this inventory audit; historical results not requalified",
+      "git_blob": "5e476ac28bf944374e4d79eacef6d6c263164d16",
+      "kind": "ancillary test/documentation input",
+      "path": "rust/tests/streamcompare.md",
+      "source_audit_commit": "7d3d6412f93cd43452f1b390b4ed705c7691df54"
+    }
+  ],
   "rust_public_abi_headers": [
     {
       "compiled_abi_coverage": "unknown",
@@ -8735,6 +9353,10 @@
       "blob": "509e6bec24fda6bd5aad1538c66b1a671e5bb33e",
       "size": 3329
     },
+    "rust/tests/deadpostings/README.md": {
+      "blob": "afbc2f44029720b426eb48b44eceb61e25321919",
+      "size": 5251
+    },
     "rust/tests/deadpostings_cpp_differential.py": {
       "blob": "d6e5d8483a7606c3ccbec116370ce82c675cbb41",
       "size": 12026
@@ -8778,6 +9400,14 @@
     "rust/tests/dupeidentity_differential.py": {
       "blob": "1a01aa136ce4144bd6e37e9b0a3593ab97b0dcb8",
       "size": 15154
+    },
+    "rust/tests/dupesearch_nzb/.gitignore": {
+      "blob": "70cfce6936dc01bc2f639861fc2ed9d8881561aa",
+      "size": 24
+    },
+    "rust/tests/dupesearch_nzb/README.md": {
+      "blob": "34b1dd5064b4f4a242f232dc3cce8d0a7c570592",
+      "size": 3604
     },
     "rust/tests/dupesearch_nzb/caller.cpp": {
       "blob": "eb115135caa32f2fbb52fbd68334b71635051898",
@@ -8827,9 +9457,297 @@
       "blob": "88e82286dd72a777636c987deab28d743d4c9e74",
       "size": 17203
     },
+    "rust/tests/latin1_caller/.gitignore": {
+      "blob": "70cfce6936dc01bc2f639861fc2ed9d8881561aa",
+      "size": 24
+    },
+    "rust/tests/latin1_caller/README.md": {
+      "blob": "b565f4799487570382733997cc6995466b89cc31",
+      "size": 7331
+    },
     "rust/tests/latin1_caller/driver.cpp": {
       "blob": "082ec4942c6a0286b49b34db17ac019e838b1d7a",
       "size": 2759
+    },
+    "rust/tests/latin1_caller/evidence/artifact-sha256.txt": {
+      "blob": "96b911d063a03bb1936a5bfc4b2dfb40ed095a0c",
+      "size": 7660
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-0-after.log": {
+      "blob": "19de2897d99dc5b52a168370d71539f97b53e257",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-0-before.log": {
+      "blob": "b807f55579dae2d967cc2b9e15a9c564055dc5c3",
+      "size": 6503
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-1-after.log": {
+      "blob": "9d3e6e6fc5de39895f48d910c50d8bc5393ea85a",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-1-before.log": {
+      "blob": "e30d96b80856b129fb8740a389ef158debb6c7a6",
+      "size": 6499
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-2-after.log": {
+      "blob": "1082f4daa0c029b3c6a9d4e0a96f42ca94920906",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-2-before.log": {
+      "blob": "80bdba3c06b7fb58469026e4d39131eaccc42cfd",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-3-after.log": {
+      "blob": "7855c04e5d785e3fd48dbfeb86bccf6786fb8cc2",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-3-before.log": {
+      "blob": "4d85c9079562c9a24caea00e952a41e1d2375ef1",
+      "size": 6500
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-4-after.log": {
+      "blob": "447f8bb925aad069a00cfc999ecebe468153de63",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-4-before.log": {
+      "blob": "de0e8302cd6690001c1027e77f7aa81310c6c1a8",
+      "size": 6500
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-5-after.log": {
+      "blob": "515ec59f28e12100b651fa06b700a513904878dd",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-5-before.log": {
+      "blob": "06813a55b5da75b873801b01d3c6559180eefdf3",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-6-after.log": {
+      "blob": "e5e6ec0bbe6b4f5e7e1b92ee7472ddfa0bf305b3",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-6-before.log": {
+      "blob": "a20ddccdf0950fba293d581389f6317a3d89bcef",
+      "size": 6499
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-7-after.log": {
+      "blob": "953edeac5fbad146cccb0c905a0284b1dd8fbdb9",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-7-before.log": {
+      "blob": "3e7bf370a4dbfbfc282d84e79148cdb0afc23e94",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-8-after.log": {
+      "blob": "924c0a109eaa798d69f66bca25d14d9e52fcb20a",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/current/latin-whole-8-before.log": {
+      "blob": "0c5a769618d845880a06b916864c782ad878b1d0",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/fixture-sha256.json": {
+      "blob": "57f3bf84f6a1fc42dff305d9110e0321ae52a5b1",
+      "size": 688
+    },
+    "rust/tests/latin1_caller/evidence/latin-ci-summary.json": {
+      "blob": "ccb6f27e304ba96213ffe171051b3d71a4ab5aa4",
+      "size": 15751
+    },
+    "rust/tests/latin1_caller/evidence/latin-whole-summary.json": {
+      "blob": "586ed1d59123fae09bf6a78fb9392f080b49a774",
+      "size": 14350
+    },
+    "rust/tests/latin1_caller/evidence/metadata.json": {
+      "blob": "b9785839d378862b4a3829334bbdbf5c1eda35df",
+      "size": 3204
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-0-after.log": {
+      "blob": "652bf87a50ff7b9e03031c8bd89060dc5616bf12",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-0-before.log": {
+      "blob": "52eb13cde142d6e40e182c7fadf07e22ca2ecd0d",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-0-standin.log": {
+      "blob": "52f5457355d86315de200ae58fa1539cc53c5a70",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-1-after.log": {
+      "blob": "dc44b6450c886c332001d9196c078d71ff209469",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-1-before.log": {
+      "blob": "7282f3190a24bf79741479eed04b4327038f2bf7",
+      "size": 6501
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-1-standin.log": {
+      "blob": "bc3b5a395864bf8f2e9cb6d16188f0284dbca996",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-2-after.log": {
+      "blob": "77d7d80c17d151d275df35fec9c7e7868608353b",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-2-before.log": {
+      "blob": "d75db8c423457ec284b54bc6651c50b6c6ec525b",
+      "size": 6499
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-2-standin.log": {
+      "blob": "7d5a4b285d77dac14f6e7d55db26ac2663ca6d0b",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-3-after.log": {
+      "blob": "90f529eee764359ba9e92e9f28ffaeeaf2969067",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-3-before.log": {
+      "blob": "152aa0f2370954db828c941e16b23522e9965e92",
+      "size": 6509
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-3-standin.log": {
+      "blob": "486f7eeb22cafe0e1f1ff1998a7910b8248b6ce3",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-4-after.log": {
+      "blob": "8b9fbc7b9924cbce8e9763911e52a78651839252",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-4-before.log": {
+      "blob": "ea0feeced1f40aeb8fab1d910bffadc2acc91c9f",
+      "size": 6502
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-4-standin.log": {
+      "blob": "edfa86e4784b112005d4db7d8f28c833db0889a4",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-5-after.log": {
+      "blob": "0ff14244aebf2fa17f29b46d7c5c069d87c231d2",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-5-before.log": {
+      "blob": "634c54de988badce7922d5664a42f017515c8785",
+      "size": 6498
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-5-standin.log": {
+      "blob": "e13d173efab03bd38ea676718f81e1ee28987034",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-6-after.log": {
+      "blob": "b7b747170baee9901efb9c3883ca083fbeb0bfcc",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-6-before.log": {
+      "blob": "fab18969ab022e741e015afb9da7371075fc8535",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-6-standin.log": {
+      "blob": "030f839f3c8ac85a73ddb1933280c95729e16f2d",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-7-after.log": {
+      "blob": "f54977bdab365de3f626b108971e427ad75c945d",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-7-before.log": {
+      "blob": "70a56e81a9704a87bc9d78017a4c61355e1bc565",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-7-standin.log": {
+      "blob": "459b6a4df0366c46513d9382dcefd45ba95da932",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-8-after.log": {
+      "blob": "6316d3490e4cddf6c6cb30e5a04ccf412fe5416e",
+      "size": 6497
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-8-before.log": {
+      "blob": "7ded55c3f9f376daa9c9110339e8f97107e5875e",
+      "size": 6500
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-ci-8-standin.log": {
+      "blob": "8de4a9b9fe8e53e89be6ff4996e081a9156ae4ce",
+      "size": 1655
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-0-after.log": {
+      "blob": "312dbca34e4506b38d5e46ac74622d0f54edd65a",
+      "size": 267
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-0-before.log": {
+      "blob": "20191bb8bca68a4126d7928e61a4dea3b3d732f4",
+      "size": 268
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-1-after.log": {
+      "blob": "3b82c8d5a3fe89e5a61e1f293805677c5e2147b6",
+      "size": 267
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-1-before.log": {
+      "blob": "3426a88ce4d7c3a27a2778ddb258284a3da2e292",
+      "size": 268
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-2-after.log": {
+      "blob": "ec467ce1e831150c7523a1e1b1e7b18437390890",
+      "size": 267
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-native-2-before.log": {
+      "blob": "48277b411d96775d3c04cd1551e49b23fed7d18f",
+      "size": 268
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-standin-0.log": {
+      "blob": "82283e17e041e38c5118c06b472947140b5810a3",
+      "size": 69
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-standin-1.log": {
+      "blob": "c5039730034e0e25494f6963bcadf37e3ce37cc1",
+      "size": 69
+    },
+    "rust/tests/latin1_caller/evidence/prior/latin-standin-2.log": {
+      "blob": "17d63fd0beb5b27f50921c45fc1ce6163deb6428",
+      "size": 69
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-0-after.log": {
+      "blob": "874a1978100d72f062e31252bbbd3d1e5d49ca5e",
+      "size": 266
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-0-before.log": {
+      "blob": "369779f0a1628ea9f846f8119c88ed1df7d88dea",
+      "size": 269
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-1-after.log": {
+      "blob": "deb9cb082f1e68017e6e1421210ff84caaa617d2",
+      "size": 266
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-1-before.log": {
+      "blob": "3e787060acc165f59cc034dee6ddc8a5d7662c7e",
+      "size": 267
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-2-after.log": {
+      "blob": "2db935eae08b306a4fd9d6f3136bc2a243536948",
+      "size": 266
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-native-2-before.log": {
+      "blob": "67ee5136c006a33dc7f5993d9b3e7ccf57f6af96",
+      "size": 267
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-standin-differential.log": {
+      "blob": "a5de7946018db8015cf69428b4c6eef7e4fbece7",
+      "size": 314
+    },
+    "rust/tests/latin1_caller/evidence/prior/ready-standin-readylatin.log": {
+      "blob": "d202f8dabe38806ee6d15cafe5393f005764237e",
+      "size": 69
+    },
+    "rust/tests/latin1_caller/evidence/review-verdict.txt": {
+      "blob": "8204c01d723be0dacff095f2993486e0a0fe4a4d",
+      "size": 5
+    },
+    "rust/tests/latin1_caller/evidence/reviewed-runtime.patch.b64": {
+      "blob": "d28d40e38cfb37630c9da7f9c7efb80f2f96fe62",
+      "size": 26071
+    },
+    "rust/tests/latin1_caller/evidence/runtime-source-sha256.txt": {
+      "blob": "c16a2d50b62e80736756f08efd10ced4b9ec719b",
+      "size": 441
     },
     "rust/tests/latin1_caller/run.py": {
       "blob": "922c8bc6ea322210a8e06660c4518e2dcd47beb1",
@@ -8895,6 +9813,10 @@
       "blob": "912152ea7051d098150f29e9752c467696f38397",
       "size": 10595
     },
+    "rust/tests/renameanalyzer_allocations.rs": {
+      "blob": "0c5f527976d782090fd292c840a0b2bae4a5c140",
+      "size": 1674
+    },
     "rust/tests/renameanalyzer_differential.py": {
       "blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
       "size": 10908
@@ -8918,6 +9840,10 @@
     "rust/tests/statmeter_differential.py": {
       "blob": "e631fb79043b8e87bd1376fc688a643692eb86f0",
       "size": 11695
+    },
+    "rust/tests/streamcompare.md": {
+      "blob": "5e476ac28bf944374e4d79eacef6d6c263164d16",
+      "size": 12878
     },
     "rust/tests/streamcompare_analyze.py": {
       "blob": "94fac32d6f6fdf014c46b36fccca701fcc795d49",
@@ -9474,6 +10400,9 @@
     "functional_test_source_inputs": 40,
     "rust_cpp_test_harness_files": 7,
     "rust_cpp_test_include_fragments": 2,
+    "rust_integration_test_sources": 1,
+    "rust_latin1_historical_evidence_inputs": 70,
+    "rust_preserved_test_inputs": 77,
     "rust_public_abi_headers": 2,
     "rust_src_files": 50,
     "rust_src_total_lines_including_tests_comments": 24487,
