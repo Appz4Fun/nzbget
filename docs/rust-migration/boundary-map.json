@@ -1174,7 +1174,8 @@
         "rust/tests/streamcompare_differential.py",
         "rust/tests/streampatchparts_differential.py",
         "rust/tests/streampatchparts_mutations.py",
-        "rust/tests/streamcompare_analyze.py"
+        "rust/tests/streamcompare_analyze.py",
+        "rust/tests/streampatchparts_benchmark_summary.py"
       ],
       "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
@@ -1214,6 +1215,14 @@
           "operation_scope": "RequiredCompareFloor historical CSV analyzer: original/control/candidate within-fixture paired sample medians and deterministic 10000-resample bootstrap intervals; reports allocation-instrumentation fields separately. Required companion to instrumented/native timing commands in streamcompare.md.",
           "execution_status": "UNRUN in this source audit",
           "limitations": "Legacy descriptive sample-level analysis, not campaign validator: does not enforce unique balanced process/round keys, complete groups, finite values or exact integer duration floor; no independent-process uncertainty or unchanged-control drift/current-Rust preservation/hard >=2x gate. Candidate column can select C++ hybrid routing. Does not prove source/archive/executable lineage, actual route, native execution or Rust-specific speed."
+        },
+        {
+          "path": "rust/tests/streampatchparts_benchmark_summary.py",
+          "git_blob": "b1c2ebbff9ae2b218bb02296ad01b6a10a1aa9fa",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+          "operation_scope": "Independent standalone PatchParts caller CSV summarizer for streampatchparts_harness.cpp old_ns/rust_ns/control_ns/direct_ns columns: fixture-local medians, forced/direct-Rust median, deterministic 10000-resample paired Rust/old and Rust/control reduction intervals. Not invoked automatically by the differential driver.",
+          "execution_status": "UNRUN in this source audit",
+          "limitations": "Legacy descriptive row-level analysis; does not enforce balanced unique process/round keys, finite values, exact integer duration floor, independent-process uncertainty, current-Rust preservation, unchanged-code drift or hard >=2x campaign gate. Forced/direct-Rust diagnostics do not qualify an active production route, original/fair C++ whole-caller comparison or archive/build/ABI/native lineage."
         }
       ],
       "partial_check_documentation": "rust/tests/streamcompare.md describes compare-floor driver and required legacy analyzer; PatchParts has its independent entrypoint and route requirements.",
