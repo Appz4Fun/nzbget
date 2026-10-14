@@ -794,6 +794,12 @@ pub fn prepare(snapshot: Snapshot, request: [u8; 16]) -> Result<Plan, PurgeError
         }
         text(&r.descriptor_identity, true)?;
     }
+    // Numeric-root partitions are safe only with one record per captured
+    // physical descriptor identity. Aliases could otherwise hide outside
+    // ownership or configured-container protection under a different root ID.
+    let _root_identities = index(&s.roots, |a, b| {
+        a.descriptor_identity.cmp(&b.descriptor_identity)
+    })?;
     for n in &s.namespace_proofs {
         path(&n.relative_path, true)?;
         text(&n.root_identity, true)?;

@@ -1190,3 +1190,55 @@ fn unselected_inventory_and_nested_namespace_disable_recursive_cleanup() {
         vec![leaf(2, b"download/owned", EntryKind::Regular)]
     );
 }
+
+fn root_alias_snapshot() -> Snapshot {
+    let mut s = one();
+    s.namespace_proofs[0].exclusive = true;
+    s.roots.push(RootRecord {
+        id: 11,
+        descriptor_identity: s.roots[0].descriptor_identity.clone(),
+        configured_container: false,
+    });
+    let mut namespace = s.namespace_proofs[0].clone();
+    namespace.id = [2; 32];
+    namespace.root_id = 11;
+    namespace.exclusive = false;
+    s.namespace_proofs.push(namespace);
+    add_entry(&mut s, entry(1, 1, b"download", EntryKind::Directory));
+    add_entry(&mut s, entry(2, 1, b"download/owned", EntryKind::Regular));
+    s
+}
+
+#[test]
+fn root_alias_outside_claim_rejects_before_recursive_action() {
+    let mut s = root_alias_snapshot();
+    s.outside_claims.push(OutsideClaim {
+        id: 1,
+        root_id: 11,
+        relative_path: b"download/other".to_vec(),
+        claimant: binding(99),
+        object_identity: b"posix-v1:outside".to_vec(),
+    });
+    expect_error(s, PurgeError::Conflict);
+}
+
+#[test]
+fn root_alias_unselected_inventory_rejects_before_recursive_action() {
+    let mut s = root_alias_snapshot();
+    s.members.push(member(2, b"Other", b"B", MemberKind::History));
+    s.source_validations.push(source(2));
+    s.custody_receipts.push(custody(2));
+    s.comparisons.push(cmp(1, 2, false, false));
+    let mut outside = entry(3, 2, b"download/other", EntryKind::Regular);
+    outside.root_id = 11;
+    outside.namespace_proof_id = [2; 32];
+    add_entry(&mut s, outside);
+    expect_error(s, PurgeError::Conflict);
+}
+
+#[test]
+fn root_alias_configured_container_rejects_before_recursive_action() {
+    let mut s = root_alias_snapshot();
+    s.roots[1].configured_container = true;
+    expect_error(s, PurgeError::Conflict);
+}
