@@ -1394,8 +1394,22 @@ use std::cell::Cell;
 thread_local! {
     static ALLOC_FAIL:Cell<usize>=const{Cell::new(usize::MAX)};
     static ALLOC_COUNT:Cell<usize>=const{Cell::new(0)};
+    static FORBIDDEN_SIZE:Cell<usize>=const{Cell::new(0)};
+    static FORBIDDEN_HITS:Cell<usize>=const{Cell::new(0)};
 }
 struct CheckedAllocator;
+// A real allocation denial at a specific field capacity, independent of the
+// number of earlier legitimate allocations made by the decoder/recovery path.
+fn forbidden_allocation(bytes: usize) -> bool {
+    FORBIDDEN_SIZE.with(|size| {
+        if size.get() != 0 && size.get() == bytes {
+            FORBIDDEN_HITS.with(|hits| hits.set(hits.get() + 1));
+            true
+        } else {
+            false
+        }
+    })
+}
 fn fail_allocation() -> bool {
     ALLOC_FAIL.with(|limit| {
         if limit.get() == usize::MAX {
@@ -1410,21 +1424,21 @@ fn fail_allocation() -> bool {
 }
 unsafe impl GlobalAlloc for CheckedAllocator {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        if fail_allocation() {
+        if forbidden_allocation(l.size()) || fail_allocation() {
             std::ptr::null_mut()
         } else {
             System.alloc(l)
         }
     }
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        if fail_allocation() {
+        if forbidden_allocation(l.size()) || fail_allocation() {
             std::ptr::null_mut()
         } else {
             System.alloc_zeroed(l)
         }
     }
     unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
-        if fail_allocation() {
+        if forbidden_allocation(n) || fail_allocation() {
             std::ptr::null_mut()
         } else {
             System.realloc(p, l, n)
@@ -2009,4 +2023,186 @@ fn composed_inventory_revision_is_global_across_interleaved_members() {
         )
         .is_err());
     assert_eq!(host.frames.len(), n);
+}
+
+// I1 regressions: removing a schema bound before reserve must attempt the
+// forbidden field allocation, even when checksums and remaining-wire checks pass.
+fn checked_test_frame(tag: u32, body: &[u8]) -> Vec<u8> {
+    use md5::{Digest, Md5};
+    let mut bytes = b"NZBPJNL1".to_vec();
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&tag.to_le_bytes());
+    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(body);
+    let checksum = Md5::digest(&bytes);
+    bytes.extend_from_slice(&checksum);
+    bytes
+}
+fn malformed_plan_field(case: usize) -> (Vec<u8>, usize) {
+    let frame = encode(&plan()).unwrap();
+    let mut body = frame[20..frame.len() - 16].to_vec();
+    // Snapshot starts with version:u32, revision:u64, generation:u64.
+    let seeds = 20;
+    let seed = seeds + 4;
+    // This fixture has no file_id: i32 + bool + u64 precede posting bytes.
+    let posting = seed + 4 + 1 + 8;
+    assert_eq!(&body[posting + 4..posting + 12], b"source:1");
+    let members = posting + 4 + 8;
+    assert_eq!(u32::from_le_bytes(body[members..members + 4].try_into().unwrap()), 1);
+    let path = body.windows(b"release/file\xff".len())
+        .position(|b| b == b"release/file\xff").unwrap() - 4;
+    // First InventoryEntry has id:u64, root_id:u64 before its counted path.
+    let entries = path - 16 - 4;
+    assert_eq!(u32::from_le_bytes(body[entries..entries + 4].try_into().unwrap()), 1);
+    let (offset, count, allocation, old_bytes) = match case {
+        0 => (seeds, 4097, 4097 * std::mem::size_of::<MemberBinding>(), None),
+        1 => (members, 65537, 65537 * std::mem::size_of::<MemberRecord>(), None),
+        2 => (entries, 1_000_001, 1_000_001 * std::mem::size_of::<InventoryEntry>(), None),
+        3 => (posting, 65536, 65536, Some(8)),
+        4 => (path, 1024, 1024, Some(b"release/file\xff".len())),
+        5 => {
+            // SourceValidation ends in custody ID [3;32], followed by the
+            // counted CustodyReceipt table whose first ID is also [3;32].
+            let mut marker = vec![3u8; 32];
+            marker.extend_from_slice(&1u32.to_le_bytes());
+            marker.extend_from_slice(&[3u8; 32]);
+            let table = body.windows(marker.len()).position(|b| b == marker).unwrap() + 32;
+            let n = MAX_PAYLOAD / std::mem::size_of::<CustodyReceipt>() + 1;
+            (table, n, n * std::mem::size_of::<CustodyReceipt>(), None)
+        }
+        _ => unreachable!(),
+    };
+    body[offset..offset + 4].copy_from_slice(&(count as u32).to_le_bytes());
+    if let Some(old) = old_bytes {
+        body.splice(offset + 4..offset + 4 + old, std::iter::repeat_n(b'x', count));
+    } else {
+        // The baseline generic record decoder's MIN is one. Keep sufficient
+        // wire after the count so its remaining-input check cannot mask I1.
+        body.resize(body.len().max(offset + 4 + count), 0);
+    }
+    assert!(body.len() - offset - 4 >= count);
+    (body, allocation)
+}
+fn reject_before_field_allocation<T: std::fmt::Debug>(
+    bytes: usize, call: impl FnOnce() -> Result<T, PurgeError>,
+) {
+    FORBIDDEN_HITS.with(|v| v.set(0));
+    FORBIDDEN_SIZE.with(|v| v.set(bytes));
+    let result = call();
+    FORBIDDEN_SIZE.with(|v| v.set(0));
+    let hits = FORBIDDEN_HITS.with(Cell::get);
+    assert_eq!(hits, 0, "schema-invalid field attempted allocation of {bytes} bytes; result {result:?}");
+    assert!(result.is_err(), "schema-invalid field accepted");
+    assert!(!matches!(result, Err(PurgeError::AllocationFailure)), "schema rejection must precede allocation failure");
+}
+fn schema_decode_case(case: usize) {
+    let (body, allocation) = malformed_plan_field(case);
+    let frame = checked_test_frame(1, &body);
+    reject_before_field_allocation(allocation, || decode(&frame));
+}
+#[test]
+fn schema_limits_seed_count_before_allocation() { schema_decode_case(0); }
+#[test]
+fn schema_limits_member_count_before_allocation() { schema_decode_case(1); }
+#[test]
+fn schema_limits_entry_count_before_allocation() { schema_decode_case(2); }
+#[test]
+fn schema_limits_posting_identity_before_allocation() { schema_decode_case(3); }
+#[test]
+fn schema_limits_path_before_allocation() { schema_decode_case(4); }
+
+// Independent test serializer for the immutable chunk/commit transport. This
+// lets recovery reach a checksum-valid malformed logical image through its
+// actual committed-image path rather than calling the standalone Plan decoder.
+fn schema_recovery_frames(kind: u32, image: &[u8]) -> Vec<Vec<u8>> {
+    use md5::{Digest, Md5};
+    use nzbget_rs::purgejournal::CHUNK_BYTES;
+    let mut host = TestHost::default();
+    let _registry = Registry::initialize([8; 16], &mut host).unwrap();
+    let high_water = if kind == 1 { 1u64 } else { 0 };
+    let generation = high_water;
+    let request = if kind == 1 { [9u8; 16] } else { [0; 16] };
+    let count = image.len().div_ceil(CHUNK_BYTES);
+    let common = |sequence: u64| {
+        let mut b = vec![8u8; 16];
+        b.extend_from_slice(&sequence.to_le_bytes());
+        b.extend_from_slice(&high_water.to_le_bytes());
+        b.extend_from_slice(&request);
+        b.extend_from_slice(&generation.to_le_bytes());
+        b.extend_from_slice(&2u64.to_le_bytes());
+        b
+    };
+    let mut ids = Vec::new();
+    for (i, chunk) in image.chunks(CHUNK_BYTES).enumerate() {
+        let sequence = 2 + i as u64;
+        let mut b = common(sequence);
+        b.extend_from_slice(&(i as u32).to_le_bytes());
+        b.extend_from_slice(&(count as u32).to_le_bytes());
+        b.extend_from_slice(&kind.to_le_bytes());
+        b.extend_from_slice(&(image.len() as u64).to_le_bytes());
+        b.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+        b.extend_from_slice(chunk);
+        host.frames.push(checked_test_frame(4, &b));
+        ids.extend_from_slice(&sequence.to_le_bytes());
+        ids.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+        ids.extend_from_slice(&Md5::digest(chunk));
+    }
+    let mut commit = common(2 + count as u64);
+    commit.extend_from_slice(&kind.to_le_bytes());
+    commit.extend_from_slice(&(image.len() as u64).to_le_bytes());
+    commit.extend_from_slice(&Md5::digest(image));
+    commit.extend_from_slice(&(count as u32).to_le_bytes());
+    commit.extend_from_slice(&ids);
+    host.frames.push(checked_test_frame(if kind == 3 { 3 } else { 5 }, &commit));
+    host.frames
+}
+#[test]
+fn schema_limits_committed_plan_recovery_before_allocation() {
+    let (body, allocation) = malformed_plan_field(0);
+    let frames = schema_recovery_frames(1, &body);
+    reject_before_field_allocation(allocation, || Registry::recover([8; 16], test_journal_identity(), &frames));
+}
+#[test]
+fn schema_limits_committed_inventory_recovery_before_allocation() {
+    // 65537 avoids matching legitimate 65536-byte chunk storage. Invalid
+    // posting bytes must be rejected before this distinct binding allocation.
+    let n = 65537usize;
+    let mut image = vec![8u8; 16];
+    image.extend_from_slice(&4u64.to_le_bytes()); // two chunks, then commit seq4
+    image.extend_from_slice(&0u64.to_le_bytes());
+    image.extend_from_slice(&1i32.to_le_bytes());
+    image.push(0); // no file_id
+    image.extend_from_slice(&101u64.to_le_bytes());
+    image.extend_from_slice(&(n as u32).to_le_bytes());
+    image.extend(std::iter::repeat_n(b'x', n));
+    image.extend_from_slice(&1u64.to_le_bytes()); // producer ticket
+    image.extend_from_slice(&1u64.to_le_bytes()); // producer sequence
+    image.extend_from_slice(&7u64.to_le_bytes()); // prior inventory revision
+    image.extend_from_slice(&0u32.to_le_bytes()); // no changes
+    image.push(1); // final
+    let frames = schema_recovery_frames(3, &image);
+    reject_before_field_allocation(n, || Registry::recover([8; 16], test_journal_identity(), &frames));
+}
+
+#[test]
+fn schema_limits_snapshot_payload_before_secondary_table_allocation() {
+    // Secondary tables have no invented per-count cap: their fixed record
+    // storage must fit the unchanged whole Snapshot 64MiB payload budget.
+    schema_decode_case(5);
+}
+#[test]
+fn schema_limits_accept_exact_path_and_identity_boundaries() {
+    let mut snapshot = fixture(1, &vec![b'a'; MAX_PATH]);
+    let mut large = binding(1);
+    large.posting_source = vec![b'x'; MAX_IDENTITY];
+    snapshot.seeds[0] = large.clone();
+    snapshot.members[0].binding = large.clone();
+    snapshot.source_validations[0].binding = large.clone();
+    snapshot.comparisons[0].seed = large.clone();
+    snapshot.comparisons[0].candidate = large.clone();
+    snapshot.entries[0].member = large.clone();
+    snapshot.ownership_receipts[0].member = large;
+    let p = prepare(snapshot, [9; 16]).unwrap();
+    let bytes = encode(&p).unwrap();
+    assert_eq!(decode(&bytes).unwrap(), p);
 }

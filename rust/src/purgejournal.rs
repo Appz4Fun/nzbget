@@ -282,6 +282,7 @@ struct Reader<'a> {
     bytes: &'a [u8],
     offset: usize,
     owned: usize,
+    owned_limit: usize,
 }
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], PurgeError> {
@@ -298,10 +299,25 @@ impl<'a> Reader<'a> {
     }
     fn charge(&mut self, n: usize) -> Result<(), PurgeError> {
         self.owned = self.owned.checked_add(n).ok_or(PurgeError::LimitExceeded)?;
-        if self.owned > MAX_OPERATION_BYTES {
+        if self.owned > self.owned_limit {
             return Err(PurgeError::LimitExceeded);
         }
         Ok(())
+    }
+    // Nested schema budgets charge the same allocations as the outer composed
+    // budget. Restore the caller's limit on errors as well as successful reads.
+    fn within_heap<T>(
+        &mut self,
+        additional: usize,
+        read: impl FnOnce(&mut Self) -> Result<T, PurgeError>,
+    ) -> Result<T, PurgeError> {
+        let old = self.owned_limit;
+        self.owned_limit = old.min(
+            self.owned.checked_add(additional).ok_or(PurgeError::LimitExceeded)?,
+        );
+        let result = read(self);
+        self.owned_limit = old;
+        result
     }
 }
 trait Wire: Sized {
@@ -394,7 +410,20 @@ impl<T: Wire> Wire for Vec<T> {
         Ok(())
     }
     fn get(r: &mut Reader<'_>) -> Result<Self, PurgeError> {
+        Self::get_bounded(r, usize::MAX)
+    }
+}
+// Bounds are declared on fields, not inferred from Vec's element type: seeds,
+// members and arbitrary secondary tables have different accepted limits.
+trait BoundedWire: Wire {
+    fn get_bounded(r: &mut Reader<'_>, maximum: usize) -> Result<Self, PurgeError>;
+}
+impl<T: Wire> BoundedWire for Vec<T> {
+    fn get_bounded(r: &mut Reader<'_>, maximum: usize) -> Result<Self, PurgeError> {
         let n = u32::get(r)? as usize;
+        if n > maximum {
+            return Err(PurgeError::LimitExceeded);
+        }
         let minimum = n.checked_mul(T::MIN).ok_or(PurgeError::LimitExceeded)?;
         if minimum > r.bytes.len() - r.offset {
             return Err(PurgeError::CorruptJournal);
@@ -410,12 +439,30 @@ impl<T: Wire> Wire for Vec<T> {
         Ok(out)
     }
 }
+impl<T: BoundedWire> BoundedWire for Option<T> {
+    fn get_bounded(r: &mut Reader<'_>, maximum: usize) -> Result<Self, PurgeError> {
+        if bool::get(r)? {
+            Ok(Some(T::get_bounded(r, maximum)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+macro_rules! read_field {
+    ($r:ident, $maximum:expr) => { BoundedWire::get_bounded($r, $maximum) };
+    ($r:ident) => { Wire::get($r) };
+}
 macro_rules! fields {
-    ($t:ty; $($f:ident),+ $(,)?) => {impl Wire for $t {
+    ($t:ty; $($f:ident $(=> $cap:expr)?),+ $(,)?) => {
+        fields!($t, MAX_OPERATION_BYTES; $($f $(=> $cap)?),+);
+    };
+    ($t:ty, $budget:expr; $($f:ident $(=> $cap:expr)?),+ $(,)?) => {impl Wire for $t {
         const MIN:usize=1;
         fn heap_size(&self)->Result<usize,PurgeError>{let mut n=0usize;$ (n=n.checked_add(self.$f.heap_size()?).ok_or(PurgeError::LimitExceeded)?;)*Ok(n)}
         fn put(&self,w:&mut Writer)->Result<(),PurgeError>{$ (self.$f.put(w)?;)* Ok(())}
-        fn get(r:&mut Reader<'_>)->Result<Self,PurgeError>{Ok(Self {$($f:Wire::get(r)?,)*})}
+        fn get(r:&mut Reader<'_>)->Result<Self,PurgeError>{
+            r.within_heap($budget, |r| Ok(Self {$($f:read_field!(r $(,$cap)?)?,)*}))
+        }
     }};
 }
 macro_rules! tags {
@@ -431,43 +478,43 @@ tags!(Phase;Prepared=0,Stopping=1,Quiescent=2,Cleaning=3,Persisting=4,Complete=5
 tags!(PurgeError;InvalidInput=1,MissingSeed=2,MissingInventory=3,Conflict=4,LimitExceeded=5,Unsupported=6,AllocationFailure=7,Persistence=8,HostFailure=9,CorruptJournal=10,RecoveryRequired=11);
 tags!(Operation;Fence=1,Drain=2,Revalidate=3,Remove=4,Reconcile=5,Cleanup=6,PersistRemoval=7,Release=8);
 tags!(Outcome;Acknowledged=0,Removed=1,Absent=2,IdentityMismatch=3,Pending=4,Failed=5);
-fields!(MemberBinding;collection_id,file_id,incarnation,posting_source);
-fields!(MemberRecord;binding,name,key,kind,complete_inventory,source_validation_id);
+fields!(MemberBinding;collection_id,file_id,incarnation,posting_source => MAX_IDENTITY);
+fields!(MemberRecord;binding,name => MAX_IDENTITY,key => MAX_IDENTITY,kind,complete_inventory,source_validation_id);
 fields!(SourceValidation;id,version,validator_version,source_record_id,source_bytes_digest,binding,parent_collection,custody_receipt_id);
 fields!(CustodyReceipt;id,validator_version,source_record_id,source_bytes_digest);
 fields!(ParentMembership;file,collection);
-fields!(ComparisonContext;captured,current);
+fields!(ComparisonContext;captured => MAX_IDENTITY,current => MAX_IDENTITY);
 fields!(AnchorComparison;seed,candidate,name_equal,key_equal);
 fields!(DirectBinding;seed,candidate,seed_source_validation_id,candidate_source_validation_id,pair_membership_receipt_id);
-fields!(PairMembershipReceipt;id,version,validator_version,owner_kind,seed,candidate,seed_source_record_id,seed_source_bytes_digest,candidate_source_record_id,candidate_source_bytes_digest,relation_id,evidence_version,evidence_id,evidence_bytes,custody_receipt_id);
-fields!(PairCustodyReceipt;id,version,validator_version,owner_kind,relation_id,evidence_version,evidence_id,evidence_bytes,seed,candidate,seed_source_record_id,seed_source_bytes_digest,candidate_source_record_id,candidate_source_bytes_digest);
-fields!(RootRecord;id,descriptor_identity,configured_container);
-fields!(NamespaceProof;id,root_id,relative_path,root_identity,ancestor_identity,mount_identity,exclusive);
-fields!(InventoryEntry;id,root_id,relative_path,kind,object_identity,member,namespace_proof_id,ownership_receipt_id,inventory_revision);
-fields!(OwnershipReceipt;id,member,root_id,relative_path,kind,object_identity,namespace_proof_id,inventory_revision);
-fields!(OutsideClaim;id,root_id,relative_path,claimant,object_identity);
-fields!(Snapshot;version,revision,generation,seeds,members,source_validations,custody_receipts,parents,comparison_context,comparisons,direct_bindings,pair_memberships,pair_custody_receipts,roots,namespace_proofs,entries,ownership_receipts,outside_claims);
-fields!(PurgeToken;request,generation,members);
-fields!(Request;token,seeds,policy);
+fields!(PairMembershipReceipt;id,version,validator_version,owner_kind,seed,candidate,seed_source_record_id,seed_source_bytes_digest,candidate_source_record_id,candidate_source_bytes_digest,relation_id => MAX_IDENTITY,evidence_version,evidence_id,evidence_bytes => MAX_IDENTITY,custody_receipt_id);
+fields!(PairCustodyReceipt;id,version,validator_version,owner_kind,relation_id => MAX_IDENTITY,evidence_version,evidence_id,evidence_bytes => MAX_IDENTITY,seed,candidate,seed_source_record_id,seed_source_bytes_digest,candidate_source_record_id,candidate_source_bytes_digest);
+fields!(RootRecord;id,descriptor_identity => MAX_IDENTITY,configured_container);
+fields!(NamespaceProof;id,root_id,relative_path => MAX_PATH,root_identity => MAX_IDENTITY,ancestor_identity => MAX_IDENTITY,mount_identity => MAX_IDENTITY,exclusive);
+fields!(InventoryEntry;id,root_id,relative_path => MAX_PATH,kind,object_identity => MAX_IDENTITY,member,namespace_proof_id,ownership_receipt_id,inventory_revision);
+fields!(OwnershipReceipt;id,member,root_id,relative_path => MAX_PATH,kind,object_identity => MAX_IDENTITY,namespace_proof_id,inventory_revision);
+fields!(OutsideClaim;id,root_id,relative_path => MAX_PATH,claimant,object_identity => MAX_IDENTITY);
+fields!(Snapshot, MAX_PAYLOAD;version,revision,generation,seeds => MAX_SEEDS,members => MAX_MEMBERS,source_validations,custody_receipts,parents,comparison_context,comparisons,direct_bindings,pair_memberships,pair_custody_receipts,roots,namespace_proofs,entries => MAX_ENTRIES,ownership_receipts,outside_claims);
+fields!(PurgeToken;request,generation,members => MAX_MEMBERS);
+fields!(Request;token,seeds => MAX_SEEDS,policy);
 fields!(AckIdentity;version,domain,manifest_sequence,token,state_revision,receipt_sequence,payload_digest);
 fields!(OwnerBarrier;owner_kind,barrier_revision,queued,active,pinned,publication,unacknowledged_deltas);
 fields!(StopDisposition;owner_kind,barrier_revision,disposition);
-fields!(FenceReceipt;already_fenced,dispositions);
+fields!(FenceReceipt;already_fenced,dispositions => MAX_MEMBERS);
 fields!(OwnerCoverage;owner_kind,barrier_revision,complete);
 fields!(ArtifactCoverage;kind,count,complete);
-fields!(StoreReceipt;identity,revision,file_synced,published,directory_synced);
-fields!(ArtifactReceipt;kind,member,identity,entry_id,outcome,error,retained_store);
-fields!(CleanupReceipt;owners,coverage,artifacts,stores);
-fields!(PersistenceReceipt;completed_actions,action_receipt_high_water,cleanup_receipt_sequence,owners,stores);
-fields!(Ack;identity,outcome,inventory_revision,owners,fence,cleanup,persistence);
-fields!(Receipt;operation,action_index,state_revision,receipt_sequence,payload_digest,outcome,owners,fence,cleanup,persistence);
+fields!(StoreReceipt;identity => MAX_IDENTITY,revision,file_synced,published,directory_synced);
+fields!(ArtifactReceipt;kind,member,identity => MAX_IDENTITY,entry_id,outcome,error,retained_store => MAX_IDENTITY);
+fields!(CleanupReceipt;owners => MAX_MEMBERS,coverage => 7,artifacts => MAX_ENTRIES,stores => MAX_ENTRIES);
+fields!(PersistenceReceipt;completed_actions,action_receipt_high_water,cleanup_receipt_sequence,owners => MAX_MEMBERS,stores => MAX_ENTRIES);
+fields!(Ack;identity,outcome,inventory_revision,owners => MAX_MEMBERS,fence,cleanup,persistence);
+fields!(Receipt, MAX_PAYLOAD - std::mem::size_of::<Receipt>();operation,action_index,state_revision,receipt_sequence,payload_digest,outcome,owners => MAX_MEMBERS,fence,cleanup,persistence);
 fields!(ActionReceipt;index,pending_revision,outcome,receipt_sequence,payload_digest);
 fields!(InventoryChange;entry_id,before,after,ownership,prior_absent);
-fields!(OutputDelta;producer_ticket,sequence,prior_inventory_revision,changes,final_for_producer);
+fields!(OutputDelta, MAX_PAYLOAD - std::mem::size_of::<OutputDelta>();producer_ticket,sequence,prior_inventory_revision,changes => MAX_ENTRIES,final_for_producer);
 fields!(BoundDelta;binding,delta);
 fields!(InventoryFrame;domain,sequence,high_water,binding,delta);
-fields!(JournalState;domain,journal_identity,global_sequence,manifest_sequence,high_water,request,request_bytes,request_fingerprint,state_revision,receipt_sequence,barrier_revision,required_owners,receipts,actions,released,error,resume_phase,deltas);
-fields!(Plan;snapshot,token,phase,actions,journal);
+fields!(JournalState;domain,journal_identity,global_sequence,manifest_sequence,high_water,request,request_bytes,request_fingerprint,state_revision,receipt_sequence,barrier_revision,required_owners => MAX_MEMBERS,receipts => MAX_FRAMES,actions => MAX_ENTRIES,released,error,resume_phase,deltas => MAX_FRAMES);
+fields!(Plan;snapshot,token,phase,actions => MAX_ENTRIES,journal);
 impl Wire for Action {
     const MIN: usize = 4;
     fn heap_size(&self) -> Result<usize, PurgeError> {
@@ -522,15 +569,15 @@ impl Wire for Action {
             0 => Ok(Action::RemoveEntry {
                 entry_id: Wire::get(r)?,
                 root_id: Wire::get(r)?,
-                relative_path: Wire::get(r)?,
+                relative_path: BoundedWire::get_bounded(r, MAX_PATH)?,
                 kind: Wire::get(r)?,
-                object_identity: Wire::get(r)?,
+                object_identity: BoundedWire::get_bounded(r, MAX_IDENTITY)?,
             }),
             1 => Ok(Action::RemoveTree {
                 entry_id: Wire::get(r)?,
                 root_id: Wire::get(r)?,
-                relative_path: Wire::get(r)?,
-                object_identity: Wire::get(r)?,
+                relative_path: BoundedWire::get_bounded(r, MAX_PATH)?,
+                object_identity: BoundedWire::get_bounded(r, MAX_IDENTITY)?,
             }),
             _ => Err(PurgeError::CorruptJournal),
         }
@@ -559,6 +606,7 @@ fn unwire<T: Wire>(bytes: &[u8]) -> Result<T, PurgeError> {
         bytes,
         offset: 0,
         owned: std::mem::size_of::<T>(),
+        owned_limit: MAX_OPERATION_BYTES,
     };
     let v = T::get(&mut r)?;
     if r.offset != bytes.len() {
@@ -910,10 +958,10 @@ struct Event {
     updates: Vec<ActionReceipt>,
 }
 fields!(DomainFrame;domain,journal_identity,sequence,high_water);
-fields!(Chunk;domain,sequence,high_water,request,generation,start,index,count,kind,image_bytes,bytes);
+fields!(Chunk;domain,sequence,high_water,request,generation,start,index,count,kind,image_bytes,bytes => CHUNK_BYTES);
 fields!(ChunkId;sequence,bytes,checksum);
-fields!(Commit;domain,sequence,high_water,request,generation,start,kind,image_bytes,checksum,chunks);
-fields!(Event;domain,sequence,high_water,request,generation,manifest_sequence,previous_revision,state_revision,receipt_sequence,phase,barrier_revision,released,error,resume_phase,receipt,updates);
+fields!(Commit;domain,sequence,high_water,request,generation,start,kind,image_bytes,checksum,chunks => MAX_OPERATION_BYTES.div_ceil(CHUNK_BYTES));
+fields!(Event;domain,sequence,high_water,request,generation,manifest_sequence,previous_revision,state_revision,receipt_sequence,phase,barrier_revision,released,error,resume_phase,receipt,updates => ACTION_BATCH);
 fn next(n: u64) -> Result<u64, PurgeError> {
     let v = n.checked_add(1).ok_or(PurgeError::LimitExceeded)?;
     if v == u64::MAX {
