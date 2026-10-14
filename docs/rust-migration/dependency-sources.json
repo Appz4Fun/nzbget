@@ -382,7 +382,20 @@
     "site/build.py": "9316ffd739cdae2bdcd48a295bb0b9d317159c5c",
     "rust/benches/README.md": "e1842e56173c0c9617d3292bdf136d1fe10adc7c",
     "rust/benches/criterion_ports.rs": "8be78304ead45afb7e49e40746884a8fb1c6e82c",
-    "rust/benches/ports.rs": "6c93b4396963115e10e1a227a54ca8e14e41a3fd"
+    "rust/benches/ports.rs": "6c93b4396963115e10e1a227a54ca8e14e41a3fd",
+    "benchmarks/nanobench-poc/README.md": "6a47314fe664bdbcbcea09e0b7655a519d0053c2",
+    "benchmarks/nanobench-poc/export-manifest.json": "a701498047e577be01ec43e40c58ee8f48be26f8",
+    "benchmarks/nanobench-poc/index.html": "35be694acbb7abafc86c9ef08e2909a4e2a50ed2",
+    "benchmarks/nanobench-poc/manifest.json": "57234c4bf82a4417be6eab587e3b3bf9a051b1ba",
+    "benchmarks/nanobench-poc/negative-route-check.json": "44631374493a8196b4ae3ba08b8395cb451718a6",
+    "benchmarks/nanobench-poc/original-evidence-manifest.json": "0c97c886f2a37a61157a561f0eaef709695ee073",
+    "benchmarks/nanobench-poc/proof-of-concept.zip": "e303baac909acf75c43eb6813414f845e5425df6",
+    "benchmarks/nanobench-poc/proof.html": "0c7aab956be8d519508265a3b2c0cc0c391c0e98",
+    "benchmarks/nanobench-poc/results.json": "b4aec6acf0874d1bf9205cbb4dd1da95a4c9b7cb",
+    "benchmarks/nanobench-poc/source-snapshot-manifest.json": "4007ef3ab17a1eb3f0d4847508c025780b365f20",
+    "benchmarks/nanobench-poc/source-snapshot.zip": "b6712884b8ca8884f62ba2f56c35e4c8a863f0f5",
+    "benchmarks/nanobench-poc/test_verify.py": "4ccde84ef421288b735833ae1a3f1fc3e0150f9d",
+    "benchmarks/nanobench-poc/verify.py": "6debd1e9227e7fc586a9ea6ee8f62940a47d3bb7"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -7420,7 +7433,7 @@
       "retirement": "replace both unpacker generations/7za, aliases/installer/config/licenses and preserve supported targets"
     }
   ],
-  "local_blob_source_verification": "all 382 local_source_blobs path/object identities independently matched reachable dad395285b4fba2392aed6b1fbff0fd305d5792d; original 350 bindings preserved; fresh source metadata is not executable lineage",
+  "local_blob_source_verification": "all 395 local_source_blobs path/object identities independently matched reachable dad395285b4fba2392aed6b1fbff0fd305d5792d; all prior 382 bindings and original 350 bindings preserved; fresh source metadata is not executable lineage",
   "supersedes_rejected_draft_git_blob_role": "historical rejected-draft identity only; not required for reproducing current inputs",
   "shipped_unpacker_configuration": {
     "path": "nzbget.conf",
@@ -10932,5 +10945,145 @@
       "disposition": "Preserve or update source, schemas, regression fixtures and documentation under reviewed Rust migration ownership before retirement; retain original evidence and separation of measurement from authenticated publication. Source-bound pending, not executed build/controller/site, native coverage, performance or publication proof.",
       "execution_status": "UNRUN in this source audit"
     }
-  ]
+  ],
+  "historical_nanobench_packet_inputs": [
+    {
+      "path": "benchmarks/nanobench-poc/README.md",
+      "git_blob": "6a47314fe664bdbcbcea09e0b7655a519d0053c2",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "ca4d86adda17fdf5546dd62d20ab67b7c7b04706f64e45ac8fe3dd6a54bea165",
+      "bytes": 8770,
+      "role": "historical source/capture/publication limitations and current qualification hold",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/export-manifest.json",
+      "git_blob": "a701498047e577be01ec43e40c58ee8f48be26f8",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "34c29ba26580a4526b4b54776387121d6d7a50aaef9b1fc9bb7f5112c858b984",
+      "bytes": 2131,
+      "role": "retrospective export identity and missing original environment/receipts",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/index.html",
+      "git_blob": "35be694acbb7abafc86c9ef08e2909a4e2a50ed2",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "830f78f372dad11f5acd9ad1b8d431191e88e0383d91a53038801b864fa188bd",
+      "bytes": 479503,
+      "role": "additive publication viewer with historical limits; embedded historical data",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/manifest.json",
+      "git_blob": "57234c4bf82a4417be6eab587e3b3bf9a051b1ba",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "988d62f0b79014675ca8415e63ad902c0c1a226fe57db79aac5d20761b29fc17",
+      "bytes": 2714,
+      "role": "historical measured source/executable/library identities and methods",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/negative-route-check.json",
+      "git_blob": "44631374493a8196b4ae3ba08b8395cb451718a6",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "95da5a556322362d455b42b4724076376f54d3641b541e118c9aaa08383fcdae",
+      "bytes": 134,
+      "role": "retained 134-byte failed-route capture, no timing rows",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/original-evidence-manifest.json",
+      "git_blob": "0c97c886f2a37a61157a561f0eaef709695ee073",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "61b9a6885b95561d395a3a01cf67c2a082143e98f26c55d7158838f6b7801c52",
+      "bytes": 1216,
+      "role": "original historical source/evidence bundle member identities",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/proof-of-concept.zip",
+      "git_blob": "e303baac909acf75c43eb6813414f845e5425df6",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "c5a78af28eb2d7868774e1484ef092af93b9c3a2665f72ee00d0b6bd5824c600",
+      "bytes": 223923,
+      "role": "opaque original historical source/recorder/template/header/results/viewer archive; preserve byte for byte",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/proof.html",
+      "git_blob": "0c7aab956be8d519508265a3b2c0cc0c391c0e98",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "628df50a9d61c85f2dc7dae8bc6351db544690e8a748352705db5ac2fcc427bd",
+      "bytes": 478648,
+      "role": "original historical viewer and claims retained as evidence, not endorsed qualification",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/results.json",
+      "git_blob": "b4aec6acf0874d1bf9205cbb4dd1da95a4c9b7cb",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "8c333dd1264b9a68c8baf6ec48a5bcae28a03b4ddddfa941df6d32963db550bc",
+      "bytes": 781260,
+      "role": "original historical per-process results and all sample rows; preserve without reanalysis/replay",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/source-snapshot-manifest.json",
+      "git_blob": "4007ef3ab17a1eb3f0d4847508c025780b365f20",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "1dc259e2ddcbc9547b69eac300f00e848ab63d135e18ada40249b408c111275c",
+      "bytes": 1327,
+      "role": "additive measured candidate/baseline C++/Rust/ABI/context source member identities",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/source-snapshot.zip",
+      "git_blob": "b6712884b8ca8884f62ba2f56c35e4c8a863f0f5",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "d83f53e9691f6286e6b68e32914c9d3739e19e5a673dfe3c50355eed9c1985e8",
+      "bytes": 47394,
+      "role": "opaque additive measured held candidate/baseline C++/Rust/ABI/context/license source archive",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/test_verify.py",
+      "git_blob": "4ccde84ef421288b735833ae1a3f1fc3e0150f9d",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "d0334fc241f048e4bfdbac10cb19a4c3d44cc7383112a01182505085173f272e",
+      "bytes": 22170,
+      "role": "packet-specific bounded integrity/custody regression source; UNRUN here",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    },
+    {
+      "path": "benchmarks/nanobench-poc/verify.py",
+      "git_blob": "6debd1e9227e7fc586a9ea6ee8f62940a47d3bb7",
+      "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+      "sha256": "e7fae18c44f7814be2d218e5b4ab7277c14b9effc695d173511b19231ca395ac",
+      "bytes": 18057,
+      "role": "packet-specific artifact-integrity verifier source; integrity success separate from qualification HOLD; UNRUN here",
+      "disposition": "Preserve all original packet bytes, failed-route capture, samples, manifests and held C++/Rust source snapshots independently before ContentMap/ReadDonorInner/cryptoread or native-test/dependency retirement. Retain retrospective capture and unavailable original environment/receipts/plan-custody limitations; translate required integrity, route and caller contracts under reviewed ownership. Source-only UNRUN; no packet verifier, archived recorder, native benchmark or candidate executed; historical integrity/intervals are not current lineage, Rust-specific gain or >=2x qualification and do not release cryptoread HOLD.",
+      "execution_status": "UNRUN in this source audit"
+    }
+  ],
+  "historical_nanobench_packet_scope": {
+    "root": "benchmarks/nanobench-poc/",
+    "entries": 13,
+    "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+    "boundary": "ContentMap/StreamRepairController::ReadDonorInner and held cryptoread candidate",
+    "method": "exact tracked regular Git blobs plus bounded descriptor reads, opaque ZIP preservation; no archive member extraction or historical/native/verification execution",
+    "limitations": "Retrospective original outputs; no original prospective plan digest or machine/compiler/flags/individual exit receipts; rounded durations lack exact integer floor. Preserving packet does not approve old claims, speed, archive lineage or cryptoread release."
+  }
 }

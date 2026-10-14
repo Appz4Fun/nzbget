@@ -1173,7 +1173,8 @@
       "existing_partial_check_entrypoints": [
         "rust/tests/streamcompare_differential.py",
         "rust/tests/streampatchparts_differential.py",
-        "rust/tests/streampatchparts_mutations.py"
+        "rust/tests/streampatchparts_mutations.py",
+        "rust/tests/streamcompare_analyze.py"
       ],
       "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
@@ -1205,9 +1206,17 @@
           "operation_scope": "Five standalone PatchParts module mutants: sorted/inclusive adjacency, zero/negative size handling, margin marking and prefix maximum; module tests must reject each.",
           "path": "rust/tests/streampatchparts_mutations.py",
           "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d"
+        },
+        {
+          "path": "rust/tests/streamcompare_analyze.py",
+          "git_blob": "94fac32d6f6fdf014c46b36fccca701fcc795d49",
+          "source_commit": "dad395285b4fba2392aed6b1fbff0fd305d5792d",
+          "operation_scope": "RequiredCompareFloor historical CSV analyzer: original/control/candidate within-fixture paired sample medians and deterministic 10000-resample bootstrap intervals; reports allocation-instrumentation fields separately. Required companion to instrumented/native timing commands in streamcompare.md.",
+          "execution_status": "UNRUN in this source audit",
+          "limitations": "Legacy descriptive sample-level analysis, not campaign validator: does not enforce unique balanced process/round keys, complete groups, finite values or exact integer duration floor; no independent-process uncertainty or unchanged-control drift/current-Rust preservation/hard >=2x gate. Candidate column can select C++ hybrid routing. Does not prove source/archive/executable lineage, actual route, native execution or Rust-specific speed."
         }
       ],
-      "partial_check_documentation": "rust/tests/streamcompare.md describes compare-floor driver only; PatchParts has its independent entrypoint and route requirements.",
+      "partial_check_documentation": "rust/tests/streamcompare.md describes compare-floor driver and required legacy analyzer; PatchParts has its independent entrypoint and route requirements.",
       "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
       "related_source_driver_candidates": [
         {
