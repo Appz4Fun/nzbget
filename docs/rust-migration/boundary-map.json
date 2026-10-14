@@ -18,6 +18,18 @@
         "nzbget_rs_http_redirect"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "dae133f323e756fa22d7d0b6e94bcd566209184a",
+          "path": "rust/tests/webdownload_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/connect/WebDownloader.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/webdownload.rs",
         "rust/src/url.rs"
@@ -39,6 +51,23 @@
         "nzbget_rs_deadpostings_parse"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "d6e5d8483a7606c3ccbec116370ce82c675cbb41",
+          "path": "rust/tests/deadpostings_cpp_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_deadpostings_parse"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/DeadPostings.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/deadpostings.rs"
       ],
@@ -61,6 +90,25 @@
         "nzbget_rs_donorscore_target"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "70041565fc53facd2332109ceef269b3708419f1",
+          "path": "rust/tests/donorscore_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_donorscore_base",
+                "nzbget_rs_donorscore_rerank",
+                "nzbget_rs_donorscore_target"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/DonorScore.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/donorscore.rs"
       ],
@@ -93,6 +141,8 @@
       ],
       "non_rust_fallback_equivalence": "not equivalent for identity extraction/fetch/PAR decisions and conservative matching/health logic",
       "non_rust_feature_availability": "FromArticle/Read return empty identities; FetchArticle returns empty result; UnlistedMissing returns zero; ParDoomed returns false; health/matching paths use simplified legacy fallbacks",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [],
       "rust_paths": [
         "rust/src/dupeidentity.rs",
         "rust/src/dupewatch.rs",
@@ -112,6 +162,11 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupewatch_cpp_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/dupewatch_cpp_differential.py",
+        "rust/tests/dupewatch_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_dupe_queries",
         "nzbget_rs_dupe_should_expand",
@@ -121,6 +176,43 @@
       ],
       "non_rust_fallback_equivalence": "not equivalent for native preparation/ranking and expanded duplicate identity/PAR search work",
       "non_rust_feature_availability": "PrepareNative returns false, native duplicate ranking notification work is omitted, and Expand body is compiled out without Rust; legacy search work remains",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+          "limitations": "Generated C++/caller subsets; no equivalent omitted PrepareNative/ranking/Expand control is established.",
+          "operation_scope": "Prepare/watch/stamp C++ decision prefix",
+          "path": "rust/tests/dupewatch_cpp_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "ed9bf04808f66f36b7da9f2f31d63b64daefa97a",
+          "limitations": "Backend/Python legacy checks, not actual C++ query/Expand caller or native equivalent feature control; proxy/ranking/rename fixtures are separate.",
+          "operation_scope": "Rust watcher lenient_queries and should_expand plus Python legacy decision oracle",
+          "path": "rust/tests/dupewatch_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+          "path": "rust/tests/dupewatch_cpp_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_dupe_queries",
+                "nzbget_rs_dupe_watch",
+                "nzbget_rs_dupe_watch_stamped"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/DupeSearch.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/dupewatch.rs",
         "rust/src/releasename.rs"
@@ -145,6 +237,8 @@
         "nzbget_rs_dupe_budget_take"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [],
       "rust_paths": [
         "rust/src/dupewatch.rs"
       ],
@@ -161,12 +255,38 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/dupesearch_nzb/README.md",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/dupesearch_nzb/run.py"
+      ],
       "lexical_rust_symbols": [
         "nzbget_rs_dupe_part_counts",
         "nzbget_rs_dupesearch_par_name",
         "nzbget_rs_dupesearch_unquoted_subject"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+          "limitations": "Required locale/XML corpus, current archive/real route/lineage and source bench/sanitizer/mutation readiness remain unproved; ordinary Rust archive is not Rust sanitizer coverage; one caller benchmark is not full download throughput or campaign >=2x qualification.",
+          "operation_scope": "Real NzbReader::Parse caller/independent reference harness, subject/PAR/part-geometry helper and XML summary cases described in its README",
+          "path": "rust/tests/dupesearch_nzb/run.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "partial_check_documentation": "rust/tests/dupesearch_nzb/README.md",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+          "path": "rust/tests/dupesearch_nzb/run.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/NzbReader.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/dupesearch_nzb.rs",
         "rust/src/dupewatch.rs"
@@ -193,6 +313,28 @@
         "nzbget_rs_posting_sketch"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "4875087a3973279f65d02aa2cf48385f0e7dd087",
+          "path": "rust/tests/posting_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_posting_group",
+                "nzbget_rs_posting_listing_mismatch",
+                "nzbget_rs_posting_order",
+                "nzbget_rs_posting_same_posting",
+                "nzbget_rs_posting_same_sketch",
+                "nzbget_rs_posting_sketch"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/Posting.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/posting.rs"
       ],
@@ -209,6 +351,10 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/releasename_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/releasename_differential.py",
+        "rust/tests/dupewatch_cpp_differential.py"
+      ],
       "lexical_rust_symbols": [
         "nzbget_rs_free",
         "nzbget_rs_releasename_clean",
@@ -219,6 +365,52 @@
         "nzbget_rs_releasename_short_query"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+          "limitations": "Normalize subset and watcher context only; not all release-name APIs or real ReleaseName owner/caller qualification. Source normalizer control remains separately bound by driver.",
+          "operation_scope": "Explicit ReleaseName::Normalize parity against extracted C++ normalizer in watcher decision/control/retarget fixtures",
+          "path": "rust/tests/dupewatch_cpp_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f660ef0fbc16f16980b78ee46ee946f622e5a05c",
+          "path": "rust/tests/dupewatch_cpp_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_releasename_normalize"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/ReleaseName.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "912152ea7051d098150f29e9752c467696f38397",
+          "path": "rust/tests/releasename_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_releasename_clean",
+                "nzbget_rs_releasename_normalize",
+                "nzbget_rs_releasename_parse",
+                "nzbget_rs_releasename_readable",
+                "nzbget_rs_releasename_same_release",
+                "nzbget_rs_releasename_short_query"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/dupesearch/ReleaseName.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/releasename.rs"
       ],
@@ -245,6 +437,18 @@
         "nzbget_rs_ext_v1_text"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "6ec84dca4cd8f191ef288aa392b1275a98b8c8a5",
+          "path": "rust/tests/extload_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/extension/ExtensionLoader.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/extload.rs"
       ],
@@ -265,6 +469,23 @@
         "nzbget_rs_manifest_load"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "ad4eae123c51b2d4dadd0a6b29676f910e4823cd",
+          "path": "rust/tests/manifest_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_manifest_load"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/extension/ManifestFile.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/manifest.rs",
         "rust/src/json.rs"
@@ -288,6 +509,18 @@
         "nzbget_rs_feed_filter_new"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "c59f60cf3db83b7280a717c330eb1324e9342f9a",
+          "path": "rust/tests/feedfilter_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/feed/FeedFilter.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/feedfilter.rs",
         "rust/src/wildmask.rs"
@@ -309,6 +542,18 @@
         "nzbget_rs_cmdline_parse"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "2f91d5c3b81e2ce43da70ff249dddbd21e6fbd60",
+          "path": "rust/tests/cmdline_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/main/CommandLineParser.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/cmdline.rs"
       ],
@@ -325,6 +570,10 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/options_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/options_differential.py",
+        "rust/tests/rpcaccess_differential.py"
+      ],
       "lexical_rust_symbols": [
         "nzbget_rs_convert_old_option",
         "nzbget_rs_free",
@@ -336,6 +585,42 @@
         "nzbget_rs_validate_option_name"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+          "limitations": "Stand-in OptEntry/access/dispatch contexts; selected restriction operation only, not full option/config loading/mutation/validation caller or native emission/lineage.",
+          "operation_scope": "Options::OptEntry::Restricted actual current wrapper/legacy/fallback source bodies and direct Rust NULL-input check",
+          "path": "rust/tests/rpcaccess_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f8b3709d3fc5fffa8aba90b7e03f85fdaa1a24b8",
+          "path": "rust/tests/options_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/main/Options.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+          "path": "rust/tests/rpcaccess_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_option_restricted"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/main/Options.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/options.rs"
       ],
@@ -356,6 +641,23 @@
         "nzbget_rs_scheduler_check"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "563e3d41bdd8f5d79728f2df63803e7740a58a61",
+          "path": "rust/tests/scheduler_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_scheduler_check"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/main/Scheduler.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/scheduler.rs"
       ],
@@ -383,6 +685,18 @@
         "nzbget_rs_decoder_set"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+          "path": "rust/tests/decoder_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/nntp/Decoder.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/decoder.rs"
       ],
@@ -405,6 +719,18 @@
         "nzbget_rs_nntp_request"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "5cc74700e40199efead76aefa014327bfd1e5a47",
+          "path": "rust/tests/nntp_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/nntp/NntpConnection.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/nntp.rs"
       ],
@@ -426,6 +752,18 @@
         "nzbget_rs_volume_calc_slots"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "e631fb79043b8e87bd1376fc688a643692eb86f0",
+          "path": "rust/tests/statmeter_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/nntp/StatMeter.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/statmeter.rs"
       ],
@@ -449,6 +787,18 @@
         "nzbget_rs_free"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f0a0ef35a7d55effc146681ae67583e6b3c9f0b4",
+          "path": "rust/tests/collection_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/postprocess/CollectionAnalyzer.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/collection.rs",
         "rust/src/deobfuscation.rs",
@@ -473,6 +823,34 @@
         "nzbget_rs_same_par_collection"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_driver_context_note": "Directrenamer driver compiles independent pre-port ParParser helper bodies for naming oracles; this does not prove active ParParser Rust caller coverage.",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+          "path": "rust/tests/directrenamer_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/postprocess/ParParser.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "c484c6045388d019b61fffbb02e880e2632f6ced",
+          "path": "rust/tests/parparser_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_parse_par_filename",
+                "nzbget_rs_same_par_collection"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/postprocess/ParParser.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/parparser.rs"
       ],
@@ -493,6 +871,18 @@
         "nzbget_rs_par_renamer_execute"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "3299e89b406a2ef7af9c7a53e60273c274919fd0",
+          "path": "rust/tests/parrenamer_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/postprocess/ParRenamer.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/parrenamer.rs",
         "rust/src/renameanalyzer.rs",
@@ -515,6 +905,18 @@
         "nzbget_rs_rar_read"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "22a214b8258c51177d3da70e2971095d8e65880c",
+          "path": "rust/tests/rarreader_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/postprocess/RarReader.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/rarreader.rs"
       ],
@@ -535,6 +937,18 @@
         "nzbget_rs_rar_rename_files"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "7192f796184cbbcb55684fc61dde5c8023c021bc",
+          "path": "rust/tests/rarrenamer_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/postprocess/RarRenamer.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/rarrenamer.rs"
       ],
@@ -557,6 +971,28 @@
         "nzbget_rs_is_excessively_obfuscated"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_driver_context_note": "Collection driver compiles independent C++ Deobfuscation helpers for its reference; this does not prove the standalone Deobfuscation caller/adapter is reached.",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f0a0ef35a7d55effc146681ae67583e6b3c9f0b4",
+          "path": "rust/tests/collection_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/Deobfuscation.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "e2f3f4af049b54e0d780c4c6c4e785c2cf27e092",
+          "path": "rust/tests/deobfuscation_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/Deobfuscation.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/deobfuscation.rs"
       ],
@@ -573,6 +1009,11 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/directrenamer_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/directrenamer_differential.py",
+        "rust/tests/renameanalyzer_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_direct_need_rename_pars",
         "nzbget_rs_direct_par_name",
@@ -584,6 +1025,52 @@
         "nzbget_rs_rename_analyzer_reset"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+          "limitations": "Stand-in method bodies and scripted callbacks; complete queue/file caller and cleanup remain pending.",
+          "operation_scope": "Regular/PAR naming, counters and NeedRenamePars across callback/path/locale/exception source cases",
+          "path": "rust/tests/directrenamer_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
+          "limitations": "Class copies in namespaces with source-selected controls; native caller/ownership/retry integration and current executable lineage remain unproved.",
+          "operation_scope": "RenameContentAnalyzer Reset/Append/Finish, PAR flags/set IDs/16KiB hashes, malformed/empty/large pieces and wrapping sizes",
+          "path": "rust/tests/renameanalyzer_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+          "path": "rust/tests/directrenamer_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_direct_need_rename_pars",
+                "nzbget_rs_direct_par_name",
+                "nzbget_rs_direct_regular_name"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/queue/DirectRenamer.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "a1f56967845c964bf3c67935270db5bd6d23968d",
+          "path": "rust/tests/renameanalyzer_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/DirectRenamer.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/directrenamer.rs",
         "rust/src/renameanalyzer.rs"
@@ -601,11 +1088,61 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/streamcompare.md",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/streamcompare_differential.py",
+        "rust/tests/streampatchparts_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_stream_compare_floor",
         "nzbget_rs_stream_patch_parts"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "f4fd2776f29dc6fd6bbb444e9066ecf87ab7fa9d",
+          "limitations": "Source UB inputs excluded; source bench/sanitizer switches do not establish actual route hits or campaign performance qualification.",
+          "operation_scope": "Actual DupeStreamRepair compare-floor adapter/caller and source-selected route/mutation/allocation cases",
+          "path": "rust/tests/streamcompare_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "f62a10b374114c2cd811917362e89189cfbb4883",
+          "limitations": "Independent from compare-floor routing; undefined endpoint/index overflow excluded; archive/actual route/native parity and fair original/optimized-C++ speed are pending.",
+          "operation_scope": "Actual SelectPatchParts caller versus exact-base and C++ fallback",
+          "path": "rust/tests/streampatchparts_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "partial_check_documentation": "rust/tests/streamcompare.md describes compare-floor driver only; PatchParts has its independent entrypoint and route requirements.",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f4fd2776f29dc6fd6bbb444e9066ecf87ab7fa9d",
+          "path": "rust/tests/streamcompare_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_stream_compare_floor"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/queue/DupeStreamRepair.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "f62a10b374114c2cd811917362e89189cfbb4883",
+          "path": "rust/tests/streampatchparts_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/DupeStreamRepair.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/streampatchparts.rs",
         "rust/src/streamcompare.rs"
@@ -643,6 +1180,18 @@
         "nzbget_rs_nzb_file_totals"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "d3e52730c6831c20703bbaed622244a8a350a318",
+          "path": "rust/tests/nzbfile_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/NzbFile.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/nzbfile.rs"
       ],
@@ -675,6 +1224,8 @@
       ],
       "non_rust_fallback_equivalence": "not equivalent for twin labels/content matching",
       "non_rust_feature_availability": "twin labels and content matching disabled; legacy C++ PAR-repair helpers remain",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [],
       "rust_paths": [
         "rust/src/twin.rs"
       ],
@@ -697,6 +1248,18 @@
         "nzbget_rs_url_dnzb_header"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "b0744f1e2608ad93241b04ca1037b282ca04c95a",
+          "path": "rust/tests/urlcoord_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/queue/UrlCoordinator.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/urlcoord.rs",
         "rust/src/text.rs"
@@ -735,6 +1298,52 @@
         "nzbget_rs_free"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "c681b618ba526692691ff1dc62f77f4112901107",
+          "path": "rust/tests/binrpc_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_binrpc_bool_response",
+                "nzbget_rs_binrpc_check",
+                "nzbget_rs_binrpc_name",
+                "nzbget_rs_binrpc_size_ok",
+                "nzbget_rs_binrpc_trailing_ok"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/BinRpc.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "5d2eeb4a0907f7fd7dec72cbac0ae2450fb53698",
+          "path": "rust/tests/binrpc_edit_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_binrpc_edit_sizes",
+                "nzbget_rs_binrpc_edit_split",
+                "nzbget_rs_binrpc_is_url"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/BinRpc.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "6d53188d12cf152725fa4abfcb552516fb8da7b2",
+          "path": "rust/tests/binrpc_lists_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/remote/BinRpc.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/binrpc.rs"
       ],
@@ -759,6 +1368,18 @@
         "nzbget_rs_free"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "56f91c8b4edb58ecffa566955941dfd71dd13d4d",
+          "path": "rust/tests/binrpc_client_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/remote/RemoteClient.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/binrpc.rs"
       ],
@@ -783,6 +1404,23 @@
         "nzbget_rs_web_parse_url"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "8903fac07565a1047c704582a7194a76fdabd0e7",
+          "path": "rust/tests/webserver_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_web_header"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/WebServer.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/webserver.rs"
       ],
@@ -799,6 +1437,13 @@
       "current_rust_preservation": "required for any corresponding already-Rust-enabled caller; source-bound rationale required for other selected routes",
       "evidence_type": "source inspection only",
       "existing_partial_check_entrypoint": "rust/tests/rpcroute_differential.py",
+      "existing_partial_check_entrypoints": [
+        "rust/tests/rpcroute_differential.py",
+        "rust/tests/rpcparams_differential.py",
+        "rust/tests/rpcaccess_differential.py",
+        "rust/tests/testserver_differential.py"
+      ],
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_free",
         "nzbget_rs_rpc_access",
@@ -811,6 +1456,96 @@
         "nzbget_rs_test_server_params"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "operation_partial_check_sources": [
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "c2e092d4a27a2e6d5cb57ce5c6c58ac72d595ae6",
+          "limitations": "Selected stand-in routing/envelope paths; full command/socket/mutation/response-emission caller pending.",
+          "operation_scope": "RPC protocol/routing/response envelopes",
+          "path": "rust/tests/rpcroute_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "e43e3d8fcdf2fc794f7890314c958db60270ea1a",
+          "limitations": "Stand-in XmlCommand bodies with independent historical WebUtil controls; full actual request/command integration and ABI/lineage pending.",
+          "operation_scope": "PrepareParams and NextParamAsInt/Bool/Str across GET/JSON/JSONP/XML request values, cursor and buffer changes",
+          "path": "rust/tests/rpcparams_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+          "limitations": "Recording stand-in responses/commands and source C++ copies; actual dispatch/state/emission caller remains pending.",
+          "operation_scope": "Access/Decide decisions and option restrictions, request/access/method combinations and NULL output pointers",
+          "path": "rust/tests/rpcaccess_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "711164e8c09632951db607a1a58aeeb5d458022d",
+          "limitations": "Selected body parser/control copies; daemon command/network ownership and current binary/Rust instrumentation/full parity pending.",
+          "operation_scope": "TestServer JSON params, malformed/type/numeric/NUL/duplicate boundaries, errors, NULL FFI and C++ string-copy allocation failures",
+          "path": "rust/tests/testserver_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "09c17e2c304e0c32e2de4d26fed64f8d3241225a",
+          "path": "rust/tests/rpcaccess_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_rpc_access",
+                "nzbget_rs_rpc_decide"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/XmlRpc.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "e43e3d8fcdf2fc794f7890314c958db60270ea1a",
+          "path": "rust/tests/rpcparams_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/remote/XmlRpc.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "c2e092d4a27a2e6d5cb57ce5c6c58ac72d595ae6",
+          "path": "rust/tests/rpcroute_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_rpc_protocol",
+                "nzbget_rs_rpc_route"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/XmlRpc.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "711164e8c09632951db607a1a58aeeb5d458022d",
+          "path": "rust/tests/testserver_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_test_server_params"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/remote/XmlRpc.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/rpcparams.rs",
         "rust/src/rpcroute.rs",
@@ -831,9 +1566,10 @@
       "existing_partial_check_entrypoint": "rust/tests/fsops_differential.py",
       "existing_partial_check_entrypoints": [
         "rust/tests/fsops_differential.py",
-        "rust/tests/fsdelete_differential.py"
+        "rust/tests/fsdelete_differential.py",
+        "rust/tests/paths_differential.py"
       ],
-      "existing_partial_check_scope": "Operation-specific source index only. Listed drivers are unrun, use historical/control subsets and do not cover the entire deletion unit or establish current lineage, route hits or speed.",
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_delete_directory",
         "nzbget_rs_delete_directory_with_content",
@@ -868,6 +1604,54 @@
           "operation_scope": "DeleteDirectory, DeleteDirectoryWithContent, RenameBak and GetFileExtension; symlink containment, failures/error text/errno, resulting tree/link modes and outside tree",
           "path": "rust/tests/fsdelete_differential.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "164f86f6b90a886a4e88ad61873346e99a31e25e",
+          "limitations": "Pre-port OldFS and current linked library/wrappers; source comparison is not current native target proof, complete filesystem ownership/error/caller qualification or Windows parity.",
+          "operation_scope": "Path splitting/normalization/text/reserved characters/sanitization/command extraction/shell escaping across source locales",
+          "path": "rust/tests/paths_differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        }
+      ],
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "178dd31689f739a50db1aad08bf5e187017eeaad",
+          "path": "rust/tests/fsdelete_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/FileSystem.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "88e82286dd72a777636c987deab28d743d4c9e74",
+          "path": "rust/tests/fsops_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_directory_exists",
+                "nzbget_rs_error_message",
+                "nzbget_rs_expand_home_path",
+                "nzbget_rs_file_exists",
+                "nzbget_rs_force_directories",
+                "nzbget_rs_make_unique_filename"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/FileSystem.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "164f86f6b90a886a4e88ad61873346e99a31e25e",
+          "path": "rust/tests/paths_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/FileSystem.cpp"
+            }
+          ]
         }
       ],
       "rust_paths": [
@@ -893,6 +1677,28 @@
         "nzbget_rs_sniff_extension"
       ],
       "non_rust_fallback_equivalence": "unproven; per-operation source-bound equivalent C++ control or reviewed nonapplicability rationale required before comparison",
+      "related_driver_context_note": "Collection driver compiles independent C++ FileTypes helpers for its reference; this does not prove active FileTypes sniff-file/adapter coverage.",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "f0a0ef35a7d55effc146681ae67583e6b3c9f0b4",
+          "path": "rust/tests/collection_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/FileTypes.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "97e1b30151dd582ab9a1bd72447d0afbad18fe14",
+          "path": "rust/tests/filetypes_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/FileTypes.cpp"
+            }
+          ]
+        }
+      ],
       "rust_paths": [
         "rust/src/filetypes.rs"
       ],
@@ -917,9 +1723,10 @@
         "rust/tests/text_differential.py",
         "rust/tests/webutil_differential.py",
         "rust/tests/wildmask_differential.py",
-        "rust/tests/util_differential.py"
+        "rust/tests/util_differential.py",
+        "rust/tests/differential.py"
       ],
-      "existing_partial_check_scope": "Operation-specific source index only. Listed drivers are unrun, use historical/control subsets and do not cover the entire deletion unit or establish current lineage, route hits or speed.",
+      "existing_partial_check_scope": "Operation-specific source index only; historical/Python/stand-in/partial helpers do not prove whole caller, current lineage, active route coverage, ABI/sanitizer coverage or campaign speed.",
       "lexical_rust_symbols": [
         "nzbget_rs_alpha_num",
         "nzbget_rs_content_disposition_filename",
@@ -1018,9 +1825,219 @@
           "operation_scope": "FormatSize, FormatSpeed, AlphaNum, HashBJ96, ReduceStr and MatchFileExt with Tokenizer/WildMask",
           "path": "rust/tests/util_differential.py",
           "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
+        },
+        {
+          "execution_status": "UNRUN in this source audit",
+          "git_blob": "a4f92d3e5ec329bb951383014869a91583962ee9",
+          "limitations": "Allocation-interface stand-in; selected encoder outputs, not actual response/stdio emission or complete caller. Existing source is unrun and does not prove current Rust/ABI/compiler lineage or 2x speed.",
+          "operation_scope": "Rust C ABI JsonEncode and XmlEncode versus extracted pre-port C++ encoder bodies",
+          "path": "rust/tests/differential.py",
+          "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f"
         }
       ],
-      "remaining_partial_check_gaps": "No listed driver establishes executed XML/JSON encode complete-caller parity, selected-caller ownership/free/emission cleanup, native ABI/lineage or retained C++ regex/locale/adapter body replacement. Existing Latin1 _n/helper source checks remain indexed; source unit tests and partial drivers do not replace new complete-operation qualification.",
+      "related_source_driver_candidate_limits": "Literal C++ source path or lexical ABI token overlap only; declarations, imported helpers, comments and other caller contexts may match. This lookup is not a compiler call graph, proven operation coverage or qualification entrypoint selection.",
+      "related_source_driver_candidates": [
+        {
+          "git_blob": "509e6bec24fda6bd5aad1538c66b1a671e5bb33e",
+          "path": "rust/tests/crc_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_crc32_combine"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "fedefc5279a48784ec9cdb60247782d7a8c14402",
+          "path": "rust/tests/decode_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_decode_base64",
+                "nzbget_rs_json_decode",
+                "nzbget_rs_json_next_value"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "a4f92d3e5ec329bb951383014869a91583962ee9",
+          "path": "rust/tests/differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_json_encode",
+                "nzbget_rs_xml_encode"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "218a705303c41b1269e4a2fed475fbc1b6ab5ce2",
+          "path": "rust/tests/directrenamer_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "922c8bc6ea322210a8e06660c4518e2dcd47beb1",
+          "path": "rust/tests/latin1_caller/run.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "e43e3d8fcdf2fc794f7890314c958db60270ea1a",
+          "path": "rust/tests/rpcparams_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "c2e092d4a27a2e6d5cb57ce5c6c58ac72d595ae6",
+          "path": "rust/tests/rpcroute_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "563e3d41bdd8f5d79728f2df63803e7740a58a61",
+          "path": "rust/tests/scheduler_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "6469c6f4da49df0625d6a00bee33a78ccd3ba160",
+          "path": "rust/tests/text_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_http_unquote",
+                "nzbget_rs_latin1_to_utf8_n",
+                "nzbget_rs_url_decode",
+                "nzbget_rs_url_encode",
+                "nzbget_rs_xml_decode",
+                "nzbget_rs_xml_remove_entities",
+                "nzbget_rs_xml_strip_tags"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "5629d9cd46ca0f7315a63f559daf47ee0443e06a",
+          "path": "rust/tests/textutil_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "93a26a62695e9f1f4101dabb0c9006a002328d51",
+          "path": "rust/tests/url_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "b0744f1e2608ad93241b04ca1037b282ca04c95a",
+          "path": "rust/tests/urlcoord_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "8738f041a53287425565d22060c33ac6332895e1",
+          "path": "rust/tests/util_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_alpha_num",
+                "nzbget_rs_format_size",
+                "nzbget_rs_format_speed",
+                "nzbget_rs_hash_bj96",
+                "nzbget_rs_match_file_ext",
+                "nzbget_rs_reduce_str"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "dae133f323e756fa22d7d0b6e94bcd566209184a",
+          "path": "rust/tests/webdownload_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "8903fac07565a1047c704582a7194a76fdabd0e7",
+          "path": "rust/tests/webserver_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "f5d89a4f0e4e5723c10469347cff10c8f2580de7",
+          "path": "rust/tests/webutil_differential.py",
+          "source_match_reasons": [
+            {
+              "direct_lexical_symbols": [
+                "nzbget_rs_content_disposition_filename",
+                "nzbget_rs_json_find_field",
+                "nzbget_rs_xml_find_tag"
+              ]
+            },
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        },
+        {
+          "git_blob": "3a5254f4a7c4f09016f50c2436f1e048a771dacd",
+          "path": "rust/tests/wildmask_differential.py",
+          "source_match_reasons": [
+            {
+              "cpp_source_path_literal": "daemon/util/Util.cpp"
+            }
+          ]
+        }
+      ],
+      "remaining_partial_check_gaps": "Encoder and bounded Latin1/helper source checks are indexed but unrun. Actual whole caller, selected ownership/free/emission cleanup, native ABI/archive/compiler lineage and retained C++ regex/locale/adapter replacement remain unqualified; source presence is not execution or speed proof.",
       "rust_paths": [
         "rust/src/escape.rs",
         "rust/src/decode.rs",
@@ -1058,6 +2075,16 @@
     }
   },
   "method": "Manual caller ownership inspection over the 36 files from the reviewed lexical inventory. Modules listed can include their internal dependencies. This is not a compiler-derived call graph or executed boundary coverage; no speed/deployment claim follows. Correctness-entrypoint availability is source presence only, not an executed check. Listed checks are partial; they do not establish parity for all retained C++ work.",
+  "partial_driver_catalog_method": {
+    "execution": "UNRUN; no new native/test/coverage/speed claim",
+    "match_rules": [
+      "literal row cpp_path in driver text",
+      "literal nzbget_rs_* token overlap excluding shared nzbget_rs_free"
+    ],
+    "role": "lookup candidates distinguished from manually inspected partial operation sources; independently select and execute real caller contracts before timing",
+    "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+    "source_files": "all 63 tracked rust/tests/**/*.py inputs from immutable source inventory"
+  },
   "schema_version": 1,
   "source_commit": "4cf19abdb8f084a384769a15cf57e56acf86f363",
   "source_inventory_binding": "companion blob in the same reviewed tree",

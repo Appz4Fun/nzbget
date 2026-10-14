@@ -132,7 +132,30 @@
     "platforms/windows/resources/nzbget.rc": "fa71c96485eac7ebc113558d20c4f9c2383137cc",
     "platforms/windows/resources/version.rc.in": "9a5838b8e82fd9d24b715318b78fea4b0838a023",
     "platforms/windows/install-update.bat": "ff3866e2540ae21451b9c2982a0f7af41667ea52",
-    "platforms/windows/nzbget-command-shell.bat": "8da6311932f3834c7b6c272443c6a6962403e9ab"
+    "platforms/windows/nzbget-command-shell.bat": "8da6311932f3834c7b6c272443c6a6962403e9ab",
+    "cmake/FindZLIB.cmake": "3f244edceddfb861c026e33cd2757e7a03ef568b",
+    "cmake/common.cmake": "6f2c13555900c80c4ddb073d34a2aaae494a1833",
+    "cmake/install.cmake": "9c1ac1ce9dd983c7b12239da875b26ff99f5c349",
+    "cmake/libxml2.cmake": "6995fd2fcacb9290b239763933154182c49c8693",
+    "cmake/ncurses.cmake": "304834fed0f7fd49d63bcbcabdee96640c3e58a3",
+    "cmake/openssl.cmake": "4731d4af74ce4ed96b1159a8b51829c889553f89",
+    "cmake/rust.cmake": "5a819c227e6cbbccb626b66a8ea753c6e4bb436c",
+    "cmake/toolchain.cmake": "a7d93ef8f664c0e0c0aebc6d82b33b508f43fe6d",
+    "cmake/zlib.cmake": "5c09dba5e51212ce3475a890d8a22bef1f4bff65",
+    "daemon/sources.cmake": "6cf859141f0e1a6508f5f6ce20eec08f49bc306f",
+    "tests/dupesearch/dupesearch.cmake": "2a6b1ac0d310903fce1c152f3da700decf47820f",
+    "tests/extension/extension.cmake": "ca139123298fca319cc2b9ac515b8241d6e4d448",
+    "tests/feed/feed.cmake": "a48aec4e70341f9176104ad67cc1ed65064955d9",
+    "tests/main/main.cmake": "d6ba1011de13d14cea033e1ff4f7605de99a9e72",
+    "tests/nntp/nntp.cmake": "de24fa0275eae67f84a3ea935fc8ff0f4a75557f",
+    "tests/postprocess/postprocess.cmake": "b4921868c18e49a27f532d521466c3c2cf54c9af",
+    "tests/queue/queue.cmake": "949856328d17e15c284014363f3f63cf14b7aba0",
+    "tests/remote/remote.cmake": "077e4fda14c9730e16a2f8d74d1c62731b731ef5",
+    "tests/system/system.cmake": "b3183565230ad4ecc46a3357a53a0c763cb6391b",
+    "tests/systemhealth/systemhealth.cmake": "84d6b2a3bf2b4464d1a2fc70c976c5d56d829b72",
+    "tests/util/util.cmake": "6ee133d142cd01c9084d53690d582df1e5ca8630",
+    "toolchains/android/android-llvm.cmake": "1d321926af5e344febb67c8ca931160743881ba3",
+    "toolchains/macos/macos-llvm.cmake": "6b4247b54c51dd043c3056c991bcd96244543195"
   },
   "rust_par2_direct_source_audit": {
     "cargo_git_blob": "5facc2eaef7007ebe5b04bd7936e04f0bc64177e",
@@ -7227,5 +7250,259 @@
         122
       ]
     }
-  ]
+  ],
+  "cmake_build_inputs": [
+    {
+      "path": "CMakeLists.txt",
+      "git_blob": "f11edd39f224ba585ea8d3370fb188687e4d4f55",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace C++ project/language/targets/source registration and native linking once qualified Rust owners exist; preserve executable/version/config/platform-resource generation, supported feature options and test/install entrypoints.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/FindZLIB.cmake",
+      "git_blob": "3f244edceddfb861c026e33cd2757e7a03ef568b",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve or replace system compression-library discovery/version/link contract with reviewed Rust packaging; reconcile remaining native/transitive code rather than declaring C++-free from a finder deletion.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/boost.cmake",
+      "git_blob": "2e012ec4de4d1a0d91c4d5eed58bc36224edb3f1",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/common.cmake",
+      "git_blob": "6f2c13555900c80c4ddb073d34a2aaae494a1833",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate needed platform/architecture detection, optimization/LTO, hardening/warnings and sanitizer/target configuration into supported Rust build settings; C++ target retirement must not erase required behavior or imply Rust instrumentation.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/install.cmake",
+      "git_blob": "9c1ac1ce9dd983c7b12239da875b26ff99f5c349",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Preserve install/uninstall/config-template/config-install locations, WebUI/docs/permissions and executable contracts with Rust packaging; retire obsolete native target wiring without clobbering user config.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/libxml2.cmake",
+      "git_blob": "6995fd2fcacb9290b239763933154182c49c8693",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/ncurses.cmake",
+      "git_blob": "304834fed0f7fd49d63bcbcabdee96640c3e58a3",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/openssl.cmake",
+      "git_blob": "4731d4af74ce4ed96b1159a8b51829c889553f89",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/par2-turbo.cmake",
+      "git_blob": "a166c913ac926b9a44354c417600ca5860f97774",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/posix.cmake",
+      "git_blob": "49b0bd2c0e852da3172fe84f4be6749003746908",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace POSIX native feature/dependency/link and optional Rust integration wiring with supported mandatory Rust builds; preserve platform/library/transport/terminal/compression/repair capability and errors.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/rapidyenc.cmake",
+      "git_blob": "fbf00a8571cb58bac9fe532d8bdc8af10e9b74d8",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/rust.cmake",
+      "git_blob": "5a819c227e6cbbccb626b66a8ea753c6e4bb436c",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace optional-return C++ fallback selection with mandatory supported Rust targets; preserve explicit target, compiler/Cargo/toolchain/CRT/static-native-library checks, archive freshness and correct interface/relink dependencies until adapters are retired.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/toolchain.cmake",
+      "git_blob": "a7d93ef8f664c0e0c0aebc6d82b33b508f43fe6d",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace C/C++ compiler/tool selection with supported Rust target/SDK/ABI/static/cross-build configuration; preserve platform threading/root-search and architecture behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/windows.cmake",
+      "git_blob": "621ce97f42807510530809c23d20dd23b0d2dffe",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace Windows native dependency/feature/target wiring and absent Rust integration with supported Rust builds; preserve resource/CLI/service/filesystem/repair/link/runtime contracts.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "cmake/zlib.cmake",
+      "git_blob": "5c09dba5e51212ce3475a890d8a22bef1f4bff65",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile this dependency discovery/fetch/build/include/link/native-feature contract with qualified Rust owners and supported target settings; preserve required behavior/version/license/error metadata and audit actual selected source/binary/transitive language contents before retirement.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "daemon/sources.cmake",
+      "git_blob": "6cf859141f0e1a6508f5f6ce20eec08f49bc306f",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Retire every C++ daemon and conditional platform translation-unit registration only after corresponding Rust caller/platform contracts are qualified; keep source inventory and target closure aligned.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "lib/sources.cmake",
+      "git_blob": "1743a3dc14bc2a4d657ff50967eb71499a5fd33d",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace or explicitly reconcile conditional bundled/system regex selection and native target/include/link/sanitizer wiring; preserve matching/errors/locale and supported platform behavior. Source alone does not identify downloaded/transitive language content.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/CMakeLists.txt",
+      "git_blob": "da2cd1b5ac2302de14c9b7147338ded863457286",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Retire native test target/Boost discovery/link and C++ registration after preserving historical evidence and translating assertions into independent Rust regressions; preserve supported test dispatch/options and required coverage.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/dupesearch/dupesearch.cmake",
+      "git_blob": "2a6b1ac0d310903fce1c152f3da700decf47820f",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/extension/extension.cmake",
+      "git_blob": "ca139123298fca319cc2b9ac515b8241d6e4d448",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/feed/feed.cmake",
+      "git_blob": "a48aec4e70341f9176104ad67cc1ed65064955d9",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/main/main.cmake",
+      "git_blob": "d6ba1011de13d14cea033e1ff4f7605de99a9e72",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/nntp/nntp.cmake",
+      "git_blob": "de24fa0275eae67f84a3ea935fc8ff0f4a75557f",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/postprocess/postprocess.cmake",
+      "git_blob": "b4921868c18e49a27f532d521466c3c2cf54c9af",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/queue/queue.cmake",
+      "git_blob": "949856328d17e15c284014363f3f63cf14b7aba0",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/remote/remote.cmake",
+      "git_blob": "077e4fda14c9730e16a2f8d74d1c62731b731ef5",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/system/system.cmake",
+      "git_blob": "b3183565230ad4ecc46a3357a53a0c763cb6391b",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/systemhealth/systemhealth.cmake",
+      "git_blob": "84d6b2a3bf2b4464d1a2fc70c976c5d56d829b72",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "tests/util/util.cmake",
+      "git_blob": "6ee133d142cd01c9084d53690d582df1e5ca8630",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Translate these native test-suite/source registrations and assertions into independent Rust regressions before retiring C++ compiler/library/Boost coupling; preserve original evidence and suite behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "toolchains/android/android-llvm.cmake",
+      "git_blob": "1d321926af5e344febb67c8ca931160743881ba3",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace C/C++/LLVM cross-tool/SDK/architecture selection with supported Rust target tooling; preserve documented supported platform/ABI/SDK deployment and linker/package behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    },
+    {
+      "path": "toolchains/macos/macos-llvm.cmake",
+      "git_blob": "6b4247b54c51dd043c3056c991bcd96244543195",
+      "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+      "disposition": "Replace C/C++/LLVM cross-tool/SDK/architecture selection with supported Rust target tooling; preserve documented supported platform/ABI/SDK deployment and linker/package behavior.",
+      "retirement_status": "pending; source-bound build input only; no native configuration/build/target closure or replacement proof"
+    }
+  ],
+  "cmake_build_input_scope": "All 31 checked-in files ending .cmake or named CMakeLists.txt at local_blob_source_commit; generated/fetched/system tool/dependency inputs require separate selected-build/transitive audits.",
+  "rapidyenc_test_build_consumers": [
+    {
+      "path": "rust/tests/binrpc_client_differential.py",
+      "git_blob": "56f91c8b4edb58ecffa566955941dfd71dd13d4d",
+      "reference_lines": [
+        458
+      ],
+      "disposition": "Preserve and translate the generated C++ oracle/current-library/header/archive contracts before retiring RapidYenc target/header/native callback linkage; explicit include/link references and actual direct decode/CRC source calls are distinct. No current build readiness or transitive graph proved."
+    },
+    {
+      "path": "rust/tests/decoder_differential.py",
+      "git_blob": "006482f2e3ddadb1dd1de694ae7c9d6c40fd4f90",
+      "reference_lines": [
+        66,
+        215,
+        216
+      ],
+      "disposition": "Preserve and translate the generated C++ oracle/current-library/header/archive contracts before retiring RapidYenc target/header/native callback linkage; explicit include/link references and actual direct decode/CRC source calls are distinct. No current build readiness or transitive graph proved."
+    },
+    {
+      "path": "rust/tests/dupesearch_nzb/run.py",
+      "git_blob": "5d05c2b6c0cf39b4c1d3ca6e7a8881e8e8ddf83b",
+      "reference_lines": [
+        50
+      ],
+      "disposition": "Preserve and translate the generated C++ oracle/current-library/header/archive contracts before retiring RapidYenc target/header/native callback linkage; explicit include/link references and actual direct decode/CRC source calls are distinct. No current build readiness or transitive graph proved."
+    }
+  ],
+  "rapidyenc_test_build_scan": {
+    "source_commit": "1be74f2d5d20ad6d1a9a7ebe8eb8709634bb2f4f",
+    "paths": "all tracked rust/tests/**/*.py",
+    "pattern": "case-insensitive literal rapidyenc, rapid_yenc or rapid-yenc",
+    "scope": "explicit source references, including generated calls and include/archive flags; does not resolve implicit nzbget.h/libnzbget transitive consumers or prove build selection"
+  }
 }
