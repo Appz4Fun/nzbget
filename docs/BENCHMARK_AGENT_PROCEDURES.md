@@ -15,13 +15,61 @@ allowed. Controlled probes use private directories; private locks and synthetic
 controls prove the probe's behavior, not native product performance. Do not
 bypass locks, duplicate queues, interrupt progressing jobs, or silently retry.
 
+### Isolated Python test dependencies
+
+The benchmark schema regression requires `jsonschema==4.26.0` and
+`referencing==0.37.0`. They are test dependencies, declared in
+`scripts/bench/requirements-test.in`; the adjacent `requirements-test.lock`
+contains all six pinned packages and their allowed hashes. The real offline
+validator remains mandatory: missing dependencies are a setup failure, not a
+reason to skip the test or install packages during the test suite. The runtime
+analyzer does not import these packages.
+
+Use the scheduler-supplied `BENCH_UV`, `BENCH_PYTHON` and `BENCH_TEST_ROOT`
+parameters for an admitted `uv` executable, an existing Python 3.12 interpreter
+and a fresh, approved external job directory. Setup may access the package
+index; run tests offline afterward. This
+recipe uses the isolated `uv venv` and hash-locked, wheel-only `uv pip sync`
+semantics exercised by the captured reference setup, with job paths supplied
+explicitly. It does not bootstrap `pip`, download Python, or build source wheels.
+The reference setup constrained `UV_CONCURRENT_DOWNLOADS=1`,
+`UV_HTTP_RETRIES=0` and `UV_HTTP_TIMEOUT=10` in its minimal capture environment.
+Retain those limits and the assigned temporary directory in a new setup plan;
+do not inherit unrelated project or credential configuration.
+
+```sh
+"$BENCH_UV" --no-config --no-python-downloads --no-progress --cache-dir "$BENCH_TEST_ROOT/cache" venv --no-project --no-managed-python --python "$BENCH_PYTHON" "$BENCH_TEST_ROOT/venv"
+"$BENCH_UV" --no-config --no-python-downloads --no-progress --cache-dir "$BENCH_TEST_ROOT/cache" pip sync --python "$BENCH_TEST_ROOT/venv/bin/python" --require-hashes --only-binary :all: --default-index https://pypi.org/simple --keyring-provider disabled --no-sources --strict scripts/bench/requirements-test.lock
+"$BENCH_TEST_ROOT/venv/bin/python" -B -m unittest -v -f scripts.bench.tests.test_campaign scripts.bench.tests.test_summarize
+```
+
+The captured reference used Python 3.12.14 on macOS arm64 with the six versions
+in this lock. Its successful campaign/generic regression is evidence for those
+captured sources and that environment. The lock was resolved for Python 3.12 /
+`aarch64-apple-darwin`; its many wheel hashes do not prove compatible wheels or
+test results on Linux, other platforms, or other Python versions. Missing tools
+or compatible pinned wheels must stop setup; do not fall back to source builds
+or silently skip validation. The lock's provenance comments identify a retained
+resolution, not a newly executed resolver run. Declare both imported packages
+directly when maintaining the input and preserve the resolved transitive pins.
+
+These commands are examples, not worker admission. Record the actual tool,
+interpreter, installed dependency closure, sources, commands, raw output and
+terminal status under the assigned plan. Tool setup and tests are separate
+bounded stages; dependency declaration alone does not authorize another run.
+The focused command above does not run the entire infrastructure suite.
+
 Validate changed workflows with actionlint. An assigned full infrastructure
-Python gate can use the bounded runner invocation below. Respect a stricter
-assigned job or timeout cap; historical test counts are not acceptance criteria.
+Python gate on an admitted Linux worker can use the bounded runner invocation
+below after the same isolated dependency setup. `run.py` execution requires
+Linux descendant supervision; the local macOS regression used its separately
+controlled capture, not this runner. Pass the explicit venv interpreter to both
+the runner and its test child. Respect a stricter assigned job or timeout cap;
+historical test counts are not acceptance criteria.
 
 ```sh
 actionlint .github/workflows/bench_base.yml .github/workflows/bench_pr.yml .github/workflows/bench_pr_closed.yml
-python3 scripts/bench/run.py --mode build --jobs 3 --lock-timeout-seconds 120 --timeout-seconds 240 --testbed i7-smoke --metadata infrastructure-check.json -- python3 -m unittest discover -s scripts/bench/tests
+"$BENCH_TEST_ROOT/venv/bin/python" scripts/bench/run.py --mode build --jobs 3 --lock-timeout-seconds 120 --timeout-seconds 240 --testbed i7-smoke --metadata infrastructure-check.json -- "$BENCH_TEST_ROOT/venv/bin/python" -B -m unittest discover -s scripts/bench/tests
 ```
 
 The canonical shared lock namespace is independent of per-job TMPDIR. Heavy
