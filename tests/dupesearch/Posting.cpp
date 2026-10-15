@@ -354,6 +354,108 @@ BOOST_AUTO_TEST_CASE(NativeDataPartGeometryExcludesParityTest)
     BOOST_CHECK_EQUAL(info.declaredParts, 4);
 }
 
+
+BOOST_AUTO_TEST_CASE(NativeDeclaredTailGuardTableTest)
+{
+    struct Case
+    {
+        const char* name;
+        std::vector<std::pair<long long, long long>> parts;
+        const char* tail;
+        bool parity;
+        uint64_t listed, declared;
+        long long bytes;
+        bool geometry;
+    };
+    auto MakeParts = [](int count)
+    {
+        std::vector<std::pair<long long, long long>> parts;
+        for (int n = 1; n <= count; n++) parts.emplace_back(n, 100);
+        return parts;
+    };
+    const std::vector<Case> cases = {
+		{"true_tail", {{1, 100}, {2, 100}}, "(1/150)", false, 2, 150, 200, true},
+		{"number_gap_without_tail", {{1, 100}, {3, 100}}, "(1/0)", false, 2, 3, 200, true},
+		{"single_segment", {{9374, 100}}, "(1/10000)", false, 1, 9374, 100, true},
+		{"zero_subject_count", {{1, 100}, {2, 100}}, "(1/0)", false, 2, 2, 200, true},
+		{"max_subject_count", {{1, 100}, {2, 100}}, "(1/200000)", false, 2, 200000, 200, true},
+		{"over_max_subject_count", {{1, 100}, {2, 100}}, "(1/200001)", false, 2, 2, 200, true},
+		{"two_thirds_equal", MakeParts(200), "(1/300)", false, 200, 200, 20000, true},
+		{"two_thirds_below", MakeParts(199), "(1/300)", false, 199, 300, 19900, true},
+		{"tail_gap_99", {{1, 100}, {101, 100}}, "(1/200)", false, 2, 101, 200, true},
+		{"tail_gap_100", {{1, 100}, {101, 100}}, "(1/201)", false, 2, 201, 200, true},
+		{"zero_part_number", {{0, 100}, {2, 100}}, "(1/1000)", false, 2, 2, 200, true},
+		{"negative_part_number", {{-1, 100}, {2, 100}}, "(1/1000)", false, 2, 2, 200, true},
+		{"invalid_number_suppresses_valid_max", {{1, 100}, {199999, 100}, {200001, 100}}, "(1/200000)", false, 3, 3, 300, true},
+		{"maximum_valid_part", {{1, 100}, {200000, 100}}, "(1/200000)", false, 2, 200000, 200, true},
+		{"zero_bytes", {{1, 100}, {2, 0}}, "(1/150)", false, 2, 2, 100, false},
+		{"negative_bytes", {{1, 100}, {2, -1}}, "(1/150)", false, 2, 2, 99, false},
+		{"strict_majority_short_last", {{1, 100}, {2, 100}, {3, 98}}, "(1/150)", false, 3, 3, 298, true},
+		{"strict_majority_large_last", {{1, 100}, {2, 100}, {3, 101}}, "(1/150)", false, 3, 3, 301, true},
+		{"strict_majority_equal_last", {{1, 100}, {2, 98}, {3, 100}}, "(1/150)", false, 3, 150, 298, true},
+		{"median_exact_99_percent", {{1, 900}, {2, 1000}, {3, 1100}, {4, 990}}, "(1/150)", false, 4, 150, 3990, true},
+		{"median_below_99_percent", {{1, 900}, {2, 1000}, {3, 1100}, {4, 989}}, "(1/150)", false, 4, 4, 3989, true},
+		{"half_is_not_strict_majority", {{1, 99}, {2, 100}, {3, 99}, {4, 100}}, "(1/150)", false, 4, 150, 398, true},
+		{"parity_never_infers", {{1, 100}, {2, 100}}, "(1/150)", true, 2, 2, 200, true},
+		{"malformed_tail", {{1, 100}, {3, 100}}, "(x/150)", false, 2, 3, 200, true},
+		{"trailing_subject_whitespace", {{1, 100}, {2, 100}}, "(1/150)  ", false, 2, 150, 200, true},
+		{"unsorted_input", {{3, 100}, {1, 100}, {2, 100}}, "(1/150)", false, 3, 150, 300, true},
+		{"duplicate_keeps_last_bytes", {{1, 100}, {2, 100}, {2, 30}}, "(1/150)", false, 2, 2, 130, true},
+    };
+    BOOST_REQUIRE_EQUAL(cases.size(), 27);
+    for (const auto& c : cases)
+    {
+        BOOST_TEST_CONTEXT(c.name)
+        {
+            const std::string name = c.parity ? "guard.par2" : "guard.mkv";
+            std::string xml = "<nzb><file subject='&quot;" + name + "&quot; yEnc " + c.tail + "'><segments>";
+            for (size_t i = 0; i < c.parts.size(); i++)
+                xml += "<segment number='" + std::to_string(c.parts[i].first) + "' bytes='" +
+                    std::to_string(c.parts[i].second) + "'>guard-" + std::to_string(i) + "@x</segment>";
+            xml += "</segments></file></nzb>";
+            NzbSummary info;
+            BOOST_REQUIRE(NzbReader::Parse(xml, info));
+            BOOST_CHECK_EQUAL(info.files, 1);
+            BOOST_CHECK_EQUAL(info.listedParts, c.listed);
+            BOOST_CHECK_EQUAL(info.declaredParts, c.declared);
+            BOOST_CHECK_EQUAL(info.dataListedParts, c.parity ? 0 : c.listed);
+            BOOST_CHECK_EQUAL(info.dataDeclaredParts, c.parity ? 0 : c.declared);
+            BOOST_CHECK_EQUAL(info.messageIds.size(), c.listed);
+            BOOST_CHECK_EQUAL(info.dataMessageIds.size(), c.parity ? 0 : c.listed);
+            BOOST_CHECK_EQUAL(info.totalBytes, c.bytes);
+            BOOST_CHECK_EQUAL(info.dataBytes, c.parity || !c.geometry ? 0 : c.bytes);
+            BOOST_CHECK_EQUAL(info.dataFiles, c.parity || !c.geometry ? 0 : 1);
+            if (std::string(c.name) == "duplicate_keeps_last_bytes")
+            {
+                BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "guard-1@x") == info.messageIds.end());
+                BOOST_CHECK(std::find(info.messageIds.begin(), info.messageIds.end(), "guard-2@x") != info.messageIds.end());
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(NativeEmptyFilePartCountsTest)
+{
+    const std::string empty = "<file subject='&quot;empty.mkv&quot; yEnc (1/150)'><segments></segments></file>";
+    NzbSummary info;
+    BOOST_CHECK(!NzbReader::Parse("<nzb>" + empty + "</nzb>", info));
+    const std::string valid = "<file subject='&quot;valid.mkv&quot;'><segments>"
+        "<segment number='1' bytes='100'>valid@x</segment></segments></file>";
+    BOOST_REQUIRE(NzbReader::Parse("<nzb>" + empty + valid + "</nzb>", info));
+    BOOST_CHECK_EQUAL(info.files, 2);
+    BOOST_CHECK_EQUAL(info.listedParts, 1);
+    BOOST_CHECK_EQUAL(info.declaredParts, 1);
+    BOOST_CHECK_EQUAL(info.dataListedParts, 1);
+    BOOST_CHECK_EQUAL(info.dataDeclaredParts, 1);
+    BOOST_CHECK_EQUAL(info.totalBytes, 100);
+    // An empty data file makes whole-NZB data geometry unknown.
+    BOOST_CHECK_EQUAL(info.dataBytes, 0);
+    BOOST_CHECK_EQUAL(info.dataFiles, 0);
+    BOOST_CHECK(info.heads.empty());
+    BOOST_REQUIRE_EQUAL(info.messageIds.size(), 1);
+    BOOST_CHECK_EQUAL(info.messageIds[0], "valid@x");
+}
+
 BOOST_AUTO_TEST_CASE(NativeDuplicateSegmentKeepsLastTest)
 {
     NzbSummary info;

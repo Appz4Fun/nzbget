@@ -97,6 +97,42 @@ bool IsParName(const std::string& name)
 #endif
 }
 
+#ifndef NZBGET_USE_RUST
+// Match the Rust summary policy, including conservative tail-inference guards.
+uint64_t DeclaredPartCount(const std::vector<std::pair<long long, long long>>& parts,
+    uint32_t declared, bool parity)
+{
+    const long long maxPart = 200000;
+    const uint64_t listed = parts.size();
+    const bool numbered = std::all_of(parts.begin(), parts.end(),
+        [maxPart](const auto& part) { return part.first > 0 && part.first <= maxPart; });
+    const auto last = std::max_element(parts.begin(), parts.end());
+    const uint64_t fallback = numbered && last != parts.end() ?
+        std::max(listed, (uint64_t)last->first) : listed;
+    if (parity || parts.size() < 2 || !numbered || declared == 0 || declared > maxPart ||
+        listed * 3 >= (uint64_t)declared * 2 ||
+        std::any_of(parts.begin(), parts.end(), [](const auto& part) { return part.second <= 0; }))
+        return fallback;
+    if ((long long)declared - last->first < 100) return fallback;
+
+    std::vector<long long> sizes;
+    sizes.reserve(parts.size());
+    for (const auto& part : parts) sizes.push_back(part.second);
+    std::sort(sizes.begin(), sizes.end());
+    long long common = sizes[0], previous = sizes[0];
+    size_t count = 0, run = 0;
+    for (const auto size : sizes)
+    {
+        if (size == previous) run++;
+        else { run = 1; previous = size; }
+        if (run > count) { common = size; count = run; }
+    }
+    const bool full = count * 2 > sizes.size() ? last->second == common :
+        (double)last->second >= 0.99 * (double)sizes[sizes.size() / 2];
+    return full ? declared : fallback;
+}
+#endif
+
 class Reader : public XmlReader::Handler
 {
 public:
@@ -188,8 +224,8 @@ public:
             nzbget_rs_dupe_part_counts(raw.data(), raw.size(), count > 0 ? (uint32_t)count : 0,
                 IsParName(m_name), &listed, &declared);
 #else
-            for (const auto& part : m_parts) if (part.first > 0 && part.first <= 200000)
-                declared = std::max(declared, (uint64_t)part.first);
+            int count = NzbFile::DeclaredParts(m_subject.c_str());
+            declared = DeclaredPartCount(m_parts, count > 0 ? (uint32_t)count : 0, IsParName(m_name));
 #endif
             listedParts += m_validParts;
             declaredParts += declared;
