@@ -1,8 +1,8 @@
 //! DirectRenamer's RenameContentAnalyzer (DirectRenamer.cpp): the first
 //! bytes of a downloaded file - whether it starts with a PAR2 packet (and its
-//! set id) and the MD5 of its first 16 KiB - fed article by article, exactly
-//! as the C++ did it (the packet header looked at once more than its 64 bytes
-//! were read, Reset keeping what it found).
+//! set id) and the MD5 of its first 16 KiB - fed article by article. Recognize
+//! the header on the piece that completes it, before QueueCoordinator reads
+//! the PAR flag. Reset keeps the identity already found, as in C++.
 
 use md5::{Digest, Md5};
 use md5::block_api::Md5Core;
@@ -49,14 +49,15 @@ impl Analyzer {
         let len = buf.len() as i32;
         let size = self.data_size;
         // (size_t)m_dataSize: an overflowed (negative) size reads as huge
-        if (size as usize) < HEADER {
+        let header_ready = if (size as usize) < HEADER {
             let n = buf.len().min(HEADER - size as usize);
             self.signature[size as usize..size as usize + n].copy_from_slice(&buf[..n]);
-        }
+            size as usize + n == HEADER
+        } else {
+            true
+        };
         let mut matched = false;
-        // checked against the size before this piece: a header read with the
-        // first piece is recognized from the second on
-        if size as usize >= HEADER && &self.signature[..8] == MAGIC {
+        if header_ready && &self.signature[..8] == MAGIC {
             self.par_file = true;
             self.par_set_id = Some(print(&self.signature[32..48]));
             matched = true;
@@ -103,8 +104,8 @@ mod tests {
             *b = i as u8;
         }
         let mut a = Analyzer::default();
-        assert!(!a.append(&header));
-        assert!(!a.par_file);
+        assert!(a.append(&header));
+        assert!(a.par_file);
         assert!(a.append(b"more"));
         assert_eq!(a.par_set_id.as_ref(), Some(b"0F0E0D0C0B0A09080706050403020100\0"));
         let mut b = Analyzer::default();
@@ -151,7 +152,7 @@ mod tests {
             let mut header = [0u8; 64];
             header[..8].copy_from_slice(MAGIC);
             for (i, b) in header[32..48].iter_mut().enumerate() { *b = i as u8; }
-            assert_eq!(nzbget_rs_rename_analyzer_append(a, header.as_ptr().cast(), 64, dest), 0);
+            assert_eq!(nzbget_rs_rename_analyzer_append(a, header.as_ptr().cast(), 64, dest), 1);
             assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 0, null_mut()), 1);
             assert_eq!(nzbget_rs_rename_analyzer_append(a, null(), 0, dest), 1);
             assert_eq!(&out[1..34], b"0F0E0D0C0B0A09080706050403020100\0");
@@ -161,5 +162,53 @@ mod tests {
             assert_eq!((*a).par_set_id.as_ref().unwrap(), &out[1..34]);
             nzbget_rs_rename_analyzer_free(a);
         }
+    }
+
+    #[test]
+    fn complete_par_header_is_recognized_in_its_first_piece() {
+        for size in [HEADER, 2472] {
+            let mut bytes=vec![0u8;size];bytes[..8].copy_from_slice(MAGIC);
+            for (i,b) in bytes[32..48].iter_mut().enumerate() {*b=i as u8;}
+            let mut a=Analyzer::default();
+            assert!(a.append(&bytes), "complete PAR2 header in one piece must be visible immediately");
+            assert!(a.par_file);
+            assert_eq!(a.par_set_id.as_ref(),Some(b"0F0E0D0C0B0A09080706050403020100\0"));
+            assert_eq!(a.finish(),print(&Md5::digest(&bytes)));
+        }
+    }
+
+    #[test]
+    fn split_header_is_recognized_when_the_last_header_byte_arrives() {
+        let mut header=[0u8;HEADER];header[..8].copy_from_slice(MAGIC);
+        for split in [HEADER-1,47] {
+            let mut a=Analyzer::default();
+            assert!(!a.append(&header[..split]));assert!(!a.par_file);
+            assert!(a.append(&header[split..]));assert!(a.par_file);
+            assert_eq!(a.finish(),print(&Md5::digest(header)));
+        }
+    }
+
+    #[test]
+    fn early_recognition_preserves_ffi_set_id_canaries() {
+        use crate::ffi::*;
+        let mut header=[0u8;HEADER];header[..8].copy_from_slice(MAGIC);
+        for (i,b) in header[32..48].iter_mut().enumerate() {*b=i as u8;}
+        unsafe {
+            let a=nzbget_rs_rename_analyzer_new();
+            let mut out=[0x55u8;35];
+            assert_eq!(nzbget_rs_rename_analyzer_append(a,header.as_ptr().cast(),HEADER as i32,out.as_mut_ptr().add(1).cast()),1);
+            assert_eq!(&out[1..34],b"0F0E0D0C0B0A09080706050403020100\0");
+            assert_eq!((out[0],out[34]),(0x55,0x55));
+            nzbget_rs_rename_analyzer_free(a);
+        }
+    }
+
+    #[test]
+    fn partial_or_nonpar_first_piece_remains_unrecognized() {
+        let mut header=[0u8;HEADER];header[..8].copy_from_slice(MAGIC);
+        for length in 0..HEADER {
+            let mut a=Analyzer::default();assert!(!a.append(&header[..length]));assert!(!a.par_file);
+        }
+        let mut a=Analyzer::default();assert!(!a.append(&[b'x';2472]));assert!(!a.par_file);
     }
 }
