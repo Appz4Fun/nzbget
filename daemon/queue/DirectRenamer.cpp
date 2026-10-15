@@ -834,12 +834,17 @@ void RenameContentAnalyzer::Append(const void* buffer, int len)
 	{
 		return;
 	}
-	if (len > 0 && (size_t)m_dataSize < sizeof(m_signature))
+	bool headerReady = (size_t)m_dataSize >= sizeof(m_signature);
+	if (len > 0 && !headerReady)
 	{
-		memcpy(m_signature + m_dataSize, buffer, std::min((size_t)len, sizeof(m_signature) - m_dataSize));
+		size_t copied = std::min((size_t)len, sizeof(m_signature) - (size_t)m_dataSize);
+		memcpy(m_signature + m_dataSize, buffer, copied);
+		headerReady = (size_t)m_dataSize + copied == sizeof(m_signature);
 	}
 
-	if ((size_t)m_dataSize >= sizeof(m_signature) &&
+	// QueueCoordinator reads the PAR flag before Finish; a one-piece index
+	// must be recognized here, including a piece completing a split header.
+	if (headerReady &&
 		memcmp(m_signature, &Par2::packet_magic, sizeof(Par2::MAGIC)) == 0)
 	{
 		m_parFile = true;
