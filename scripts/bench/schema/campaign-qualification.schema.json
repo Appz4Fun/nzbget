@@ -1,0 +1,1438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet campaign-v1 numerical eligibility",
+  "$comment": "Static schema validates structure only. Exact source/hash/case/design/binding/certificate associations and canonical witness byte caps require summarize.py validate_campaign_artifact_associations after structural validation; producer HOLD declarations remain complete although diagnostic HOLD metadata may be structurally partial. This separate artifact never replaces generic qualification.json or publication/history. PASS is numerical eligibility only, not native/caller/domain/ABI/build-lineage/independence/review/retirement/hold-release evidence. All declared cases and both C++ controls plus required preserved Rust are gated independently; incomplete frozen designs yield HOLD with no subset intervals. Exit0 includes HOLD; invalid profile attempts clear only their owned campaign artifacts after input protection.",
+  "type": "object",
+  "required": ["schema_version", "base_sha", "candidate_sha", "testbed", "qualification_profile", "analysis_sha256", "input_hashes", "eligibility_scope", "status", "reasons", "methodology", "cases"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "base_sha": {"$ref": "manifest.schema.json#/$defs/sha40"},
+    "candidate_sha": {"$ref": "manifest.schema.json#/$defs/sha40"},
+    "testbed": {"$ref": "manifest.schema.json#/$defs/text"},
+    "qualification_profile": {"$ref": "manifest.schema.json#/$defs/campaign_profile"},
+    "analysis_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+    "eligibility_scope": {"const": "numerical_only"},
+    "status": {"enum": ["PASS", "HOLD"]},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "methodology": {"type": "object"},
+    "input_hashes": {
+      "type": "object", "required": ["manifest_sha256", "samples_sha256"],
+      "properties": {
+        "manifest_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+        "samples_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"}
+      }
+    },
+    "cases": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["case", "scope", "role", "fixture_sha256", "required_variants", "rust_preservation_applicability", "collection_design", "raw_count", "process_count", "round_counts", "complete", "comparisons", "status", "reasons"],
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+            "then": {
+              "properties": {
+                "scope": {"const": "complete_caller"},
+                "complete": {"const": true},
+                "collection_design": {"$ref": "manifest.schema.json#/$defs/campaign_collection_design"},
+                "required_variants": {"allOf": [
+                  {"contains": {"const": "cpp_current"}},
+                  {"contains": {"const": "cpp_optimized"}},
+                  {"contains": {"const": "rust_candidate"}}
+                ]},
+                "rust_preservation_applicability": {"enum": ["required", "not_applicable"]},
+                "comparisons": {
+                  "required": ["cpp_current", "cpp_optimized"],
+                  "properties": {
+                    "cpp_current": {"properties": {"baseline": {"const": "cpp_current"}, "status": {"const": "PASS"}, "upper_bound_limit": {"const": 0.5}}},
+                    "cpp_optimized": {"properties": {"baseline": {"const": "cpp_optimized"}, "status": {"const": "PASS"}, "upper_bound_limit": {"const": 0.5}}},
+                    "rust_current": {"properties": {"baseline": {"const": "rust_current"}, "status": {"const": "PASS"}, "upper_bound_limit": {"const": 1}}}
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": {"properties": {"rust_preservation_applicability": {"const": "required"}}, "required": ["rust_preservation_applicability"]},
+                  "then": {"properties": {
+                    "required_variants": {"contains": {"const": "rust_current"}},
+                    "comparisons": {"required": ["rust_current"]}
+                  }}
+                },
+                {
+                  "if": {"properties": {"rust_preservation_applicability": {"const": "not_applicable"}}, "required": ["rust_preservation_applicability"]},
+                  "then": {"properties": {
+                    "required_variants": {"not": {"contains": {"const": "rust_current"}}},
+                    "comparisons": {"not": {"required": ["rust_current"]}}
+                  }}
+                },
+                {
+                  "if": {"properties": {"role": {"const": "unchanged_control"}}, "required": ["role"]},
+                  "then": {
+                    "properties": {
+                      "comparisons": {
+                        "properties": {
+                          "cpp_current": {"properties": {"rule": {"const": "interval_contains_one"}}},
+                          "cpp_optimized": {"properties": {"rule": {"const": "interval_contains_one"}}},
+                          "rust_current": {"properties": {"rule": {"const": "interval_contains_one"}}}
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "comparisons": {
+                        "properties": {
+                          "cpp_current": {"properties": {"rule": {"const": "upper_bound_limit"}}},
+                          "cpp_optimized": {"properties": {"rule": {"const": "upper_bound_limit"}}},
+                          "rust_current": {"properties": {"rule": {"const": "upper_bound_limit"}}}
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "case": {"$ref": "manifest.schema.json#/$defs/text"},
+          "scope": {"enum": ["complete_caller", "kernel"]},
+          "role": {"enum": ["changed", "unchanged_control"]},
+          "fixture_sha256": {"$ref": "manifest.schema.json#/$defs/sha256"},
+          "required_variants": {"type": "array", "uniqueItems": true, "items": {"$ref": "manifest.schema.json#/$defs/variant"}},
+          "rust_preservation_applicability": {"enum": ["required", "not_applicable", null]},
+          "collection_design": {"type": "object"},
+          "raw_count": {"type": "integer", "minimum": 0, "maximum": 100000},
+          "process_count": {"type": "integer", "minimum": 0, "maximum": 128},
+          "round_counts": {"type": "object"},
+          "complete": {"type": "boolean"},
+          "status": {"enum": ["PASS", "HOLD"]},
+          "reasons": {"type": "array", "items": {"type": "string"}},
+          "comparisons": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "cpp_current": {"$ref": "#/$defs/comparison"},
+              "cpp_optimized": {"$ref": "#/$defs/comparison"},
+              "rust_current": {"$ref": "#/$defs/comparison"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "PASS"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cases": {
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                }
+              }
+            },
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "role": {
+                      "const": "changed"
+                    }
+                  },
+                  "required": [
+                    "role"
+                  ]
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "role": {
+                      "const": "unchanged_control"
+                    }
+                  },
+                  "required": [
+                    "role"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cases": {
+            "contains": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cases"
+        ]
+      },
+      "then": {
+        "properties": {
+          "qualification_profile": {
+            "properties": {
+              "variant_bindings": {
+                "required": [
+                  "cpp_current",
+                  "cpp_optimized",
+                  "rust_candidate"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cases": {
+            "contains": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                },
+                "rust_preservation_applicability": {
+                  "const": "required"
+                }
+              },
+              "required": [
+                "status",
+                "rust_preservation_applicability"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cases"
+        ]
+      },
+      "then": {
+        "properties": {
+          "qualification_profile": {
+            "properties": {
+              "variant_bindings": {
+                "required": [
+                  "rust_current"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cases": {
+            "contains": {
+              "properties": {
+                "comparisons": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "cpp_current"
+                      ],
+                      "properties": {
+                        "cpp_current": {
+                          "required": [
+                            "certificate"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "required": [
+                        "cpp_optimized"
+                      ],
+                      "properties": {
+                        "cpp_optimized": {
+                          "required": [
+                            "certificate"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "required": [
+                        "rust_current"
+                      ],
+                      "properties": {
+                        "rust_current": {
+                          "required": [
+                            "certificate"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "comparisons"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cases"
+        ]
+      },
+      "then": {
+        "properties": {
+          "methodology": {
+            "required": [
+              "seed",
+              "bootstrap_replicates",
+              "arithmetic_policy_sha256",
+              "exact_width_policy"
+            ],
+            "properties": {
+              "seed": {
+                "const": 20261011
+              },
+              "bootstrap_replicates": {
+                "const": 5000
+              },
+              "arithmetic_policy_sha256": {
+                "const": "4fe3e8086c88da789540bdbed6825e65f8adc18c41c73840a3aaaf7895092d39"
+              },
+              "exact_width_policy": {
+                "$ref": "#/$defs/exact_width_provenance"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "comparison": {
+      "type": "object",
+      "required": [
+        "baseline",
+        "candidate",
+        "ratio",
+        "upper_bound_limit",
+        "rule",
+        "status",
+        "reasons"
+      ],
+      "properties": {
+        "baseline": {
+          "enum": [
+            "cpp_current",
+            "cpp_optimized",
+            "rust_current"
+          ]
+        },
+        "candidate": {
+          "const": "rust_candidate"
+        },
+        "upper_bound_limit": {
+          "enum": [
+            0.5,
+            1
+          ]
+        },
+        "rule": {
+          "enum": [
+            "upper_bound_limit",
+            "interval_contains_one"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "HOLD"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ratio": {
+          "type": "object",
+          "required": [
+            "estimate",
+            "lower",
+            "upper"
+          ],
+          "properties": {
+            "estimate": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "lower": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "upper": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "certificate": {
+          "$ref": "#/$defs/numerical_certificate"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "certificate"
+            ],
+            "properties": {
+              "certificate": {
+                "properties": {
+                  "relations": {
+                    "properties": {
+                      "width_vs_policy": {
+                        "enum": [
+                          "LT",
+                          "EQ"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "rule": {
+                      "const": "interval_contains_one"
+                    }
+                  },
+                  "required": [
+                    "rule"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "certificate": {
+                      "properties": {
+                        "relations": {
+                          "properties": {
+                            "lower_vs_one": {
+                              "enum": [
+                                "LT",
+                                "EQ"
+                              ]
+                            },
+                            "upper_vs_one": {
+                              "enum": [
+                                "EQ",
+                                "GT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "certificate": {
+                      "properties": {
+                        "relations": {
+                          "properties": {
+                            "upper_vs_limit": {
+                              "enum": [
+                                "LT",
+                                "EQ"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "certificate_decimal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 672,
+      "pattern": "^-?[0-9]+(?:\\.[0-9]+)?(?:E[+-]?[0-9]{1,6})?$"
+    },
+    "certificate_interval": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/certificate_decimal"
+      }
+    },
+    "certificate_counts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 128
+      }
+    },
+    "certificate_rank_enclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "log",
+        "ratio"
+      ],
+      "properties": {
+        "log": {
+          "$ref": "#/$defs/certificate_interval"
+        },
+        "ratio": {
+          "$ref": "#/$defs/certificate_interval"
+        }
+      }
+    },
+    "certificate_rank_enclosures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "124",
+        "125",
+        "4874",
+        "4875"
+      ],
+      "properties": {
+        "124": {
+          "$ref": "#/$defs/certificate_rank_enclosure"
+        },
+        "125": {
+          "$ref": "#/$defs/certificate_rank_enclosure"
+        },
+        "4874": {
+          "$ref": "#/$defs/certificate_rank_enclosure"
+        },
+        "4875": {
+          "$ref": "#/$defs/certificate_rank_enclosure"
+        }
+      }
+    },
+    "certificate_contributor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lower_id",
+        "upper_id",
+        "lower_process_multiplicities",
+        "upper_process_multiplicities"
+      ],
+      "properties": {
+        "lower_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4999
+        },
+        "upper_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4999
+        },
+        "lower_process_multiplicities": {
+          "$ref": "#/$defs/certificate_counts"
+        },
+        "upper_process_multiplicities": {
+          "$ref": "#/$defs/certificate_counts"
+        }
+      }
+    },
+    "certificate_contributors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "124",
+        "125",
+        "4874",
+        "4875"
+      ],
+      "properties": {
+        "124": {
+          "$ref": "#/$defs/certificate_contributor"
+        },
+        "125": {
+          "$ref": "#/$defs/certificate_contributor"
+        },
+        "4874": {
+          "$ref": "#/$defs/certificate_contributor"
+        },
+        "4875": {
+          "$ref": "#/$defs/certificate_contributor"
+        }
+      }
+    },
+    "certificate_exact_rank": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replicate_id",
+        "process_multiplicities"
+      ],
+      "properties": {
+        "replicate_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4999
+        },
+        "process_multiplicities": {
+          "$ref": "#/$defs/certificate_counts"
+        }
+      }
+    },
+    "certificate_exact_ranks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "124",
+        "125",
+        "4874",
+        "4875"
+      ],
+      "properties": {
+        "124": {
+          "$ref": "#/$defs/certificate_exact_rank"
+        },
+        "125": {
+          "$ref": "#/$defs/certificate_exact_rank"
+        },
+        "4874": {
+          "$ref": "#/$defs/certificate_exact_rank"
+        },
+        "4875": {
+          "$ref": "#/$defs/certificate_exact_rank"
+        }
+      }
+    },
+    "numerical_certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_sha256",
+        "bindings",
+        "method_id",
+        "bootstrap_multiplicities_sha256",
+        "bootstrap_multiplicities_encoding",
+        "common_root_degree",
+        "precision",
+        "relations",
+        "proof",
+        "quantile_ranks",
+        "width_policy_rational",
+        "bounds",
+        "bounding_contributors",
+        "rank_enclosures",
+        "exact_order_statistics",
+        "work_cumulative",
+        "peak_cache_payload_bytes",
+        "display"
+      ],
+      "properties": {
+        "policy_sha256": {
+          "const": "4fe3e8086c88da789540bdbed6825e65f8adc18c41c73840a3aaaf7895092d39"
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "analysis_sha256",
+            "input_hashes",
+            "plan_sha256",
+            "fixture_sha256",
+            "case",
+            "baseline",
+            "candidate"
+          ],
+          "properties": {
+            "analysis_sha256": {
+              "$ref": "manifest.schema.json#/$defs/sha256"
+            },
+            "input_hashes": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "manifest_sha256",
+                "samples_sha256"
+              ],
+              "properties": {
+                "manifest_sha256": {
+                  "$ref": "manifest.schema.json#/$defs/sha256"
+                },
+                "samples_sha256": {
+                  "$ref": "manifest.schema.json#/$defs/sha256"
+                }
+              }
+            },
+            "plan_sha256": {
+              "$ref": "manifest.schema.json#/$defs/sha256"
+            },
+            "fixture_sha256": {
+              "$ref": "manifest.schema.json#/$defs/sha256"
+            },
+            "case": {
+              "$ref": "manifest.schema.json#/$defs/text"
+            },
+            "baseline": {
+              "enum": [
+                "cpp_current",
+                "cpp_optimized",
+                "rust_current"
+              ]
+            },
+            "candidate": {
+              "const": "rust_candidate"
+            }
+          }
+        },
+        "method_id": {
+          "const": "campaign-exact-threshold-source-design-20261014-v2"
+        },
+        "bootstrap_multiplicities_sha256": {
+          "$ref": "manifest.schema.json#/$defs/sha256"
+        },
+        "bootstrap_multiplicities_encoding": {
+          "const": "5000 rows in replicate order; decimal process counts comma-separated plus LF"
+        },
+        "common_root_degree": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "precision": {
+          "enum": [
+            80,
+            160,
+            320,
+            640
+          ]
+        },
+        "relations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "upper_vs_limit",
+            "lower_vs_one",
+            "upper_vs_one",
+            "width_vs_policy"
+          ],
+          "properties": {
+            "upper_vs_limit": {
+              "enum": [
+                "LT",
+                "EQ",
+                "GT"
+              ]
+            },
+            "lower_vs_one": {
+              "enum": [
+                "LT",
+                "EQ",
+                "GT"
+              ]
+            },
+            "upper_vs_one": {
+              "enum": [
+                "LT",
+                "EQ",
+                "GT"
+              ]
+            },
+            "width_vs_policy": {
+              "enum": [
+                "LT",
+                "EQ",
+                "GT"
+              ]
+            }
+          }
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "upper_vs_limit",
+            "lower_vs_one",
+            "upper_vs_one",
+            "width_vs_policy"
+          ],
+          "properties": {
+            "upper_vs_limit": {
+              "enum": [
+                "uniform_exact_process_product",
+                "directed_decimal_enclosure",
+                "exact_rational_root_quantile",
+                "exact_radical_quotient_classes"
+              ]
+            },
+            "lower_vs_one": {
+              "enum": [
+                "uniform_exact_process_product",
+                "directed_decimal_enclosure",
+                "exact_rational_root_quantile",
+                "exact_radical_quotient_classes"
+              ]
+            },
+            "upper_vs_one": {
+              "enum": [
+                "uniform_exact_process_product",
+                "directed_decimal_enclosure",
+                "exact_rational_root_quantile",
+                "exact_radical_quotient_classes"
+              ]
+            },
+            "width_vs_policy": {
+              "enum": [
+                "uniform_exact_process_product",
+                "directed_decimal_enclosure",
+                "exact_rational_root_quantile",
+                "exact_radical_quotient_classes"
+              ]
+            }
+          }
+        },
+        "quantile_ranks": {
+          "const": {
+            "lower": [
+              [
+                124,
+                1,
+                40
+              ],
+              [
+                125,
+                39,
+                40
+              ]
+            ],
+            "upper": [
+              [
+                4874,
+                39,
+                40
+              ],
+              [
+                4875,
+                1,
+                40
+              ]
+            ]
+          }
+        },
+        "width_policy_rational": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "numerator",
+            "denominator"
+          ],
+          "properties": {
+            "numerator": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2467,
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "denominator": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2467,
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
+        },
+        "bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lower",
+            "upper",
+            "estimate"
+          ],
+          "properties": {
+            "lower": {
+              "$ref": "#/$defs/certificate_interval"
+            },
+            "upper": {
+              "$ref": "#/$defs/certificate_interval"
+            },
+            "estimate": {
+              "$ref": "#/$defs/certificate_interval"
+            }
+          }
+        },
+        "bounding_contributors": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/certificate_contributors"
+            }
+          ]
+        },
+        "rank_enclosures": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "route",
+            "uniform",
+            "selected"
+          ],
+          "properties": {
+            "route": {
+              "enum": [
+                "uniform_exact_process_product",
+                "log_endpoint_order_statistics"
+              ]
+            },
+            "uniform": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/certificate_rank_enclosure"
+                }
+              ]
+            },
+            "selected": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/certificate_rank_enclosures"
+                }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "route": {
+                    "const": "uniform_exact_process_product"
+                  }
+                },
+                "required": [
+                  "route"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "uniform": {
+                    "$ref": "#/$defs/certificate_rank_enclosure"
+                  },
+                  "selected": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "uniform": {
+                    "type": "null"
+                  },
+                  "selected": {
+                    "$ref": "#/$defs/certificate_rank_enclosures"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "exact_order_statistics": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/certificate_exact_ranks"
+            }
+          ]
+        },
+        "work_cumulative": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "integer_bits": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16800000
+            },
+            "cache_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 67108864
+            },
+            "ordering_calls": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 250000
+            },
+            "materializations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20000
+            },
+            "root_probes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1024
+            },
+            "limb_work": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 17592186044416
+            },
+            "coefficient_bits": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8192
+            },
+            "witness_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32768
+            },
+            "refinement_visits": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16000000
+            },
+            "exp_calls": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 7680
+            }
+          }
+        },
+        "peak_cache_payload_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "display": {
+          "const": "approximate only; certified relations decide eligibility"
+        }
+      },
+      "$comment": "Bounded witness metadata, not mathematical verification or source/build authentication. Application association enforces canonical serialized32768-byte cap, degree/count vectors and identity consistency. Cumulative work includes earlier cases; no per-case reset.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "rank_enclosures": {
+                "properties": {
+                  "route": {
+                    "const": "uniform_exact_process_product"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "bounding_contributors": {
+                "type": "null"
+              },
+              "exact_order_statistics": {
+                "$ref": "#/$defs/certificate_exact_ranks"
+              },
+              "precision": {
+                "const": 80
+              },
+              "proof": {
+                "properties": {
+                  "upper_vs_limit": {
+                    "const": "uniform_exact_process_product"
+                  },
+                  "lower_vs_one": {
+                    "const": "uniform_exact_process_product"
+                  },
+                  "upper_vs_one": {
+                    "const": "uniform_exact_process_product"
+                  },
+                  "width_vs_policy": {
+                    "const": "uniform_exact_process_product"
+                  }
+                }
+              },
+              "relations": {
+                "properties": {
+                  "width_vs_policy": {
+                    "const": "LT"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "bounding_contributors": {
+                "$ref": "#/$defs/certificate_contributors"
+              },
+              "proof": {
+                "properties": {
+                  "upper_vs_limit": {
+                    "enum": [
+                      "directed_decimal_enclosure",
+                      "exact_rational_root_quantile"
+                    ]
+                  },
+                  "lower_vs_one": {
+                    "enum": [
+                      "directed_decimal_enclosure",
+                      "exact_rational_root_quantile"
+                    ]
+                  },
+                  "upper_vs_one": {
+                    "enum": [
+                      "directed_decimal_enclosure",
+                      "exact_rational_root_quantile"
+                    ]
+                  },
+                  "width_vs_policy": {
+                    "enum": [
+                      "directed_decimal_enclosure",
+                      "exact_radical_quotient_classes"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "rank_enclosures": {
+                    "properties": {
+                      "route": {
+                        "const": "log_endpoint_order_statistics"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "proof": {
+                        "properties": {
+                          "upper_vs_limit": {
+                            "const": "exact_rational_root_quantile"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "proof": {
+                        "properties": {
+                          "lower_vs_one": {
+                            "const": "exact_rational_root_quantile"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "proof": {
+                        "properties": {
+                          "upper_vs_one": {
+                            "const": "exact_rational_root_quantile"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "proof": {
+                        "properties": {
+                          "width_vs_policy": {
+                            "const": "exact_radical_quotient_classes"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "precision": {
+                "const": 640
+              },
+              "exact_order_statistics": {
+                "$ref": "#/$defs/certificate_exact_ranks"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "proof": {
+                "properties": {
+                  "upper_vs_limit": {
+                    "const": "exact_rational_root_quantile"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "relations": {
+                "properties": {
+                  "upper_vs_limit": {
+                    "const": "EQ"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "proof": {
+                "properties": {
+                  "lower_vs_one": {
+                    "const": "exact_rational_root_quantile"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "relations": {
+                "properties": {
+                  "lower_vs_one": {
+                    "const": "EQ"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "proof": {
+                "properties": {
+                  "upper_vs_one": {
+                    "const": "exact_rational_root_quantile"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "relations": {
+                "properties": {
+                  "upper_vs_one": {
+                    "const": "EQ"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "proof": {
+                "properties": {
+                  "width_vs_policy": {
+                    "const": "exact_radical_quotient_classes"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "relations": {
+                "properties": {
+                  "width_vs_policy": {
+                    "const": "EQ"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "exact_width_provenance": {
+      "type": "object",
+      "required": [
+        "source",
+        "manifest_sha256",
+        "token_sha256",
+        "token_bytes",
+        "default_decimal",
+        "numerator",
+        "denominator",
+        "display_policy_width"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "retained_manifest_json_number_token",
+            "exact_default_decimal_declaration"
+          ]
+        },
+        "manifest_sha256": {
+          "$ref": "manifest.schema.json#/$defs/sha256"
+        },
+        "token_sha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "manifest.schema.json#/$defs/sha256"
+            }
+          ]
+        },
+        "token_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "default_decimal": {
+          "enum": [
+            "0.10",
+            null
+          ]
+        },
+        "numerator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2467,
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "denominator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2467,
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "display_policy_width": {
+          "const": "approximate binary float only; exact rational is authoritative"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "retained_manifest_json_number_token"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "token_sha256": {
+                "$ref": "manifest.schema.json#/$defs/sha256"
+              },
+              "token_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              },
+              "default_decimal": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "token_sha256": {
+                "type": "null"
+              },
+              "token_bytes": {
+                "const": 0
+              },
+              "default_decimal": {
+                "const": "0.10"
+              },
+              "numerator": {
+                "const": "1"
+              },
+              "denominator": {
+                "const": "10"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
