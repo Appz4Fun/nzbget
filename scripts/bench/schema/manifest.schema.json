@@ -13,6 +13,7 @@
     "comparison": {"type": "object", "required": ["baseline", "candidate"], "properties": {"baseline": {"$ref": "#/$defs/variant"}, "candidate": {"$ref": "#/$defs/variant"}}},
     "fixtures": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/fixture"}},
     "provenance": {"type": "object"},
+    "qualification_profile": {"$ref": "#/$defs/campaign_profile"},
     "qualification_policy": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -24,6 +25,61 @@
     }
   },
   "$defs": {
+    "campaign_profile": {
+      "$comment": "Opt-in only with --qualification-profile rust-replacement-campaign-v1. All four qualification_policy values, explicit fixture roles/required_variants, bounded exact integer durations and a complete frozen grid are enforced by the runtime validator. JSON Schema's mathematical integer type alone cannot reject 1.0; runtime uses exact int type. Bindings/rationales are asserted and need independent source-bound review; numerical PASS cannot attest native/caller/build/retirement behavior.",
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "plan_id", "plan_sha256", "variant_bindings", "collection_design"],
+      "properties": {
+        "id": {"const": "rust-replacement-campaign"},
+        "version": {"type": "integer", "const": 1},
+        "plan_id": {"$ref": "#/$defs/text"},
+        "plan_sha256": {"$ref": "#/$defs/sha256"},
+        "variant_bindings": {
+          "type": "object", "additionalProperties": false, "minProperties": 2, "maxProperties": 4,
+          "properties": {
+            "cpp_current": {"$ref": "#/$defs/campaign_cpp_binding"},
+            "cpp_optimized": {"$ref": "#/$defs/campaign_cpp_binding"},
+            "rust_current": {"$ref": "#/$defs/campaign_rust_binding"},
+            "rust_candidate": {"$ref": "#/$defs/campaign_rust_binding"}
+          }
+        },
+        "collection_design": {
+          "type": "object", "minProperties": 1, "maxProperties": 64,
+          "propertyNames": {"$ref": "#/$defs/text"},
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "required": ["elapsed_floor_ns", "process_count", "round_count", "order_cycle"],
+            "properties": {
+              "elapsed_floor_ns": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+              "process_count": {"type": "integer", "minimum": 1, "maximum": 128},
+              "round_count": {"type": "integer", "minimum": 1, "maximum": 100000},
+              "order_cycle": {"type": "array", "minItems": 1, "maxItems": 24,
+                "items": {"type": "array", "minItems": 2, "maxItems": 4, "uniqueItems": true,
+                  "items": {"$ref": "#/$defs/variant"}}}
+            }
+          }
+        }
+      }
+    },
+    "campaign_cpp_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_sha", "source_content_sha256", "executable_sha256"],
+      "properties": {
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "source_content_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "campaign_rust_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_sha", "source_content_sha256", "executable_sha256", "rust_archive_sha256"],
+      "properties": {
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "source_content_sha256": {"$ref": "#/$defs/sha256"},
+        "executable_sha256": {"$ref": "#/$defs/sha256"},
+        "rust_archive_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "text": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
     "sha40": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
     "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
