@@ -318,4 +318,186 @@ BOOST_AUTO_TEST_CASE(UuDecodeShortLineTest)
 	BOOST_CHECK(got == decode(fullLine));
 }
 
+namespace
+{
+	// Raw decoding must only inspect input, including at the public ABI boundary.
+	void CheckRawChunk(Decoder& decoder, const std::string& chunk, bool eof)
+	{
+		std::vector<char> buffer(32 + chunk.size() + 128 + 32, 'Z');
+		memcpy(buffer.data() + 32, chunk.data(), chunk.size());
+		const auto before = buffer;
+		BOOST_CHECK_EQUAL(decoder.DecodeBuffer(buffer.data() + 32, (int)chunk.size()), (int)chunk.size());
+		BOOST_CHECK(buffer == before); // Input, 128-byte slack and both canaries.
+		BOOST_CHECK_EQUAL(decoder.GetEof(), eof);
+	}
+
+	std::string CapturedRawWire()
+	{
+		// The retained 128-byte Stage2 wire, not a new fragmentation schedule.
+		return "fixture raw\r\n" + std::string(110, 'R') + "\r\n.\r\n";
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawTerminatorPartitions)
+{
+	const std::string marker = "\r\n.\r\n";
+	for (unsigned splits = 0; splits < 16; ++splits)
+	{
+		BOOST_TEST_CONTEXT("split mask " << splits)
+		{
+			Decoder decoder;
+			decoder.SetRawMode(true);
+			size_t start = 0;
+			for (size_t end = 1; end <= marker.size(); ++end)
+			{
+				if (end == marker.size() || (splits & (1u << (end - 1))))
+				{
+					CheckRawChunk(decoder, marker.substr(start, end - start), end == marker.size());
+					start = end;
+				}
+			}
+		}
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawCapturedFragmentSchedule)
+{
+	const std::string wire = CapturedRawWire();
+	BOOST_REQUIRE_EQUAL(wire.size(), 128);
+	const size_t chunks[] = {1, 6, 17, 17, 17, 17, 17, 17, 15, 1, 1, 1, 1};
+	Decoder decoder;
+	decoder.SetRawMode(true);
+	size_t offset = 0;
+	for (size_t len : chunks)
+	{
+		CheckRawChunk(decoder, wire.substr(offset, len), offset + len == wire.size());
+		offset += len;
+	}
+	BOOST_CHECK_EQUAL(offset, wire.size());
+}
+
+BOOST_AUTO_TEST_CASE(RawOneByteChunks)
+{
+	const std::string wire = CapturedRawWire();
+	Decoder decoder;
+	decoder.SetRawMode(true);
+	for (size_t i = 0; i < wire.size(); ++i)
+	{
+		CheckRawChunk(decoder, wire.substr(i, 1), i + 1 == wire.size());
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawPrefixOverlap)
+{
+	const std::vector<std::vector<std::string>> sequences = {
+		{"\r", "\r", "\n", ".", "\r", "\n"},
+		{"\r\n", "\r", "\n", ".", "\r", "\n"},
+		{"\r\n.\r", "\r", "\n", ".", "\r", "\n"}
+	};
+	for (const auto& chunks : sequences)
+	{
+		Decoder decoder;
+		decoder.SetRawMode(true);
+		for (size_t i = 0; i < chunks.size(); ++i)
+		{
+			CheckRawChunk(decoder, chunks[i], i + 1 == chunks.size());
+		}
+	}
+	Decoder decoder;
+	decoder.SetRawMode(true);
+	CheckRawChunk(decoder, "\r\n.\r\n", true);
+	CheckRawChunk(decoder, ".\r\n", true);
+}
+
+BOOST_AUTO_TEST_CASE(RawNearMiss)
+{
+	const std::vector<std::string> wires = {
+		"\r\n..\r\n", "\n.\r\n", "\r\n.\n", "\r.\r\n",
+		"\r\n.x\r\n", "\r\n.\rX", std::string("\0\r\n.\0\r\n", 7)
+	};
+	for (const auto& wire : wires)
+	{
+		Decoder decoder;
+		decoder.SetRawMode(true);
+		for (char c : wire)
+		{
+			CheckRawChunk(decoder, std::string(1, c), false);
+		}
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawZeroLengthPolicy)
+{
+	const std::string prefixes[] = {"", "\r", "\r\n", "\r\n.\r"};
+	const std::string continuations[] = {"x", "\n.\r\n", ".\r\n", "\n"};
+	for (size_t i = 0; i < 4; ++i)
+	{
+		Decoder decoder;
+		decoder.SetRawMode(true);
+		CheckRawChunk(decoder, "\r\n.\r\nx", true);
+		if (i != 0)
+		{
+			CheckRawChunk(decoder, prefixes[i], true);
+		}
+		// A non-null empty call resets the prefix; only prior state zero keeps EOF.
+		CheckRawChunk(decoder, "", i == 0);
+		CheckRawChunk(decoder, continuations[i], i == 0);
+		CheckRawChunk(decoder, "\r\n.\r\n", true);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawClearReuse)
+{
+	const std::string marker = "\r\n.\r\n";
+	for (size_t prefix = 1; prefix <= 4; ++prefix)
+	{
+		Decoder decoder;
+		std::string header = "begin 644 f.bin\r\n";
+		BOOST_CHECK_EQUAL(decoder.DecodeBuffer(header.data(), (int)header.size()), 0);
+		BOOST_REQUIRE_EQUAL(decoder.GetFormat(), Decoder::efUx);
+		decoder.SetRawMode(true);
+		CheckRawChunk(decoder, marker.substr(0, prefix), false);
+		decoder.Clear();
+		BOOST_CHECK_EQUAL(decoder.GetEof(), false);
+		BOOST_CHECK_EQUAL(decoder.GetFormat(), Decoder::efUx);
+		// Returning the entire suffix also proves Clear retained raw mode.
+		CheckRawChunk(decoder, marker.substr(prefix), false);
+		CheckRawChunk(decoder, marker, true);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawBulkWorkingBuffers)
+{
+	const std::vector<std::string> wires = {
+		CapturedRawWire(), std::string(65536 - 5, (char)0x80) + "\r\n.\r\n"
+	};
+	for (const auto& wire : wires)
+	{
+		Decoder decoder;
+		decoder.SetRawMode(true);
+		CheckRawChunk(decoder, wire, true);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(RawLegacyEofPolicy)
+{
+	const std::vector<std::vector<std::string>> sequences = {
+		{"\r\n.\r\nx", "more", "\r", "x"},
+		{"\r\n.\r", "\n", "x"},
+		{"\r\n.", "\r\n", "x"}
+	};
+	const std::vector<std::vector<bool>> expected = {
+		{true, true, true, false}, {false, true, true}, {false, true, false}
+	};
+	for (size_t i = 0; i < sequences.size(); ++i)
+	{
+		Decoder decoder;
+		decoder.SetRawMode(true);
+		for (size_t j = 0; j < sequences[i].size(); ++j)
+		{
+			CheckRawChunk(decoder, sequences[i][j], expected[i][j]);
+		}
+	}
+}
+
 BOOST_AUTO_TEST_SUITE_END()

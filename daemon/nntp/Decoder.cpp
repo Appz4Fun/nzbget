@@ -482,27 +482,52 @@ Decoder::EStatus Decoder::CheckUx()
 
 void Decoder::ProcessRaw(char* buffer, int len)
 {
-	switch (m_state)
+	// A marker crossing this boundary needs at most four new bytes. Keep the
+	// bulk search below for markers wholly contained in the current buffer.
+	int prefix = m_state;
+	if (m_state >= 1 && m_state <= 4)
 	{
-		case 1:
-			m_eof = len >= 4 && buffer[0] == '\n' &&
-				buffer[1] == '.' && buffer[2] == '\r' && buffer[3] == '\n';
-			break;
-
-		case 2:
-			m_eof = len >= 3 && buffer[0] == '.' && buffer[1] == '\r' && buffer[2] == '\n';
-			break;
-
-		case 3:
-			m_eof = len >= 2 && buffer[0] == '\r' && buffer[1] == '\n';
-			break;
-
-		case 4:
-			m_eof = len >= 1 && buffer[0] == '\n';
-			break;
+		m_eof = false;
+	}
+	for (int i = 0; i < len && i < 4; ++i)
+	{
+		switch (prefix)
+		{
+			case 1:
+				prefix = buffer[i] == '\n' ? 2 : buffer[i] == '\r' ? 1 : 0;
+				break;
+			case 2:
+				prefix = buffer[i] == '.' ? 3 : buffer[i] == '\r' ? 1 : 0;
+				break;
+			case 3:
+				prefix = buffer[i] == '\r' ? 4 : 0;
+				break;
+			case 4:
+				if (buffer[i] == '\n')
+				{
+					m_eof = true;
+					prefix = 2;
+				}
+				else
+				{
+					prefix = buffer[i] == '\r' ? 1 : 0;
+				}
+				break;
+			default:
+				prefix = buffer[i] == '\r' ? 1 : 0;
+				break;
+		}
 	}
 
 	m_eof |= std::string_view(buffer, len).find("\r\n.\r\n") != std::string_view::npos;
+
+	// Carry unfinished prefixes through short reads. Completed EOF and empty
+	// calls retain the historical current-buffer suffix and EOF behavior.
+	if (len > 0 && len < 4 && !m_eof)
+	{
+		m_state = prefix;
+		return;
+	}
 
 	if (len >= 4 && buffer[len-4] == '\r' && buffer[len-3] == '\n' &&
 		buffer[len-2] == '.' && buffer[len-1] == '\r')
