@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NZBGet campaign-v1 matched sample",
+  "$comment": "Campaign runtime requires exact Python int type (not bool or 1.0), every row at or above its manifest's integer batch floor, and complete frozen fixture/process/round/variant/order keys. Mathematical JSON Schema integer alone does not reject 1.0. Logical process IDs are not independent-execution proof. Legacy sample.schema.json remains unchanged.",
+  "allOf": [
+    {"$ref": "sample.schema.json"},
+    {"properties": {"elapsed_ns": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}}}
+  ]
+}

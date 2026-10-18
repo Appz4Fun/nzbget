@@ -15,13 +15,61 @@ allowed. Controlled probes use private directories; private locks and synthetic
 controls prove the probe's behavior, not native product performance. Do not
 bypass locks, duplicate queues, interrupt progressing jobs, or silently retry.
 
+### Isolated Python test dependencies
+
+The benchmark schema regression requires `jsonschema==4.26.0` and
+`referencing==0.37.0`. They are test dependencies, declared in
+`scripts/bench/requirements-test.in`; the adjacent `requirements-test.lock`
+contains all six pinned packages and their allowed hashes. The real offline
+validator remains mandatory: missing dependencies are a setup failure, not a
+reason to skip the test or install packages during the test suite. The runtime
+analyzer does not import these packages.
+
+Use the scheduler-supplied `BENCH_UV`, `BENCH_PYTHON` and `BENCH_TEST_ROOT`
+parameters for an admitted `uv` executable, an existing Python 3.12 interpreter
+and a fresh, approved external job directory. Setup may access the package
+index; run tests offline afterward. This
+recipe uses the isolated `uv venv` and hash-locked, wheel-only `uv pip sync`
+semantics exercised by the captured reference setup, with job paths supplied
+explicitly. It does not bootstrap `pip`, download Python, or build source wheels.
+The reference setup constrained `UV_CONCURRENT_DOWNLOADS=1`,
+`UV_HTTP_RETRIES=0` and `UV_HTTP_TIMEOUT=10` in its minimal capture environment.
+Retain those limits and the assigned temporary directory in a new setup plan;
+do not inherit unrelated project or credential configuration.
+
+```sh
+"$BENCH_UV" --no-config --no-python-downloads --no-progress --cache-dir "$BENCH_TEST_ROOT/cache" venv --no-project --no-managed-python --python "$BENCH_PYTHON" "$BENCH_TEST_ROOT/venv"
+"$BENCH_UV" --no-config --no-python-downloads --no-progress --cache-dir "$BENCH_TEST_ROOT/cache" pip sync --python "$BENCH_TEST_ROOT/venv/bin/python" --require-hashes --only-binary :all: --default-index https://pypi.org/simple --keyring-provider disabled --no-sources --strict scripts/bench/requirements-test.lock
+"$BENCH_TEST_ROOT/venv/bin/python" -B -m unittest -v -f scripts.bench.tests.test_campaign scripts.bench.tests.test_summarize
+```
+
+The captured reference used Python 3.12.14 on macOS arm64 with the six versions
+in this lock. Its successful campaign/generic regression is evidence for those
+captured sources and that environment. The lock was resolved for Python 3.12 /
+`aarch64-apple-darwin`; its many wheel hashes do not prove compatible wheels or
+test results on Linux, other platforms, or other Python versions. Missing tools
+or compatible pinned wheels must stop setup; do not fall back to source builds
+or silently skip validation. The lock's provenance comments identify a retained
+resolution, not a newly executed resolver run. Declare both imported packages
+directly when maintaining the input and preserve the resolved transitive pins.
+
+These commands are examples, not worker admission. Record the actual tool,
+interpreter, installed dependency closure, sources, commands, raw output and
+terminal status under the assigned plan. Tool setup and tests are separate
+bounded stages; dependency declaration alone does not authorize another run.
+The focused command above does not run the entire infrastructure suite.
+
 Validate changed workflows with actionlint. An assigned full infrastructure
-Python gate can use the bounded runner invocation below. Respect a stricter
-assigned job or timeout cap; historical test counts are not acceptance criteria.
+Python gate on an admitted Linux worker can use the bounded runner invocation
+below after the same isolated dependency setup. `run.py` execution requires
+Linux descendant supervision; the local macOS regression used its separately
+controlled capture, not this runner. Pass the explicit venv interpreter to both
+the runner and its test child. Respect a stricter assigned job or timeout cap;
+historical test counts are not acceptance criteria.
 
 ```sh
 actionlint .github/workflows/bench_base.yml .github/workflows/bench_pr.yml .github/workflows/bench_pr_closed.yml
-python3 scripts/bench/run.py --mode build --jobs 3 --lock-timeout-seconds 120 --timeout-seconds 240 --testbed i7-smoke --metadata infrastructure-check.json -- python3 -m unittest discover -s scripts/bench/tests
+"$BENCH_TEST_ROOT/venv/bin/python" scripts/bench/run.py --mode build --jobs 3 --lock-timeout-seconds 120 --timeout-seconds 240 --testbed i7-smoke --metadata infrastructure-check.json -- "$BENCH_TEST_ROOT/venv/bin/python" -B -m unittest discover -s scripts/bench/tests
 ```
 
 The canonical shared lock namespace is independent of per-job TMPDIR. Heavy
@@ -137,3 +185,50 @@ authorized installation/restart and deployment checks. Report source review,
 controlled validation, numerical qualification, configured publication, observed
 activation, integration, and live verification separately. No signature, smoke
 test or pinned tool setup alone proves faster behavior or a deployed release.
+
+
+## Campaign artifact import consistency
+
+For witness-bearing campaign artifacts, external consumers must first validate
+bounded strict JSON against the offline campaign schema, then call
+`validate_campaign_artifact_associations(artifact, manifest_bytes=original_manifest_bytes,
+sample_bytes=original_sample_bytes, analyzer_bytes=original_analyzer_bytes)`.
+Supply independently retained immutable
+original bytes, not hashes repeated by the artifact. Manifest bytes are bounded
+at1MiB; sample bytes at32MiB; analyzer bytes at1MiB. The CLI retains its initial
+bounded immutable invocation-source byte object and passes it alongside the same
+protected sample byte object already used for analysis, without another initial
+disk read or parse. Later source-guard rereads remain drift checks; they never
+replace the retained initial preimage. Missing or
+mismatched preimages reject before certificate acceptance. No-witness HOLD
+diagnostics retain their partial-metadata/preimage exemption.
+
+The importer requires the complete15-field emitted methodology, including fixed
+estimator, cluster resampling, bootstrap, limitations and outlier declarations,
+plus bounded final cumulative work and existing policy/exact-width provenance.
+It also checks the deterministic producer log-to-ratio transform at the declared
+precision, including zero-to-one and outward rounded endpoints. Numeric log
+inputs are bounded before exponentiation; schema validation alone cannot prove
+these cross-field arithmetic or preimage relationships.
+
+After old consistency checks, the application regenerates only fixed-seed DRAW
+IDENTITY once per distinct process count. It binds the5000-row comma-separated
+multiplicity digest and every referenced contributor/exact replicate ID to its
+vector. Distinct-count selections are preflighted at4,000,000 before draw RNG,
+row or cache allocation; only referenced rows are retained (<=294,912packed
+bytes, conservative logical storage charge<=10,780,672within the existing64MiB
+cache envelope). Repeated valid IDs/vectors remain legal. This is not replay of
+sample-derived bootstrap statistics, rank selection, products or equality proofs.
+No global cache or full draw grid is retained by this identity check.
+
+These checks associate preserved input/analyzer bytes and reject internally contradictory
+metadata. They do not authenticate input origin, loaded code/build lineage,
+independence, or prove that sample-derived logs, ranks, products, exact equality
+claims and the bootstrap were computed from those samples. Displayed ratios are
+approximate; no imported-certificate consistency check establishes native speed,
+correctness, coverage, C++ retirement, integration or deployment readiness. A
+consumer that only has the artifact and asserted digests cannot verify the
+required preimages and must not accept its witnesses. Analyzer-byte agreement
+alone does not authenticate loaded code or a race before the initial capture.
+Statistical replay or a
+trusted collection/analysis chain is a separate stronger claim.
