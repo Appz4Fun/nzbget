@@ -472,14 +472,32 @@ impl Decoder {
 
     fn process_raw(&mut self, b: &[u8]) {
         let len = b.len();
-        self.eof = match self.state {
-            1 => len >= 4 && b[..4] == *b"\n.\r\n",
-            2 => len >= 3 && b[..3] == *b".\r\n",
-            3 => len >= 2 && b[..2] == *b"\r\n",
-            4 => len >= 1 && b[0] == b'\n',
-            _ => self.eof,
-        };
+        // Cross-buffer completion needs at most four leading bytes; retain
+        // the bulk search for markers wholly inside the current buffer.
+        let mut prefix = self.state;
+        if matches!(self.state, 1..=4) {
+            self.eof = false;
+        }
+        for &byte in b.iter().take(4) {
+            prefix = match (prefix, byte) {
+                (1, b'\n') => 2,
+                (2, b'.') => 3,
+                (3, b'\r') => 4,
+                (4, b'\n') => {
+                    self.eof = true;
+                    2
+                }
+                (_, b'\r') => 1,
+                _ => 0,
+            };
+        }
         self.eof |= find(b, b"\r\n.\r\n").is_some();
+        // Preserve historical EOF/empty-call policy once complete. Only
+        // unfinished positive short reads need the cumulative prefix.
+        if len > 0 && len < 4 && !self.eof {
+            self.state = prefix;
+            return;
+        }
         self.state = if b.ends_with(b"\r\n.\r") {
             4
         } else if b.ends_with(b"\r\n.") {
@@ -639,6 +657,164 @@ mod tests {
         assert_eq!(atoll(b"\0 99"), 0);
         assert_eq!(strtoul_hex(b"0x\0ff"), 0);
         assert_eq!(strtoul_hex(b"-0xf\0ff"), 0u32.wrapping_sub(15));
+    }
+
+    // Exercise DecodeBuffer, retaining the caller's 128-byte slack and canaries.
+    fn check_raw_chunk(d: &mut Decoder, chunk: &[u8], eof: bool) {
+        let mut buffer = vec![0x5a; 32 + chunk.len() + 128 + 32];
+        buffer[32..32 + chunk.len()].copy_from_slice(chunk);
+        let before = buffer.clone();
+        assert_eq!(unsafe { d.decode_buffer(buffer.as_mut_ptr().add(32), chunk.len()) }, chunk.len());
+        assert_eq!(buffer, before);
+        assert_eq!(d.eof, eof, "chunk={chunk:?}");
+    }
+
+    fn captured_raw_wire() -> Vec<u8> {
+        // Exact retained Stage2 wire; the one-byte test uses a different schedule.
+        let mut wire = b"fixture raw\r\n".to_vec();
+        wire.extend_from_slice(&[b'R'; 110]);
+        wire.extend_from_slice(b"\r\n.\r\n");
+        wire
+    }
+
+    #[test]
+    fn raw_terminator_partitions() {
+        let marker = b"\r\n.\r\n";
+        for splits in 0..16 {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            let mut start = 0;
+            for end in 1..=marker.len() {
+                if end == marker.len() || splits & (1 << (end - 1)) != 0 {
+                    check_raw_chunk(&mut d, &marker[start..end], end == marker.len());
+                    start = end;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn raw_captured_fragment_schedule() {
+        let wire = captured_raw_wire();
+        assert_eq!(wire.len(), 128);
+        let mut d = Decoder::new(decode, crc);
+        d.raw_mode = true;
+        let mut offset = 0;
+        for len in [1, 6, 17, 17, 17, 17, 17, 17, 15, 1, 1, 1, 1] {
+            check_raw_chunk(&mut d, &wire[offset..offset + len], offset + len == wire.len());
+            offset += len;
+        }
+        assert_eq!(offset, wire.len());
+    }
+
+    #[test]
+    fn raw_one_byte_chunks() {
+        let wire = captured_raw_wire();
+        let mut d = Decoder::new(decode, crc);
+        d.raw_mode = true;
+        for i in 0..wire.len() {
+            check_raw_chunk(&mut d, &wire[i..i + 1], i + 1 == wire.len());
+        }
+    }
+
+    #[test]
+    fn raw_prefix_overlap() {
+        let sequences: &[&[&[u8]]] = &[
+            &[b"\r", b"\r", b"\n", b".", b"\r", b"\n"],
+            &[b"\r\n", b"\r", b"\n", b".", b"\r", b"\n"],
+            &[b"\r\n.\r", b"\r", b"\n", b".", b"\r", b"\n"],
+        ];
+        for chunks in sequences {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            for (i, chunk) in chunks.iter().enumerate() {
+                check_raw_chunk(&mut d, chunk, i + 1 == chunks.len());
+            }
+        }
+        let mut d = Decoder::new(decode, crc);
+        d.raw_mode = true;
+        check_raw_chunk(&mut d, b"\r\n.\r\n", true);
+        check_raw_chunk(&mut d, b".\r\n", true);
+    }
+
+    #[test]
+    fn raw_near_miss() {
+        let wires: &[&[u8]] = &[
+            b"\r\n..\r\n", b"\n.\r\n", b"\r\n.\n", b"\r.\r\n",
+            b"\r\n.x\r\n", b"\r\n.\rX", b"\0\r\n.\0\r\n",
+        ];
+        for wire in wires {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            for chunk in wire.chunks(1) {
+                check_raw_chunk(&mut d, chunk, false);
+            }
+        }
+    }
+
+    #[test]
+    fn raw_zero_length_policy() {
+        let prefixes: &[&[u8]] = &[b"", b"\r", b"\r\n", b"\r\n.\r"];
+        let continuations: &[&[u8]] = &[b"x", b"\n.\r\n", b".\r\n", b"\n"];
+        for i in 0..4 {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            check_raw_chunk(&mut d, b"\r\n.\r\nx", true);
+            if i != 0 {
+                check_raw_chunk(&mut d, prefixes[i], true);
+            }
+            check_raw_chunk(&mut d, b"", i == 0);
+            check_raw_chunk(&mut d, continuations[i], i == 0);
+            check_raw_chunk(&mut d, b"\r\n.\r\n", true);
+        }
+    }
+
+    #[test]
+    fn raw_clear_reuse() {
+        let marker = b"\r\n.\r\n";
+        for prefix in 1..=4 {
+            let mut d = Decoder::new(decode, crc);
+            let mut header = b"begin 644 f.bin\r\n".to_vec();
+            assert_eq!(unsafe { d.decode_buffer(header.as_mut_ptr(), header.len()) }, 0);
+            assert_eq!(d.format, Format::Ux);
+            d.raw_mode = true;
+            check_raw_chunk(&mut d, &marker[..prefix], false);
+            d.clear();
+            assert!(!d.eof);
+            assert_eq!(d.format, Format::Ux);
+            assert!(d.raw_mode);
+            assert_eq!(d.state, 0);
+            check_raw_chunk(&mut d, &marker[prefix..], false);
+            check_raw_chunk(&mut d, marker, true);
+        }
+    }
+
+    #[test]
+    fn raw_bulk_working_buffers() {
+        let mut large = vec![0x80; 65536 - 5];
+        large.extend_from_slice(b"\r\n.\r\n");
+        for wire in [captured_raw_wire(), large] {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            check_raw_chunk(&mut d, &wire, true);
+        }
+    }
+
+    #[test]
+    fn raw_legacy_eof_policy() {
+        let sequences: &[(&[&[u8]], &[bool], &[c_int])] = &[
+            (&[b"\r\n.\r\nx", b"more", b"\r", b"x"], &[true, true, true, false], &[0, 0, 1, 0]),
+            (&[b"\r\n.\r", b"\n", b"x"], &[false, true, true], &[4, 0, 0]),
+            (&[b"\r\n.", b"\r\n", b"x"], &[false, true, false], &[3, 2, 0]),
+        ];
+        for &(chunks, expected, states) in sequences {
+            let mut d = Decoder::new(decode, crc);
+            d.raw_mode = true;
+            for i in 0..chunks.len() {
+                check_raw_chunk(&mut d, chunks[i], expected[i]);
+                assert_eq!(d.state, states[i]);
+            }
+        }
     }
 
     #[test]
