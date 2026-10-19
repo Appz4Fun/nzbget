@@ -168,13 +168,15 @@ Generated keys and managed score floors persist without client edits.
 
 ## Next
 
-1. The rest of `WebUtil` and `Util`: RFC 822 dates, URL parsing,
-   `Util::MatchFileExt`, `SplitCommandLine`, `Tokenizer`, size and speed
-   formatting.
-2. JSON/XML-RPC response building (`XmlRpc.cpp`), then the RPC server.
-3. Queue state files (`DiskState`).
-4. The download path (NNTP connection, article writer), then queue and
-   post-processing. Each step leaves nzbget a working program.
+Track remaining application areas, native dependencies, external helpers,
+platforms, qualification, and final C++ removal in the
+[zero C++ checklist](https://appz4fun.github.io/nzbget/rust-port.html#zero-c-checklist).
+Its source is `site/content/rust-port.md`. The generated module table lists
+existing Rust modules, not a complete application migration.
+
+The C++ fallbacks remain required during migration. Removing them requires
+qualified Rust paths for every retained target and the final removal checks;
+porting the routines in the Done table doesn't retire the C++ application.
 
 ## Build and verification
 

@@ -27,6 +27,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.deflist import deflist_plugin
+from mdit_py_plugins.tasklists import tasklists_plugin
 
 SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
@@ -76,6 +77,7 @@ def markdown() -> MarkdownIt:
     md = MarkdownIt("commonmark", {"html": True, "typographer": False})
     md.enable(["table", "strikethrough"])
     md.use(deflist_plugin)
+    md.use(tasklists_plugin)
 
     def fence(renderer, tokens, idx, options, env):
         token = tokens[idx]
