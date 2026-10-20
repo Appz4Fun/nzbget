@@ -147,14 +147,21 @@ pub(super) fn check_binding(b: &MemberBinding) -> Result<(), PurgeError> {
 }
 
 fn source_key(record: &SubjectRecord) -> Result<[u8; 32], PurgeError> {
+    source_key_accounted(record,None)
+}
+fn source_key_accounted(record: &SubjectRecord, capacity:Option<&HeldCapacity>) -> Result<[u8;32],PurgeError> {
+    let operation=||source_key_body(record,capacity);
+    match capacity{Some(c)=>c.scratch(operation),None=>operation()}
+}
+fn source_key_body(record:&SubjectRecord,capacity:Option<&HeldCapacity>)->Result<[u8;32],PurgeError>{
     // Exact F4 K framing; publication sequence deliberately is not a key input.
-    let binding = wire(&record.binding)?;
-    let parent = wire(&record.parent)?;
+    let binding = wire_accounted(&record.binding,capacity)?;
+    let parent = wire_accounted(&record.parent,capacity)?;
     let n = 17usize.checked_add(16).and_then(|n| n.checked_add(binding.len()))
         .and_then(|n| n.checked_add(parent.len())).and_then(|n| n.checked_add(52))
         .ok_or(PurgeError::LimitExceeded)?;
     if n > MAX_PAYLOAD { return Err(PurgeError::LimitExceeded); }
-    let mut bytes = reserved(n)?;
+    let mut bytes = reserved_accounted(n,capacity)?;
     bytes.extend_from_slice(b"PURGE-SOURCE-KEY1");
     bytes.extend_from_slice(&record.domain);
     bytes.extend_from_slice(&binding);
@@ -955,4 +962,706 @@ pub(super) mod tests {
         r.publish_image(SUBJECT_TAG, [0;16], 0, &wire(&record).unwrap(), &mut h).unwrap();
         assert!(Registry::recover([1;16], h.journal_identity().unwrap(), &h.frames).is_err(), "PR108_SIX_STALE_REBIND_REPLAY");
     }
+    fn held_admit_group_fixture(r:&mut Registry,ids:&IdReservation,h:&mut MemoryHost){
+        use super::super::intake::*;
+        let mut request=[41;16];request[8..].copy_from_slice(&ids.first.to_le_bytes());
+        let descriptor=Descriptor {device:1,inode:2,byte_length:6,mode:0o100600,owner:1,links:1,
+            modified_seconds:1,modified_nanoseconds:0,changed_seconds:1,changed_nanoseconds:0};
+        let captured=r.store_intake_capture(RawCapture {schema_version:1,domain:r.domain,publication_sequence:0,request,
+            collection_id:42,reservation_request:ids.request,reservation_sequence:ids.publication_sequence,incarnation:ids.first,
+            descriptor_identity:wire(&CapturedDescriptor {version:1,before:copy(&descriptor).unwrap(),after:descriptor}).unwrap(),
+            parser_contract_version:1,raw_nzb_bytes:b"<nzb/>".to_vec()},h).unwrap();
+        let mut file_request=[42;16];file_request[8..].copy_from_slice(&ids.first.to_le_bytes());
+        let file=r.reserve_ids(1,file_request,1,h).unwrap();
+        let mut declarations=vec![Declaration {kind:1,file_ordinal:1,ordinal:1,attributes:vec![],characters:vec![],
+            disposition:1,effective_file:1,effective_article:0,replacement_ordinal:0}];
+        let mut articles=Vec::new();
+        for ordinal in 1..=2{let text=format!("article{ordinal}").into_bytes();
+            articles.push(EffectiveArticle {declaration_ordinal:ordinal,part:ordinal as i32,bytes:10,message_id:[b"<".as_slice(),&text,b">".as_slice()].concat()});
+            declarations.push(Declaration {kind:2,file_ordinal:1,ordinal,attributes:vec![],characters:text,disposition:1,
+                effective_file:1,effective_article:ordinal,replacement_ordinal:0});}
+        declarations.push(Declaration {kind:3,file_ordinal:1,ordinal:1,attributes:vec![],characters:b"alt.valid".to_vec(),disposition:1,effective_file:1,effective_article:1,replacement_ordinal:0});
+        let a=r.store_intake_association(IntakeAssociation {schema_version:1,domain:r.domain,publication_sequence:0,request,
+            capture_publication_sequence:captured.publication_sequence,capture_payload_identity:captured.payload_identity,parser_contract_version:1,
+            files:vec![EffectiveFile {declaration_ordinal:1,file_id:6,incarnation:file.first,reservation_request:file.request,
+                reservation_sequence:file.publication_sequence,subject:b"fixture".to_vec(),date:1,groups:vec![Group {bytes:b"alt.valid".to_vec()}],articles}],declarations},h).unwrap();
+        assert_eq!(r.intake_posting_source(&a).unwrap(),template(r,ids).binding.posting_source);
+    }
+
+// Additive held constructor controls, frozen against b01 before this implementation.
+// Historical controls are re-bound to the current real issuer; all remain UNRUN here.
+use super::super::runtime_core::{ExactReference, RecoveryPrepareRequest, ProducerReservationKey, DependencyRequest, DependencyRole, InstallMode};
+struct HeldIssuedFixture {
+    pub registry: Registry,
+    pub host: MemoryHost,
+    pub producers: IdReservation,
+    pub collection: SubjectRecord,
+    pub file: SubjectRecord,
+}
+
+fn held_issued_fixture() -> HeldIssuedFixture { held_issued_fixture_variant(false) }
+fn held_issued_fixture_variant(grouped:bool) -> HeldIssuedFixture {
+    let mut host = host();
+    let mut registry = Registry::initialize([1; 16], &mut host).unwrap();
+    let subjects = registry.reserve_ids(1, [2; 16], 1, &mut host).unwrap();
+    let producers = registry.reserve_ids(2, [3; 16], 2, &mut host).unwrap();
+    if grouped {held_admit_group_fixture(&mut registry,&subjects,&mut host);} else {admit_fixture(&mut registry, &subjects, &mut host);}
+    let mut prepared = registry.prepare_subject(template(&registry, &subjects), &capture(), &host).unwrap();
+    let collection = registry.store_prepared_subject(&mut prepared, &mut host).unwrap();
+
+    // This file Subject commit is NEW test Source. The reviewed helper only
+    // committed the collection; never relabel its capture as a file body.
+    let association = registry.intake_associations.last().unwrap();
+    let effective = &association.files[0];
+    let binding = crate::dupepurge::MemberBinding {
+        collection_id: collection.binding.collection_id,
+        file_id: Some(effective.file_id), incarnation: effective.incarnation,
+        posting_source: collection.binding.posting_source.clone(),
+    };
+    let (source_id, custody) = registry.intake_subject_authority(
+        association.publication_sequence, &binding, Some(&collection.binding)).unwrap();
+    let reservation_request = effective.reservation_request;
+    let reservation_sequence = effective.reservation_sequence;
+    let mut file_template = template(&registry, &subjects);
+    file_template.binding = binding.clone();
+    file_template.parent = Some(collection.binding.clone());
+    file_template.source.id = source_id;
+    file_template.source.binding = binding;
+    file_template.source.parent_collection = Some(collection.binding.clone());
+    file_template.source.custody_receipt_id = custody;
+    file_template.custody.id = custody;
+    file_template.reservation_request = reservation_request;
+    file_template.reservation_sequence = reservation_sequence;
+    file_template.source_kind = 2;
+    // Exact SaveFileInfo7 body for the actual committed intake association:
+    // subject=fixture/date1/groups empty/two10-byte articles from the real map.
+    let body = b"fixture\nfile\n\n\n0,1\n0,20\n0,0\n0\n2,0\n0\n2\n1,10\n<article1>\n2,10\n<article2>\n";
+    let grouped_body=b"fixture\nfile\n\n\n0,1\n0,20\n0,0\n0\n2,0\n1\nalt.valid\n2\n1,10\n<article1>\n2,10\n<article2>\n";
+    let body:&[u8]=if grouped {grouped_body} else {body};
+    let mut file_capture = b"PURGE-SOURCE-BYTES1".to_vec();
+    for n in [1u32, 2, 7, body.len() as u32] { file_capture.extend(n.to_le_bytes()); }
+    file_capture.extend(body); file_capture.push(0); // no progress body
+    let mut prepared = registry.prepare_subject(file_template, &file_capture, &host).unwrap();
+    let file = registry.store_prepared_subject(&mut prepared, &mut host).unwrap();
+    HeldIssuedFixture { registry, host, producers, collection, file }
+}
+
+fn held_state() -> Vec<u8> {
+    b"0,0\n0,20,0,0,0,0\nfile\n\n\n0\n2\n2,0,0\n1,0,0\n2\n1,0,0,3,0\n0,0,0,4,1\n#decoded 0,20\n".to_vec()
+}
+fn held_envelope(f: &HeldIssuedFixture, state: &[u8]) -> Vec<u8> {
+    let mut out=f.file.original_source_bytes.clone();assert_eq!(out.pop(),Some(0));out.push(1);
+    out.extend(7u32.to_le_bytes());out.push(0);out.extend((state.len() as u32).to_le_bytes());out.extend(state);out
+}
+fn held_observations(raw: &[u8]) -> Vec<u8> {
+    let e=source_codec::Envelope::parse(2,raw).unwrap();let mut out=Vec::new();
+    out.extend(1u32.to_le_bytes());out.extend(2u32.to_le_bytes());
+    for (role,body) in [(2u32,e.body),(3,e.second.unwrap())] {
+        out.extend(role.to_le_bytes());out.extend(1u64.to_le_bytes());out.extend(2u64.to_le_bytes());
+        out.extend(1u32.to_le_bytes());out.push(b'x');
+        let mut metadata=Vec::new();for n in [1u64,u64::from(role),body.len() as u64,1]{metadata.extend(n.to_le_bytes());}
+        metadata.extend(0o100600u32.to_le_bytes());metadata.extend(1u32.to_le_bytes());
+        for _ in 0..2{metadata.extend(1i64.to_le_bytes());metadata.extend(0u32.to_le_bytes());}
+        assert_eq!(metadata.len(),64);out.extend(&metadata);out.extend(&metadata);
+        out.extend(1u32.to_le_bytes());out.extend(0u64.to_le_bytes());out.extend((body.len()as u64).to_le_bytes());
+    }out
+}
+fn held_input(f: &HeldIssuedFixture) -> HeldRecoveryInput {
+    let target=ExactReference::from_record(&f.file);let parent=ExactReference::from_record(&f.collection);
+    let envelope=held_envelope(f,&held_state());let observations=held_observations(&envelope);
+    HeldRecoveryInput { request:RecoveryPrepareRequest {
+        producer:ProducerReservationKey{request:f.producers.request,publication_sequence:f.producers.publication_sequence,id:f.producers.first},
+        owner_kind:0x46420001,work_kind:0x20005,mode:InstallMode::ArticlesAndProgress,schema:1,parent_ticket:None,
+        target:target.clone(),dependencies:vec![DependencyRequest{reference:target,role:DependencyRole::InstallTarget,current_preimage:Some(b"opaque-current-live-not-desired".to_vec())},
+        DependencyRequest{reference:parent,role:DependencyRole::ImmutableParent,current_preimage:None}],desired_writes:Vec::new()},
+        envelope,observations,server_mapping:vec![ServerIdPair{persisted_state_id:2,runtime_server_id:20},ServerIdPair{persisted_state_id:1,runtime_server_id:10}] }
+}
+fn held_input_fingerprint(i:&HeldRecoveryInput)->(String,Vec<usize>) {
+    let mut caps=vec![i.envelope.capacity(),i.observations.capacity(),i.server_mapping.capacity(),i.request.dependencies.capacity(),i.request.desired_writes.capacity(),i.request.target.binding.posting_source.capacity()];
+    if let Some(p)=&i.request.target.parent{caps.push(p.posting_source.capacity());}
+    for d in &i.request.dependencies{caps.push(d.reference.binding.posting_source.capacity());if let Some(p)=&d.reference.parent{caps.push(p.posting_source.capacity());}if let Some(p)=&d.current_preimage{caps.push(p.capacity());}}
+    (format!("{i:?}"),caps)
+}
+#[test]
+fn held_output_moves_input_without_copy_and_preserves_actual_progress() {
+    let f=held_issued_fixture();let input=held_input(&f);let pointers=(input.envelope.as_ptr(),input.envelope.capacity(),input.observations.as_ptr(),input.server_mapping.as_ptr());
+    let mut input=Some(input);let before=f.host.frames.len();let result=f.registry.validate_held_recovery_input(&mut input,&f.host).unwrap();
+    assert!(input.is_none());assert_eq!(result.envelope().as_ptr(),pointers.0);assert_eq!(result.input.envelope.capacity(),pointers.1);
+    assert_eq!(result.observations().as_ptr(),pointers.2);assert_eq!(result.server_mapping().as_ptr(),pointers.3);
+    let view=result.view();assert_eq!(view.subject,b"fixture");assert_eq!(view.article_count,2);assert_eq!(view.progress.unwrap().completed_articles,1);
+    assert_eq!(result.article(0).unwrap().progress.unwrap().status,1);assert!(result.article(1).unwrap().progress.unwrap().staged_fallback);
+    assert_eq!(result.persisted_server_stat(0).unwrap().persisted_state_id,2);assert_eq!(result.persisted_server_stat(1).unwrap().persisted_state_id,1);
+    assert_eq!(result.request().dependencies[0].current_preimage.as_deref(),Some(b"opaque-current-live-not-desired".as_slice()));
+    assert_eq!(f.host.frames.len(),before);assert!(!f.registry.runtime_observation().coverage_known);
+    assert!(result.article(2).is_none());assert!(result.group(0).is_none());assert!(result.persisted_server_stat(2).is_none());
+}
+#[test]
+fn held_output_equal_projection_does_not_authorize_caller_desired_bytes() {
+    let f=held_issued_fixture();let mut input=held_input(&f);input.request.desired_writes=b"caller-selected".to_vec();let before=held_input_fingerprint(&input);let mut input=Some(input);
+    assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);
+    let mut input=held_input(&f);input.request.desired_writes=Vec::with_capacity(1);let mut input=Some(input);assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());
+}
+#[test]
+fn held_output_disk_empty_nullable_and_non_utf8_preserved() {
+    let f=held_issued_fixture();let mut input=Some(held_input(&f));let result=f.registry.validate_held_recovery_input(&mut input,&f.host).unwrap();
+    let progress=result.view().progress.unwrap();assert!(progress.hash16k.is_none());assert!(progress.par_set_id.is_none());
+    let mut input=held_input(&f);let state=held_state();let pos=state.windows(7).position(|v|v==b"file\n\n\n").unwrap()+5;
+    let mut altered=state[..pos].to_vec();altered.extend([0xff,0xfe]);altered.extend(&state[pos..]);input.envelope=held_envelope(&f,&altered);input.observations=held_observations(&input.envelope);
+    let mut input=Some(input);let result=f.registry.validate_held_recovery_input(&mut input,&f.host).unwrap();assert_eq!(result.view().progress.unwrap().hash16k,Some([0xff,0xfe].as_slice()));
+}
+#[test]
+fn held_output_every_exact_reference_dimension_rejects_without_consuming() {
+    let f=held_issued_fixture();for case in 0..8 {let mut input=held_input(&f);match case {
+        0=>input.request.target.domain[0]^=1,1=>input.request.target.binding.incarnation+=1,
+        2=>input.request.target.binding.posting_source.push(b'x'),3=>input.request.target.subject_revision+=1,
+        4=>input.request.target.publication_sequence+=1,5=>input.request.target.source_record_id[0]^=1,
+        6=>input.request.target.parent.as_mut().unwrap().incarnation+=1,_=>input.request.dependencies[1].reference.publication_sequence+=1,
+    }let before=held_input_fingerprint(&input);let mut input=Some(input);assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err(),"case{case}");assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);}
+}
+#[test]
+fn held_output_missing_map_raw_and_pending_recovery_reject() {
+    for case in 0..3 {let mut f=held_issued_fixture();let mut input=Some(held_input(&f));match case{0=>f.registry.intake_associations.clear(),1=>f.registry.intake_captures.clear(),_=>f.registry.recovery_required=true};assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());assert!(input.is_some());}
+}
+#[test]
+fn held_output_descriptor_replacement_and_truncated_counts_reject_without_allocating() {
+    let f=held_issued_fixture();let mut input=held_input(&f);input.observations[40]^=1;let mut input=Some(input);assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());assert!(input.is_some());
+    for count in [1_000_000,1_000_001,10_000_000] {let mut input=held_input(&f);let state=format!("0,0\n0,20,0,0,0,0\nfile\n\n\n0\n{count}\n");input.envelope=held_envelope(&f,state.as_bytes());input.observations=held_observations(&input.envelope);let mut input=Some(input);
+        let (result,allocations)=crate::allocation_probe::measure(||f.registry.validate_held_recovery_input(&mut input,&f.host));assert!(result.is_err());assert_eq!(allocations.calls,0,"{count}: {allocations:?}");assert!(input.is_some());}
+}
+#[test]
+fn held_output_empty_oversized_capacity_rejects_before_any_allocation() {
+    let f=held_issued_fixture();let mut input=held_input(&f);input.observations.reserve_exact(MAX_PAYLOAD);let before=held_input_fingerprint(&input);let mut input=Some(input);
+    let (result,allocations)=crate::allocation_probe::measure(||f.registry.validate_held_recovery_input(&mut input,&f.host));assert!(matches!(result,Err(PurgeError::LimitExceeded)));assert_eq!(allocations.calls,0);assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);
+}
+#[test]
+fn held_output_retained_capacities_and_resolver_scratch_preflight() {
+    let mut f=held_issued_fixture();let mut input=Some(held_input(&f));f.registry.intake_captures[0].raw_nzb_bytes.reserve_exact(MAX_PAYLOAD);
+    let (result,allocations)=crate::allocation_probe::measure(||f.registry.validate_held_recovery_input(&mut input,&f.host));assert!(matches!(result,Err(PurgeError::LimitExceeded)));assert_eq!(allocations.calls,0);assert!(input.is_some());
+}
+#[test]
+fn held_output_mapping_is_owned_ordered_external_data_not_admission() {
+    let f=held_issued_fixture();let mut input=Some(held_input(&f));let result=f.registry.validate_held_recovery_input(&mut input,&f.host).unwrap();assert_eq!(result.server_mapping()[0].runtime_server_id,20);assert_eq!(result.server_mapping()[1].runtime_server_id,10);
+    let mut replacement=held_input(&f);replacement.server_mapping.reverse();replacement.request.dependencies[0].current_preimage=Some(Vec::new());
+    assert_eq!(result.server_mapping()[0].persisted_state_id,2);assert_eq!(result.request().dependencies[0].current_preimage.as_deref(),Some(b"opaque-current-live-not-desired".as_slice()));assert!(!f.registry.runtime_observation().coverage_known);
+}
+#[test]
+fn held_output_same_reference_new_mutable_body_owns_distinct_desired_state() {
+    let f=held_issued_fixture();let mut first=Some(held_input(&f));let a=f.registry.validate_held_recovery_input(&mut first,&f.host).unwrap();
+    let mut next=held_input(&f);let state=held_state();let pos=state.windows(10).position(|v|v==b"1,0,0,3,0\n").unwrap();let mut changed=state.clone();changed[pos]=b'2';
+    next.envelope=held_envelope(&f,&changed);next.observations=held_observations(&next.envelope);let mut next=Some(next);let b=f.registry.validate_held_recovery_input(&mut next,&f.host).unwrap();assert_eq!(a.target(),b.target());assert_eq!(a.article(0).unwrap().progress.unwrap().status,1);assert_eq!(b.article(0).unwrap().progress.unwrap().status,2);
+}
+#[test]
+fn held_output_duplicate_persisted_stats_still_reject_after_dry_sizing() {
+    let f=held_issued_fixture();let mut input=held_input(&f);let state=held_state();let pos=state.windows(6).position(|v|v==b"1,0,0\n").unwrap();let mut changed=state;changed[pos]=b'2';input.envelope=held_envelope(&f,&changed);input.observations=held_observations(&input.envelope);let mut input=Some(input);assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());assert!(input.is_some());
+}
+#[test]
+fn held_output_no_option_wrong_mode_and_schema_reject_without_side_effects() {
+    let f=held_issued_fixture();let mut none=None;assert!(matches!(f.registry.validate_held_recovery_input(&mut none,&f.host),Err(PurgeError::InvalidInput)));
+    for case in 0..3{let mut i=held_input(&f);match case{0=>i.request.mode=InstallMode::ArticlesOnly,1=>i.request.schema=2,_=>i.request.dependencies[1].current_preimage=Some(Vec::new())};let mut i=Some(i);assert!(f.registry.validate_held_recovery_input(&mut i,&f.host).is_err());assert!(i.is_some());}
+}
+
+#[test]
+fn held_output_actually_empty_preimage_capacity_rejects_before_allocation() {
+    let f=held_issued_fixture();let mut input=held_input(&f);
+    input.request.dependencies[0].current_preimage=Some(Vec::with_capacity(MAX_PAYLOAD));
+    assert_eq!(input.request.dependencies[0].current_preimage.as_ref().unwrap().len(),0);
+    let before=held_input_fingerprint(&input);let mut input=Some(input);
+    let (result,allocations)=crate::allocation_probe::measure(||f.registry.validate_held_recovery_input(&mut input,&f.host));
+    assert!(matches!(result,Err(PurgeError::LimitExceeded)));assert_eq!(allocations.calls,0);
+    assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);
+}
+
+#[test]
+fn held_output_consistently_forged_references_reach_authoritative_lookup() {
+    let f=held_issued_fixture();for case in 0..7 {let mut input=held_input(&f);match case {
+        0=>input.request.target.domain[0]^=1,1=>input.request.target.binding.incarnation+=1,
+        2=>input.request.target.binding.posting_source.push(b'x'),3=>input.request.target.subject_revision+=1,
+        4=>input.request.target.publication_sequence+=1,5=>input.request.target.source_record_id[0]^=1,
+        _=>{input.request.target.parent.as_mut().unwrap().incarnation+=1;input.request.dependencies[1].reference.binding.incarnation+=1;},
+    }input.request.dependencies[0].reference=input.request.target.clone();
+    assert_eq!(input.request.target,input.request.dependencies[0].reference);
+    assert_eq!(input.request.target.parent.as_ref(),Some(&input.request.dependencies[1].reference.binding));
+    let before=held_input_fingerprint(&input);let mut input=Some(input);
+    assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err(),"consistent case{case}");
+    assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);}
+}
+
+// Retained historical field-map controls: tests-first for this b01 additive tranche.
+// Historical chronology is preserved in provenance, not relabeled as prior RED.
+#[test]
+fn held_output_distinct_values_cover_every_summary_progress_article_and_stat_field() {
+    let mut f=held_issued_fixture();
+    let summary=b"fixture\nrenamed\noriginal-name\noutput.bin\n1,1\n0,37\n0,17\n1\n3,1\n0\n2\n1,10\n<article1>\n2,10\n<article2>\n";
+    let mut original=b"PURGE-SOURCE-BYTES1".to_vec();for n in [1u32,2,7,summary.len()as u32]{original.extend(n.to_le_bytes());}original.extend(summary);original.push(0);
+    let mut prepared=f.registry.prepare_subject(update_template(&f.file),&original,&f.host).unwrap();f.file=f.registry.store_prepared_subject(&mut prepared,&mut f.host).unwrap();
+    let state=b"1,1\n0,3,0,7,0,10\nrenamed\nHASH16\nPARSET\n1\n2\n2,4,5\n1,6,7\n2\n2,5,7,123,0\n3,17,9,456,0\n#decoded 0,1234\n";
+    let mut input=held_input(&f);input.envelope=held_envelope(&f,state);
+    let completed_at=19+16+summary.len()+1+4;input.envelope[completed_at]=1;
+    input.observations=held_observations(&input.envelope);
+    let mut input=Some(input);let value=f.registry.validate_held_recovery_input(&mut input,&f.host).unwrap();let v=value.view();
+    assert_eq!(v.target,&ExactReference::from_record(&f.file));assert_eq!(v.parent,&ExactReference::from_record(&f.collection));
+    assert_eq!(v.source,&f.file.source);assert_eq!(v.custody,&f.file.custody);assert_eq!(v.parent_source,&f.collection.source);assert_eq!(v.parent_custody,&f.collection.custody);
+    assert_eq!(v.subject,b"fixture");assert_eq!(v.filename,b"renamed");assert_eq!(v.original_name_disk,b"original-name");assert_eq!(v.output_filename,b"output.bin");
+    assert!(v.filename_confirmed);assert_eq!(v.time,1);assert_eq!(v.size,37);assert_eq!(v.missed_size,17);assert!(v.par_file);assert_eq!(v.total_articles,3);assert_eq!(v.missed_articles,1);
+    assert_eq!(v.group_count,0);assert_eq!(v.article_count,2);assert_eq!(v.persisted_server_stat_count,2);
+    let p=v.progress.unwrap();assert!(p.completed_selection);assert_eq!(p.success_articles,1);assert_eq!(p.failed_articles,1);assert_eq!(p.remaining_size,3);assert_eq!(p.success_size,7);assert_eq!(p.failed_size,10);assert_eq!(p.completed_articles,2);assert_eq!(p.decoded_file_size,1234);assert_eq!(p.hash16k,Some(b"HASH16".as_slice()));assert_eq!(p.par_set_id,Some(b"PARSET".as_slice()));
+    for (index,part,id,status,offset,size,crc) in [(0,1,b"<article1>".as_slice(),2,5,7,123),(1,2,b"<article2>".as_slice(),3,17,9,456)]{
+        let a=value.article(index).unwrap();assert_eq!(a.part_number,part);assert_eq!(a.advertised_size,10);assert_eq!(a.message_id,id);
+        let p=a.progress.unwrap();assert_eq!(p.status,status);assert_eq!(p.segment_offset,offset);assert_eq!(p.segment_size,size);assert_eq!(p.crc,crc);assert!(!p.staged_fallback);
+        let offset=a.message_id.as_ptr() as usize-value.envelope().as_ptr() as usize;assert_eq!(&value.envelope()[offset..offset+a.message_id.len()],id);
+    }
+    for (index,id,success,failed,runtime) in [(0,2,4,5,20),(1,1,6,7,10)]{
+        let s=value.persisted_server_stat(index).unwrap();assert_eq!(s.persisted_state_id,id);assert_eq!(s.success_articles,success);assert_eq!(s.failed_articles,failed);
+        assert_eq!(value.server_mapping()[index].persisted_state_id,id);assert_eq!(value.server_mapping()[index].runtime_server_id,runtime);
+    }
+    assert_eq!(value.schema_version,2);assert_eq!(value.immutable_capture_version,1);assert_eq!(value.source_kind,2);assert!(value.measured_owned_bytes<=MAX_PAYLOAD);
+}
+#[test]
+fn held_output_exact_historical_target_parent_survive_updates_and_recovery() {
+    let mut f=held_issued_fixture();let mut original=Some(held_input(&f));
+    let raw=f.file.original_source_bytes.clone();let mut p=f.registry.prepare_subject(update_template(&f.file),&raw,&f.host).unwrap();let newer=f.registry.store_prepared_subject(&mut p,&mut f.host).unwrap();
+    let mut p=f.registry.prepare_subject(update_template(&f.collection),&capture(),&f.host).unwrap();let newer_parent=f.registry.store_prepared_subject(&mut p,&mut f.host).unwrap();
+    assert!(newer.subject_revision>f.file.subject_revision);assert!(newer_parent.subject_revision>f.collection.subject_revision);
+    let recovered=Registry::recover([1;16],f.host.journal_identity().unwrap(),&f.host.frames).unwrap();
+    let result=recovered.validate_held_recovery_input(&mut original,&f.host).unwrap();assert_eq!(result.target(),&ExactReference::from_record(&f.file));assert_eq!(result.parent(),&ExactReference::from_record(&f.collection));
+}
+#[test]
+fn held_output_consistent_request_cannot_forge_retained_custody_or_effective_map() {
+    for case in 0..2{
+        let mut f=held_issued_fixture();let mut input=Some(held_input(&f));
+        if case==0{let row=f.registry.subjects.iter_mut().find(|s|s.binding==f.file.binding).unwrap();row.custody.id=[3;32];row.source.custody_receipt_id=[3;32];}
+        else{f.registry.intake_associations[0].files[0].articles[0].message_id=b"<forged>".to_vec();}
+        assert_eq!(input.as_ref().unwrap().request.target,input.as_ref().unwrap().request.dependencies[0].reference);
+        assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err(),"case{case}");assert!(input.is_some());
+    }
+}
+
+// Retained codec-only control; no actual constructor/custody authority
+// is inferred from the codec-only group span check.
+#[test]
+fn held_output_codec_group_spans_and_dry_shape_share_existing_parser() {
+    let f=held_issued_fixture();let mut input=held_input(&f);let envelope=source_codec::Envelope::parse(2,&input.envelope).unwrap();
+    let old=envelope.body;let at=old.windows(b"2,0\n0\n2\n".len()).position(|v|v==b"2,0\n0\n2\n").unwrap();
+    let body=[&old[..at],b"2,0\n2\nalt.one\nalt.two\n2\n",&old[at+b"2,0\n0\n2\n".len()..]].concat();
+    let state=envelope.second.unwrap().to_vec();let mut bytes=b"PURGE-SOURCE-BYTES1".to_vec();for n in [1u32,2,7,body.len()as u32]{bytes.extend(n.to_le_bytes());}bytes.extend(body);bytes.push(1);bytes.extend(7u32.to_le_bytes());bytes.push(0);bytes.extend((state.len()as u32).to_le_bytes());bytes.extend(state);
+    input.envelope=bytes;
+    let (shape,allocations)=crate::allocation_probe::measure(||source_codec::held_file_shape(&input.envelope));assert_eq!(allocations.calls,0);let shape=shape.unwrap();assert_eq!(shape.groups,2);assert_eq!(shape.articles,2);assert_eq!(shape.stats,2);
+    let decoded=source_codec::decode_held_file(&input.envelope,shape).unwrap();for (index,expected) in [b"alt.one".as_slice(),b"alt.two".as_slice()].into_iter().enumerate(){let s=decoded.summary.groups[index];assert_eq!(&input.envelope[s.begin..s.begin+s.len],expected);}
+    // The map was deliberately not changed: constructor must still reject.
+    input.observations=held_observations(&input.envelope);let mut input=Some(input);assert!(f.registry.validate_held_recovery_input(&mut input,&f.host).is_err());
+}
+#[test]
+fn held_output_capacity_arithmetic_overflow_is_checked_without_heap() {
+    let (result,allocations)=crate::allocation_probe::measure(||{let mut b=HeldBudget::new();b.add(1)?;b.add(usize::MAX)});assert_eq!(result,Err(PurgeError::LimitExceeded));assert_eq!(allocations.calls,0);
+    let (result,allocations)=crate::allocation_probe::measure(||HeldBudget::new().array::<SourceValidation>(usize::MAX));assert_eq!(result,Err(PurgeError::LimitExceeded));assert_eq!(allocations.calls,0);
+}
+
+// Deterministic accounting controls frozen before this scoped implementation.
+// Deterministic logical-capacity controls; no allocator behavior override.
+// HeldCapacity is the proposed accounting helper used at actual allocation sites.
+#[test]
+fn held_capacity_returned_surplus_is_charged_from_actual_vector() {
+    let mut returned=Vec::<u8>::with_capacity(4096);returned.push(7);
+    let actual=returned.capacity();assert!(actual>1);
+    let mut live=HeldCapacity::new(17).unwrap();
+    live.admit_vec(1,&returned).unwrap();
+    assert_eq!(live.bytes(),17+actual);
+}
+#[test]
+fn held_capacity_surplus_crosses_aggregate_without_changing_some() {
+    let f=held_issued_fixture();let input=Some(held_input(&f));
+    let before=held_input_fingerprint(input.as_ref().unwrap());let frames=f.host.frames.len();
+    let returned=Vec::<u64>::with_capacity(64);let actual=returned.capacity()*std::mem::size_of::<u64>();
+    let mut live=HeldCapacity::new(MAX_PAYLOAD-actual+1).unwrap();let prior=live.bytes();
+    assert!(matches!(live.admit_vec(1,&returned),Err(PurgeError::LimitExceeded)));
+    assert_eq!(live.bytes(),prior); // rejected charge is transactional
+    assert_eq!(held_input_fingerprint(input.as_ref().unwrap()),before);
+    assert_eq!(f.host.frames.len(),frames);
+}
+#[test]
+fn held_capacity_exact_aggregate_boundary_accepts_actual_capacity() {
+    let returned=Vec::<u64>::with_capacity(64);let actual=returned.capacity()*std::mem::size_of::<u64>();
+    let mut live=HeldCapacity::new(MAX_PAYLOAD-actual).unwrap();
+    live.admit_vec(1,&returned).unwrap();assert_eq!(live.bytes(),MAX_PAYLOAD);
+    assert_eq!(live.preflight::<u8>(1),Err(PurgeError::LimitExceeded));
+}
+#[test]
+fn held_capacity_scratch_drop_releases_only_its_actual_backing() {
+    let scratch=Vec::<u8>::with_capacity(4096);let output=Vec::<u64>::with_capacity(32);
+    let retained=output.capacity()*std::mem::size_of::<u64>();let scratch_bytes=scratch.capacity();
+    let mut live=HeldCapacity::new(13).unwrap();live.admit_vec(1,&scratch).unwrap();live.admit_vec(1,&output).unwrap();
+    assert_eq!(live.bytes(),13+scratch_bytes+retained);
+    live.drop_scratch(scratch).unwrap();assert_eq!(live.bytes(),13+retained);
+    // Ownership returned by a helper remains charged until the caller drops it.
+    assert_eq!(output.len(),0);live.drop_scratch(output).unwrap();assert_eq!(live.bytes(),13);
+}
+#[test]
+fn held_capacity_nested_backings_are_simultaneous_not_just_outer_length() {
+    let mut nested=Vec::<Vec<u8>>::with_capacity(2);nested.push(Vec::with_capacity(17));nested.push(Vec::with_capacity(31));
+    let outer=nested.capacity()*std::mem::size_of::<Vec<u8>>();let inner=nested.iter().map(Vec::capacity).sum::<usize>();
+    let mut live=HeldCapacity::new(MAX_PAYLOAD-outer-inner).unwrap();
+    live.admit_vec(nested.len(),&nested).unwrap();for row in &nested{live.admit_vec(row.len(),row).unwrap();}
+    assert_eq!(live.bytes(),MAX_PAYLOAD);
+}
+
+// Retained shared-helper ownership controls, UNRUN on this candidate.
+#[test]
+fn held_capacity_actual_wire_copy_retains_decoded_and_drops_wire_charge() {
+    let f=held_issued_fixture();let capacity=HeldCapacity::new(23).unwrap();
+    let copied=copy_accounted(&f.file.source,&capacity).unwrap();
+    assert_eq!(copied,f.file.source);
+    let actual=copied.binding.posting_source.capacity()+copied.parent_collection.as_ref().map_or(0,|p|p.posting_source.capacity());
+    assert_eq!(capacity.bytes(),23+actual);
+}
+#[test]
+fn held_capacity_partial_nested_decode_drops_scratch_before_rollback() {
+    let rows=vec![vec![1u8,2,3],vec![4u8,5,6]];
+    let capacity=HeldCapacity::new(11).unwrap();let mut image=wire_accounted(&rows,Some(&capacity)).unwrap();
+    let image_capacity=image.capacity();image.pop();
+    assert!(unwire_accounted::<Vec<Vec<u8>>>(&image,&capacity).is_err());
+    assert_eq!(capacity.bytes(),11+image_capacity);
+    capacity.drop_scratch(image).unwrap();assert_eq!(capacity.bytes(),11);
+}
+#[test]
+fn held_capacity_actual_codec_returns_typed_backings_and_releases_stats_scratch() {
+    let f=held_issued_fixture();let input=held_input(&f);let shape=source_codec::held_file_shape(&input.envelope).unwrap();
+    let capacity=HeldCapacity::new(7).unwrap();
+    let decoded=source_codec::decode_held_file_accounted(&input.envelope,shape,Some(&capacity)).unwrap();
+    let actual=decoded.summary.groups.capacity()*std::mem::size_of::<EnvelopeSpan>()
+        +decoded.articles.capacity()*std::mem::size_of::<HeldArticle>()
+        +decoded.stats.capacity()*std::mem::size_of::<HeldServerStat>();
+    assert_eq!(capacity.bytes(),7+actual);
+    assert_eq!(decoded.stats.len(),2);assert_eq!(decoded.articles.len(),2);
+}
+
+// Removing producer request/sequence/namespace checks must fail this test.
+#[test]
+fn held_output_requires_exact_durable_producer_reservation() {
+    let f=held_issued_fixture();
+    for case in 0..5 {
+        let mut i=held_input(&f);match case {
+            0=>i.request.producer.request[0]^=1,
+            1=>i.request.producer.publication_sequence+=1,
+            2=>i.request.producer.id=0,
+            3=>i.request.producer.id=f.producers.last+1,
+            _=>{let subject=f.registry.id_reservations.iter().find(|r|r.id_namespace==1).unwrap();
+                i.request.producer=ProducerReservationKey{request:subject.request,publication_sequence:subject.publication_sequence,id:subject.first};},
+        }
+        let fingerprint=held_input_fingerprint(&i);let frames=f.host.frames.clone();let before=f.registry.runtime_observation();let mut i=Some(i);
+        assert!(matches!(f.registry.validate_held_recovery_input(&mut i,&f.host),Err(PurgeError::Conflict)),"producer case{case}");
+        assert_eq!(held_input_fingerprint(i.as_ref().unwrap()),fingerprint);assert_eq!(f.host.frames,frames);assert_eq!(f.registry.runtime_observation(),before);
+    }
+}
+// An accidental live-preimage normalization or admission side effect fails here.
+#[test]
+fn held_output_preserves_empty_expected_live_preimage_and_unknown_runtime() {
+    let mut f=held_issued_fixture();f.registry.create_common_runtime(&f.host).unwrap();
+    let before=f.registry.runtime_observation();let frames=f.host.frames.clone();
+    let mut i=held_input(&f);i.request.dependencies[0].current_preimage=Some(Vec::new());let mut i=Some(i);
+    let v=f.registry.validate_held_recovery_input(&mut i,&f.host).unwrap();
+    assert_eq!(v.request().dependencies[0].current_preimage.as_deref(),Some(b"".as_slice()));
+    assert_eq!(f.registry.runtime_observation(),before);assert_eq!(f.host.frames,frames);
+    let mut absent=held_input(&f);absent.request.dependencies[0].current_preimage=None;let mut absent=Some(absent);
+    assert!(matches!(f.registry.validate_held_recovery_input(&mut absent,&f.host),Err(PurgeError::InvalidInput)));assert!(absent.is_some());
+}
+// Skipping current field/group authority or using caller desired bytes fails here.
+#[test]
+fn held_output_group_span_comes_from_real_committed_effective_map() {
+    let f=held_issued_fixture_variant(true);let mut i=Some(held_input(&f));
+    let v=f.registry.validate_held_recovery_input(&mut i,&f.host).unwrap();
+    assert_eq!(v.view().group_count,1);assert_eq!(v.group(0),Some(b"alt.valid".as_slice()));assert!(v.group(1).is_none());
+}
+// A callback before complete aggregate preflight fails, not merely an allocation.
+struct HeldNoCallbackHost;
+impl Host for HeldNoCallbackHost {
+    fn supported(&self)->bool{panic!("Host callback before complete preflight")}
+    fn journal_identity(&self)->Result<[u8;32],PurgeError>{panic!("Host callback before complete preflight")}
+    fn publish(&mut self,_:u64,_:&[u8])->Result<PublicationAck,PurgeError>{panic!("constructor publication")}
+    fn execute(&mut self,_:&Call<'_>)->Result<Ack,PurgeError>{panic!("constructor execution")}
+}
+#[test]
+fn held_output_complete_preflight_precedes_any_host_callback() {
+    let f=held_issued_fixture();let mut i=held_input(&f);i.request.dependencies[0].current_preimage=Some(Vec::with_capacity(MAX_PAYLOAD));
+    let before=held_input_fingerprint(&i);let mut i=Some(i);
+    let (r,alloc)=crate::allocation_probe::measure(||f.registry.validate_held_recovery_input(&mut i,&HeldNoCallbackHost));
+    assert!(matches!(r,Err(PurgeError::LimitExceeded)));assert_eq!(alloc.calls,0);assert_eq!(held_input_fingerprint(i.as_ref().unwrap()),before);
+}
+// Bounds are retained even for small well-framed bodies and excess observations.
+#[test]
+fn held_output_observation_limit_and_invalid_owner_preserve_input() {
+    let f=held_issued_fixture();for case in 0..2 {
+        let mut i=held_input(&f);if case==0{i.observations.resize(32769,0);}else{i.request.owner_kind=0;}
+        let before=held_input_fingerprint(&i);let mut i=Some(i);assert!(f.registry.validate_held_recovery_input(&mut i,&f.host).is_err());
+        assert_eq!(held_input_fingerprint(i.as_ref().unwrap()),before);
+    }
+}
+}
+
+// Additive private held-output boundary; no admission or persisted format.
+use super::runtime_core::{RecoveryPrepareRequest, ExactReference};
+
+// Owned before entry by the actual outside-guard capture owner. No defaults.
+#[derive(Debug)]
+pub(super) struct HeldRecoveryInput {
+    pub request: RecoveryPrepareRequest,
+    pub envelope: Vec<u8>,
+    pub observations: Vec<u8>,
+    pub server_mapping: Vec<ServerIdPair>,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ServerIdPair {
+    pub persisted_state_id: i32,
+    pub runtime_server_id: i32,
+}
+
+// Only subjects' validated constructor can create this type. No Clone,
+// Default, public fields, mutable accessors, deserializer or into_parts.
+#[derive(Debug)]
+pub(super) struct ValidatedHeldFile {
+    input: HeldRecoveryInput,
+    target_source: SourceValidation,
+    target_custody: CustodyReceipt,
+    parent_source: SourceValidation,
+    parent_custody: CustodyReceipt,
+    schema_version: u32,                 // 2: actual retained subject schema
+    immutable_capture_version: u32,      // 1: unchanged protected projection
+    source_kind: u32,                    // 2: file
+    summary: HeldFileSummary,
+    articles: Vec<HeldArticle>,
+    progress: Option<HeldFileProgress>,
+    persisted_server_stats: Vec<HeldServerStat>,
+    measured_owned_bytes: usize,         // constructor-derived, no caller setter
+}
+
+// Offsets refer only to input.envelope, never caller or Registry storage.
+// Logical bounds and span ownership are checked during the existing codec pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct EnvelopeSpan { pub(super) begin: usize, pub(super) len: usize }
+#[derive(Debug)]
+pub(super) struct HeldFileSummary {
+    pub(super) subject: EnvelopeSpan, pub(super) filename: EnvelopeSpan,
+    pub(super) original_name_disk: EnvelopeSpan, pub(super) output_filename: EnvelopeSpan,
+    pub(super) filename_confirmed: bool, pub(super) time: i32, pub(super) size: i64, pub(super) missed_size: i64,
+    pub(super) par_file: bool, pub(super) total_articles: i32, pub(super) missed_articles: i32,
+    pub(super) groups: Vec<EnvelopeSpan>,
+}
+#[derive(Debug)]
+pub(super) struct HeldArticle {
+    pub(super) part_number: i32, pub(super) advertised_size: i32, pub(super) message_id: EnvelopeSpan,
+    pub(super) progress: Option<HeldArticleProgress>,
+}
+#[derive(Debug)]
+pub(super) struct HeldArticleProgress {
+    pub(super) status: u32, pub(super) segment_offset: i64, pub(super) segment_size: i32, pub(super) crc: u32,
+    pub(super) staged_fallback: bool,
+}
+#[derive(Debug)]
+pub(super) struct HeldFileProgress {
+    pub(super) completed_selection: bool,
+    pub(super) success_articles: i32, pub(super) failed_articles: i32,
+    pub(super) remaining_size: i64, pub(super) success_size: i64, pub(super) failed_size: i64,
+    pub(super) completed_articles: i32, pub(super) decoded_file_size: i64,
+    pub(super) hash16k: Option<EnvelopeSpan>, pub(super) par_set_id: Option<EnvelopeSpan>,
+}
+#[derive(Debug)]
+pub(super) struct HeldServerStat { pub(super) persisted_state_id: i32, pub(super) success_articles: i32, pub(super) failed_articles: i32 }
+
+// Read-only views are data, not constructible validation capabilities. Only
+// ValidatedHeldFile can be accepted by future core preparation.
+pub(super) struct HeldFileView<'a> {
+    pub target: &'a ExactReference, pub parent: &'a ExactReference,
+    pub source: &'a SourceValidation, pub custody: &'a CustodyReceipt,
+    pub parent_source: &'a SourceValidation, pub parent_custody: &'a CustodyReceipt,
+    pub subject: &'a [u8], pub filename: &'a [u8],
+    pub original_name_disk: &'a [u8], pub output_filename: &'a [u8],
+    pub filename_confirmed: bool, pub time: i32, pub size: i64, pub missed_size: i64,
+    pub par_file: bool, pub total_articles: i32, pub missed_articles: i32,
+    pub group_count: usize, pub article_count: usize,
+    pub progress: Option<HeldFileProgressView<'a>>,
+    pub persisted_server_stat_count: usize,
+}
+pub(super) struct HeldArticleView<'a> {
+    pub part_number: i32, pub advertised_size: i32, pub message_id: &'a [u8],
+    pub progress: Option<HeldArticleProgressView>,
+}
+pub(super) struct HeldArticleProgressView {
+    pub status: u32, pub segment_offset: i64, pub segment_size: i32,
+    pub crc: u32, pub staged_fallback: bool,
+}
+pub(super) struct HeldFileProgressView<'a> {
+    pub completed_selection: bool, pub success_articles: i32, pub failed_articles: i32,
+    pub remaining_size: i64, pub success_size: i64, pub failed_size: i64,
+    pub completed_articles: i32, pub decoded_file_size: i64,
+    pub hash16k: Option<&'a [u8]>, pub par_set_id: Option<&'a [u8]>,
+}
+pub(super) struct HeldServerStatView {
+    pub persisted_state_id: i32, pub success_articles: i32, pub failed_articles: i32,
+}
+
+// Dynamic logical-capacity accounting for the already-preflighted held path.
+// No allocator exactness assumption: admit every actual Vec capacity before use.
+// A just-returned rejected allocation can transiently exist; this is not RSS.
+pub(super) struct HeldCapacity { bytes:std::cell::Cell<usize> }
+impl HeldCapacity {
+    pub(super) fn new(bytes:usize)->Result<Self,PurgeError>{
+        if bytes>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}Ok(Self{bytes:std::cell::Cell::new(bytes)})
+    }
+    pub(super) fn bytes(&self)->usize{self.bytes.get()}
+    pub(super) fn preflight<T>(&self,n:usize)->Result<(),PurgeError>{
+        let bytes=n.checked_mul(std::mem::size_of::<T>()).and_then(|n|self.bytes().checked_add(n)).ok_or(PurgeError::LimitExceeded)?;
+        if bytes>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}Ok(())
+    }
+    pub(super) fn admit_vec<T>(&self,requested:usize,value:&Vec<T>)->Result<(),PurgeError>{
+        if value.capacity()<requested{return Err(PurgeError::LimitExceeded);}
+        self.preflight::<T>(value.capacity())?;
+        let bytes=value.capacity().checked_mul(std::mem::size_of::<T>()).and_then(|n|self.bytes().checked_add(n)).ok_or(PurgeError::LimitExceeded)?;
+        self.bytes.set(bytes);Ok(())
+    }
+    pub(super) fn reserved<T>(&self,n:usize)->Result<Vec<T>,PurgeError>{
+        self.preflight::<T>(n)?;let value=reserved(n)?;self.admit_vec(n,&value)?;Ok(value)
+    }
+    pub(super) fn drop_scratch<T:Copy>(&self,value:Vec<T>)->Result<(),PurgeError>{
+        let bytes=value.capacity().checked_mul(std::mem::size_of::<T>()).ok_or(PurgeError::LimitExceeded)?;
+        drop(value); // release logical charge only AFTER backing destruction
+        self.bytes.set(self.bytes().checked_sub(bytes).ok_or(PurgeError::InvalidInput)?);Ok(())
+    }
+    // Copy results cannot own Vec backing. Locals are dropped before returning;
+    // borrowed references and fixed scalar validation results may escape.
+    pub(super) fn scratch<T:Copy>(&self,operation:impl FnOnce()->Result<T,PurgeError>)->Result<T,PurgeError>{
+        let before=self.bytes();let result=operation();self.bytes.set(before);result
+    }
+    // Decoded ownership stays charged on success. On failure all closure locals
+    // have already dropped, including partially decoded nested vectors.
+    pub(super) fn retained<T>(&self,operation:impl FnOnce()->Result<T,PurgeError>)->Result<T,PurgeError>{
+        let before=self.bytes();let result=operation();if result.is_err(){self.bytes.set(before);}result
+    }
+}
+
+// One checked logical-capacity sum. This does not measure allocator overhead or
+// Host implementations; no caller-supplied budget can bypass the accounting.
+pub(super) struct HeldBudget { bytes:usize }
+impl HeldBudget {
+    pub(super) fn new()->Self{Self{bytes:0}}
+    pub(super) fn add(&mut self,n:usize)->Result<(),PurgeError>{
+        self.bytes=self.bytes.checked_add(n).ok_or(PurgeError::LimitExceeded)?;
+        if self.bytes>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}Ok(())
+    }
+    pub(super) fn array<T>(&mut self,n:usize)->Result<(),PurgeError>{self.add(n.checked_mul(std::mem::size_of::<T>()).ok_or(PurgeError::LimitExceeded)?)}
+    fn binding(&mut self,b:&MemberBinding)->Result<(),PurgeError>{self.add(b.posting_source.capacity())}
+    fn optional_binding(&mut self,b:&Option<MemberBinding>)->Result<(),PurgeError>{if let Some(b)=b{self.binding(b)?;}Ok(())}
+    fn source(&mut self,s:&SourceValidation)->Result<(),PurgeError>{self.binding(&s.binding)?;self.optional_binding(&s.parent_collection)}
+    fn record(&mut self,r:&SubjectRecord)->Result<(),PurgeError>{
+        self.array::<SubjectRecord>(1)?;self.binding(&r.binding)?;self.optional_binding(&r.prior)?;
+        self.source(&r.source)?;self.optional_binding(&r.parent)?;
+        self.add(r.original_source_bytes.capacity())?;self.add(r.immutable_source_bytes.capacity())
+    }
+    fn reference(&mut self,r:&ExactReference)->Result<(),PurgeError>{self.binding(&r.binding)?;self.optional_binding(&r.parent)}
+}
+pub(super) fn held_wire_size<T:Wire>(v:&T)->Result<usize,PurgeError>{
+    let mut writer=Writer{bytes:Vec::new(),size:0,measuring:true,fixed_limit:None};v.put(&mut writer)?;Ok(writer.size)
+}
+fn held_source_scratch(b:&mut HeldBudget,r:&SubjectRecord)->Result<(),PurgeError>{
+    let binding=held_wire_size(&r.binding)?;let parent=held_wire_size(&r.parent)?;
+    b.add(binding)?;b.add(parent)?;
+    // source_key owns both wires and its framed key at the same time.
+    b.add(17usize.checked_add(16).and_then(|n|n.checked_add(binding)).and_then(|n|n.checked_add(parent)).and_then(|n|n.checked_add(52)).ok_or(PurgeError::LimitExceeded)?)?;
+    // Only SourceValidation is copied, never SubjectRecord. Generic copy has
+    // wire plus decoded ownership simultaneously, included here explicitly.
+    b.add(held_wire_size(&r.source)?)?;b.array::<SourceValidation>(1)?;b.add(r.source.heap_size()?)?;Ok(())
+}
+impl Registry {
+    // Candidate selection by borrow is NOT validation authority. The complete
+    // resolver/custody/key checks run after ALL allocation sizing succeeds.
+    fn held_reference_candidate(&self,r:&ExactReference)->Result<&SubjectRecord,PurgeError>{
+        if self.recovery_required{return Err(PurgeError::RecoveryRequired);}
+        check_binding(&r.binding)?;if let Some(parent)=&r.parent{check_binding(parent)?;}
+        if r.domain!=self.domain||r.subject_revision==0||r.publication_sequence==0{return Err(PurgeError::Conflict);}
+        let record=self.subjects.iter().find(|v|v.domain==r.domain&&v.binding==r.binding&&v.subject_revision==r.subject_revision&&v.publication_sequence==r.publication_sequence).ok_or(PurgeError::MissingInventory)?;
+        if record.parent!=r.parent||record.source.source_record_id!=r.source_record_id{return Err(PurgeError::Conflict);}
+        if record.schema_version!=2||record.immutable_capture_version!=1{return Err(PurgeError::Unsupported);}Ok(record)
+    }
+    pub(super) fn validate_held_recovery_input(&self,input:&mut Option<HeldRecoveryInput>,host:&impl Host)->Result<ValidatedHeldFile,PurgeError>{
+        use super::runtime_core::{DependencyRole,InstallMode};
+        let captured=input.as_ref().ok_or(PurgeError::InvalidInput)?;
+        let request=&captured.request;
+        let mut budget=HeldBudget::new();budget.array::<ValidatedHeldFile>(1)?;
+        budget.add(captured.envelope.capacity())?;budget.add(captured.observations.capacity())?;
+        budget.array::<ServerIdPair>(captured.server_mapping.capacity())?;
+        budget.array::<super::runtime_core::DependencyRequest>(request.dependencies.capacity())?;
+        budget.add(request.desired_writes.capacity())?;budget.reference(&request.target)?;
+        for d in &request.dependencies{budget.reference(&d.reference)?;if let Some(p)=&d.current_preimage{budget.add(p.capacity())?;}}
+        if request.mode!=InstallMode::ArticlesAndProgress||request.schema!=1{return Err(PurgeError::Unsupported);}
+        if request.desired_writes.len()!=0||request.desired_writes.capacity()!=0||request.owner_kind==0||request.work_kind==0||request.parent_ticket.is_some(){return Err(PurgeError::InvalidInput);}
+        let [target_input,parent_input]=request.dependencies.as_slice() else{return Err(PurgeError::InvalidInput);};
+        if target_input.reference!=request.target||target_input.role!=DependencyRole::InstallTarget||target_input.current_preimage.is_none()
+            ||parent_input.role!=DependencyRole::ImmutableParent||parent_input.current_preimage.is_some(){return Err(PurgeError::InvalidInput);}
+        let target=self.held_reference_candidate(&request.target)?;let parent=self.held_reference_candidate(&parent_input.reference)?;
+        if target.source_kind!=2||target.binding.file_id.is_none()||target.parent.as_ref()!=Some(&parent.binding)
+            ||parent.source_kind!=1||parent.binding.file_id.is_some()||parent.parent.is_some(){return Err(PurgeError::Conflict);}
+        budget.record(target)?;budget.record(parent)?;
+        self.held_intake_retained_budget(target,&mut budget)?;self.held_intake_retained_budget(parent,&mut budget)?;
+        let retained_bytes=budget.bytes;
+        // Conservative fixed temporary ownership counted throughout; these same
+        // terms are included below in the complete requested preflight.
+        let fixed_temporary=std::mem::size_of::<SourceValidation>().checked_mul(2)
+            .and_then(|n|n.checked_add(std::mem::size_of::<source_codec::DecodedHeldFile>()))
+            .and_then(|n|n.checked_add(std::mem::size_of::<intake::CapturedDescriptor>().checked_mul(2)?))
+            .ok_or(PurgeError::LimitExceeded)?;
+        held_source_scratch(&mut budget,target)?;held_source_scratch(&mut budget,parent)?;
+        self.held_intake_scratch_budget(target,&mut budget)?;self.held_intake_scratch_budget(parent,&mut budget)?;
+        // These two passes share the existing codec and allocate nothing.
+        let shape=source_codec::held_file_shape(&captured.envelope)?;
+        source_codec::held_read(2,&captured.envelope,&captured.observations)?;
+        budget.add(source_codec::project_size(2,&captured.envelope)?)?;
+        budget.array::<EnvelopeSpan>(shape.groups)?;budget.array::<HeldArticle>(shape.articles)?;
+        budget.array::<HeldServerStat>(shape.stats)?;budget.array::<i64>(shape.stats)?;
+        budget.array::<source_codec::DecodedHeldFile>(1)?;
+        let capacity=HeldCapacity::new(retained_bytes.checked_add(fixed_temporary).ok_or(PurgeError::LimitExceeded)?)?;
+        // No allocation/resolver/copy/Host callback appears above this point.
+        self.ready(host)?;
+        if request.producer.id==0 || !self.id_reservations.iter().any(|r|
+            r.id_namespace==2 && r.request==request.producer.request
+            && r.publication_sequence==request.producer.publication_sequence
+            && r.publication_sequence!=0 && r.first<=request.producer.id && request.producer.id<=r.last)
+        {return Err(PurgeError::Conflict);}
+        if source_key_accounted(target,Some(&capacity))?!=request.target.source_record_id||source_key_accounted(parent,Some(&capacity))?!=parent_input.reference.source_record_id{return Err(PurgeError::Conflict);}
+        self.validate_subject_custody_accounted(target,Some(&capacity))?;self.validate_subject_custody_accounted(parent,Some(&capacity))?;
+        self.validate_held_intake_source(target,&captured.envelope,&capacity)?;
+        capacity.scratch(||{
+            let projection=source_codec::project_held_file(&captured.envelope,&capacity)?;
+            if projection!=target.immutable_source_bytes{return Err(PurgeError::Conflict);}Ok(())
+        })?;
+        let decoded=source_codec::decode_held_file_accounted(&captured.envelope,shape,Some(&capacity))?;
+        let target_source=copy_accounted(&target.source,&capacity)?;let target_custody=target.custody.clone();
+        let parent_source=copy_accounted(&parent.source,&capacity)?;let parent_custody=parent.custody.clone();
+        let measured_owned_bytes=capacity.bytes();
+        // The last operation is an infallible ownership transfer. Any prior
+        // error drops temporary storage outside guards and preserves Some.
+        let owned=input.take().expect("borrowed Some retained through validation");
+        Ok(ValidatedHeldFile{input:owned,target_source,target_custody,parent_source,parent_custody,schema_version:2,immutable_capture_version:1,source_kind:2,
+            summary:decoded.summary,articles:decoded.articles,progress:Some(decoded.progress),persisted_server_stats:decoded.stats,measured_owned_bytes})
+    }
+}
+impl ValidatedHeldFile {
+    pub(super) fn target(&self)->&ExactReference{&self.input.request.target}
+    pub(super) fn parent(&self)->&ExactReference{&self.input.request.dependencies[1].reference}
+    pub(super) fn request(&self)->&RecoveryPrepareRequest{&self.input.request}
+    pub(super) fn envelope(&self)->&[u8]{&self.input.envelope}
+    pub(super) fn observations(&self)->&[u8]{&self.input.observations}
+    pub(super) fn server_mapping(&self)->&[ServerIdPair]{&self.input.server_mapping}
+    pub(super) fn source_validation(&self)->(&SourceValidation,&CustodyReceipt){(&self.target_source,&self.target_custody)}
+    pub(super) fn parent_validation(&self)->(&SourceValidation,&CustodyReceipt){(&self.parent_source,&self.parent_custody)}
+    fn span(&self,s:EnvelopeSpan)->&[u8]{&self.input.envelope[s.begin..s.begin+s.len]}
+    pub(super) fn view(&self)->HeldFileView<'_>{
+        let s=&self.summary;HeldFileView{target:self.target(),parent:self.parent(),source:&self.target_source,custody:&self.target_custody,parent_source:&self.parent_source,parent_custody:&self.parent_custody,
+            subject:self.span(s.subject),filename:self.span(s.filename),original_name_disk:self.span(s.original_name_disk),output_filename:self.span(s.output_filename),
+            filename_confirmed:s.filename_confirmed,time:s.time,size:s.size,missed_size:s.missed_size,par_file:s.par_file,total_articles:s.total_articles,missed_articles:s.missed_articles,
+            group_count:s.groups.len(),article_count:self.articles.len(),persisted_server_stat_count:self.persisted_server_stats.len(),progress:self.progress.as_ref().map(|p|HeldFileProgressView{
+                completed_selection:p.completed_selection,success_articles:p.success_articles,failed_articles:p.failed_articles,remaining_size:p.remaining_size,success_size:p.success_size,failed_size:p.failed_size,
+                completed_articles:p.completed_articles,decoded_file_size:p.decoded_file_size,hash16k:p.hash16k.map(|s|self.span(s)),par_set_id:p.par_set_id.map(|s|self.span(s))})}
+    }
+    pub(super) fn group(&self,index:usize)->Option<&[u8]>{self.summary.groups.get(index).map(|s|self.span(*s))}
+    pub(super) fn article(&self,index:usize)->Option<HeldArticleView<'_>>{self.articles.get(index).map(|a|HeldArticleView{
+        part_number:a.part_number,advertised_size:a.advertised_size,message_id:self.span(a.message_id),progress:a.progress.as_ref().map(|p|HeldArticleProgressView{status:p.status,segment_offset:p.segment_offset,segment_size:p.segment_size,crc:p.crc,staged_fallback:p.staged_fallback})})}
+    pub(super) fn persisted_server_stat(&self,index:usize)->Option<HeldServerStatView>{self.persisted_server_stats.get(index).map(|s|HeldServerStatView{persisted_state_id:s.persisted_state_id,success_articles:s.success_articles,failed_articles:s.failed_articles})}
 }

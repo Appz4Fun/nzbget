@@ -136,12 +136,17 @@ fn u32n(n:i64)->Result<u32,PurgeError>{u32::try_from(n).map_err(|_|PurgeError::I
 fn nonnegative(n:i64)->Result<(),PurgeError>{range(n,0,i32::MAX as i64)}
 fn boolean(n:i64)->Result<(),PurgeError>{range(n,0,1)}
 fn pair(hi:i64,lo:i64)->Result<u64,PurgeError>{let n=(u64::from(u32n(hi)?)<<32)|u64::from(u32n(lo)?);if n>i64::MAX as u64{return Err(PurgeError::InvalidInput);}Ok(n)}
-struct Projection { bytes: Vec<u8>, length: usize, counting: bool }
+struct Projection { bytes: Vec<u8>, length: usize, counting: bool, fixed_limit:Option<usize> }
 impl Projection {
     fn append(&mut self,b:&[u8])->Result<(),PurgeError>{
         let length=self.length.checked_add(b.len()).ok_or(PurgeError::LimitExceeded)?;
         if length>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}
-        if !self.counting {self.bytes.try_reserve(b.len()).map_err(|_|PurgeError::AllocationFailure)?;self.bytes.extend_from_slice(b);}
+        if !self.counting {
+            if let Some(limit)=self.fixed_limit {
+                if length>limit||length>self.bytes.capacity(){return Err(PurgeError::LimitExceeded);}
+            }else{self.bytes.try_reserve(b.len()).map_err(|_|PurgeError::AllocationFailure)?;}
+            self.bytes.extend_from_slice(b);
+        }
         self.length=length;Ok(())
     }
     fn u32(&mut self,n:u32)->Result<(),PurgeError>{self.append(&n.to_le_bytes())}
@@ -152,47 +157,121 @@ impl Projection {
 }
 fn stats(lines:&mut Lines<'_>)->Result<(),PurgeError>{stats_mode(lines,false)}
 fn stats_mode(lines:&mut Lines<'_>,counting:bool)->Result<(),PurgeError>{
+    stats_output(lines,counting,None,None)
+}
+fn stats_output(lines:&mut Lines<'_>,counting:bool,output:Option<&mut FileOutput<'_>>,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
+    let operation=||stats_output_inner(lines,counting,output,capacity);
+    match capacity{Some(c)=>c.scratch(operation),None=>operation()}
+}
+fn stats_output_inner(lines:&mut Lines<'_>,counting:bool,mut output:Option<&mut FileOutput<'_>>,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
     let n=lines.count(MAX_MEMBERS)?;
-    // Validate every declared row on a borrowed cursor before reserving IDs.
-    // The projection sizing pass never allocates validation scratch storage.
     let rows=*lines;
-    for _ in 0..n{let [id,success,failed]=lines.numbers()?;range(id,1,i32::MAX as i64)?;nonnegative(success)?;nonnegative(failed)?;}
+    for _ in 0..n{
+        let [id,success,failed]=lines.numbers()?;range(id,1,i32::MAX as i64)?;nonnegative(success)?;nonnegative(failed)?;
+        if let Some(out)=output.as_deref_mut(){
+            out.shape.stats=out.shape.stats.checked_add(1).ok_or(PurgeError::LimitExceeded)?;
+            if out.emitting {held_push(&mut out.stats,subjects::HeldServerStat{persisted_state_id:id as i32,success_articles:success as i32,failed_articles:failed as i32})?;}
+        }
+    }
     if counting{return Ok(());}
-    let mut rows=rows;let mut ids=reserved(n)?;
+    let mut rows=rows;let mut ids=reserved_accounted(n,capacity)?;
     for _ in 0..n{let [id,_,_]=rows.numbers()?;ids.push(id);}
     ids.sort_unstable();if ids.windows(2).any(|w|w[0]==w[1]){return Err(PurgeError::InvalidInput);}Ok(())
 }
 struct FileFacts<'a>{name:&'a[u8],par:i64,total:i64,articles:usize,available:u64}
-fn file_summary<'a>(body:&'a[u8],p:&mut Projection)->Result<FileFacts<'a>,PurgeError>{
+fn file_summary<'a>(body:&'a[u8],p:&mut Projection)->Result<FileFacts<'a>,PurgeError>{file_summary_output(body,p,None)}
+fn file_summary_output<'a>(body:&'a[u8],p:&mut Projection,mut output:Option<&mut FileOutput<'_>>)->Result<FileFacts<'a>,PurgeError>{
     let mut l=Lines::new(body)?;
-    p.text(l.string()?)?;let name=l.string()?;p.text(name)?;p.text(l.string()?)?;p.text(l.string()?)?;
+    let subject=l.string()?;p.text(subject)?;let name=l.string()?;p.text(name)?;
+    let original=l.string()?;p.text(original)?;let filename=l.string()?;p.text(filename)?;
     let [confirmed,date]=l.numbers()?;p.boolean(confirmed)?;p.i32(date)?;
     let [hi,lo]=l.numbers()?;let size=pair(hi,lo)?;p.u64(size)?;
-    let [hi,lo]=l.numbers()?;let missed=pair(hi,lo)?;if missed>size{return Err(PurgeError::InvalidInput);}p.u64(missed)?;let available=size-missed;
+    let [hi,lo]=l.numbers()?;let missed_size=pair(hi,lo)?;if missed_size>size{return Err(PurgeError::InvalidInput);}p.u64(missed_size)?;let available=size-missed_size;
     let [par]=l.numbers()?;p.boolean(par)?;
     let [total,missed]=l.numbers()?;nonnegative(total)?;range(missed,0,total)?;p.i32(total)?;p.i32(missed)?;
-    let groups=l.count(MAX_MEMBERS)?;p.u32(groups as u32)?;for _ in 0..groups{p.text(l.string()?)?;}
+    if let Some(out)=output.as_deref_mut(){
+        out.summary=Some(subjects::HeldFileSummary{subject:out.span(subject)?,filename:out.span(name)?,original_name_disk:out.span(original)?,output_filename:out.span(filename)?,filename_confirmed:confirmed==1,time:date as i32,size:size as i64,missed_size:missed_size as i64,par_file:par==1,total_articles:total as i32,missed_articles:missed as i32,groups:Vec::new()});
+    }
+    let groups=l.count(MAX_MEMBERS)?;p.u32(groups as u32)?;
+    for _ in 0..groups{let group=l.string()?;p.text(group)?;if let Some(out)=output.as_deref_mut(){let span=out.span(group)?;if out.emitting{held_push(&mut out.groups,span)?;}}}
     let articles=l.count(1_000_000)?;if articles as i64+missed!=total{return Err(PurgeError::InvalidInput);}p.u32(articles as u32)?;
+    if let Some(out)=output.as_deref_mut(){out.shape.groups=groups;out.shape.articles=articles;}
     let mut previous=0;
-    for _ in 0..articles{let [part,size]=l.numbers()?;range(part,previous+1,i32::MAX as i64)?;previous=part;p.i32(part)?;p.i32(size)?;let id=l.string()?;if id.is_empty(){return Err(PurgeError::InvalidInput);}p.text(id)?;}
+    for _ in 0..articles{
+        let [part,size]=l.numbers()?;range(part,previous+1,i32::MAX as i64)?;previous=part;p.i32(part)?;p.i32(size)?;
+        let id=l.string()?;if id.is_empty(){return Err(PurgeError::InvalidInput);}p.text(id)?;
+        if let Some(out)=output.as_deref_mut(){let span=out.span(id)?;if out.emitting{held_push(&mut out.articles,subjects::HeldArticle{part_number:part as i32,advertised_size:size as i32,message_id:span,progress:None})?;}}
+    }
     l.done()?;Ok(FileFacts{name,par,total,articles,available})
 }
-fn file_state(body:&[u8],f:&FileFacts<'_>,completed:bool,counting:bool)->Result<(),PurgeError>{
+fn file_state(body:&[u8],f:&FileFacts<'_>,completed:bool,counting:bool)->Result<(),PurgeError>{file_state_output(body,f,completed,counting,None,None)}
+fn file_state_output(body:&[u8],f:&FileFacts<'_>,completed:bool,counting:bool,mut output:Option<&mut FileOutput<'_>>,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
     let mut l=Lines::new(body)?;let [success,failed]=l.numbers()?;range(success,0,f.total)?;range(failed,0,f.total-success)?;
     let sizes:[i64;6]=l.numbers()?;
     let remaining=pair(sizes[0],sizes[1])?;let success_bytes=pair(sizes[2],sizes[3])?;let failed_bytes=pair(sizes[4],sizes[5])?;
-    // Actual NzbFile initialization and QueueCoordinator completion/demotion/
-    // reset preserve remaining+success+failed == summary size-missed bytes.
-    // Subtraction checks avoid overflow; these are current-body facts only.
+    // Same size-minus-missed current-body consistency as the existing writer.
     if remaining>f.available||success_bytes>f.available-remaining||failed_bytes!=f.available-remaining-success_bytes{return Err(PurgeError::InvalidInput);}
-    if l.string()?!=f.name{return Err(PurgeError::Conflict);}l.string()?;l.string()?;
-    let [par]=l.numbers()?;boolean(par)?;if par!=f.par{return Err(PurgeError::Conflict);}stats_mode(&mut l,counting)?;
+    if l.string()?!=f.name{return Err(PurgeError::Conflict);}let hash=l.string()?;let parset=l.string()?;
+    let [par]=l.numbers()?;boolean(par)?;if par!=f.par{return Err(PurgeError::Conflict);}stats_output(&mut l,counting,output.as_deref_mut(),capacity)?;
     if l.count(1_000_000)?!=f.articles{return Err(PurgeError::InvalidInput);}
-    for _ in 0..f.articles{
+    let mut completed_articles=0i32;
+    for index in 0..f.articles{
         let [status,offset,size,crc,staged]=l.numbers()?;range(status,0,3)?;range(offset,0,i64::MAX)?;nonnegative(size)?;u32n(crc)?;boolean(staged)?;
         if offset.checked_add(size).is_none()||staged==1&&(completed||status!=0){return Err(PurgeError::InvalidInput);}
+        if status!=0{completed_articles=completed_articles.checked_add(1).ok_or(PurgeError::LimitExceeded)?;}
+        if let Some(out)=output.as_deref_mut(){if out.emitting{out.articles.get_mut(index).ok_or(PurgeError::InvalidInput)?.progress=Some(subjects::HeldArticleProgress{status:status as u32,segment_offset:offset,segment_size:size as i32,crc:crc as u32,staged_fallback:staged==1});}}
     }
-    let tail=l.line()?.strip_prefix(b"#decoded ").ok_or(PurgeError::InvalidInput)?;let [hi,lo]=numbers(tail)?;pair(hi,lo)?;l.done()
+    let tail=l.line()?.strip_prefix(b"#decoded ").ok_or(PurgeError::InvalidInput)?;let [hi,lo]=numbers(tail)?;let decoded=pair(hi,lo)?;l.done()?;
+    if let Some(out)=output.as_deref_mut(){
+        out.progress=Some(subjects::HeldFileProgress{completed_selection:completed,success_articles:success as i32,failed_articles:failed as i32,remaining_size:remaining as i64,success_size:success_bytes as i64,failed_size:failed_bytes as i64,completed_articles,decoded_file_size:decoded as i64,hash16k:if hash.is_empty(){None}else{Some(out.span(hash)?)},par_set_id:if parset.is_empty(){None}else{Some(out.span(parset)?)}});
+    }Ok(())
+}
+
+// An optional sink on the SAME existing field traversal; no second grammar.
+#[derive(Clone,Copy,Debug,Default,PartialEq,Eq)]
+pub(super) struct HeldFileShape {pub groups:usize,pub articles:usize,pub stats:usize}
+pub(super) struct DecodedHeldFile {
+    pub summary:subjects::HeldFileSummary,pub articles:Vec<subjects::HeldArticle>,
+    pub progress:subjects::HeldFileProgress,pub stats:Vec<subjects::HeldServerStat>,
+}
+fn held_push<T>(rows:&mut Vec<T>,value:T)->Result<(),PurgeError>{
+    if rows.len()==rows.capacity(){return Err(PurgeError::LimitExceeded);}
+    rows.push(value);Ok(())
+}
+struct FileOutput<'a>{
+    envelope:&'a[u8],capacity:Option<&'a subjects::HeldCapacity>,emitting:bool,shape:HeldFileShape,summary:Option<subjects::HeldFileSummary>,
+    groups:Vec<subjects::EnvelopeSpan>,articles:Vec<subjects::HeldArticle>,progress:Option<subjects::HeldFileProgress>,stats:Vec<subjects::HeldServerStat>,
+}
+impl FileOutput<'_>{
+    fn span(&self,bytes:&[u8])->Result<subjects::EnvelopeSpan,PurgeError>{
+        let begin=(bytes.as_ptr() as usize).checked_sub(self.envelope.as_ptr() as usize).ok_or(PurgeError::InvalidInput)?;
+        let end=begin.checked_add(bytes.len()).ok_or(PurgeError::LimitExceeded)?;
+        if end>self.envelope.len(){return Err(PurgeError::InvalidInput);}Ok(subjects::EnvelopeSpan{begin,len:bytes.len()})
+    }
+}
+fn walk_held_file(out:&mut FileOutput<'_>)->Result<(),PurgeError>{
+    let e=Envelope::parse(2,out.envelope)?;let state=e.second.ok_or(PurgeError::InvalidInput)?;
+    let mut p=Projection{bytes:Vec::new(),length:0,counting:true,fixed_limit:None};
+    let facts=file_summary_output(e.body,&mut p,Some(out))?;
+    let capacity=out.capacity;
+    file_state_output(state,&facts,e.completed,!out.emitting,Some(out),capacity)
+}
+pub(super) fn held_file_shape(bytes:&[u8])->Result<HeldFileShape,PurgeError>{
+    let mut out=FileOutput{envelope:bytes,capacity:None,emitting:false,shape:HeldFileShape::default(),summary:None,groups:Vec::new(),articles:Vec::new(),progress:None,stats:Vec::new()};
+    walk_held_file(&mut out)?;Ok(out.shape)
+}
+pub(super) fn decode_held_file(bytes:&[u8],shape:HeldFileShape)->Result<DecodedHeldFile,PurgeError>{
+    decode_held_file_accounted(bytes,shape,None)
+}
+pub(super) fn decode_held_file_accounted(bytes:&[u8],shape:HeldFileShape,capacity:Option<&subjects::HeldCapacity>)->Result<DecodedHeldFile,PurgeError>{
+    let operation=||{
+        let mut out=FileOutput{envelope:bytes,capacity,emitting:true,shape:HeldFileShape::default(),summary:None,
+            groups:reserved_accounted(shape.groups,capacity)?,articles:reserved_accounted(shape.articles,capacity)?,progress:None,stats:reserved_accounted(shape.stats,capacity)?};
+        walk_held_file(&mut out)?;if out.shape!=shape{return Err(PurgeError::InvalidInput);}
+        let mut summary=out.summary.ok_or(PurgeError::InvalidInput)?;summary.groups=out.groups;
+        Ok(DecodedHeldFile{summary,articles:out.articles,progress:out.progress.ok_or(PurgeError::InvalidInput)?,stats:out.stats})
+    };
+    match capacity{Some(c)=>c.retained(operation),None=>operation()}
 }
 
 fn collection(body:&[u8],extras:&[u8],p:&mut Projection)->Result<(i32,Vec<i64>),PurgeError>{
@@ -263,7 +342,7 @@ pub(super) struct Envelope<'a>{pub kind:u32,pub body:&'a[u8],pub second:Option<&
 impl<'a> Envelope<'a>{
     pub(super) fn parse(kind:u32,bytes:&'a[u8])->Result<Self,PurgeError>{
         if bytes.len()>MAX_PAYLOAD||!bytes.starts_with(b"PURGE-SOURCE-BYTES1"){return Err(PurgeError::InvalidInput);}
-        let mut r=Reader{bytes,offset:19,owned:0,owned_limit:MAX_PAYLOAD};
+        let mut r=Reader{held_capacity:None,bytes,offset:19,owned:0,owned_limit:MAX_PAYLOAD};
         if u32::get(&mut r)?!=1||u32::get(&mut r)?!=kind{return Err(PurgeError::InvalidInput);}
         let version=u32::get(&mut r)?;
         // Exact original64/7 source bodies only. Old codecs never silently gain
@@ -282,21 +361,31 @@ impl<'a> Envelope<'a>{
 // Full membership/duplicate validation still runs in the emitting pass after
 // the caller has included original, projection and exact retained-prior bytes.
 pub(super) fn project_size(kind:u32,bytes:&[u8])->Result<usize,PurgeError>{
-    let mut projection=Projection{bytes:Vec::new(),length:0,counting:true};
+    let mut projection=Projection{bytes:Vec::new(),length:0,counting:true,fixed_limit:None};
     project_into(kind,bytes,&mut projection)?;Ok(projection.length)
 }
 pub(super) fn project(kind:u32,bytes:&[u8])->Result<Vec<u8>,PurgeError>{
     let length=project_size(kind,bytes)?;
-    let mut projection=Projection{bytes:reserved(length)?,length:0,counting:false};
+    let mut projection=Projection{bytes:reserved(length)?,length:0,counting:false,fixed_limit:None};
     project_into(kind,bytes,&mut projection)?;
     if projection.length!=length{return Err(PurgeError::InvalidInput);}Ok(projection.bytes)
 }
-fn project_into(kind:u32,bytes:&[u8],projection:&mut Projection)->Result<(),PurgeError>{
+pub(super) fn project_held_file(bytes:&[u8],capacity:&subjects::HeldCapacity)->Result<Vec<u8>,PurgeError>{
+    capacity.retained(||{
+        let length=project_size(2,bytes)?;
+        let mut projection=Projection{bytes:capacity.reserved(length)?,length:0,counting:false,fixed_limit:Some(length)};
+        project_into_accounted(2,bytes,&mut projection,Some(capacity))?;
+        if projection.length!=length{return Err(PurgeError::InvalidInput);}Ok(projection.bytes)
+    })
+}
+fn project_into(kind:u32,bytes:&[u8],projection:&mut Projection)->Result<(),PurgeError>{project_into_accounted(kind,bytes,projection,None)}
+fn project_into_accounted(kind:u32,bytes:&[u8],projection:&mut Projection,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
+    if capacity.is_some()&&kind!=2{return Err(PurgeError::Unsupported);}
     let e=Envelope::parse(kind,bytes)?;
     projection.append(b"PURGE-IMMUTABLE1")?;projection.u32(1)?;projection.u32(kind)?;
     match kind {
         1=>{collection(e.body,e.second.ok_or(PurgeError::InvalidInput)?,projection)?;},
-        2=>{let facts=file_summary(e.body,projection)?;if let Some(state)=e.second{file_state(state,&facts,e.completed,projection.counting)?;}},
+        2=>{let facts=file_summary(e.body,projection)?;if let Some(state)=e.second{file_state_output(state,&facts,e.completed,projection.counting,None,capacity)?;}},
         _=>return Err(PurgeError::InvalidInput),
     }
     Ok(())
@@ -307,7 +396,7 @@ fn project_into(kind:u32,bytes:&[u8],projection:&mut Projection)->Result<(),Purg
 pub(super) fn held_read(kind:u32,current:&[u8],observations:&[u8])->Result<(),PurgeError>{
     let e=Envelope::parse(kind,current)?;
     if observations.len()>32768{return Err(PurgeError::LimitExceeded);}
-    let mut r=Reader{bytes:observations,offset:0,owned:0,owned_limit:32768};
+    let mut r=Reader{held_capacity:None,bytes:observations,offset:0,owned:0,owned_limit:32768};
     if u32::get(&mut r)?!=1{return Err(PurgeError::InvalidInput);}
     let expected=if kind==2&&e.second.is_some(){2}else{1};
     if u32::get(&mut r)?!=expected{return Err(PurgeError::InvalidInput);}
@@ -319,7 +408,7 @@ pub(super) fn held_read(kind:u32,current:&[u8],observations:&[u8])->Result<(),Pu
         if n==0||n>4096{return Err(PurgeError::InvalidInput);}let leaf=r.take(n)?;
         if leaf==b"."||leaf==b".."||leaf.iter().any(|b|matches!(*b,0|b'/'|b'\\')){return Err(PurgeError::InvalidInput);}
         let before=r.take(64)?;if before!=r.take(64)?{return Err(PurgeError::Conflict);}
-        let mut stat=Reader{bytes:before,offset:0,owned:0,owned_limit:0};
+        let mut stat=Reader{held_capacity:None,bytes:before,offset:0,owned:0,owned_limit:0};
         let dev=u64::get(&mut stat)?;let ino=u64::get(&mut stat)?;let size=u64::get(&mut stat)?;let links=u64::get(&mut stat)?;
         let mode=u32::get(&mut stat)?;u32::get(&mut stat)?;i64::get(&mut stat)?;let mns=u32::get(&mut stat)?;i64::get(&mut stat)?;let cns=u32::get(&mut stat)?;
         if dev==0||ino==0||links==0||mode&0o170000!=0o100000||mns>=1_000_000_000||cns>=1_000_000_000{return Err(PurgeError::InvalidInput);}
@@ -339,7 +428,7 @@ pub(super) fn held_read(kind:u32,current:&[u8],observations:&[u8])->Result<(),Pu
 pub(super) fn matches_intake(kind:u32,bytes:&[u8],binding:&MemberBinding,files:&[intake::EffectiveFile])->Result<(),PurgeError>{
     let e=Envelope::parse(kind,bytes)?;
     if kind==1 {
-        let mut p=Projection{bytes:Vec::new(),length:0,counting:false};let (id,used)=collection(e.body,e.second.ok_or(PurgeError::InvalidInput)?,&mut p)?;
+        let mut p=Projection{bytes:Vec::new(),length:0,counting:false,fixed_limit:None};let (id,used)=collection(e.body,e.second.ok_or(PurgeError::InvalidInput)?,&mut p)?;
         if id!=binding.collection_id||binding.file_id.is_some(){return Err(PurgeError::Conflict);}
         let mut known=reserved(files.len())?;for file in files{known.push(i64::from(file.file_id));}known.sort_unstable();
         if used.iter().any(|id|known.binary_search(id).is_err()){return Err(PurgeError::Conflict);}
