@@ -2369,7 +2369,9 @@ var Config = (new function($)
 
 	this.applyCipherResults = function(result, snapshot)
 	{
-		if (!snapshot || Config.cipherSnapshot() !== snapshot) return false;
+		var currentSnapshot = Config.cipherSnapshot();
+		if (currentSnapshot === null) return false;
+		var canPatch = snapshot && currentSnapshot === snapshot;
 		var updates = [];
 		for (var i = 0; i < (result.Servers || []).length; i++)
 		{
@@ -2379,8 +2381,12 @@ var Config = (new function($)
 			var prefix = 'Server' + server.ID + '.';
 			var cipher = findOptionByName(prefix + 'Cipher');
 			var host = findOptionByName(prefix + 'Host'), port = findOptionByName(prefix + 'Port');
-			if (!cipher || !host || !port || getOptionValue(cipher) !== server.OldCipher ||
+			if (!cipher || !host || !port ||
 				getOptionValue(host) !== server.Host || String(getOptionValue(port)) !== String(server.Port)) return false;
+			// A fresh Settings read may already contain the persisted result.
+			// This no-op needs no old snapshot; changing a value still does.
+			if (getOptionValue(cipher) === server.SelectedCipher) continue;
+			if (!canPatch || getOptionValue(cipher) !== server.OldCipher) return false;
 			updates.push({ option: cipher, value: server.SelectedCipher });
 		}
 		updates.forEach(function(update) {

@@ -76,7 +76,7 @@ var TlsCipherDialog = (new function($)
 			((result.CommonSupported || []).join(', ') || text('none', 'None')));
 		if (result.Saved === true && result.State === 'completed' && appliedJob !== job)
 		{
-			if (!snapshot || !Config.applyCipherResults(result, snapshot))
+			if (!Config.applyCipherResults(result, snapshot))
 			{
 				saveBlocked = true;
 				message(text('browser_conflict', 'Settings were saved, but your server editor changed. Refresh Settings to see the saved ciphers; your edits have been retained.'));

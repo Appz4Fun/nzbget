@@ -30,7 +30,7 @@ async function installOfflineModel(page, base) {
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return route.abort();
     return route.fulfill({ path: file });
   });
-  return async ({ theme, width }) => {
+  const boot = async ({ theme, width }) => {
     for (const file of ['lib/jquery.min.js', 'lib/bootstrap.min.js', 'i18n.js']) await page.addScriptTag({ path: path.join(root, file) });
     await page.evaluate(() => new Promise(resolve => I18n.whenReady(resolve)));
     // Keep actual globals/helpers; omit only automatic application startup.
@@ -52,6 +52,12 @@ async function installOfflineModel(page, base) {
       jQuery('#ConfigTab').addClass('active');
     }, { options, theme, width });
   };
+  boot.setSavedValue = (name, value) => {
+    const option = options.find(option => option.Name === name);
+    if (option) option.Value = value;
+    else options.push({ Name: name, Value: value });
+  };
+  return boot;
 }
 
 (async () => {
@@ -286,7 +292,192 @@ async function installOfflineModel(page, base) {
       assert.deepEqual(errors, []);
       await context.close();
     }
-    process.stdout.write('TLS cipher real Settings integration: four cases passed\n');
+    if (process.argv.includes('--offline')) {
+      // Real Settings reads after a page reload and a same-tab refresh. The
+      // daemon retains a completed job while saved config already has its result.
+      for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+        const context = await browser.newContext({ viewport: { width, height: 900 } });
+        const page = await context.newPage();
+        const boot = await installOfflineModel(page, base);
+        const selected = 'TLS_AES_256_GCM_SHA384', other = 'TLS_CHACHA20_POLY1305_SHA256';
+        boot.setSavedValue('Server1.Port', '563');
+        boot.setSavedValue('Server1.Cipher', selected);
+        boot.setSavedValue('Server2.Host', 'second.example.invalid');
+        boot.setSavedValue('Server2.Port', '563');
+        boot.setSavedValue('Server2.Cipher', other);
+        const result = { Available: true, State: 'completed', JobID: 'retained-saved-job', Saved: true,
+          ReloadRequired: true, Message: 'Saved fixture cipher.', Servers: [{ ID: 1, Name: 'Example provider',
+            Host: 'example.invalid', Port: 563, OldCipher: 'TLS_AES_128_GCM_SHA256',
+            SelectedCipher: selected, Outcome: 'saved' }] };
+        const writes = [], errors = [];
+        let holdNextStatus = false, releaseStatus;
+        let statusEntered;
+        const statusHeld = new Promise(resolve => { statusEntered = resolve; });
+        page.on('pageerror', error => errors.push(error.message));
+        await page.route(/\/jsonrpc(?:\/|$|\?)/, async route => {
+          const rpc = route.request().postDataJSON();
+          if (rpc.method.startsWith('tlscipher')) {
+            assert.equal(rpc.method, 'tlscipherstatus', 'Reopening a retained job must not start another test');
+            if (rpc.params.length) assert.equal(rpc.params[0], result.JobID);
+            if (holdNextStatus) {
+              holdNextStatus = false;
+              statusEntered();
+              await new Promise(resolve => { releaseStatus = resolve; });
+            }
+            return route.fulfill({ contentType: 'application/json', json: { result, id: rpc.id } });
+          }
+          if (rpc.method === 'saveconfig') {
+            writes.push(rpc);
+            return route.fulfill({ contentType: 'application/json', json: { result: true, id: rpc.id } });
+          }
+          return route.fallback();
+        });
+        async function newsEditor() {
+          await page.locator('#ConfigNav a[href="#NEWS-SERVERS"]').press('Enter');
+          const edit = page.locator('.NEWS-SERVERS.multiid1 .config-list-edit');
+          if (await edit.getAttribute('aria-expanded') !== 'true') await edit.press('Enter');
+          await page.locator('#S_Server1_Cipher').waitFor({ state: 'visible' });
+        }
+        await page.goto(base.href);
+        await boot({ theme, width });
+        await newsEditor();
+        const loadedSnapshot = await page.evaluate(() => Config.cipherSnapshot());
+        const loadedValues = await page.evaluate(() => JSON.stringify(Config.config().values));
+        assert.notEqual(loadedSnapshot, null);
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result, snapshot: loadedSnapshot }), true, 'A freshly loaded selected cipher is already reconciled');
+        assert.equal(await page.evaluate(result => Config.applyCipherResults(result, null), result), true,
+          'A clean persisted selected cipher needs no captured pre-job snapshot');
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result, snapshot: loadedSnapshot }), true, 'Repeated completed results are idempotent');
+        assert.equal(await page.evaluate(() => JSON.stringify(Config.config().values)), loadedValues,
+          'Already reconciled values remain byte-identical in the saved browser model');
+        for (const [id, changed, original] of [['Host', 'edited.example.invalid', 'example.invalid'],
+          ['Port', '564', '563'], ['Cipher', other, selected]]) {
+          const field = page.locator('#S_Server1_' + id);
+          await field.fill(changed);
+          assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+            { result, snapshot: loadedSnapshot }), false, 'Unsaved server edits remain conflicts: ' + id);
+          assert.equal(await field.inputValue(), changed);
+          await field.fill(original);
+        }
+        for (const identity of [{ Host: 'different.example.invalid' }, { Port: 564 }]) {
+          const mismatch = { ...result, Servers: [{ ...result.Servers[0], ...identity }] };
+          assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+            { result: mismatch, snapshot: loadedSnapshot }), false, 'Clean selected values still require the exact server identity');
+        }
+
+        const mixed = { ...result, Servers: [result.Servers[0], { ID: 2, Name: 'Second provider',
+          Host: 'second.example.invalid', Port: 563, OldCipher: 'TLS_AES_128_GCM_SHA256',
+          SelectedCipher: other, Outcome: 'saved' }] };
+        async function refreshSettings() {
+          await page.evaluate(() => { Config.hide(); Config.show(); Config.shown(); });
+          await newsEditor();
+        }
+        // A mixed result can patch old values only with an unchanged whole
+        // snapshot, while other rows may already contain their saved choice.
+        boot.setSavedValue('Server1.Cipher', result.Servers[0].OldCipher);
+        await refreshSettings();
+        const mixedSnapshot = await page.evaluate(() => Config.cipherSnapshot());
+        assert.equal(await page.evaluate(result => Config.applyCipherResults(result, null), mixed), false,
+          'A mixed result with an old cipher still requires a captured snapshot');
+        assert.equal(await page.locator('#S_Server1_Cipher').inputValue(), result.Servers[0].OldCipher);
+        boot.setSavedValue('Server1.Cipher', selected);
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result: mixed, snapshot: mixedSnapshot }), true, 'Mixed old and already-selected rows reconcile together');
+        const mixedValues = await page.evaluate(() => JSON.stringify(Config.config().values));
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result: mixed, snapshot: mixedSnapshot }), true);
+        assert.equal(await page.evaluate(() => JSON.stringify(Config.config().values)), mixedValues);
+
+        boot.setSavedValue('Server1.Cipher', result.Servers[0].OldCipher);
+        boot.setSavedValue('Server2.Cipher', selected);
+        await refreshSettings();
+        const conflictSnapshot = await page.evaluate(() => Config.cipherSnapshot());
+        const conflictValues = await page.evaluate(() => JSON.stringify(Config.config().values));
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result: mixed, snapshot: conflictSnapshot }), false, 'One conflicting row rejects the entire mixed result');
+        assert.equal(await page.locator('#S_Server1_Cipher').inputValue(), result.Servers[0].OldCipher,
+          'The earlier ready row must not be partially applied');
+        assert.equal(await page.evaluate(() => JSON.stringify(Config.config().values)), conflictValues);
+        boot.setSavedValue('Server2.Cipher', other);
+        await refreshSettings();
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result: mixed, snapshot: conflictSnapshot }), false, 'An old-cipher mutation still requires the entire captured snapshot');
+        assert.equal(await page.locator('#S_Server1_Cipher').inputValue(), result.Servers[0].OldCipher);
+        boot.setSavedValue('Server1.Cipher', selected);
+        await refreshSettings();
+        const dialog = page.locator('#TlsCipherDialog');
+        // A status response can arrive after Settings was refreshed while the
+        // dialog had no captured clean snapshot. Only a persisted no-op is safe.
+        await page.locator('#S_Server1_Host').fill('unsaved-before-refresh.example.invalid');
+        holdNextStatus = true;
+        await page.locator('#Config_OptimizeTls').press('Enter');
+        await dialog.waitFor({ state: 'visible' });
+        await statusHeld;
+        await page.locator('#TlsCipherClose').click();
+        await dialog.waitFor({ state: 'hidden' });
+        await refreshSettings();
+        releaseStatus();
+        await page.waitForFunction(() => TlsCipherDialog.canSaveSettings() &&
+          document.querySelector('#TlsCipherState').textContent === 'Saved fixture cipher.');
+        await page.locator('#Config_OptimizeTls').press('Enter');
+        await dialog.waitFor({ state: 'visible' });
+        await page.waitForFunction(() => TlsCipherDialog.canSaveSettings());
+        await page.locator('#TlsCipherClose').click();
+        await dialog.waitFor({ state: 'hidden' });
+
+        // A different persisted cipher is a real conflict. Manually typing the
+        // selected value must not turn an unsaved edit into a saved baseline.
+        boot.setSavedValue('Server1.Cipher', other);
+        await page.reload();
+        await boot({ theme, width });
+        await newsEditor();
+        const conflictingSnapshot = await page.evaluate(() => Config.cipherSnapshot());
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result, snapshot: conflictingSnapshot }), false, 'An unrelated persisted cipher is not a completed result');
+        await page.locator('#S_Server1_Cipher').fill(selected);
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result, snapshot: conflictingSnapshot }), false, 'An unsaved selected cipher must not be accepted as persisted');
+        await page.locator('#S_Server1_Cipher').fill(other);
+        await page.locator('#Config_OptimizeTls').press('Enter');
+        await dialog.waitFor({ state: 'visible' });
+        await page.waitForFunction(() => /server editor changed/.test(document.querySelector('#TlsCipherState').textContent));
+        assert.equal(await page.evaluate(() => TlsCipherDialog.canSaveSettings()), false);
+        await page.locator('#TlsCipherClose').click();
+        await dialog.waitFor({ state: 'hidden' });
+
+        // Refresh just Settings while retaining dialog state and its old
+        // snapshot. The newly loaded selected value requires no config patch.
+        boot.setSavedValue('Server1.Cipher', selected);
+        await page.evaluate(() => { Config.hide(); Config.show(); Config.shown(); });
+        await newsEditor();
+        const refreshedValues = await page.evaluate(() => JSON.stringify(Config.config().values));
+        assert.equal(await page.evaluate(({ result, snapshot }) => Config.applyCipherResults(result, snapshot),
+          { result, snapshot: conflictingSnapshot }), true, 'A refreshed persisted result can reconcile an older clean snapshot');
+        assert.equal(await page.evaluate(() => JSON.stringify(Config.config().values)), refreshedValues);
+        await page.locator('#Config_OptimizeTls').press('Enter');
+        await dialog.waitFor({ state: 'visible' });
+        await page.waitForFunction(() => TlsCipherDialog.canSaveSettings());
+        await page.locator('#TlsCipherClose').click();
+        await dialog.waitFor({ state: 'hidden' });
+        await page.locator('#ConfigNav a[href="#PATHS"]').press('Enter');
+        const destination = page.locator('#S_DestDir');
+        await destination.fill('./fixture/dst/after-refresh');
+        const saved = page.waitForResponse(response => response.request().method() === 'POST' &&
+          response.request().url().includes('/jsonrpc') && response.request().postDataJSON().method === 'saveconfig');
+        await page.locator('#Config_Save:visible').click();
+        assert.equal((await (await saved).json()).result, true);
+        assert.equal(writes.length, 1, 'Reconciliation unlocks the ordinary save without rerunning the optimizer');
+        assert(writes[0].params[0].some(option => option.Name === 'Server1.Cipher' && option.Value === selected));
+        assert(writes[0].params[0].some(option => option.Name === 'DestDir' && option.Value === './fixture/dst/after-refresh'));
+        assert.equal(writes[0].params[0].find(option => option.Name === '_TlsCipherBaseline').Value,
+          await page.evaluate(() => Config.cipherBaseline()));
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+    }
+    process.stdout.write('TLS cipher real Settings integration: ' + (process.argv.includes('--offline') ? 'eight' : 'four') + ' cases passed\n');
   } finally {
     await browser.close();
   }
