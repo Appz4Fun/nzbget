@@ -268,6 +268,7 @@ struct Writer {
     bytes: Vec<u8>,
     size: usize,
     measuring: bool,
+    fixed_limit: Option<usize>,
 }
 impl Writer {
     fn put(&mut self, b: &[u8]) -> Result<(), PurgeError> {
@@ -279,6 +280,9 @@ impl Writer {
             return Err(PurgeError::LimitExceeded);
         }
         if !self.measuring {
+            if self.fixed_limit.is_some_and(|limit| self.size > limit || self.size > self.bytes.capacity()) {
+                return Err(PurgeError::LimitExceeded);
+            }
             self.bytes.extend_from_slice(b);
         }
         Ok(())
@@ -289,6 +293,7 @@ struct Reader<'a> {
     offset: usize,
     owned: usize,
     owned_limit: usize,
+    held_capacity: Option<&'a subjects::HeldCapacity>,
 }
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], PurgeError> {
@@ -438,7 +443,13 @@ impl<T: Wire> BoundedWire for Vec<T> {
             n.checked_mul(std::mem::size_of::<T>())
                 .ok_or(PurgeError::LimitExceeded)?,
         )?;
+        if let Some(capacity) = r.held_capacity { capacity.preflight::<T>(n)?; }
         let mut out = reserved(n)?;
+        if let Some(capacity) = r.held_capacity {
+            capacity.admit_vec(n, &out)?;
+            // Field-local limits include surplus as well as the held aggregate.
+            r.charge(out.capacity().checked_sub(n).and_then(|n| n.checked_mul(std::mem::size_of::<T>())).ok_or(PurgeError::LimitExceeded)?)?;
+        }
         for _ in 0..n {
             out.push(T::get(r)?);
         }
@@ -489,6 +500,8 @@ mod runtime_fixture;
 mod runtime_core_contracts;
 #[cfg(test)]
 mod runtime_foundation_contracts;
+#[cfg(test)]
+mod runtime_next_contracts;
 
 tags!(MemberKind;Queue=0,Post=1,History=2,CompactHistory=3);
 tags!(EntryKind;Regular=0,Directory=1,Symlink=2,Unsupported=3);
@@ -606,12 +619,14 @@ fn wire<T: Wire>(value: &T) -> Result<Vec<u8>, PurgeError> {
         bytes: Vec::new(),
         size: 0,
         measuring: true,
+        fixed_limit: None,
     };
     value.put(&mut w)?;
     let mut w = Writer {
         bytes: reserved(w.size)?,
         size: 0,
         measuring: false,
+        fixed_limit: None,
     };
     value.put(&mut w)?;
     Ok(w.bytes)
@@ -625,6 +640,7 @@ fn unwire<T: Wire>(bytes: &[u8]) -> Result<T, PurgeError> {
         offset: 0,
         owned: std::mem::size_of::<T>(),
         owned_limit: MAX_OPERATION_BYTES,
+        held_capacity: None,
     };
     let v = T::get(&mut r)?;
     if r.offset != bytes.len() {
@@ -639,6 +655,47 @@ fn owned_size<T: Wire>(value: &T) -> Result<usize, PurgeError> {
 }
 fn copy<T: Wire>(value: &T) -> Result<T, PurgeError> {
     unwire(&wire(value)?)
+}
+// Opt-in held constructor path. Ordinary wire/unwire/copy above are unchanged.
+// The same Wire implementations perform encoding and nested decoding.
+fn reserved_accounted<T>(n: usize, capacity: Option<&subjects::HeldCapacity>) -> Result<Vec<T>, PurgeError> {
+    match capacity { Some(c) => c.reserved(n), None => reserved(n) }
+}
+fn wire_accounted<T: Wire>(value: &T, capacity: Option<&subjects::HeldCapacity>) -> Result<Vec<u8>, PurgeError> {
+    let Some(capacity) = capacity else { return wire(value); };
+    capacity.retained(|| {
+        let mut measuring = Writer { bytes: Vec::new(), size: 0, measuring: true, fixed_limit: None };
+        value.put(&mut measuring)?;
+        let mut writer = Writer { bytes: capacity.reserved(measuring.size)?, size: 0, measuring: false, fixed_limit: Some(measuring.size) };
+        value.put(&mut writer)?;
+        Ok(writer.bytes)
+    })
+}
+fn unwire_accounted<T: Wire>(bytes: &[u8], capacity: &subjects::HeldCapacity) -> Result<T, PurgeError> {
+    capacity.retained(|| {
+        if bytes.len() > MAX_OPERATION_BYTES { return Err(PurgeError::LimitExceeded); }
+        let mut reader = Reader { bytes, offset: 0, owned: std::mem::size_of::<T>(), owned_limit: MAX_OPERATION_BYTES, held_capacity: Some(capacity) };
+        let value = T::get(&mut reader)?;
+        if reader.offset != bytes.len() { return Err(PurgeError::CorruptJournal); }
+        Ok(value)
+    })
+}
+fn copy_accounted<T: Wire>(value: &T, capacity: &subjects::HeldCapacity) -> Result<T, PurgeError> {
+    capacity.retained(|| {
+        let bytes = wire_accounted(value, Some(capacity))?;
+        let result = unwire_accounted(&bytes, capacity);
+        // The decoded backing is still charged. Release only the wire after drop.
+        capacity.drop_scratch(bytes)?;
+        result
+    })
+}
+fn wire_identity_accounted<T: Wire>(value: &T, capacity: Option<&subjects::HeldCapacity>) -> Result<[u8;32], PurgeError> {
+    let operation = || { let bytes = wire_accounted(value, capacity)?; Ok(payload_identity(&bytes)) };
+    match capacity { Some(c) => c.scratch(operation), None => operation() }
+}
+fn wire_length_accounted<T: Wire>(value: &T, capacity: Option<&subjects::HeldCapacity>) -> Result<usize, PurgeError> {
+    let operation = || { let bytes = wire_accounted(value, capacity)?; Ok(bytes.len()) };
+    match capacity { Some(c) => c.scratch(operation), None => operation() }
 }
 fn checksum(bytes: &[u8]) -> [u8; 16] {
     Md5::digest(bytes).into()
