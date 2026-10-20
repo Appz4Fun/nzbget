@@ -115,6 +115,9 @@ fn parse_snapshot(bytes: Vec<u8>) -> Result<Snapshot, Error> {
         if [host, get("username")?, get("password")?].iter().any(|s| s.contains("${")) {
             return Err(Error("Server variable references could not be resolved; no provider probes were started."));
         }
+        if get("username")?.is_empty() != get("password")?.is_empty() {
+            return Err(Error("Both username and password are required for server authentication; no provider probes were started."));
+        }
         let port = get("port")?.parse::<u16>().map_err(|_| Error("Invalid server port."))?;
         let verification = match get("certverification")?.to_ascii_lowercase().as_str() {
             "" | "strict" => 2, "minimal" => 1, "none" => 0, _ => return Err(Error("Invalid certificate verification level.")),
@@ -253,17 +256,23 @@ fn resolve(host: &str, port: u16, family: u8, cancel: &AtomicBool, deadline: Ins
     Ok(addresses)
 }
 
+fn ordered_addresses(found: impl IntoIterator<Item = SocketAddr>, family: u8) -> Result<Vec<SocketAddr>, Error> {
+    let mut addresses = Vec::new();
+    for address in found {
+        if family == 4 && !address.is_ipv4() || family == 6 && !address.is_ipv6() { continue; }
+        if !addresses.contains(&address) { addresses.push(address); }
+        if addresses.len() > 16 { return Err(Error("Too many DNS resolver addresses.")); }
+    }
+    Ok(addresses)
+}
+
 pub fn resolver(args: &[String]) -> i32 {
     if args.len() != 4 || args[0] != "--internal-tls-cipher-resolve" || args[1].is_empty() || args[1].len() > 255 { return 2; }
     let Ok(port) = args[2].parse::<u16>() else { return 2; };
     let Ok(family) = args[3].parse::<u8>() else { return 2; };
     if port == 0 || !matches!(family, 0 | 4 | 6) { return 2; }
     let Ok(found) = (args[1].as_str(), port).to_socket_addrs() else { return 1; };
-    let mut addresses = std::collections::BTreeSet::new();
-    for address in found {
-        if family == 4 && !address.is_ipv4() || family == 6 && !address.is_ipv6() { continue; }
-        addresses.insert(address); if addresses.len() > 16 { return 1; }
-    }
+    let Ok(addresses) = ordered_addresses(found, family) else { return 1; };
     if addresses.is_empty() { return 1; }
     let mut output = String::new();
     for address in addresses { output.push_str(&format!("{address}\n")); }
@@ -280,8 +289,27 @@ pub fn start(io: Io) -> Result<String, Error> {
 mod tests {
     use super::*;
     #[test]
+    fn resolver_preserves_preferred_order_while_deduplicating_and_filtering() {
+        let preferred: SocketAddr = "[::1]:563".parse().unwrap();
+        let second: SocketAddr = "127.0.0.2:563".parse().unwrap();
+        let third: SocketAddr = "127.0.0.1:563".parse().unwrap();
+        assert_eq!(ordered_addresses([preferred, second, preferred, third], 0).unwrap(), [preferred, second, third]);
+        assert_eq!(ordered_addresses([preferred, second, third, second], 4).unwrap(), [second, third]);
+        assert_eq!(ordered_addresses([preferred, second], 6).unwrap(), [preferred]);
+        let many = (1..=17).map(|i| SocketAddr::from(([127, 0, 0, i], 563)));
+        assert!(ordered_addresses(many, 0).is_err());
+    }
+    #[test]
+    fn incomplete_login_pairs_reject_before_probing() {
+        for credentials in ["Server1.Username=user\n", "Server1.Password=secret\n"] {
+            let bytes = format!("Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\n{credentials}");
+            assert!(parse_snapshot(bytes.into_bytes()).is_err());
+        }
+        assert!(parse_snapshot(b"Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Username=\nServer1.Password=\n".to_vec()).is_ok());
+    }
+    #[test]
     fn snapshot_uses_saved_tls_servers_including_disabled_backups() {
-        let snapshot = parse_snapshot(b"Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Active=no\nServer1.Password=private\nServer2.Host=plain.invalid\nServer2.Port=119\nServer2.Encryption=no\n".to_vec()).unwrap();
+        let snapshot = parse_snapshot(b"Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Active=no\nServer1.Username=private-user\nServer1.Password=private\nServer2.Host=plain.invalid\nServer2.Port=119\nServer2.Encryption=no\n".to_vec()).unwrap();
         assert_eq!(snapshot.servers.len(), 1); assert_eq!(snapshot.servers[0].verification, 2);
         assert_eq!(snapshot.servers[0].password, "private");
     }
@@ -303,7 +331,7 @@ mod tests {
     }
     #[test]
     fn saved_variable_expansion_is_sequential_and_unknown_credentials_reject() {
-        let snapshot = parse_snapshot(b"UnpackPassword=original\n$Login=${UnpackPassword}\nUnpackPassword=changed\nServer1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Password=${$Login}\n".to_vec()).unwrap();
+        let snapshot = parse_snapshot(b"UnpackPassword=original\n$Login=${UnpackPassword}\nUnpackPassword=changed\nServer1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Username=user\nServer1.Password=${$Login}\n".to_vec()).unwrap();
         assert_eq!(snapshot.servers[0].password, "original");
         assert!(parse_snapshot(b"Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Password=${Unknown}\n".to_vec()).is_err());
     }

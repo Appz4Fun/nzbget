@@ -24,6 +24,9 @@
 #include "XmlRpc.h"
 #include "Options.h"
 #include "Json.h"
+#include "ScriptConfig.h"
+#include <filesystem>
+#include <fstream>
 
 BOOST_AUTO_TEST_SUITE(RemoteTest)
 
@@ -311,6 +314,41 @@ static std::string RpcReply(const char* url, XmlRpcProcessor::EHttpMethod httpMe
 static bool HasErrorCode(const std::string& reply, int code)
 {
 	return reply.find("\"code\" : " + std::to_string(code) + ",") != std::string::npos;
+}
+
+BOOST_AUTO_TEST_CASE(CipherSaveMetadataRejectsMalformedAndNeverLeaksIntoFile)
+{
+	for (const char* body : {
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v2\n"},{"Name":"X","Value":"y"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n\u0000bad"},{"Name":"X","Value":"y"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n"},{"Name":"_TlsCipherBaseline","Value":"v1\n"},{"Name":"X","Value":"y"}]],"id":1})" })
+		BOOST_CHECK(HasErrorCode(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body), 2));
+
+	namespace fs = std::filesystem;
+	auto dir = fs::temp_directory_path() / ("nzbget-cipher-rpc-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	BOOST_REQUIRE(fs::create_directory(dir));
+	auto path = dir / "nzbget.conf";
+	struct Restore {
+		Options* options = g_Options; ScriptConfig* scripts = g_ScriptConfig; fs::path path, dir;
+		~Restore() { g_Options = options; g_ScriptConfig = scripts; std::error_code ignored; fs::remove(path, ignored); fs::remove(dir, ignored); }
+	} restore{g_Options, g_ScriptConfig, path, dir};
+	{ std::ofstream out(path); out << "Server1.Host=example.invalid\nServer1.Cipher=old\n"; }
+	Options options("nzbget", path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig scripts; g_ScriptConfig = &scripts;
+	Options::OptEntries entries; BOOST_REQUIRE(scripts.LoadConfig(&entries));
+	std::string token = ScriptConfig::CipherBaseline(entries);
+	Json::JsonArray values{Json::JsonObject{{"Name", "Server1.Host"}, {"Value", "example.invalid"}},
+		Json::JsonObject{{"Name", "Server1.Cipher"}, {"Value", "optimized"}},
+		Json::JsonObject{{"Name", "_TlsCipherBaseline"}, {"Value", token}}};
+	Json::JsonObject request{{"method", "saveconfig"}, {"params", Json::JsonArray{values}}, {"id", 1}};
+	std::string body = Json::Serialize(request);
+	BOOST_CHECK(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body.c_str()).find("true") != std::string::npos);
+	std::string saved; BOOST_REQUIRE(scripts.ReadCipherSnapshot(saved));
+	BOOST_CHECK(saved.find("_TlsCipherBaseline") == std::string::npos);
+	BOOST_CHECK(saved.find("Server1.Cipher=optimized") != std::string::npos);
+	BOOST_CHECK(HasErrorCode(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body.c_str()), 3));
+	std::string unchanged; BOOST_REQUIRE(scripts.ReadCipherSnapshot(unchanged)); BOOST_CHECK_EQUAL(unchanged, saved);
 }
 
 // JSON-P is a GET that any web page can make a browser send: it runs only the methods

@@ -61,8 +61,9 @@ impl Report {
             quote(&self.id), quote(self.state), quote(self.message), self.saved, self.saved);
         for (i, a) in self.algorithms.iter().enumerate() {
             if i > 0 { out.push(','); }
-            let sample_rates: Vec<_> = a.samples.iter().filter(|s| s.elapsed_ns > 0)
-                .map(|s| s.bytes as f64 * 1e9 / s.elapsed_ns as f64).collect();
+            let sample_rates: Vec<_> = if a.rate.is_some() && throughput(&a.samples).is_ok() {
+                a.samples.iter().map(|s| s.bytes as f64 * 1e9 / s.elapsed_ns as f64).collect()
+            } else { Vec::new() };
             let min = sample_rates.iter().copied().reduce(f64::min).unwrap_or(0.0);
             let max = sample_rates.iter().copied().reduce(f64::max).unwrap_or(0.0);
             let _ = write!(out, "{{\"Algorithm\":{},\"BytesPerSecond\":{},\"Minimum\":{},\"Maximum\":{},\"Message\":{},\"Samples\":[",
@@ -322,6 +323,27 @@ fn run(backend: &dyn Backend, snapshot: &Snapshot, suites: &[Suite], cancel: &At
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_partial_measurements_remain_raw_without_display_ranges() {
+        let mut report = Report { id: "sample-test".into(), state: "failed", message: "failed", saved: false,
+            algorithms: vec![AlgorithmResult { name: "synthetic".into(), rate: None,
+                samples: vec![Sample { round: 0, bytes: RECORD_BYTES, elapsed_ns: SAMPLE_NS, correct: true },
+                    Sample { round: 1, bytes: RECORD_BYTES, elapsed_ns: 1, correct: false }], message: "Decryption failed" }],
+            servers: vec![], common: None, excluded: vec![], current_algorithm: String::new(), current_server: 0,
+            current_cipher: String::new(), completed_probes: 0, total_probes: 0, ciphers: vec![] };
+        let json = report.json().unwrap();
+        assert!(json.contains("\"BytesPerSecond\":null,\"Minimum\":0,\"Maximum\":0"));
+        assert!(json.contains("\"Correct\":false"));
+        assert!(json.contains("Decryption failed"));
+        report.algorithms[0].samples = (0..5).map(|round| Sample { round, bytes: RECORD_BYTES,
+            elapsed_ns: SAMPLE_NS, correct: true }).collect();
+        report.algorithms[0].rate = Some(throughput(&report.algorithms[0].samples).unwrap());
+        assert!(report.json().unwrap().contains("\"Minimum\":81920,\"Maximum\":81920"));
+        report.algorithms[0].samples[4].elapsed_ns = SAMPLE_NS - 1;
+        assert!(report.json().unwrap().contains("\"Minimum\":0,\"Maximum\":0"));
+        report.algorithms[0].samples[4] = report.algorithms[0].samples[0];
+        assert!(report.json().unwrap().contains("\"Minimum\":0,\"Maximum\":0"));
+    }
     #[test]
     fn status_escapes_untrusted_names_and_omits_credentials() {
         let report = Report { id: "example".into(), state: "completed", message: "done", saved: false, algorithms: vec![],

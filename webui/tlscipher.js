@@ -48,7 +48,8 @@ var TlsCipherDialog = (new function($)
 		(result.Algorithms || []).forEach(function(item) {
 			var row = $('<tr>').appendTo(algorithms);
 			cell(row, item.Algorithm); cell(row, speed(item.BytesPerSecond));
-			cell(row, item.Minimum && item.Maximum ? speed(item.Minimum) + ' – ' + speed(item.Maximum) : item.Message);
+			cell(row, typeof item.BytesPerSecond === 'number' && item.BytesPerSecond > 0 && item.Minimum && item.Maximum ?
+				speed(item.Minimum) + ' – ' + speed(item.Maximum) : item.Message);
 		});
 		var servers = $('#TlsCipherServers tbody').empty();
 		(result.Servers || []).forEach(function(item) {

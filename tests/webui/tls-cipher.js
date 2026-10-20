@@ -91,6 +91,16 @@ const { fixtureURL } = require('./workspace-fixture');
           ] };
       });
       await page.waitForFunction(() => document.querySelector('#TlsCipherState').textContent.includes('Saved'));
+      // Partial measurements remain diagnostics, never a displayed speed range.
+      await page.evaluate(() => {
+        cipherState.Algorithms.push({ Algorithm: 'Failed example', BytesPerSecond: null,
+          Minimum: 1e9, Maximum: 2e9, Message: 'Authenticated record validation failed.' });
+        TlsCipherDialog.showModal();
+      });
+      await page.waitForFunction(() => document.querySelector('#TlsCipherAlgorithms').textContent.includes('Failed example'));
+      const failed = page.locator('#TlsCipherAlgorithms tbody tr').last();
+      assert.match(await failed.innerText(), /Authenticated record validation failed/);
+      assert.doesNotMatch(await failed.innerText(), /1000\.0|2000\.0/);
       assert.equal(await dialog.locator('img,script').count(), 0, 'Provider data stays text');
       assert.match(await page.locator('#TlsCipherServers').innerText(), /Example Unavailable/);
       assert.match(await page.locator('#TlsCipherReload').innerText(), /reload/i);

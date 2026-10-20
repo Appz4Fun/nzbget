@@ -67,6 +67,7 @@ async function installOfflineModel(page, base) {
       let state = { Available: true, State: 'idle', JobID: '', Saved: false };
       let completed;
       let running, completionVisible = true, failNextStart = false;
+      let rejectStaleSave = false, diskBaseline = '';
       await page.route(/\/jsonrpc(?:\/|$|\?)/, async route => {
         const request = route.request();
         const url = new URL(request.url());
@@ -91,6 +92,12 @@ async function installOfflineModel(page, base) {
           'pausedownload', 'resumedownload', 'pausepost', 'resumepost', 'pausescan', 'resumescan', 'rate'];
         if (mutations.includes(rpc.method)) {
           writes.push(rpc);
+          if (rpc.method === 'saveconfig' && rejectStaleSave) {
+            const metadata = rpc.params[0].find(option => option.Name === '_TlsCipherBaseline');
+            if (metadata) assert.notEqual(metadata.Value, diskBaseline, 'Fixture models a different browser committing first');
+            return route.fulfill({ contentType: 'application/json', json: { id: rpc.id,
+              error: { code: 3, message: 'News server settings changed in another operation. Refresh Settings before saving; your edits have been retained.' } } });
+          }
           return route.fulfill({ contentType: 'application/json', json: { result: true, id: rpc.id } });
         }
         return route.fallback();
@@ -119,6 +126,14 @@ async function installOfflineModel(page, base) {
       const host = page.locator('#S_Server1_Host');
       const originalHost = await host.inputValue();
       const originalCipher = await page.locator('#S_Server1_Cipher').inputValue();
+      const initialValues = await page.evaluate(() => Config.config().values);
+      const canonical = values => {
+        const fields = new Map();
+        for (const option of values) if (/^Server[1-9][0-9]*\.(Host|Port|Cipher)$/i.test(option.Name))
+          fields.set(option.Name.toLowerCase(), Buffer.from(option.Value, 'utf8').toString('hex'));
+        return 'v1\n' + [...fields].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, value]) => name + '=' + value + '\n').join('');
+      };
+      diskBaseline = canonical(initialValues);
       const port = await page.locator('#S_Server1_Port').inputValue();
       const initialSnapshot = await page.evaluate(() => Config.cipherSnapshot());
       if (initialSnapshot === null && bootOffline) {
@@ -238,17 +253,35 @@ async function installOfflineModel(page, base) {
       await page.locator('#TlsCipherClose').click();
       await dialog.waitFor({ state: 'hidden' });
 
+      rejectStaleSave = true;
+      await page.locator('#Config_Save:visible').click();
+      assert(await page.evaluate(() => cipherSaveRequests[cipherSaveRequests.length - 1][0]
+        .some(option => option.Name === '_TlsCipherBaseline')), 'Ordinary saves must include the saved server baseline');
+      await page.waitForFunction(() => document.querySelector('#Notif_Config_CipherPending strong').textContent.includes('another operation'));
+      assert.equal(await destination.inputValue(), changedDestination, 'Rejected stale saves retain unrelated edits');
+      assert(await page.locator('#Config_Save:visible').isEnabled());
+      const rejected = writes.find(rpc => rpc.method === 'saveconfig');
+      assert(rejected.params[0].some(option => option.Name === '_TlsCipherBaseline'), 'Actual full-save transport carries CAS metadata');
+      const parity = [{ Name: 'Server1.Host', Value: 'h\u00e9' }, { Name: 'Server1.Cipher', Value: 'old' },
+        { Name: 'server1.cipher', Value: '' }, { Name: 'Server1.Port', Value: '563' }, { Name: 'Server01.Host', Value: 'ignored' }];
+      assert.equal(await page.evaluate(values => Config.cipherBaseline(values), parity),
+        'v1\nserver1.cipher=\nserver1.host=68c3a9\nserver1.port=353633\n');
+      assert.equal(rejected.params[0].find(option => option.Name === '_TlsCipherBaseline').Value,
+        canonical(await page.evaluate(() => Config.config().values)), 'Reconciled cipher becomes the saved CAS baseline');
+      rejectStaleSave = false;
       const saved = page.waitForResponse(response => {
         const request = response.request();
         if (request.method() !== 'POST' || !request.url().includes('/jsonrpc')) return false;
         return request.postDataJSON().method === 'saveconfig';
       });
       await page.locator('#Config_Save:visible').click();
-      await saved;
-      const save = writes.find(rpc => rpc.method === 'saveconfig');
+      assert.equal((await (await saved).json()).result, true, 'The retry must actually succeed');
+      const save = writes.filter(rpc => rpc.method === 'saveconfig').slice(-1)[0];
       assert(save, 'Actual Settings Save reaches intercepted RPC boundary');
       assert(save.params[0].some(option => option.Name === 'Server1.Cipher' && option.Value === 'TLS_AES_256_GCM_SHA384'));
       assert(save.params[0].some(option => option.Name === 'DestDir' && option.Value === changedDestination));
+      assert.equal(save.params[0].find(option => option.Name === '_TlsCipherBaseline').Value,
+        canonical(await page.evaluate(() => Config.config().values)));
       assert.equal(writes.filter(rpc => rpc.method === 'tlscipherstart').length, 4);
       assert.deepEqual(errors, []);
       await context.close();

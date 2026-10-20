@@ -27,6 +27,13 @@ and the common supported suites. The test considers modern certificate-based
 TLS 1.2/1.3 authenticated-encryption suites exposed by the linked TLS library;
 weak and incompatible cipher types are excluded. A timeout, certificate or login
 failure leaves that server's setting unchanged. Cancel stops further testing.
+
+Closing the dialog keeps the test running and tracks its result. Settings saves
+wait until that result is reconciled. Updated WebUI clients also include their
+saved server identity/cipher baseline with each save; NZBGet checks it under the
+configuration write lock and rejects stale saves from another browser while
+retaining its unsaved edits. Legacy RPC callers that omit this baseline retain
+their previous save behavior.
 Only cipher options are saved, and concurrent configuration edits prevent the
 save. Reload NZBGet after a successful save to activate the choices.
 

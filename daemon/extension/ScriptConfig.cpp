@@ -189,6 +189,11 @@ void ScriptConfig::InitOptions()
 bool ScriptConfig::LoadConfig(Options::OptEntries* optEntries)
 {
 	std::lock_guard<std::mutex> lock(m_configWriteMutex);
+	return LoadConfigUnlocked(optEntries);
+}
+
+bool ScriptConfig::LoadConfigUnlocked(Options::OptEntries* optEntries)
+{
 	// read config file
 	DiskFile infile;
 
@@ -232,9 +237,46 @@ bool ScriptConfig::LoadConfig(Options::OptEntries* optEntries)
 	return true;
 }
 
-bool ScriptConfig::SaveConfig(Options::OptEntries* optEntries)
+// Versioned, unambiguous saved-value token shared with Config.cipherBaseline.
+// Missing fields differ from present empty fields; duplicate keys are last-wins.
+std::string ScriptConfig::CipherBaseline(const Options::OptEntries& optEntries)
+{
+	std::map<std::string, std::string> fields;
+	constexpr char hex[] = "0123456789abcdef";
+	for (const auto& entry : optEntries)
+	{
+		if (!entry.GetName() || !entry.GetValue()) continue;
+		std::string name(entry.GetName());
+		for (char& c : name) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+		if (!name.starts_with("server")) continue;
+		size_t dot = name.find('.', 6);
+		if (dot == std::string::npos || dot == 6 || name[6] == '0' ||
+			!std::all_of(name.begin() + 6, name.begin() + dot, [](char c) { return c >= '0' && c <= '9'; })) continue;
+		std::string suffix = name.substr(dot + 1);
+		if (suffix != "host" && suffix != "port" && suffix != "cipher") continue;
+		std::string value;
+		for (unsigned char c : std::string_view(entry.GetValue())) { value += hex[c >> 4]; value += hex[c & 15]; }
+		fields[name] = std::move(value);
+	}
+	std::string token = "v1\n";
+	for (const auto& [name, value] : fields) { token += name; token += '='; token += value; token += '\n'; }
+	return token;
+}
+
+bool ScriptConfig::SaveConfig(Options::OptEntries* optEntries, const char* cipherBaseline, bool* conflict)
 {
 	std::lock_guard<std::mutex> lock(m_configWriteMutex);
+	if (conflict) *conflict = false;
+	if (cipherBaseline)
+	{
+		Options::OptEntries current;
+		if (!LoadConfigUnlocked(&current)) return false;
+		if (CipherBaseline(current) != cipherBaseline)
+		{
+			if (conflict) *conflict = true;
+			return false;
+		}
+	}
 	struct CaseInsensitiveLess
 	{
 		bool operator()(std::string_view a, std::string_view b) const

@@ -3666,6 +3666,8 @@ void TestExtensionXmlCommand::Execute()
 void SaveConfigXmlCommand::Execute()
 {
 	Options::OptEntries optEntries;
+	std::string cipherBaseline;
+	bool hasCipherBaseline = false;
 
 	// The file is rewritten from the entries given: options left out are dropped.
 	// An entry that doesn't read as a name and a string value (a number, or "Value"
@@ -3712,7 +3714,17 @@ void SaveConfigXmlCommand::Execute()
 			}
 		}
 		DecodeStr(name);
+		bool baselineEntry = !strcmp(name, "_TlsCipherBaseline");
+		// The token contains only ASCII field names and hex-encoded UTF-8.
+		// Reject encoded NUL rather than accepting a decoder-truncated token.
+		if (baselineEntry && (strstr(value, "\\u0000") || strstr(value, "&#"))) { malformed = true; break; }
 		DecodeStr(value);
+		if (baselineEntry)
+		{
+			if (hasCipherBaseline || strlen(value) > 1024 * 1024 || strncmp(value, "v1\n", 3)) { malformed = true; break; }
+			hasCipherBaseline = true; cipherBaseline = value;
+			continue; // RPC metadata is never a configuration option.
+		}
 		optEntries.emplace_back(name, value);
 	}
 
@@ -3723,7 +3735,13 @@ void SaveConfigXmlCommand::Execute()
 	}
 
 	// save to config file
-	bool ok = g_ScriptConfig->SaveConfig(&optEntries);
+	bool conflict = false;
+	bool ok = g_ScriptConfig->SaveConfig(&optEntries, hasCipherBaseline ? cipherBaseline.c_str() : nullptr, &conflict);
+	if (conflict)
+	{
+		BuildErrorResponse(3, "News server settings changed in another operation. Refresh Settings before saving; your edits have been retained.");
+		return;
+	}
 
 	BuildBoolResponse(ok);
 }

@@ -324,6 +324,9 @@ BOOST_AUTO_TEST_CASE(CipherPatchSerializesOrdinarySave)
 	ScriptConfig config;
 	std::string snapshot;
 	BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	Options::OptEntries saved;
+	BOOST_REQUIRE(config.LoadConfig(&saved));
+	std::string baseline = ScriptConfig::CipherBaseline(saved);
 	Options::OptEntries entries;
 	entries.emplace_back("Server1.Host", "example.invalid");
 	entries.emplace_back("Server1.Cipher", "ordinary");
@@ -332,7 +335,7 @@ BOOST_AUTO_TEST_CASE(CipherPatchSerializesOrdinarySave)
 	auto ready = go.get_future(); auto started = entered.get_future(); auto done = finished.get_future();
 	std::thread writer([&] {
 		ready.wait(); entered.set_value();
-		try { finished.set_value(config.SaveConfig(&entries)); }
+		try { finished.set_value(config.SaveConfig(&entries, baseline.c_str())); }
 		catch (...) { finished.set_value(false); }
 	});
 	bool triggered = false, blocked = false;
@@ -349,9 +352,34 @@ BOOST_AUTO_TEST_CASE(CipherPatchSerializesOrdinarySave)
 	writer.join();
 	BOOST_CHECK(blocked);
 	BOOST_CHECK(committed == ScriptConfig::CipherCommit::Saved);
-	BOOST_CHECK(done.get());
+	BOOST_CHECK(!done.get());
 	BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
-	BOOST_CHECK_EQUAL(snapshot, "Server1.Host=example.invalid\nServer1.Cipher=ordinary\n");
+	BOOST_CHECK_EQUAL(snapshot, "Server1.Host=example.invalid\nServer1.Cipher=optimized\n");
+}
+
+BOOST_AUTO_TEST_CASE(CipherBaselineCanonicalValuesAndOrdinarySaveFirst)
+{
+	Options::OptEntries parity;
+	parity.emplace_back("Server1.Host", "h\xc3\xa9");
+	parity.emplace_back("Server1.Cipher", "old");
+	parity.emplace_back("server1.cipher", "");
+	parity.emplace_back("Server1.Port", "563");
+	parity.emplace_back("Server01.Host", "ignored");
+	BOOST_CHECK_EQUAL(ScriptConfig::CipherBaseline(parity), "v1\nserver1.cipher=\nserver1.host=68c3a9\nserver1.port=353633\n");
+	Options::OptEntries absent; absent.emplace_back("Server1.Host", "h\xc3\xa9"); absent.emplace_back("Server1.Port", "563");
+	BOOST_CHECK(ScriptConfig::CipherBaseline(parity) != ScriptConfig::CipherBaseline(absent));
+	TempConfigFile file;
+	{ std::ofstream out(file.path); out << "Server1.Host=example.invalid\nServer1.Cipher=old\n"; }
+	OptionsGuard guard; Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config; std::string original; BOOST_REQUIRE(config.ReadCipherSnapshot(original));
+	Options::OptEntries entries; BOOST_REQUIRE(config.LoadConfig(&entries));
+	std::string token = ScriptConfig::CipherBaseline(entries);
+	entries.emplace_back("Server1.Cipher", "ordinary");
+	bool conflict = true; BOOST_REQUIRE(config.SaveConfig(&entries, token.c_str(), &conflict)); BOOST_CHECK(!conflict);
+	BOOST_CHECK(config.CommitCipherPatch(original, "Server1.Host=example.invalid\nServer1.Cipher=optimized\n", [] { return false; }) == ScriptConfig::CipherCommit::Conflict);
+	std::string changed = ReadCipherTestFile(file.path);
+	BOOST_CHECK(!config.SaveConfig(&entries, token.c_str(), &conflict)); BOOST_CHECK(conflict);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), changed);
 }
 
 BOOST_AUTO_TEST_CASE(CipherPatchCancelledDuringWritePreservesOriginal)

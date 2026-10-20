@@ -2394,6 +2394,24 @@ var Config = (new function($)
 		return true;
 	};
 
+	// Compare saved server identities/ciphers under the daemon's write lock.
+	// Never use editor values here: intentional edits belong in the save payload.
+	this.cipherBaseline = function(values)
+	{
+		var fields = Object.create(null), encoder = new TextEncoder();
+		(values || config.values || []).forEach(function(option) {
+			if (!/^Server[1-9][0-9]*\.(Host|Port|Cipher)$/i.test(option.Name)) return;
+			var bytes = encoder.encode(option.Value), hex = '';
+			bytes.forEach(function(value) { hex += ('0' + value.toString(16)).slice(-2); });
+			fields[option.Name.toLowerCase()] = hex;
+		});
+		return 'v1\n' + Object.keys(fields).sort().map(function(name) { return name + '=' + fields[name] + '\n'; }).join('');
+	};
+	this.withCipherBaseline = function(values)
+	{
+		return values.concat([{ Name: '_TlsCipherBaseline', Value: Config.cipherBaseline() }]);
+	};
+
 	var connecting = false;
 
 	this.testConnection = function(control, setname, sectionId)
@@ -2629,7 +2647,11 @@ var Config = (new function($)
 		if (serverSaveRequest.length > 0)
 		{
 			$('#Notif_Config_Failed_Filename').text(Options.option('ConfigFile'));
-			RPC.call('saveconfig', [serverSaveRequest], saveCompleted);
+			RPC.call('saveconfig', [Config.withCipherBaseline(serverSaveRequest)], saveCompleted, function(value, result) {
+				removeSaveBanner();
+				$('#Notif_Config_CipherPending strong').text(result && result.error ? result.error.message : String(value));
+				PopupNotification.show('#Notif_Config_CipherPending');
+			});
 		}
 		else
 		{
@@ -4261,7 +4283,7 @@ var ExtensionManager = (new function($)
 
 				// the failure handler is the call's own (a misplaced parenthesis left
 				// it outside, and failures went to the general error banner)
-				RPC.call('saveconfig', [Config.config().values], 
+				RPC.call('saveconfig', [Config.withCipherBaseline(Config.config().values)],
 				function(_) 
 				{
 					updatePage();
@@ -4392,7 +4414,7 @@ var ExtensionManager = (new function($)
 		var changed = syncGlobalSettings();
 		if (changed)
 		{
-			RPC.call('saveconfig', [Config.config().values], 
+			RPC.call('saveconfig', [Config.withCipherBaseline(Config.config().values)],
 			function(_) 
 			{
 				updatePage();

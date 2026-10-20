@@ -48,7 +48,8 @@ public:
 
 	void InitOptions();
 	bool LoadConfig(Options::OptEntries* optEntries);
-	bool SaveConfig(Options::OptEntries* optEntries);
+	bool SaveConfig(Options::OptEntries* optEntries, const char* cipherBaseline = nullptr, bool* conflict = nullptr);
+	static std::string CipherBaseline(const Options::OptEntries& optEntries);
 	enum class CipherCommit { Saved, Unchanged, Conflict, Cancelled, Failed };
 	bool ReadCipherSnapshot(std::string& bytes);
 	CipherCommit CommitCipherPatch(std::string_view expected, std::string_view replacement, const std::function<bool()>& cancel);
@@ -60,6 +61,7 @@ private:
 	inline static std::mutex m_configWriteMutex;
 
 	void InitConfigTemplates();
+	bool LoadConfigUnlocked(Options::OptEntries* optEntries);
 };
 
 extern ScriptConfig* g_ScriptConfig;
