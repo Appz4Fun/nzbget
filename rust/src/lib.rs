@@ -54,3 +54,9 @@ pub mod streampatchparts;
 pub mod streamcompare;
 pub mod deadpostings;
 pub mod dupewatch;
+
+pub mod dupepurge;
+
+pub mod purgejournal;
+#[cfg(test)]
+mod allocation_probe;
