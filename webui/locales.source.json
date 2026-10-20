@@ -4698,6 +4698,9 @@
   "tls_cipher_save_servers": {
     "message": "Save your server changes before optimizing TLS ciphers."
   },
+  "tls_cipher_save_pending": {
+    "message": "Wait for TLS cipher testing to finish before saving Settings. If the server editor changed, refresh Settings to reconcile the saved ciphers."
+  },
   "tls_cipher_starting": {
     "message": "Starting cipher tests…"
   },

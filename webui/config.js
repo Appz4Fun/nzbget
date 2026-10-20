@@ -2602,6 +2602,11 @@ var Config = (new function($)
 	this.saveChanges = function()
 	{
 		$LeaveConfigDialog.modal('hide');
+		if (typeof TlsCipherDialog !== 'undefined' && !TlsCipherDialog.canSaveSettings())
+		{
+			TlsCipherDialog.showSaveBlocked();
+			return;
+		}
 
 		var serverSaveRequest = prepareSaveRequest(false, false);
 		var webSaveRequest = prepareSaveRequest(false, true);

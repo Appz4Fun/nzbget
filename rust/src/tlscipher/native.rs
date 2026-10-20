@@ -54,8 +54,13 @@ fn parse_snapshot(bytes: Vec<u8>) -> Result<Snapshot, Error> {
     let mut options: BTreeMap<String, Option<String>> = BTreeMap::new();
     let mut expanded_bytes = 0usize;
     for line in bytes.split(|&b| b == b'\n') {
-        if let Some((name, value, _)) = tlscipher::option(line) {
+        if let Some((name, _, eq)) = tlscipher::option(line) {
             let name = std::str::from_utf8(name).map_err(|_| Error("Invalid configuration option name."))?.to_ascii_lowercase();
+            // Options::LoadConfigFile removes the line terminator only.
+            // Keep spaces and tabs, including those in referenced variables:
+            // provider credentials are byte-sensitive, unlike patch matching.
+            let value = &line[eq + 1..];
+            let value = value.strip_suffix(b"\r").unwrap_or(value);
             let mut value = std::str::from_utf8(value).ok().map(str::to_owned);
             if let Some(value) = &mut value {
                 // Match Options::SetOption's sequential saved-variable expansion.
@@ -279,6 +284,17 @@ mod tests {
         let snapshot = parse_snapshot(b"Server1.Connections=1\nServer1.Host=example.invalid\nServer1.Port=563\nServer1.Encryption=yes\nServer1.Active=no\nServer1.Password=private\nServer2.Host=plain.invalid\nServer2.Port=119\nServer2.Encryption=no\n".to_vec()).unwrap();
         assert_eq!(snapshot.servers.len(), 1); assert_eq!(snapshot.servers[0].verification, 2);
         assert_eq!(snapshot.servers[0].password, "private");
+    }
+    #[test]
+    fn snapshot_preserves_credential_whitespace_and_saved_variable_values() {
+        for password in [" leading", "trailing ", " \t "] {
+            for ending in ["\n", "\r\n"] {
+                let config = format!("$Login= user \t{ending}$Secret={password}{ending}Server1.Connections=1{ending}Server1.Host=example.invalid{ending}Server1.Port=563{ending}Server1.Encryption=yes{ending}Server1.Username=${{$Login}}{ending}Server1.Password=${{$Secret}}{ending}");
+                let snapshot = parse_snapshot(config.into_bytes()).unwrap();
+                assert_eq!(snapshot.servers[0].username, " user \t");
+                assert_eq!(snapshot.servers[0].password, password);
+            }
+        }
     }
     #[test]
     fn snapshot_rejects_ambiguous_security_values() {

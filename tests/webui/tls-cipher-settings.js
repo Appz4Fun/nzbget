@@ -66,6 +66,7 @@ async function installOfflineModel(page, base) {
       const errors = [], writes = [];
       let state = { Available: true, State: 'idle', JobID: '', Saved: false };
       let completed;
+      let running, completionVisible = true, failNextStart = false;
       await page.route(/\/jsonrpc(?:\/|$|\?)/, async route => {
         const request = route.request();
         const url = new URL(request.url());
@@ -73,8 +74,18 @@ async function installOfflineModel(page, base) {
         if (rpc.method.startsWith('tlscipher')) {
           assert.equal(request.method(), 'POST', 'Optimizer uses authenticated POST RPC');
           writes.push(rpc);
-          if (rpc.method === 'tlscipherstart') state = completed;
-          return route.fulfill({ contentType: 'application/json', json: { result: state, id: rpc.id } });
+          if (rpc.method === 'tlscipherstart') {
+            if (failNextStart) {
+              failNextStart = false;
+              state = { Available: true, State: 'idle', JobID: '', Saved: false };
+              return route.fulfill({ contentType: 'application/json', json: {
+                error: { code: 3, message: 'Fixture start rejected.' }, id: rpc.id } });
+            }
+            state = running = { ...completed, State: 'probing', Saved: false, ReloadRequired: false, Servers: [] };
+          }
+          if (rpc.method === 'tlscipherstatus' && rpc.params.length) assert.equal(rpc.params[0], state.JobID);
+          const result = state.State === 'completed' && !completionVisible ? running : state;
+          return route.fulfill({ contentType: 'application/json', json: { result, id: rpc.id } });
         }
         const mutations = ['saveconfig', 'reload', 'shutdown', 'testserver', 'editqueue', 'append', 'scan',
           'pausedownload', 'resumedownload', 'pausepost', 'resumepost', 'pausescan', 'resumescan', 'rate'];
@@ -87,6 +98,16 @@ async function installOfflineModel(page, base) {
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); });
       await page.goto(base.href);
       if (bootOffline) await bootOffline({ theme, width });
+      // Observe the real synchronous RPC dispatch as well as intercepted
+      // transport, so no-save assertions cannot race request delivery.
+      await page.evaluate(() => {
+        window.cipherSaveRequests = [];
+        const call = RPC.call;
+        RPC.call = function(method, params) {
+          if (method === 'saveconfig') window.cipherSaveRequests.push(params);
+          return call.apply(this, arguments);
+        };
+      });
       await page.locator('#MainTabContent').waitFor({ state: 'visible' });
       await page.locator('#ConfigTabLink').click();
       await page.locator('#ConfigNav a[href="#NEWS-SERVERS"]').press('Enter');
@@ -132,7 +153,21 @@ async function installOfflineModel(page, base) {
           OldCipher: originalCipher, SelectedCipher: 'TLS_AES_128_GCM_SHA256', Outcome: 'saved' }] };
       await action.press('Enter');
       await dialog.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelector('#TlsCipherCancel').disabled === false);
+      await page.locator('#TlsCipherClose').press('Enter');
+      await dialog.waitFor({ state: 'hidden' });
+      // Completion may happen before the next poll. Neither an active nor an
+      // unobserved completed job may let a full save restore stale ciphers.
+      completionVisible = false;
+      state = completed;
+      await page.evaluate(() => Config.saveChanges());
+      assert.equal(await page.evaluate(() => cipherSaveRequests.length), 0,
+        'A full save must not send stale ciphers after a hidden job commits');
+      completionVisible = true;
       await page.waitForFunction(() => document.querySelector('#S_Server1_Cipher').value === 'TLS_AES_128_GCM_SHA256');
+      assert.equal(await dialog.isVisible(), false, 'A hidden job reconciles without reopening the dialog');
+      await action.press('Enter');
+      await dialog.waitFor({ state: 'visible' });
       assert.match(await page.locator('#TlsCipherReload').innerText(), /reload/i);
       assert.equal(await destination.inputValue(), changedDestination);
       assert.notEqual(await page.evaluate(() => Config.cipherSnapshot()), null, 'Confirmed cipher becomes saved browser baseline');
@@ -149,6 +184,60 @@ async function installOfflineModel(page, base) {
       assert.equal(await page.locator('#S_Server1_Cipher').inputValue(), 'TLS_AES_128_GCM_SHA256');
       await host.fill(originalHost);
 
+      // A saved result that conflicts with intervening server edits must keep
+      // ordinary saves blocked rather than silently overwrite the disk cipher.
+      state = { Available: true, State: 'idle', JobID: '', Saved: false };
+      completed = { ...completed, JobID: 'example-browser-conflict', Servers: [{ ...completed.Servers[0],
+        OldCipher: 'TLS_AES_128_GCM_SHA256', SelectedCipher: 'TLS_AES_256_GCM_SHA384' }] };
+      await page.evaluate(() => TlsCipherDialog.showModal());
+      await dialog.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelector('#TlsCipherCancel').disabled === false);
+      await page.locator('#TlsCipherClose').click();
+      await dialog.waitFor({ state: 'hidden' });
+      await host.fill('changed-during-second-job.example.invalid');
+      await page.evaluate(() => Config.saveChanges());
+      assert.equal(await page.evaluate(() => cipherSaveRequests.length), 0, 'Active jobs block full saves');
+      state = completed;
+      await page.waitForFunction(() => /server editor changed/.test(document.querySelector('#TlsCipherState').textContent));
+      await page.evaluate(() => Config.saveChanges());
+      assert.equal(await page.evaluate(() => cipherSaveRequests.length), 0, 'Unreconciled results block stale full saves');
+      assert.equal(await host.inputValue(), 'changed-during-second-job.example.invalid');
+      // Reverting the intervening edit lets the real model reconcile again.
+      await host.fill(originalHost);
+      await action.press('Enter');
+      await dialog.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => document.querySelector('#S_Server1_Cipher').value === 'TLS_AES_256_GCM_SHA384');
+      await page.locator('#TlsCipherClose').click();
+      await dialog.waitFor({ state: 'hidden' });
+
+      // An RPC failure is uncertain until status confirms no admitted job.
+      // Confirm idle without auto-retrying, then allow the unrelated save.
+      state = { Available: true, State: 'idle', JobID: '', Saved: false };
+      failNextStart = true;
+      await action.press('Enter');
+      await dialog.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => /Fixture start rejected/.test(document.querySelector('#TlsCipherState').textContent));
+      await page.evaluate(() => Config.saveChanges());
+      assert.equal(await page.evaluate(() => cipherSaveRequests.length), 0);
+      await page.locator('#TlsCipherAgain').click();
+      await page.waitForFunction(() => TlsCipherDialog.canSaveSettings());
+      assert.equal(writes.filter(rpc => rpc.method === 'tlscipherstart').length, 3, 'Retry must recover idle without starting');
+      // Also preserve recovery when the failed request is followed by closing
+      // and reopening rather than using the in-dialog retry control.
+      failNextStart = true;
+      await page.locator('#TlsCipherAgain').click();
+      await page.waitForFunction(() => /Fixture start rejected/.test(document.querySelector('#TlsCipherState').textContent));
+      await page.locator('#TlsCipherClose').click();
+      await dialog.waitFor({ state: 'hidden' });
+      await page.evaluate(() => Config.saveChanges());
+      assert.equal(await page.evaluate(() => cipherSaveRequests.length), 0);
+      await action.press('Enter');
+      await dialog.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => TlsCipherDialog.canSaveSettings());
+      assert.equal(writes.filter(rpc => rpc.method === 'tlscipherstart').length, 4, 'Idle recovery must not start again');
+      await page.locator('#TlsCipherClose').click();
+      await dialog.waitFor({ state: 'hidden' });
+
       const saved = page.waitForResponse(response => {
         const request = response.request();
         if (request.method() !== 'POST' || !request.url().includes('/jsonrpc')) return false;
@@ -158,9 +247,9 @@ async function installOfflineModel(page, base) {
       await saved;
       const save = writes.find(rpc => rpc.method === 'saveconfig');
       assert(save, 'Actual Settings Save reaches intercepted RPC boundary');
-      assert(save.params[0].some(option => option.Name === 'Server1.Cipher' && option.Value === 'TLS_AES_128_GCM_SHA256'));
+      assert(save.params[0].some(option => option.Name === 'Server1.Cipher' && option.Value === 'TLS_AES_256_GCM_SHA384'));
       assert(save.params[0].some(option => option.Name === 'DestDir' && option.Value === changedDestination));
-      assert.equal(writes.filter(rpc => rpc.method === 'tlscipherstart').length, 1);
+      assert.equal(writes.filter(rpc => rpc.method === 'tlscipherstart').length, 4);
       assert.deepEqual(errors, []);
       await context.close();
     }

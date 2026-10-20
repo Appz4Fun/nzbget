@@ -4,6 +4,7 @@ var TlsCipherDialog = (new function($)
 	'use strict';
 	var initialized = false, pending = false, timer = null, visible = false;
 	var job = '', snapshot = null, appliedJob = '', state = null;
+	var saveBlocked = false, needsStatus = false;
 	function text(key, fallback) { return I18n.defaultValue('tls_cipher_' + key, fallback); }
 	function active(result) { return ['measuring', 'probing', 'saving'].indexOf(result.State) !== -1; }
 	function stopTimer() { if (timer !== null) clearTimeout(timer); timer = null; }
@@ -11,8 +12,10 @@ var TlsCipherDialog = (new function($)
 	function failure(value, result)
 	{
 		pending = false; stopTimer();
+		needsStatus = true;
 		message(result && result.error ? result.error.message : String(value));
 		$('#TlsCipherCancel').prop('disabled', true);
+		$('#TlsCipherAgain').show();
 	}
 	function call(method, params, done)
 	{
@@ -38,7 +41,7 @@ var TlsCipherDialog = (new function($)
 		$('#TlsCipherExcluded').toggle((result.ExcludedSuites || []).length > 0)
 			.find('p').text((result.ExcludedSuites || []).join(', '));
 		$('#TlsCipherCancel').prop('disabled', !active(result));
-		$('#TlsCipherAgain').toggle(!active(result) && result.Available !== false && result.State !== 'idle');
+		$('#TlsCipherAgain').toggle(!active(result) && result.Available !== false && (result.State !== 'idle' || needsStatus));
 		$('#TlsCipherReload').text(text('reload', 'Cipher settings are saved. Reload NZBGet to use them for new connections.'))
 			.toggle(result.Saved === true && result.ReloadRequired === true);
 		var algorithms = $('#TlsCipherAlgorithms tbody').empty();
@@ -72,19 +75,25 @@ var TlsCipherDialog = (new function($)
 			((result.CommonSupported || []).join(', ') || text('none', 'None')));
 		if (result.Saved === true && result.State === 'completed' && appliedJob !== job)
 		{
-			appliedJob = job;
 			if (!snapshot || !Config.applyCipherResults(result, snapshot))
+			{
+				saveBlocked = true;
 				message(text('browser_conflict', 'Settings were saved, but your server editor changed. Refresh Settings to see the saved ciphers; your edits have been retained.'));
+			}
+			else { appliedJob = job; saveBlocked = false; }
 		}
+		else if (active(result)) saveBlocked = true;
+		else if (result.Saved === false) saveBlocked = false;
+		needsStatus = false;
 		stopTimer();
-		if (visible && active(result)) timer = setTimeout(poll, 500);
+		if (active(result)) timer = setTimeout(poll, 500);
 	}
 	function poll()
 	{
 		stopTimer();
-		if (!visible || pending) return;
+		if (pending) return;
 		pending = true;
-		call('tlscipherstatus', job ? [job] : [], function(result) { pending = false; render(result); });
+		call('tlscipherstatus', job && !needsStatus ? [job] : [], function(result) { pending = false; render(result); });
 	}
 	function start()
 	{
@@ -95,7 +104,7 @@ var TlsCipherDialog = (new function($)
 			message(text('save_servers', 'Save your server changes before optimizing TLS ciphers.'));
 			$('#TlsCipherCancel').prop('disabled', true); return;
 		}
-		pending = true; appliedJob = '';
+		pending = true; appliedJob = ''; saveBlocked = true; needsStatus = false;
 		$('#TlsCipherAgain').hide();
 		message(text('starting', 'Starting cipher tests…'));
 		call('tlscipherstart', [], function(result) { pending = false; render(result); });
@@ -104,15 +113,22 @@ var TlsCipherDialog = (new function($)
 	{
 		if (initialized) return;
 		initialized = true;
-		$('#TlsCipherDialog').on('hidden', function() { visible = false; stopTimer(); })
+		$('#TlsCipherDialog').on('hidden', function() { visible = false; })
 			.on('shown', function() { $('#TlsCipherClose').focus(); });
 		$('#TlsCipherCancel').on('click', function() {
 			if (!job || !state || !active(state) || pending) return;
 			pending = true; $('#TlsCipherCancel').prop('disabled', true);
 			call('tlsciphercancel', [job], function(result) { pending = false; render(result); });
 		});
-		$('#TlsCipherAgain').on('click', start);
+		$('#TlsCipherAgain').on('click', function() { if (needsStatus) poll(); else start(); });
 		$(window).on('beforeunload.tlscipher', stopTimer);
+	};
+	this.canSaveSettings = function() { return !saveBlocked; };
+	this.showSaveBlocked = function()
+	{
+		$('#Notif_Config_CipherPending strong').text(text('save_pending',
+			'Wait for TLS cipher testing to finish before saving Settings. If the server editor changed, refresh Settings to reconcile the saved ciphers.'));
+		PopupNotification.show('#Notif_Config_CipherPending');
 	};
 	this.refreshAvailability = function()
 	{
@@ -140,7 +156,7 @@ var TlsCipherDialog = (new function($)
 				render(result);
 				message(result.Message || text('unavailable', 'TLS cipher optimization requires a TLS-enabled Rust backend.'));
 			}
-			else if (result.State === 'idle') start();
+			else if (result.State === 'idle' && !needsStatus) start();
 			else render(result);
 		});
 	};
