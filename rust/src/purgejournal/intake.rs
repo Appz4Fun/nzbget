@@ -7,6 +7,9 @@ pub(super) const RAW_CAPTURE_TAG: u32 = 10;
 pub(super) const INTAKE_TAG: u32 = 11;
 const MAX_DECLARATIONS: usize = 1_000_000;
 const MAX_ATTRIBUTES: usize = 1024;
+// Complete held-path label bound: actual prefix, 16 domain bytes rendered as
+// hexadecimal, separator, maximum u64 decimal width (including 20-digit IDs).
+const HELD_POSTING_LABEL_BYTES: usize = b"NZBINTAKE1:".len() + 16 * 2 + 1 + 20;
 
 #[cfg(test)]
 mod tests {
@@ -95,6 +98,29 @@ mod tests {
         let recovered=Registry::recover([1;16],h.journal_identity().unwrap(),&h.frames).unwrap();
         assert_eq!(recovered.load_intake_association([5;16],&h).unwrap(),committed);
     }
+// Mechanical formatting only; no invented association/custody/producer authority.
+#[test]
+fn held_label_twenty_digit_format_has_no_hidden_growth() {
+    let c=subjects::HeldCapacity::new(19).unwrap();
+    let (r,a)=crate::allocation_probe::measure(||posting_label_accounted([1;16],u64::MAX-1,Some(&c)));
+    let r=r.unwrap();assert_eq!(r,b"NZBINTAKE1:01010101010101010101010101010101:18446744073709551614");
+    assert_eq!(a.calls,1);assert_eq!(c.bytes(),19+r.capacity());c.drop_scratch(r).unwrap();assert_eq!(c.bytes(),19);
+}
+#[test]
+fn held_label_sixty_three_remaining_rejects_before_allocation() {
+    let c=subjects::HeldCapacity::new(MAX_PAYLOAD-63).unwrap();let before=c.bytes();
+    let (r,a)=crate::allocation_probe::measure(||posting_label_accounted([1;16],u64::MAX-1,Some(&c)));
+    assert!(matches!(r,Err(PurgeError::LimitExceeded)));assert_eq!(a.calls,0);assert_eq!(c.bytes(),before);
+}
+#[test]
+fn held_label_boundary_keeps_ordinary_bytes() {
+    for n in [9_999_999_999_999_999_999u64,10_000_000_000_000_000_000,u64::MAX-1] {
+        let expected=format!("NZBINTAKE1:{}:{n}","01".repeat(16)).into_bytes();let c=subjects::HeldCapacity::new(0).unwrap();
+        assert_eq!(posting_label_accounted([1;16],n,None).unwrap(),expected);
+        let held=posting_label_accounted([1;16],n,Some(&c)).unwrap();assert_eq!(held,expected);assert_eq!(c.bytes(),held.capacity());
+    }
+}
+
 }
 
 #[derive(Debug,PartialEq,Eq)]
@@ -196,25 +222,30 @@ impl Registry {
         self.ready(host)?;
         committed(self.intake_captures.iter().find(|r|r.request==request).ok_or(PurgeError::InvalidInput)?)
     }
-    fn check_association(&self,a:&IntakeAssociation)->Result<(),PurgeError>{
+    fn check_association(&self,a:&IntakeAssociation)->Result<(),PurgeError>{self.check_association_accounted(a,None)}
+    fn check_association_accounted(&self,a:&IntakeAssociation,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
+        let operation=||self.check_association_body(a,capacity);
+        match capacity{Some(c)=>c.scratch(operation),None=>operation()}
+    }
+    fn check_association_body(&self,a:&IntakeAssociation,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
         if a.schema_version!=1||a.domain!=self.domain||a.request==[0;16]||a.parser_contract_version!=1||a.files.is_empty()
             ||a.files.len()>MAX_MEMBERS||a.declarations.len()>MAX_DECLARATIONS {return Err(PurgeError::InvalidInput);}
         let c=self.intake_captures.iter().find(|c|c.request==a.request&&c.publication_sequence==a.capture_publication_sequence).ok_or(PurgeError::InvalidInput)?;
-        if payload_identity(&wire(c)?)!=a.capture_payload_identity||c.parser_contract_version!=a.parser_contract_version{return Err(PurgeError::InvalidInput);}
-        if wire(a)?.len().checked_add(c.raw_nzb_bytes.len()).ok_or(PurgeError::LimitExceeded)?>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}
+        if wire_identity_accounted(c,capacity)?!=a.capture_payload_identity||c.parser_contract_version!=a.parser_contract_version{return Err(PurgeError::InvalidInput);}
+        if wire_length_accounted(a,capacity)?.checked_add(c.raw_nzb_bytes.len()).ok_or(PurgeError::LimitExceeded)?>MAX_PAYLOAD{return Err(PurgeError::LimitExceeded);}
         self.check_raw_capture(c)?;
         if self.intake_associations.iter().any(|old|!std::ptr::eq(old,a)&&old.request==a.request){return Err(PurgeError::Conflict);}
-        let mut file_ids=reserved(a.files.len())?;let mut incarnations=reserved(a.files.len())?;
-        let mut accepted_files=reserved(a.files.len())?;accepted_files.resize(a.files.len(),false);
-        let mut accepted_articles=reserved(a.files.len())?;let mut accepted_groups=reserved(a.files.len())?;
+        let mut file_ids=reserved_accounted(a.files.len(),capacity)?;let mut incarnations=reserved_accounted(a.files.len(),capacity)?;
+        let mut accepted_files=reserved_accounted(a.files.len(),capacity)?;accepted_files.resize(a.files.len(),false);
+        let mut accepted_articles=reserved_accounted(a.files.len(),capacity)?;let mut accepted_groups=reserved_accounted(a.files.len(),capacity)?;
         for f in &a.files {
             if f.file_id<=0||f.incarnation==c.incarnation||f.declaration_ordinal==0||f.articles.is_empty()||f.articles.len()>MAX_DECLARATIONS||f.groups.len()>MAX_MEMBERS{return Err(PurgeError::InvalidInput);}
             self.intake_reservation(f.reservation_request,f.reservation_sequence,f.incarnation)?;
             text(&f.subject,MAX_IDENTITY,false)?;for g in &f.groups{text(&g.bytes,MAX_IDENTITY,false)?;}
             if self.intake_captures.iter().any(|raw|raw.incarnation==f.incarnation)||self.intake_associations.iter().any(|old|!std::ptr::eq(old,a)&&old.files.iter().any(|prior|prior.incarnation==f.incarnation)){return Err(PurgeError::Conflict);}
             file_ids.push(f.file_id);incarnations.push(f.incarnation);
-            let mut seen=reserved(f.articles.len())?;seen.resize(f.articles.len(),false);accepted_articles.push(seen);
-            let mut seen_groups=reserved(f.groups.len())?;seen_groups.resize(f.groups.len(),false);accepted_groups.push(seen_groups);
+            let mut seen=reserved_accounted(f.articles.len(),capacity)?;seen.resize(f.articles.len(),false);accepted_articles.push(seen);
+            let mut seen_groups=reserved_accounted(f.groups.len(),capacity)?;seen_groups.resize(f.groups.len(),false);accepted_groups.push(seen_groups);
             let mut last=0;
             for article in &f.articles {
                 if article.declaration_ordinal==0||article.part<=last{return Err(PurgeError::InvalidInput);}last=article.part;
@@ -225,7 +256,7 @@ impl Registry {
         file_ids.sort_unstable();incarnations.sort_unstable();
         if file_ids.windows(2).any(|w|w[0]==w[1])||incarnations.windows(2).any(|w|w[0]==w[1]){return Err(PurgeError::InvalidInput);}
         let mut file_ordinal=0u32;let mut segment_ordinal=0u32;let mut group_ordinal=0u32;
-        let mut segment_index=reserved(a.declarations.len())?;
+        let mut segment_index=reserved_accounted(a.declarations.len(),capacity)?;
         for (index,d) in a.declarations.iter().enumerate(){if d.kind==2{segment_index.push((d.ordinal,index));}}
         segment_index.sort_unstable_by_key(|row|row.0);
         if segment_index.windows(2).any(|w|w[0].0==w[1].0){return Err(PurgeError::InvalidInput);}
@@ -281,14 +312,15 @@ impl Registry {
         self.resolve_intake_custody(association.publication_sequence)?;
         committed(association)
     }
-    fn resolve_intake_custody(&self,sequence:u64)->Result<(&IntakeAssociation,&RawCapture),PurgeError>{
+    fn resolve_intake_custody(&self,sequence:u64)->Result<(&IntakeAssociation,&RawCapture),PurgeError>{self.resolve_intake_custody_accounted(sequence,None)}
+    fn resolve_intake_custody_accounted(&self,sequence:u64,capacity:Option<&subjects::HeldCapacity>)->Result<(&IntakeAssociation,&RawCapture),PurgeError>{
         if self.recovery_required{return Err(PurgeError::RecoveryRequired);}
         if sequence==0{return Err(PurgeError::InvalidInput);}
         let association=self.intake_associations.iter().find(|a|a.publication_sequence==sequence).ok_or(PurgeError::MissingInventory)?;
         let raw=self.intake_captures.iter().find(|c|c.request==association.request&&c.publication_sequence==association.capture_publication_sequence).ok_or(PurgeError::MissingInventory)?;
         // Both retained records, their exact link, complete map and namespace
         // reservations must remain valid. A nonzero reference is insufficient.
-        self.check_association(association)?;
+        self.check_association_accounted(association,capacity)?;
         Ok((association,raw))
     }
     pub(crate) fn validate_intake_owner(&self,a:&IntakeAssociation)->Result<(),PurgeError>{
@@ -296,9 +328,16 @@ impl Registry {
         if retained!=a{return Err(PurgeError::Conflict);}Ok(())
     }
     pub fn intake_subject_authority(&self,sequence:u64,binding:&MemberBinding,parent:Option<&MemberBinding>)->Result<(u64,[u8;32]),PurgeError>{
+        self.intake_subject_authority_accounted(sequence,binding,parent,None)
+    }
+    fn intake_subject_authority_accounted(&self,sequence:u64,binding:&MemberBinding,parent:Option<&MemberBinding>,capacity:Option<&subjects::HeldCapacity>)->Result<(u64,[u8;32]),PurgeError>{
+        let operation=||self.intake_subject_authority_body(sequence,binding,parent,capacity);
+        match capacity{Some(c)=>c.scratch(operation),None=>operation()}
+    }
+    fn intake_subject_authority_body(&self,sequence:u64,binding:&MemberBinding,parent:Option<&MemberBinding>,capacity:Option<&subjects::HeldCapacity>)->Result<(u64,[u8;32]),PurgeError>{
         subjects::check_binding(binding)?;
-        let (association,raw)=self.resolve_intake_custody(sequence)?;
-        let (_,_,label)=self.intake_identity_before_commit(raw.request)?;
+        let (association,raw)=self.resolve_intake_custody_accounted(sequence,capacity)?;
+        let (_,_,label)=self.intake_identity_before_commit_accounted(raw.request,capacity)?;
         if binding.collection_id!=raw.collection_id||binding.posting_source!=label{return Err(PurgeError::Conflict);}
         match (binding.file_id,parent){
             (None,None) if binding.incarnation==raw.incarnation=>(),
@@ -312,12 +351,13 @@ impl Registry {
         reference[24..].copy_from_slice(&binding.incarnation.to_le_bytes());
         Ok((binding.incarnation,reference))
     }
-    pub(crate) fn validate_subject_custody(&self,record:&subjects::SubjectRecord)->Result<(),PurgeError>{
+    pub(crate) fn validate_subject_custody(&self,record:&subjects::SubjectRecord)->Result<(),PurgeError>{self.validate_subject_custody_accounted(record,None)}
+    pub(super) fn validate_subject_custody_accounted(&self,record:&subjects::SubjectRecord,capacity:Option<&subjects::HeldCapacity>)->Result<(),PurgeError>{
         let reference=record.custody.id;
         if reference[..16]!=self.domain||record.source.custody_receipt_id!=reference||record.source.id!=record.binding.incarnation
             ||record.source.binding!=record.binding||record.source.parent_collection!=record.parent{return Err(PurgeError::Conflict);}
         let sequence=u64::from_le_bytes(reference[16..24].try_into().map_err(|_|PurgeError::InvalidInput)?);
-        let expected=self.intake_subject_authority(sequence,&record.binding,record.parent.as_ref())?;
+        let expected=self.intake_subject_authority_accounted(sequence,&record.binding,record.parent.as_ref(),capacity)?;
         if expected!=(record.source.id,reference){return Err(PurgeError::Conflict);}Ok(())
     }
     pub fn intake_posting_source(&self,a:&IntakeAssociation)->Result<Vec<u8>,PurgeError>{
@@ -328,14 +368,10 @@ impl Registry {
     }
     // Only the ABI's private preallocation path uses this before association
     // publication. The label is never exported until a committed owner exists.
-    pub(crate) fn intake_identity_before_commit(&self,request:[u8;16])->Result<(i32,u64,Vec<u8>),PurgeError>{
+    pub(crate) fn intake_identity_before_commit(&self,request:[u8;16])->Result<(i32,u64,Vec<u8>),PurgeError>{self.intake_identity_before_commit_accounted(request,None)}
+    fn intake_identity_before_commit_accounted(&self,request:[u8;16],capacity:Option<&subjects::HeldCapacity>)->Result<(i32,u64,Vec<u8>),PurgeError>{
         let c=self.intake_captures.iter().find(|c|c.request==request).ok_or(PurgeError::InvalidInput)?;
-        let mut label=reserved(10+32+1+20)?;label.extend_from_slice(b"NZBINTAKE1:");
-        const HEX:&[u8;16]=b"0123456789abcdef";
-        for b in c.domain{label.push(HEX[(b>>4)as usize]);label.push(HEX[(b&15)as usize]);}label.push(b':');
-        let mut digits=[0u8;20];let mut at=digits.len();let mut value=c.incarnation;
-        loop {at-=1;digits[at]=b'0'+(value%10)as u8;value/=10;if value==0{break;}}
-        label.extend_from_slice(&digits[at..]);
+        let label=posting_label_accounted(c.domain,c.incarnation,capacity)?;
         Ok((c.collection_id,c.incarnation,label))
     }
     pub fn validate_intake_binding(&self,b:&MemberBinding)->Result<(),PurgeError>{
@@ -363,4 +399,88 @@ impl Registry {
             _=>return Err(PurgeError::CorruptJournal),
         }Ok(())
     }
+}
+
+impl Registry {
+    // Borrow-only candidates for the complete constructor preflight. No label,
+    // wire, descriptor decode or successful authority is produced here.
+    fn held_intake_candidates(&self,record:&subjects::SubjectRecord)->Result<(&IntakeAssociation,&RawCapture),PurgeError>{
+        if self.recovery_required{return Err(PurgeError::RecoveryRequired);}
+        let reference=record.custody.id;
+        if reference[..16]!=self.domain{return Err(PurgeError::Conflict);}
+        let sequence=u64::from_le_bytes(reference[16..24].try_into().map_err(|_|PurgeError::InvalidInput)?);
+        if sequence==0{return Err(PurgeError::InvalidInput);}
+        let association=self.intake_associations.iter().find(|a|a.publication_sequence==sequence).ok_or(PurgeError::MissingInventory)?;
+        let raw=self.intake_captures.iter().find(|c|c.request==association.request&&c.publication_sequence==association.capture_publication_sequence).ok_or(PurgeError::MissingInventory)?;
+        Ok((association,raw))
+    }
+    pub(super) fn held_intake_retained_budget<'registry>(&'registry self,record:&subjects::SubjectRecord,b:&mut subjects::HeldBudget<'registry>)->Result<(),PurgeError>{
+        let (a,c)=self.held_intake_candidates(record)?;
+        // Deduplicate only identical borrowed Registry objects, independently
+        // for raw and association. Equal IDs/content in distinct allocations
+        // do not exempt bytes. This sizing lookup is not custody validation.
+        if !b.intake_raw.iter().flatten().any(|old|std::ptr::eq(*old,c)) {
+            let slot=b.intake_raw.iter().position(Option::is_none).ok_or(PurgeError::InvalidInput)?;
+            b.array::<RawCapture>(1)?;b.add(c.descriptor_identity.capacity())?;b.add(c.raw_nzb_bytes.capacity())?;
+            b.intake_raw[slot]=Some(c);
+        }
+        if !b.intake_associations.iter().flatten().any(|old|std::ptr::eq(*old,a)) {
+            let slot=b.intake_associations.iter().position(Option::is_none).ok_or(PurgeError::InvalidInput)?;
+            b.array::<IntakeAssociation>(1)?;b.array::<EffectiveFile>(a.files.capacity())?;b.array::<Declaration>(a.declarations.capacity())?;
+            for f in &a.files{
+                b.add(f.subject.capacity())?;b.array::<Group>(f.groups.capacity())?;b.array::<EffectiveArticle>(f.articles.capacity())?;
+                for g in &f.groups{b.add(g.bytes.capacity())?;}for article in &f.articles{b.add(article.message_id.capacity())?;}
+            }
+            for d in &a.declarations{b.array::<Attribute>(d.attributes.capacity())?;b.add(d.characters.capacity())?;for attr in &d.attributes{b.add(attr.name.capacity())?;b.add(attr.value.capacity())?;}}
+            b.intake_associations[slot]=Some(a);
+        }
+        Ok(())
+    }
+    pub(super) fn held_intake_scratch_budget(&self,record:&subjects::SubjectRecord,b:&mut subjects::HeldBudget<'_>)->Result<(),PurgeError>{
+        let (a,c)=self.held_intake_candidates(record)?;
+        // Existing check_association allocates raw/association wires, fixed
+        // descriptor decode, IDs, nested seen flags and declaration index.
+        b.add(subjects::held_wire_size(c)?)?;b.add(subjects::held_wire_size(a)?)?;
+        b.array::<CapturedDescriptor>(1)?;
+        b.array::<i32>(a.files.len())?;b.array::<u64>(a.files.len())?;b.array::<bool>(a.files.len())?;
+        b.array::<Vec<bool>>(a.files.len())?;b.array::<Vec<bool>>(a.files.len())?;
+        for f in &a.files{b.array::<bool>(f.articles.len())?;b.array::<bool>(f.groups.len())?;}
+        b.array::<(u32,usize)>(a.declarations.len())?;
+        b.add(HELD_POSTING_LABEL_BYTES)?; // same complete held formatter bound
+        Ok(())
+    }
+    pub(super) fn validate_held_intake_source(&self,record:&subjects::SubjectRecord,current:&[u8],capacity:&subjects::HeldCapacity)->Result<(),PurgeError>{
+        let reference=record.custody.id;
+        let sequence=u64::from_le_bytes(reference[16..24].try_into().map_err(|_|PurgeError::InvalidInput)?);
+        // Share the original complete authoritative resolver, including raw
+        // and every declaration/effective-map/reservation check. Do not scan
+        // unrelated associations and allocate unaccounted labels.
+        if record.source_kind!=2{return Err(PurgeError::Unsupported);}
+        let (association,_)=self.resolve_intake_custody_accounted(sequence,Some(capacity))?;
+        self.validate_subject_custody_accounted(record,Some(capacity))?;
+        // The existing file-kind identity comparison uses borrowed slices only.
+        source_codec::matches_intake(record.source_kind,current,&record.binding,&association.files)
+    }
+}
+
+// Mechanical formatter shared by the ordinary and opt-in accounted issuer paths.
+fn posting_label_accounted(domain:[u8;16],incarnation:u64,capacity:Option<&subjects::HeldCapacity>)->Result<Vec<u8>,PurgeError>{
+        // Preserve the ordinary None reservation/emission behavior. Only the held
+        // path needs a complete fixed bound and aggregate capacity admission.
+        let requested=if capacity.is_some(){HELD_POSTING_LABEL_BYTES}else{10+32+1+20};
+        let mut label=reserved_accounted(requested,capacity)?;
+        if capacity.is_some()&&label.capacity()<HELD_POSTING_LABEL_BYTES{return Err(PurgeError::LimitExceeded);}
+        // Prefix + domain hex + separator occupy 44 bytes, below the admitted
+        // 64-byte bound. No push here can trigger a further allocation.
+        label.extend_from_slice(b"NZBINTAKE1:");
+        const HEX:&[u8;16]=b"0123456789abcdef";
+        for b in domain{label.push(HEX[(b>>4)as usize]);label.push(HEX[(b&15)as usize]);}label.push(b':');
+        let mut digits=[0u8;20];let mut at=digits.len();let mut value=incarnation;
+        loop {at-=1;digits[at]=b'0'+(value%10)as u8;value/=10;if value==0{break;}}
+        if capacity.is_some(){
+            let final_length=label.len().checked_add(digits.len()-at).ok_or(PurgeError::LimitExceeded)?;
+            if final_length>HELD_POSTING_LABEL_BYTES||final_length>label.capacity(){return Err(PurgeError::LimitExceeded);}
+        }
+        label.extend_from_slice(&digits[at..]);
+        Ok(label)
 }
