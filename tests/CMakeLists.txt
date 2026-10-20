@@ -16,6 +16,7 @@ include(system/system.cmake)
 include(postprocess/postprocess.cmake)
 include(systemhealth/systemhealth.cmake)
 include(remote/remote.cmake)
+list(APPEND TESTS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/connect/TlsCipher.cpp)
 
 add_executable(${TESTS_TARGET} ${TESTS_SRC})
 if(EXTERNAL_DEPS)
@@ -23,6 +24,15 @@ if(EXTERNAL_DEPS)
 endif()
 
 target_link_libraries(${TESTS_TARGET} PRIVATE libnzbget Boost::unit_test_framework)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	# Fault injection stays in the test executable; libnzbget and the daemon
+	# retain their ordinary syscall bindings and production ABI.
+	target_compile_definitions(${TESTS_TARGET} PRIVATE NZBGET_TEST_CIPHER_XATTR_WRAP)
+	target_link_options(${TESTS_TARGET} PRIVATE
+		"LINKER:--wrap=flistxattr"
+		"LINKER:--wrap=fgetxattr"
+		"LINKER:--wrap=fsetxattr")
+endif()
 
 apply_compiler_flags(${TESTS_TARGET})
 apply_sanitizers(${TESTS_TARGET})
@@ -44,3 +54,7 @@ add_test(NAME SystemTest       COMMAND ${TESTS_TARGET} --run_test=SystemTest --l
 add_test(NAME PostprocessTest  COMMAND ${TESTS_TARGET} --run_test=PostprocessTest --log_level=message)
 add_test(NAME SystemHealthTest COMMAND ${TESTS_TARGET} --run_test=SystemHealthTest --log_level=message)
 add_test(NAME RemoteTest       COMMAND ${TESTS_TARGET} --run_test=RemoteTest --log_level=message)
+if(TARGET nzbget-rs AND NOT DISABLE_TLS AND (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+	add_test(NAME ConnectTest COMMAND ${TESTS_TARGET} --run_test=ConnectTest --log_level=message)
+	set_tests_properties(ConnectTest PROPERTIES TIMEOUT 60)
+endif()

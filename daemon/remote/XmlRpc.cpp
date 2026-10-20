@@ -51,6 +51,7 @@
 #include "Xml.h"
 #include "Unpack.h"
 #include "SystemHealth.h"
+#include "TlsCipherBackend.h"
 
 namespace
 {
@@ -467,6 +468,46 @@ private:
 			return std::nullopt;
 		}
 	}
+};
+
+class TlsCipherXmlCommand final : public XmlCommand
+{
+public:
+	explicit TlsCipherXmlCommand(int operation) : m_operation(operation) {}
+	void Execute() override
+	{
+		if (m_userAccess != XmlRpcProcessor::uaControl || m_protocol != XmlRpcProcessor::rpJsonRpc || m_httpMethod != XmlRpcProcessor::hmPost)
+		{
+			BuildErrorResponse(401, "TLS cipher optimization requires control-account JSON-RPC POST access"); return;
+		}
+		auto request = m_request ? Json::Deserialize(m_request) : std::nullopt;
+		if (!request || !request->is_object() || !request->as_object().contains("params") || !request->as_object().at("params").is_array())
+		{
+			BuildErrorResponse(2, "Invalid cipher optimizer parameters"); return;
+		}
+		const auto& params = request->as_object().at("params").as_array();
+		std::string id;
+		if ((m_operation == 0 && !params.empty()) || (m_operation == 1 && params.size() > 1) || (m_operation == 2 && params.size() != 1) ||
+			(!params.empty() && (!params[0].is_string() || params[0].as_string().size() > 128)))
+		{
+			BuildErrorResponse(2, "Invalid cipher job ID"); return;
+		}
+		if (!params.empty()) id = Json::value_to<std::string>(params[0]);
+		if ((!params.empty() && (id.empty() || id.find('\0') != std::string::npos)))
+		{
+			BuildErrorResponse(2, "Invalid cipher job ID"); return;
+		}
+		std::string response = m_operation == 0 ? TlsCipherBackend::Start() :
+			m_operation == 1 ? TlsCipherBackend::Status(id.empty() ? nullptr : id.c_str()) : TlsCipherBackend::Cancel(id.c_str());
+		auto parsed = Json::Deserialize(response);
+		if (!parsed || !parsed->is_object()) { BuildErrorResponse(3, "Invalid TLS optimizer response"); return; }
+		const auto& object = parsed->as_object();
+		if (object.contains("Error") && object.at("Error").is_string())
+			BuildErrorResponse(3, "%s", Json::value_to<std::string>(object.at("Error")).c_str());
+		else AppendResponse(response.c_str());
+	}
+private:
+	int m_operation;
 };
 
 class TestServerSpeedXmlCommand final : public XmlCommand
@@ -945,7 +986,8 @@ std::unique_ptr<XmlCommand> XmlRpcProcessor::CreateCommand(const char* methodNam
 		command = std::make_unique<ErrorXmlCommand>(401, "Access denied");
 		warn("Received request \"%s\" from add-user, access denied", methodName);
 	}
-	else if (m_userAccess == uaRestricted && !strcasecmp(methodName, "saveconfig"))
+	else if (m_userAccess == uaRestricted && (!strcasecmp(methodName, "saveconfig") ||
+		!strcasecmp(methodName, "tlscipherstart") || !strcasecmp(methodName, "tlscipherstatus") || !strcasecmp(methodName, "tlsciphercancel")))
 	{
 		command = std::make_unique<ErrorXmlCommand>(401, "Access denied");
 		warn("Received request \"%s\" from restricted user, access denied", methodName);
@@ -1139,6 +1181,18 @@ std::unique_ptr<XmlCommand> XmlRpcProcessor::CreateCommand(const char* methodNam
 	else if (!strcasecmp(methodName, "resetservervolume"))
 	{
 		command = std::make_unique<ResetServerVolumeXmlCommand>();
+	}
+	else if (!strcasecmp(methodName, "tlscipherstart"))
+	{
+		command = std::make_unique<TlsCipherXmlCommand>(0);
+	}
+	else if (!strcasecmp(methodName, "tlscipherstatus"))
+	{
+		command = std::make_unique<TlsCipherXmlCommand>(1);
+	}
+	else if (!strcasecmp(methodName, "tlsciphercancel"))
+	{
+		command = std::make_unique<TlsCipherXmlCommand>(2);
 	}
 	else if (!strcasecmp(methodName, "testserver"))
 	{
@@ -3612,6 +3666,8 @@ void TestExtensionXmlCommand::Execute()
 void SaveConfigXmlCommand::Execute()
 {
 	Options::OptEntries optEntries;
+	std::string cipherBaseline;
+	bool hasCipherBaseline = false;
 
 	// The file is rewritten from the entries given: options left out are dropped.
 	// An entry that doesn't read as a name and a string value (a number, or "Value"
@@ -3658,7 +3714,17 @@ void SaveConfigXmlCommand::Execute()
 			}
 		}
 		DecodeStr(name);
+		bool baselineEntry = !strcmp(name, "_TlsCipherBaseline");
+		// The token contains only ASCII field names and hex-encoded UTF-8.
+		// Reject encoded NUL rather than accepting a decoder-truncated token.
+		if (baselineEntry && (strstr(value, "\\u0000") || strstr(value, "&#"))) { malformed = true; break; }
 		DecodeStr(value);
+		if (baselineEntry)
+		{
+			if (hasCipherBaseline || strlen(value) > 1024 * 1024 || strncmp(value, "v1\n", 3)) { malformed = true; break; }
+			hasCipherBaseline = true; cipherBaseline = value;
+			continue; // RPC metadata is never a configuration option.
+		}
 		optEntries.emplace_back(name, value);
 	}
 
@@ -3669,7 +3735,13 @@ void SaveConfigXmlCommand::Execute()
 	}
 
 	// save to config file
-	bool ok = g_ScriptConfig->SaveConfig(&optEntries);
+	bool conflict = false;
+	bool ok = g_ScriptConfig->SaveConfig(&optEntries, hasCipherBaseline ? cipherBaseline.c_str() : nullptr, &conflict);
+	if (conflict)
+	{
+		BuildErrorResponse(3, "News server settings changed in another operation. Refresh Settings before saving; your edits have been retained.");
+		return;
+	}
 
 	BuildBoolResponse(ok);
 }

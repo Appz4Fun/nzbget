@@ -25,6 +25,7 @@
 
 #include <string_view>
 #include "OpenSSL.h"
+#include "SocketDeadline.h"
 
 class TlsSocket
 {
@@ -59,6 +60,11 @@ public:
 	int Send(const char* buffer, int size);
 	int Recv(char* buffer, int size);
 	void SetSuppressErrors(bool suppressErrors) { m_suppressErrors = suppressErrors; }
+	const char* GetNegotiatedCipher() const { return m_session ? SSL_get_cipher_name(m_session.get()) : ""; }
+	int GetNegotiatedVersion() const { return m_session ? SSL_version(m_session.get()) : 0; }
+	static bool HasCertificateStore() { return static_cast<bool>(m_X509Store); }
+	int GetProbeFailure() const { return m_probeFailure; }
+	void SetDeadline(std::shared_ptr<const SocketDeadline> deadline) { m_deadline = std::move(deadline); }
 
 protected:
 	virtual void PrintError(const char* errMsg);
@@ -89,12 +95,15 @@ private:
 	bool m_isClient;
 	bool m_suppressErrors = false;
 	bool m_connected = false;
+	int m_probeFailure = -1;
 
 	int m_retCode;
 	int m_certVerifLevel;
 
 	OpenSSL::SSLCtxPtr m_context;
 	OpenSSL::SSLSessionPtr m_session;
+	std::shared_ptr<const SocketDeadline> m_deadline;
+	bool RetryIo(int result);
 
 	void ReportError(const char* errMsg, bool suppressable = true);
 	bool ValidateCert();

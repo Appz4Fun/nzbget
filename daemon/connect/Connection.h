@@ -25,7 +25,10 @@
 
 #include <atomic>
 #include <string>
+#include <memory>
+#include <vector>
 #include "NString.h"
+#include "SocketDeadline.h"
 #ifndef DISABLE_TLS
 #include "TlsSocket.h"
 #endif
@@ -71,6 +74,13 @@ public:
 	const char* GetCipher() const { return m_cipher.c_str(); }
 	void SetCipher(const char* cipher) { m_cipher = cipher ? cipher : ""; }
 	void SetTimeout(int timeout) { m_timeout = timeout; }
+	void SetResolvedAddresses(const std::vector<std::string>& addresses) { m_resolvedAddresses = addresses; }
+	void SetDeadline(std::shared_ptr<const SocketDeadline> deadline) { m_deadline = std::move(deadline); }
+#ifndef DISABLE_TLS
+	const char* GetNegotiatedCipher() const { return m_tlsSocket ? m_tlsSocket->GetNegotiatedCipher() : ""; }
+	int GetNegotiatedVersion() const { return m_tlsSocket ? m_tlsSocket->GetNegotiatedVersion() : 0; }
+	int GetTlsProbeFailure() const { return m_tlsProbeFailure; }
+#endif
 	void SetIPVersion(EIPVersion ipVersion) { m_ipVersion = ipVersion; }
 	EStatus GetStatus() { return m_status; }
 	// the last Accept() failed for lack of descriptors or memory, not on the listener
@@ -93,6 +103,8 @@ public:
 protected:
 	std::string m_host;
 	std::string m_cipher;
+	std::vector<std::string> m_resolvedAddresses;
+	std::shared_ptr<const SocketDeadline> m_deadline;
 	int m_port;
 	bool m_tls;
 	EIPVersion m_ipVersion = ipAuto;
@@ -124,6 +136,7 @@ protected:
 #ifndef DISABLE_TLS
 	std::unique_ptr<TlsSocket> m_tlsSocket;
 	bool m_tlsError = false;
+	int m_tlsProbeFailure = -1;
 #endif
 #ifndef HAVE_GETADDRINFO
 #ifndef HAVE_GETHOSTBYNAME_R

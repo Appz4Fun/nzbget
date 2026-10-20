@@ -27,6 +27,10 @@
 #include "Log.h"
 #include "Util.h"
 #include "Options.h"
+#include <openssl/sslerr.h>
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 OpenSSL::X509StorePtr TlsSocket::m_X509Store{ nullptr, &X509_STORE_free };
 
@@ -177,15 +181,29 @@ bool TlsSocket::Start()
 		return false;
 	}
 
-	int ec = m_isClient ? SSL_connect(m_session.get()) : SSL_accept(m_session.get());
+	int ec;
+	do
+	{
+		if (m_deadline && m_deadline->Stopped()) { Close(); return false; }
+		ec = m_isClient ? SSL_connect(m_session.get()) : SSL_accept(m_session.get());
+	} while (ec < 1 && RetryIo(ec));
 	bool shouldVerify = m_X509Store && m_certVerifLevel > Options::ECertVerifLevel::cvNone;
 	if (ec < 1)
 	{
+		if (m_deadline)
+		{
+			unsigned long code = ERR_peek_last_error();
+			int reason = ERR_GET_REASON(code);
+			if (ERR_GET_LIB(code) == ERR_LIB_SSL && (reason == SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE ||
+				reason == SSL_R_TLSV1_ALERT_PROTOCOL_VERSION || reason == SSL_R_NO_SHARED_CIPHER || reason == SSL_R_UNSUPPORTED_PROTOCOL))
+				m_probeFailure = 0; // Explicit rejection of this single-suite handshake.
+		}
 		if (m_isClient && shouldVerify)
 		{
 			long verifyRes = SSL_get_verify_result(m_session.get());
 			if (verifyRes != X509_V_OK)
 			{
+				m_probeFailure = -4;
 				PrintError(BString<1024>("TLS certificate verification failed for %s: %s."
 					" For more info visit https://nzbget.com/documentation/certificate-verification/",
 					m_host.c_str(), X509_verify_cert_error_string(verifyRes)));
@@ -201,6 +219,7 @@ bool TlsSocket::Start()
 
 	if (m_isClient && shouldVerify && !ValidateCert())
 	{
+		m_probeFailure = -4;
 		Close();
 		return false;
 	}
@@ -221,6 +240,35 @@ bool TlsSocket::SetCipherSuite(std::string_view cipher)
 	{
 		return true;
 	}
+
+	// A single modern suite is an exact pin. Without a protocol bound, setting
+	// only a TLS 1.2 list leaves the default TLS 1.3 suites usable (and vice versa).
+	// Empty values and custom lists retain their historical negotiation behavior.
+#ifdef NZBGET_USE_RUST
+	if (cipher.find(':') == std::string_view::npos)
+	{
+		const auto* ciphers = SSL_get_ciphers(m_session.get());
+		for (int i = 0; i < sk_SSL_CIPHER_num(ciphers); ++i)
+		{
+			const SSL_CIPHER* candidate = sk_SSL_CIPHER_value(ciphers, i);
+			if (cipher != SSL_CIPHER_get_name(candidate)) continue;
+			bool tls13 = !strcmp(SSL_CIPHER_get_version(candidate), "TLSv1.3");
+			int auth = SSL_CIPHER_get_auth_nid(candidate), kx = SSL_CIPHER_get_kx_nid(candidate);
+			bool certificate = tls13 || auth == NID_auth_rsa || auth == NID_auth_ecdsa;
+			bool ephemeral = tls13 || kx == NID_kx_ecdhe || kx == NID_kx_dhe;
+			unsigned flags = (SSL_CIPHER_is_aead(candidate) ? 1 : 0) | (certificate ? 2 : 0) | (ephemeral ? 4 : 0);
+			unsigned bits = strstr(SSL_CIPHER_get_name(candidate), "CCM8") ? 64 : SSL_CIPHER_get_bits(candidate, nullptr);
+			if (!nzbget_rs_tls_cipher_pin(tls13 ? 13 : 12, bits, flags)) break;
+			int version = tls13 ? TLS1_3_VERSION : TLS1_2_VERSION;
+			int minimum = SSL_get_min_proto_version(m_session.get());
+			int maximum = SSL_get_max_proto_version(m_session.get());
+			if ((minimum && version < minimum) || (maximum && version > maximum)) return false;
+			if (!SSL_set_min_proto_version(m_session.get(), version) || !SSL_set_max_proto_version(m_session.get(), version)) return false;
+			return tls13 ? SSL_set_ciphersuites(m_session.get(), m_cipher.c_str()) == 1 :
+				SSL_set_cipher_list(m_session.get(), m_cipher.c_str()) == 1;
+		}
+	}
+#endif
 
 	bool tls13 = SSL_set_ciphersuites(m_session.get(), cipher.data());
 	bool legacy = SSL_set_cipher_list(m_session.get(), cipher.data());
@@ -275,7 +323,7 @@ bool TlsSocket::ValidateCert()
 
 void TlsSocket::Close()
 {
-	if (m_session && m_connected)
+	if (m_session && m_connected && !m_deadline)
 	{
 		if (SSL_shutdown(m_session.get()) == 0)
 		{
@@ -290,7 +338,11 @@ void TlsSocket::Close()
 
 int TlsSocket::Send(const char* buffer, int size)
 {
-	m_retCode = SSL_write(m_session.get(), buffer, size);
+	do
+	{
+		if (m_deadline && m_deadline->Stopped()) return -1;
+		m_retCode = SSL_write(m_session.get(), buffer, size);
+	} while (m_retCode <= 0 && RetryIo(m_retCode));
 
 	if (m_retCode < 0)
 	{
@@ -308,7 +360,11 @@ int TlsSocket::Send(const char* buffer, int size)
 
 int TlsSocket::Recv(char* buffer, int size)
 {
-	m_retCode = SSL_read(m_session.get(), buffer, size);
+	do
+	{
+		if (m_deadline && m_deadline->Stopped()) return -1;
+		m_retCode = SSL_read(m_session.get(), buffer, size);
+	} while (m_retCode <= 0 && RetryIo(m_retCode));
 
 	if (m_retCode < 0)
 	{
@@ -324,6 +380,14 @@ int TlsSocket::Recv(char* buffer, int size)
 	}
 
 	return m_retCode;
+}
+
+bool TlsSocket::RetryIo(int result)
+{
+	if (!m_deadline) return false;
+	int error = SSL_get_error(m_session.get(), result);
+	if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) return false;
+	return m_deadline->Wait(m_socket, error == SSL_ERROR_WANT_READ, error == SSL_ERROR_WANT_WRITE);
 }
 
 #endif

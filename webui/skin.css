@@ -3602,3 +3602,17 @@ body.phone,
 		margin: 0;
 	}
 }
+
+/* TLS optimizer tables keep every server and outcome reachable on a phone. */
+#TlsCipherDialog { width: min(1040px, calc(100vw - 24px)); max-width: calc(100vw - 24px); left: 50%; margin-left: 0; transform: translateX(-50%); }
+#TlsCipherDialog .modal-body { max-height: 65vh; overflow-y: auto; }
+#TlsCipherDialog .tls-cipher-table { overflow-x: auto; max-width: 100%; margin-bottom: 16px; }
+#TlsCipherDialog table { width: 100%; margin-bottom: 0; }
+#TlsCipherDialog td, #TlsCipherDialog th { white-space: nowrap; text-align: left; }
+#TlsCipherDialog #TlsCipherState, #TlsCipherDialog #TlsCipherCommon { overflow-wrap: anywhere; }
+#TlsCipherDialog .modal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+#TlsCipherDialog .modal-footer .btn { margin-left: 0; }
+@media (max-width: 767px) {
+  #TlsCipherDialog { position: fixed; top: 12px; right: auto; }
+  #TlsCipherDialog .modal-body { max-height: calc(100dvh - 180px); padding: 12px; }
+}

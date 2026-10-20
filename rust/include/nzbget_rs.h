@@ -1279,6 +1279,8 @@ int nzbget_rs_dupe_par_doomed(uint64_t dataBytes, uint64_t articleBytes, const u
 
 int nzbget_rs_dupe_outer_ok(const char* title, size_t titleLen, const char* name, size_t len);
 
+#include "nzbget_tls_cipher.h"
+
 #ifdef __cplusplus
 }
 #endif

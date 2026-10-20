@@ -24,6 +24,10 @@
 #include "NString.h"
 #include "Container.h"
 #include "Options.h"
+#include <mutex>
+#include <atomic>
+#include <string_view>
+#include <functional>
 
 class ScriptConfig
 {
@@ -44,14 +48,20 @@ public:
 
 	void InitOptions();
 	bool LoadConfig(Options::OptEntries* optEntries);
-	bool SaveConfig(Options::OptEntries* optEntries);
+	bool SaveConfig(Options::OptEntries* optEntries, const char* cipherBaseline = nullptr, bool* conflict = nullptr);
+	static std::string CipherBaseline(const Options::OptEntries& optEntries);
+	enum class CipherCommit { Saved, Unchanged, Conflict, Cancelled, Failed };
+	bool ReadCipherSnapshot(std::string& bytes);
+	CipherCommit CommitCipherPatch(std::string_view expected, std::string_view replacement, const std::function<bool()>& cancel);
 	bool LoadConfigTemplates(ConfigTemplates* configTemplates);
 	ConfigTemplates* GetConfigTemplates() { return &m_configTemplates; }
 
 private:
 	ConfigTemplates m_configTemplates;
+	inline static std::mutex m_configWriteMutex;
 
 	void InitConfigTemplates();
+	bool LoadConfigUnlocked(Options::OptEntries* optEntries);
 };
 
 extern ScriptConfig* g_ScriptConfig;

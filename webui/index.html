@@ -69,6 +69,7 @@
 	<script language="javascript" type="text/javascript" src="history.js"></script>
 	<script language="javascript" type="text/javascript" src="upload.js"></script>
 	<script language="javascript" type="text/javascript" src="config.js"></script>
+	<script language="javascript" type="text/javascript" src="tlscipher.js"></script>
 	<script language="javascript" type="text/javascript" src="feed.js"></script>
 	<script language="javascript" type="text/javascript" src="system-info.js"></script>
 	<script language="javascript" type="text/javascript" src="statistics.js"></script>
@@ -77,7 +78,7 @@
 
 	<!-- Loading all javascript files from libraries and NZBGet in one request -->
 	<!-- %if-not-debug% -->
-	<script language="javascript" type="text/javascript" src="combined.js?lib/jquery.min.js+lib/bootstrap.min.js+lib/raphael.min.js+lib/elycharts.min.js+i18n.js+datetime.js+fasttable.js+index.js+util.js+downloads.js+edit.js+status.js+messages.js+history.js+upload.js+config.js+feed.js+system-info.js+statistics.js+system-health.js"></script>
+	<script language="javascript" type="text/javascript" src="combined.js?lib/jquery.min.js+lib/bootstrap.min.js+lib/raphael.min.js+lib/elycharts.min.js+i18n.js+datetime.js+fasttable.js+index.js+util.js+downloads.js+edit.js+status.js+messages.js+history.js+upload.js+config.js+tlscipher.js+feed.js+system-info.js+statistics.js+system-health.js"></script>
 	<!-- %end% -->
 
 	<style>.hide{display:none;}</style>
@@ -3312,6 +3313,10 @@
     <strong data-i18n="notif_config_unchanged"></strong>
 </div>
 
+<div id="Notif_Config_CipherPending" data-duration="5000" class="alert alert-error alert-center alert-center-medium hide" role="alert">
+    <strong></strong>
+</div>
+
 <div id="Notif_Config_Failed" data-duration="5000" class="alert alert-error alert-center alert-center-medium hide">
     <strong data-i18n-html="notif_config_failed" data-i18n-html-arg-1="<span id='Notif_Config_Failed_Filename'></span>"></strong>
 </div>
@@ -3450,5 +3455,27 @@
 	</div>
 </div>
 
+<div class="modal modal-padded hide" id="TlsCipherDialog" role="dialog" aria-modal="true" aria-labelledby="TlsCipherTitle">
+  <div class="modal-header"><h3 id="TlsCipherTitle" data-i18n="tls_cipher_title">Optimize TLS ciphers</h3></div>
+  <div class="modal-body">
+    <p data-i18n="tls_cipher_explanation">Measure cipher speed on this NZBGet computer and test each encrypted news server. The fastest supported cipher is saved for each fully tested server. Tests briefly use CPU and server connections. A reload is required to activate saved settings.</p>
+    <p id="TlsCipherState" role="status" aria-live="polite"></p>
+    <p id="TlsCipherProgress"></p>
+    <div id="TlsCipherAlgorithms" class="tls-cipher-table" tabindex="0" role="region" aria-label="Cipher measurements">
+      <table class="table table-striped"><thead><tr><th data-i18n="tls_cipher_algorithm">Algorithm</th><th data-i18n="tls_cipher_speed">Local decryption speed</th><th data-i18n="tls_cipher_spread">Sample range / details</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div id="TlsCipherServers" class="tls-cipher-table" tabindex="0" role="region" aria-label="Server cipher results">
+      <table class="table table-striped"><thead><tr><th data-i18n="tls_cipher_server">Server</th><th data-i18n="tls_cipher_previous">Previous cipher</th><th data-i18n="tls_cipher_selected">Selected cipher</th><th data-i18n="tls_cipher_outcome">Outcome</th></tr></thead><tbody></tbody></table>
+    </div>
+    <p id="TlsCipherCommon"></p>
+    <details id="TlsCipherExcluded"><summary data-i18n="tls_cipher_excluded">Ciphers excluded by the security policy</summary><p></p></details>
+    <p id="TlsCipherReload" class="alert alert-info hide"></p>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn hide" id="TlsCipherAgain" data-i18n="tls_cipher_again">Run again</button>
+    <button type="button" class="btn" id="TlsCipherCancel" data-i18n="btn_cancel" disabled>Cancel</button>
+    <button type="button" class="btn btn-primary" id="TlsCipherClose" data-dismiss="modal" data-i18n="btn_close">Close</button>
+  </div>
+</div>
 </body>
 </html>

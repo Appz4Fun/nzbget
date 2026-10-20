@@ -1406,6 +1406,11 @@ var Config = (new function($)
 		if (!hasmore)
 		{
 			html += '<div class="' + section.id + '">';
+			if (setname.toLowerCase() === 'server')
+			{
+				html += '<button type="button" id="Config_OptimizeTls" class="btn btn-default" ' +
+					'onclick="TlsCipherDialog.showModal()"><span data-i18n="tls_cipher_title">Optimize TLS ciphers</span></button> ';
+			}
 			html += '<button type="button" class="btn btn-default config-add ' + section.id + ' multiset" ' +
 				'onclick="Config.addSet(\'' + setname + '\',\'' + section.id + '\')">' +
 				'<span data-i18n="label_add"></span> ' +
@@ -1494,6 +1499,7 @@ var Config = (new function($)
 		I18n.translatePage($ConfigNav);
 		I18n.translatePage($ConfigData);
 		refreshListRows();
+		if (typeof TlsCipherDialog !== 'undefined') TlsCipherDialog.refreshAvailability();
 		$ConfigNav.toggleClass('long-list', $ConfigNav.children().length > 20);
 
 		Config.showSection('Config-Info', false);
@@ -2340,6 +2346,78 @@ var Config = (new function($)
 
 	/*** TEST SERVER ********************************************************************/
 
+	// Captured only in this browser; never transmit credentials in job status.
+	this.cipherSnapshot = function()
+	{
+		if (!config) return null;
+		var section = findSectionById('NEWS-SERVERS');
+		if (!section || section.modified) return null;
+		var values = [], changed = false;
+		section.options.forEach(function(option) {
+			if (option.template || !/^Server\d+\./i.test(option.name)) return;
+			var current = String(getOptionValue(option) || '');
+			var saved = String((option.value === null ? option.defvalue : option.value) || '');
+			// Switch tokens are case-insensitive daemon enums. The editor's
+			// canonical "Strict" token can represent the saved value "strict".
+			if (option.type === 'switch') { current = current.toLowerCase(); saved = saved.toLowerCase(); }
+			if (current !== saved) changed = true;
+			values.push([option.name, current]);
+		});
+		values.sort(function(a, b) { return a[0].localeCompare(b[0]); });
+		return changed ? null : JSON.stringify(values);
+	};
+
+	this.applyCipherResults = function(result, snapshot)
+	{
+		var currentSnapshot = Config.cipherSnapshot();
+		if (currentSnapshot === null) return false;
+		var canPatch = snapshot && currentSnapshot === snapshot;
+		var updates = [];
+		for (var i = 0; i < (result.Servers || []).length; i++)
+		{
+			var server = result.Servers[i];
+			if (server.Outcome !== 'saved') continue;
+			if (!Number.isInteger(server.ID) || server.ID <= 0 || !/^[A-Za-z0-9_-]+$/.test(server.SelectedCipher || '')) return false;
+			var prefix = 'Server' + server.ID + '.';
+			var cipher = findOptionByName(prefix + 'Cipher');
+			var host = findOptionByName(prefix + 'Host'), port = findOptionByName(prefix + 'Port');
+			if (!cipher || !host || !port ||
+				getOptionValue(host) !== server.Host || String(getOptionValue(port)) !== String(server.Port)) return false;
+			// A fresh Settings read may already contain the persisted result.
+			// This no-op needs no old snapshot; changing a value still does.
+			if (getOptionValue(cipher) === server.SelectedCipher) continue;
+			if (!canPatch || getOptionValue(cipher) !== server.OldCipher) return false;
+			updates.push({ option: cipher, value: server.SelectedCipher });
+		}
+		updates.forEach(function(update) {
+			setOptionValue(update.option, update.value);
+			update.option.value = update.value;
+			var saved = (config.values || []).filter(function(value) { return value.Name.toLowerCase() === update.option.name.toLowerCase(); });
+			if (saved.length) saved.forEach(function(value) { value.Value = update.value; });
+			else if (config.values) config.values.push({ Name: update.option.name, Value: update.value });
+		});
+		refreshListRows();
+		return true;
+	};
+
+	// Compare saved server identities/ciphers under the daemon's write lock.
+	// Never use editor values here: intentional edits belong in the save payload.
+	this.cipherBaseline = function(values)
+	{
+		var fields = Object.create(null), encoder = new TextEncoder();
+		(values || config.values || []).forEach(function(option) {
+			if (!/^Server[1-9][0-9]*\.(Host|Port|Cipher)$/i.test(option.Name)) return;
+			var bytes = encoder.encode(option.Value), hex = '';
+			bytes.forEach(function(value) { hex += ('0' + value.toString(16)).slice(-2); });
+			fields[option.Name.toLowerCase()] = hex;
+		});
+		return 'v1\n' + Object.keys(fields).sort().map(function(name) { return name + '=' + fields[name] + '\n'; }).join('');
+	};
+	this.withCipherBaseline = function(values)
+	{
+		return values.concat([{ Name: '_TlsCipherBaseline', Value: Config.cipherBaseline() }]);
+	};
+
 	var connecting = false;
 
 	this.testConnection = function(control, setname, sectionId)
@@ -2548,6 +2626,11 @@ var Config = (new function($)
 	this.saveChanges = function()
 	{
 		$LeaveConfigDialog.modal('hide');
+		if (typeof TlsCipherDialog !== 'undefined' && !TlsCipherDialog.canSaveSettings())
+		{
+			TlsCipherDialog.showSaveBlocked();
+			return;
+		}
 
 		var serverSaveRequest = prepareSaveRequest(false, false);
 		var webSaveRequest = prepareSaveRequest(false, true);
@@ -2570,7 +2653,11 @@ var Config = (new function($)
 		if (serverSaveRequest.length > 0)
 		{
 			$('#Notif_Config_Failed_Filename').text(Options.option('ConfigFile'));
-			RPC.call('saveconfig', [serverSaveRequest], saveCompleted);
+			RPC.call('saveconfig', [Config.withCipherBaseline(serverSaveRequest)], saveCompleted, function(value, result) {
+				removeSaveBanner();
+				$('#Notif_Config_CipherPending strong').text(result && result.error ? result.error.message : String(value));
+				PopupNotification.show('#Notif_Config_CipherPending');
+			});
 		}
 		else
 		{
@@ -4202,7 +4289,7 @@ var ExtensionManager = (new function($)
 
 				// the failure handler is the call's own (a misplaced parenthesis left
 				// it outside, and failures went to the general error banner)
-				RPC.call('saveconfig', [Config.config().values], 
+				RPC.call('saveconfig', [Config.withCipherBaseline(Config.config().values)],
 				function(_) 
 				{
 					updatePage();
@@ -4333,7 +4420,7 @@ var ExtensionManager = (new function($)
 		var changed = syncGlobalSettings();
 		if (changed)
 		{
-			RPC.call('saveconfig', [Config.config().values], 
+			RPC.call('saveconfig', [Config.withCipherBaseline(Config.config().values)],
 			function(_) 
 			{
 				updatePage();

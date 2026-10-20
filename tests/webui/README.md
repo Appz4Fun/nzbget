@@ -16,7 +16,26 @@ node tests/webui/settings-titles.js http://127.0.0.1:17689/
 node tests/webui/settings-locales.js http://127.0.0.1:17689/
 node tests/webui/settings-compact-tiles.js http://127.0.0.1:17689/
 node tests/webui/settings-health-startup.js http://127.0.0.1:17689/
+node tests/webui/tls-cipher.js http://127.0.0.1:17689/
+node tests/webui/tls-cipher-settings.js http://127.0.0.1:17689/
 ```
+
+The TLS cipher dialog check fulfills candidate assets and intercepts every RPC.
+It runs at 1280, 390 and 320 pixels in both themes, covering duplicate starts,
+active-job reopening, progress, escaped provider text, compatibility details,
+saved/reload results, cancellation, unsaved-server guards, unavailable backends,
+keyboard close and the final table column. Optional sanitized JPEGs use
+`NZBGET_UI_CAPTURE_DIR`. This dialog check uses a Config stub; actual editor
+reconciliation and native behavior require the isolated daemon fixture described
+in `tests/functional/tlscipher/README.md` and separate Settings checks.
+The `tls-cipher-settings.js` check uses the real Settings model and intercepts
+optimizer and save RPCs. It checks unsaved-server rejection, unrelated unsaved
+field retention, confirmed cipher baselines, changed-browser rejection and the
+actual subsequent save payload at desktop/phone widths in both themes.
+Add `--offline` to run that same model/editor workflow with committed templates
+and synthetic read replies, without a daemon. Automatic application startup is
+omitted in this mode; actual Config, Options, controls, RPC transport and save
+serialization remain active.
 
 Checks cover both themes at desktop and phone widths, compact option height,
 keyboard help disclosure, server Edit/Close, unsaved summary updates, adding,

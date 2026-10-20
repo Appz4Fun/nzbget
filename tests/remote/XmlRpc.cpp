@@ -23,6 +23,10 @@
 #include <boost/test/unit_test.hpp>
 #include "XmlRpc.h"
 #include "Options.h"
+#include "Json.h"
+#include "ScriptConfig.h"
+#include <filesystem>
+#include <fstream>
 
 BOOST_AUTO_TEST_SUITE(RemoteTest)
 
@@ -312,6 +316,41 @@ static bool HasErrorCode(const std::string& reply, int code)
 	return reply.find("\"code\" : " + std::to_string(code) + ",") != std::string::npos;
 }
 
+BOOST_AUTO_TEST_CASE(CipherSaveMetadataRejectsMalformedAndNeverLeaksIntoFile)
+{
+	for (const char* body : {
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v2\n"},{"Name":"X","Value":"y"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n\u0000bad"},{"Name":"X","Value":"y"}]],"id":1})",
+		R"({"method":"saveconfig","params":[[{"Name":"_TlsCipherBaseline","Value":"v1\n"},{"Name":"_TlsCipherBaseline","Value":"v1\n"},{"Name":"X","Value":"y"}]],"id":1})" })
+		BOOST_CHECK(HasErrorCode(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body), 2));
+
+	namespace fs = std::filesystem;
+	auto dir = fs::temp_directory_path() / ("nzbget-cipher-rpc-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+	BOOST_REQUIRE(fs::create_directory(dir));
+	auto path = dir / "nzbget.conf";
+	struct Restore {
+		Options* options = g_Options; ScriptConfig* scripts = g_ScriptConfig; fs::path path, dir;
+		~Restore() { g_Options = options; g_ScriptConfig = scripts; std::error_code ignored; fs::remove(path, ignored); fs::remove(dir, ignored); }
+	} restore{g_Options, g_ScriptConfig, path, dir};
+	{ std::ofstream out(path); out << "Server1.Host=example.invalid\nServer1.Cipher=old\n"; }
+	Options options("nzbget", path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig scripts; g_ScriptConfig = &scripts;
+	Options::OptEntries entries; BOOST_REQUIRE(scripts.LoadConfig(&entries));
+	std::string token = ScriptConfig::CipherBaseline(entries);
+	Json::JsonArray values{Json::JsonObject{{"Name", "Server1.Host"}, {"Value", "example.invalid"}},
+		Json::JsonObject{{"Name", "Server1.Cipher"}, {"Value", "optimized"}},
+		Json::JsonObject{{"Name", "_TlsCipherBaseline"}, {"Value", token}}};
+	Json::JsonObject request{{"method", "saveconfig"}, {"params", Json::JsonArray{values}}, {"id", 1}};
+	std::string body = Json::Serialize(request);
+	BOOST_CHECK(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body.c_str()).find("true") != std::string::npos);
+	std::string saved; BOOST_REQUIRE(scripts.ReadCipherSnapshot(saved));
+	BOOST_CHECK(saved.find("_TlsCipherBaseline") == std::string::npos);
+	BOOST_CHECK(saved.find("Server1.Cipher=optimized") != std::string::npos);
+	BOOST_CHECK(HasErrorCode(RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, body.c_str()), 3));
+	std::string unchanged; BOOST_REQUIRE(scripts.ReadCipherSnapshot(unchanged)); BOOST_CHECK_EQUAL(unchanged, saved);
+}
+
 // JSON-P is a GET that any web page can make a browser send: it runs only the methods
 // that read. Each method below changes something; run without parameters it would
 // answer its own "Invalid parameter" (code 2), so a code 4 shows it didn't run.
@@ -410,6 +449,61 @@ BOOST_AUTO_TEST_CASE(TestProtectedOptions)
 	BOOST_CHECK(Options::OptEntry("JsonP", "yes").Restricted());
 	BOOST_CHECK(!Options::OptEntry("DupeSearchUrl", "x").Restricted());
 	BOOST_CHECK(!Options::OptEntry("DupeCheck", "yes").Restricted());
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherRejectsRestrictedAndAddAccounts)
+{
+	for (const char* method : {"tlscipherstart", "tlscipherstatus", "tlsciphercancel"})
+	{
+		for (auto access : {XmlRpcProcessor::uaRestricted, XmlRpcProcessor::uaAdd})
+		{
+			std::string request = std::string("{\"method\":\"") + method + "\",\"params\":[],\"id\":1}";
+			XmlRpcProcessor rpc;
+			rpc.SetUserAccess(access); rpc.SetHttpMethod(XmlRpcProcessor::hmPost); rpc.SetUrl("/jsonrpc");
+			rpc.SetRequest(request.data()); rpc.Execute();
+			BOOST_CHECK(std::string(rpc.GetResponse()).find("Access denied") != std::string::npos);
+		}
+	}
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherRejectsGetAndMalformedPost)
+{
+	for (const char* method : {"tlscipherstart", "tlscipherstatus", "tlsciphercancel"})
+	{
+		std::string url = std::string("/jsonrpc/") + method;
+		std::string reply = RpcReply(url.c_str(), XmlRpcProcessor::hmGet);
+		BOOST_CHECK(reply.find("\"error\"") != std::string::npos);
+	}
+	for (const char* request : {
+		R"({"method":"tlscipherstart","params":["host.invalid"],"id":1})",
+		R"({"method":"tlscipherstatus","params":[42],"id":1})",
+		R"({"method":"tlsciphercancel","params":[],"id":1})",
+		R"({"method":"tlscipherstatus","params":["bad\u0000id"],"id":1})",
+		R"({"method":"tlscipherstatus","params":["one","two"],"id":1})"})
+	{
+		std::string reply = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, request);
+		BOOST_CHECK(reply.find("Invalid cipher") != std::string::npos);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherStatusIsStructuredAndReportsUnavailableBackend)
+{
+	std::string reply = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"tlscipherstatus","params":[],"id":1})");
+	auto document = Json::Deserialize(reply);
+	BOOST_REQUIRE(document && document->is_object());
+	BOOST_REQUIRE(document->as_object().contains("result"));
+	const auto& result = document->as_object().at("result");
+	BOOST_REQUIRE(result.is_object());
+	BOOST_REQUIRE(result.as_object().contains("Available"));
+#if defined(NZBGET_USE_RUST) && !defined(DISABLE_TLS) && (defined(__APPLE__) || defined(__linux__))
+	BOOST_CHECK(result.as_object().at("Available").as_bool());
+	std::string stale = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"tlscipherstatus","params":["unknown-fixture-job"],"id":1})");
+	BOOST_CHECK(stale.find("unknown cipher job") != std::string::npos);
+#else
+	BOOST_CHECK(!result.as_object().at("Available").as_bool());
+	BOOST_CHECK(reply.find("unavailable") != std::string::npos);
+#endif
+	BOOST_CHECK(reply.size() <= 1024 * 1024);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
