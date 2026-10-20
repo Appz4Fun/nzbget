@@ -14,6 +14,25 @@ NZBGet provides an option **ServerX.Cipher** to manually set a cipher.
 
 ## Optimizing NZBGet Speed by Choosing the Best Cipher
 
+### Automatic WebUI test
+
+Open **Settings → News Servers → Optimize TLS ciphers** and save any pending
+server edits first. NZBGet measures authenticated decryption on the computer
+running the daemon, then checks each encrypted server's eligible cipher suites.
+It saves the fastest measured supported cipher independently for each fully
+tested server, including disabled backup servers. Plaintext servers are skipped.
+
+The dialog shows estimated throughput, sample ranges, per-server compatibility
+and the common supported suites. The test considers modern certificate-based
+TLS 1.2/1.3 authenticated-encryption suites exposed by the linked TLS library;
+weak and incompatible cipher types are excluded. A timeout, certificate or login
+failure leaves that server's setting unchanged. Cancel stops further testing.
+Only cipher options are saved, and concurrent configuration edits prevent the
+save. Reload NZBGet after a successful save to activate the choices.
+
+These local crypto measurements estimate cipher performance; they do not measure
+provider download speed. The manual procedure below remains available.
+
 ### Default Behavior (Empty Cipher Option)
 If you leave the Cipher option empty, NZBGet will use the default cipher list provided by your system's OpenSSL library. On a modern, up-to-date system, this default list is generally secure and reasonably performant.
 

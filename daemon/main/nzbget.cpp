@@ -21,6 +21,10 @@
 
 
 #include "nzbget.h"
+#include "TlsCipherBackend.h"
+#ifdef NZBGET_USE_RUST
+#include "nzbget_rs.h"
+#endif
 
 #include "ServerPool.h"
 #include "Log.h"
@@ -118,6 +122,10 @@ char* (*g_Arguments)[] = nullptr;
  */
 int main(int argc, char *argv[], char *argp[])
 {
+#ifdef NZBGET_USE_RUST
+	if (argc > 1 && !strcmp(argv[1], "--internal-tls-cipher-resolve"))
+		return nzbget_rs_tls_cipher_resolver(argc, argv);
+#endif
 #ifdef WIN32
 #ifdef _DEBUG
 	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
@@ -385,6 +393,7 @@ void NZBGet::Init()
 
 void NZBGet::Final()
 {
+	TlsCipherBackend::Shutdown();
 	if (!m_reloading)
 	{
 #ifndef DISABLE_TLS

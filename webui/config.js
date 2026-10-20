@@ -1406,6 +1406,11 @@ var Config = (new function($)
 		if (!hasmore)
 		{
 			html += '<div class="' + section.id + '">';
+			if (setname.toLowerCase() === 'server')
+			{
+				html += '<button type="button" id="Config_OptimizeTls" class="btn btn-default" ' +
+					'onclick="TlsCipherDialog.showModal()"><span data-i18n="tls_cipher_title">Optimize TLS ciphers</span></button> ';
+			}
 			html += '<button type="button" class="btn btn-default config-add ' + section.id + ' multiset" ' +
 				'onclick="Config.addSet(\'' + setname + '\',\'' + section.id + '\')">' +
 				'<span data-i18n="label_add"></span> ' +
@@ -1494,6 +1499,7 @@ var Config = (new function($)
 		I18n.translatePage($ConfigNav);
 		I18n.translatePage($ConfigData);
 		refreshListRows();
+		if (typeof TlsCipherDialog !== 'undefined') TlsCipherDialog.refreshAvailability();
 		$ConfigNav.toggleClass('long-list', $ConfigNav.children().length > 20);
 
 		Config.showSection('Config-Info', false);
@@ -2339,6 +2345,54 @@ var Config = (new function($)
 	}
 
 	/*** TEST SERVER ********************************************************************/
+
+	// Captured only in this browser; never transmit credentials in job status.
+	this.cipherSnapshot = function()
+	{
+		if (!config) return null;
+		var section = findSectionById('NEWS-SERVERS');
+		if (!section || section.modified) return null;
+		var values = [], changed = false;
+		section.options.forEach(function(option) {
+			if (option.template || !/^Server\d+\./i.test(option.name)) return;
+			var current = String(getOptionValue(option) || '');
+			var saved = String((option.value === null ? option.defvalue : option.value) || '');
+			// Switch tokens are case-insensitive daemon enums. The editor's
+			// canonical "Strict" token can represent the saved value "strict".
+			if (option.type === 'switch') { current = current.toLowerCase(); saved = saved.toLowerCase(); }
+			if (current !== saved) changed = true;
+			values.push([option.name, current]);
+		});
+		values.sort(function(a, b) { return a[0].localeCompare(b[0]); });
+		return changed ? null : JSON.stringify(values);
+	};
+
+	this.applyCipherResults = function(result, snapshot)
+	{
+		if (!snapshot || Config.cipherSnapshot() !== snapshot) return false;
+		var updates = [];
+		for (var i = 0; i < (result.Servers || []).length; i++)
+		{
+			var server = result.Servers[i];
+			if (server.Outcome !== 'saved') continue;
+			if (!Number.isInteger(server.ID) || server.ID <= 0 || !/^[A-Za-z0-9_-]+$/.test(server.SelectedCipher || '')) return false;
+			var prefix = 'Server' + server.ID + '.';
+			var cipher = findOptionByName(prefix + 'Cipher');
+			var host = findOptionByName(prefix + 'Host'), port = findOptionByName(prefix + 'Port');
+			if (!cipher || !host || !port || getOptionValue(cipher) !== server.OldCipher ||
+				getOptionValue(host) !== server.Host || String(getOptionValue(port)) !== String(server.Port)) return false;
+			updates.push({ option: cipher, value: server.SelectedCipher });
+		}
+		updates.forEach(function(update) {
+			setOptionValue(update.option, update.value);
+			update.option.value = update.value;
+			var saved = (config.values || []).filter(function(value) { return value.Name.toLowerCase() === update.option.name.toLowerCase(); });
+			if (saved.length) saved.forEach(function(value) { value.Value = update.value; });
+			else if (config.values) config.values.push({ Name: update.option.name, Value: update.value });
+		});
+		refreshListRows();
+		return true;
+	};
 
 	var connecting = false;
 

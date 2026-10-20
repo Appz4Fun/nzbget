@@ -16,6 +16,11 @@
 #include <sstream>
 #include "Options.h"
 #include "ScriptConfig.h"
+#if defined(__APPLE__) || defined(__linux__)
+#include <sys/stat.h>
+#include <future>
+#include <thread>
+#endif
 
 BOOST_AUTO_TEST_SUITE(ExtensionTest)
 
@@ -244,5 +249,147 @@ BOOST_AUTO_TEST_CASE(SaveConfigLastLineWithoutLineEnd)
 	contents << file.rdbuf();
 	BOOST_CHECK_EQUAL(contents.str(), "# existing config\nExtension.Option=value\n");
 }
+
+#if defined(__APPLE__) || defined(__linux__)
+static std::string ReadCipherTestFile(const fs::path& path)
+{
+	std::ifstream file(path, std::ios::binary);
+	return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchConflictPreservesOriginal)
+{
+	TempConfigFile file;
+	{ std::ofstream out(file.path); out << "# unchanged\nExtension.Option=original\n"; }
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config;
+	std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	{ std::ofstream out(file.path); out << "# concurrent change\nExtension.Option=new\n"; }
+	auto before = ReadCipherTestFile(file.path);
+	BOOST_CHECK(config.CommitCipherPatch(snapshot, "replacement", [] { return false; }) == ScriptConfig::CipherCommit::Conflict);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), before);
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchPreservesModeAndExactBytes)
+{
+	TempConfigFile file;
+	{ std::ofstream out(file.path, std::ios::binary); out << "# original\r\nExtension.Option=private\r\n"; }
+	BOOST_REQUIRE(chmod(file.path.string().c_str(), 0640) == 0);
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config;
+	std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	std::string replacement = snapshot + "# appended\r\n";
+	BOOST_CHECK(config.CommitCipherPatch(snapshot, replacement, [] { return false; }) == ScriptConfig::CipherCommit::Saved);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), replacement);
+	struct stat metadata; BOOST_REQUIRE(stat(file.path.string().c_str(), &metadata) == 0);
+	BOOST_CHECK_EQUAL(metadata.st_mode & 07777, 0640);
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchRejectsSymlink)
+{
+	TempConfigFile file, link;
+	{ std::ofstream out(file.path); out << "Extension.Option=original\n"; }
+	fs::create_symlink(file.path, link.path);
+	OptionsGuard guard;
+	Options options("nzbget", link.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config; std::string snapshot;
+	BOOST_CHECK(!config.ReadCipherSnapshot(snapshot));
+	BOOST_CHECK(config.CommitCipherPatch("", "replacement", [] { return false; }) == ScriptConfig::CipherCommit::Failed);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), "Extension.Option=original\n");
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchRejectsDirectory)
+{
+	TempConfigFile file;
+	fs::create_directory(file.path);
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr);
+	g_Options = &options;
+	ScriptConfig config;
+	std::string snapshot;
+	BOOST_CHECK(!config.ReadCipherSnapshot(snapshot));
+	BOOST_CHECK(config.CommitCipherPatch("", "replacement", [] { return false; }) == ScriptConfig::CipherCommit::Failed);
+	BOOST_CHECK(fs::is_directory(file.path));
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchSerializesOrdinarySave)
+{
+	TempConfigFile file;
+	{ std::ofstream output(file.path); output << "Server1.Host=example.invalid\nServer1.Cipher=old\n"; }
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr);
+	g_Options = &options;
+	ScriptConfig config;
+	std::string snapshot;
+	BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	Options::OptEntries entries;
+	entries.emplace_back("Server1.Host", "example.invalid");
+	entries.emplace_back("Server1.Cipher", "ordinary");
+	std::promise<void> go, entered;
+	std::promise<bool> finished;
+	auto ready = go.get_future(); auto started = entered.get_future(); auto done = finished.get_future();
+	std::thread writer([&] {
+		ready.wait(); entered.set_value();
+		try { finished.set_value(config.SaveConfig(&entries)); }
+		catch (...) { finished.set_value(false); }
+	});
+	bool triggered = false, blocked = false;
+	auto committed = config.CommitCipherPatch(snapshot, "Server1.Host=example.invalid\nServer1.Cipher=optimized\n", [&] {
+		if (!triggered)
+		{
+			triggered = true; go.set_value();
+			if (started.wait_for(std::chrono::seconds(1)) == std::future_status::ready)
+				blocked = done.wait_for(std::chrono::milliseconds(25)) == std::future_status::timeout;
+		}
+		return false;
+	});
+	if (!triggered) go.set_value();
+	writer.join();
+	BOOST_CHECK(blocked);
+	BOOST_CHECK(committed == ScriptConfig::CipherCommit::Saved);
+	BOOST_CHECK(done.get());
+	BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	BOOST_CHECK_EQUAL(snapshot, "Server1.Host=example.invalid\nServer1.Cipher=ordinary\n");
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchCancelledDuringWritePreservesOriginal)
+{
+	TempConfigFile file;
+	{ std::ofstream out(file.path); out << "Extension.Option=original\n"; }
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config; std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	int calls = 0;
+	BOOST_CHECK(config.CommitCipherPatch(snapshot, "replacement", [&] { return ++calls >= 2; }) == ScriptConfig::CipherCommit::Cancelled);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), snapshot);
+}
+
+BOOST_AUTO_TEST_CASE(CancelAfterCommitReportsSaved)
+{
+	TempConfigFile file;
+	{ std::ofstream out(file.path); out << "Extension.Option=original\n"; }
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config; std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	int calls = 0;
+	// A cancel observable only after the final precommit check cannot undo rename.
+	BOOST_CHECK(config.CommitCipherPatch(snapshot, "replacement", [&] { return ++calls > 3; }) == ScriptConfig::CipherCommit::Saved);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), "replacement");
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchCreationFailurePreservesOriginal)
+{
+	TempConfigFile file;
+	file.path = file.path.parent_path() / std::string(250, 'x');
+	{ std::ofstream out(file.path); out << "Extension.Option=original\n"; }
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config; std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	BOOST_CHECK(config.CommitCipherPatch(snapshot, "replacement", [] { return false; }) == ScriptConfig::CipherCommit::Failed);
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), snapshot);
+}
+#endif
 
 BOOST_AUTO_TEST_SUITE_END()

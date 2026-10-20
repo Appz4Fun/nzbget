@@ -63,10 +63,12 @@ fn patch_config(original: &[u8], changes: &BTreeMap<u32, String>) -> Result<Vec<
 
 Job `Backend: Send + Sync + 'static` exposes `snapshot() -> Result<Snapshot, Error>`,
 `suites() -> Result<Vec<Suite>, Error>`, `prepare(algorithm: &str) -> Result<Box<dyn Decryptor>, Error>`,
-`probe(server: &Server, suite: &Suite, cancel: &AtomicBool, deadline: Instant) -> Support`,
+`probe(server: &Server, suite: &Suite, cancel: &AtomicBool, deadline: Instant) -> Probe`,
 and `commit(snapshot: &Snapshot, changes: &BTreeMap<u32, String>, cancel: &AtomicBool) -> Result<bool, Error>`.
-`Decryptor::record(&mut self, sequence: u64) -> Result<u64, Error>` processes one verified record; setup stays outside timers.
+`Decryptor::prepare_batch(&mut self, first_sequence: u64, count: u32) -> Result<(), Error>` generates 64 valid records with distinct sequence-derived nonces outside timing.
+`Decryptor::record(&mut self, sequence: u64) -> Result<u64, Error>` processes one verified prepared record; setup stays outside timers. Samples accumulate only the timed decryption batch durations until the exact floor.
 `Snapshot` owns original config bytes plus parsed `Server` values (id, name, host, port, username, password, cipher, IP version and verification level).
+`Probe { support: Support, message: &'static str }` retains distinct normalized DNS, deadline, certificate, authentication and unsupported-suite outcomes without returning native credential-bearing text.
 No credential-bearing `Debug` or status serialization derives.
 
 `Service::start(Arc<dyn Backend>) -> Result<String, Error>`,
@@ -97,7 +99,7 @@ the matching Rust `#[repr(C)]` structs and test field/ownership correspondence.
 ### Task 2: Cipher-only configuration transaction
 
 **Files:** Modify `rust/src/tlscipher/mod.rs`, `daemon/extension/ScriptConfig.{h,cpp}`, `tests/extension/ScriptConfig.cpp`.
-**Interfaces:** Consumes `patch_config`; produces `ScriptConfig::ReadCipherSnapshot(std::string&)` and `ScriptConfig::CommitCipherPatch(std::string_view expected, std::string_view replacement, const std::atomic<bool>& cancel)` with typed result `Saved/Unchanged/Conflict/Cancelled/Failed`.
+**Interfaces:** Consumes `patch_config`; produces `ScriptConfig::ReadCipherSnapshot(std::string&)` and `ScriptConfig::CommitCipherPatch(std::string_view expected, std::string_view replacement, const std::function<bool()>& cancel)` with typed result `Saved/Unchanged/Conflict/Cancelled/Failed`.
 
 - [ ] Write Rust tests `patch_preserves_unrelated_bytes`, `patches_duplicate_case_insensitive_cipher_lines`, `appends_missing_cipher_with_matching_newline`, `rejects_invalid_patch_values`.
   Assert comments, CRLF, non-UTF8 unrelated bytes, credentials, no-final-newline and all non-Cipher fields remain byte-identical. Reject ids zero, unknown server ids and values containing line breaks/NUL or cipher-list syntax.

@@ -1,6 +1,7 @@
 target_sources(libnzbget PRIVATE
 	${CMAKE_SOURCE_DIR}/daemon/connect/Connection.cpp
 	${CMAKE_SOURCE_DIR}/daemon/connect/TlsSocket.cpp
+	${CMAKE_SOURCE_DIR}/daemon/connect/TlsCipherBackend.cpp
 	${CMAKE_SOURCE_DIR}/daemon/connect/WebDownloader.cpp
 	${CMAKE_SOURCE_DIR}/daemon/connect/HttpClient.cpp
 	${CMAKE_SOURCE_DIR}/daemon/connect/NetworkSpeedTest.cpp

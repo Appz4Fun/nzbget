@@ -597,6 +597,7 @@ bool Connection::Recv(char * buffer, int size)
 bool Connection::DoConnect()
 {
 	debug("Do connecting");
+	if (m_deadline && m_deadline->Stopped()) return false;
 
 	m_socket = INVALID_SOCKET;
 
@@ -639,11 +640,38 @@ bool Connection::DoConnect()
 
 		BString<100> portStr("%d", m_port);
 
-		int res = getaddrinfo(m_host.c_str(), portStr, &addr_hints, &addr_list);
+		// Optimizer probes resolve in a bounded owned child, preserving m_host
+		// for TLS SNI/certificate validation. AI_NUMERICHOST never queries DNS.
+		std::vector<std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>> resolvedLists;
+		std::vector<addrinfo> resolvedItems;
+		int res;
+		if (!m_resolvedAddresses.empty())
+		{
+			addr_hints.ai_flags |= AI_NUMERICHOST;
+			addr_list = nullptr;
+			for (const auto& numeric : m_resolvedAddresses)
+			{
+				addrinfo* list = nullptr;
+				if (getaddrinfo(numeric.c_str(), portStr, &addr_hints, &list) == 0 && list)
+				{
+					resolvedLists.emplace_back(list, &freeaddrinfo);
+					for (addrinfo* item = list; item; item = item->ai_next) resolvedItems.push_back(*item);
+				}
+			}
+			for (size_t i = 0; i < resolvedItems.size(); ++i)
+				resolvedItems[i].ai_next = i + 1 < resolvedItems.size() ? &resolvedItems[i + 1] : nullptr;
+			addr_list = resolvedItems.empty() ? nullptr : &resolvedItems.front();
+			res = addr_list ? 0 : EAI_NONAME;
+		}
+		else if (m_deadline)
+		{
+			return false; // Probe DNS must never fall back to blocking resolution.
+		}
+		else res = getaddrinfo(m_host.c_str(), portStr, &addr_hints, &addr_list);
 		debug("getaddrinfo for %s: %i", m_host.c_str(), res);
 
 #ifdef ANDROID_RESOLVE
-		if (res != 0)
+		if (res != 0 && !m_deadline)
 		{
 			std::string resolvedHost = ResolveAndroidHost(m_host.c_str());
 			if (!resolvedHost.empty())
@@ -669,9 +697,10 @@ bool Connection::DoConnect()
 
 		for (addr = addr_list; addr != nullptr; addr = addr->ai_next)
 		{
+			if (m_deadline && m_deadline->Stopped()) break;
 			// don't try the same combinations of ai_family, ai_socktype, ai_protocol multiple times
 			SockAddr sa = { addr->ai_family, addr->ai_socktype, addr->ai_protocol };
-			if (std::find(triedAddr.begin(), triedAddr.end(), sa) != triedAddr.end())
+			if (!m_deadline && std::find(triedAddr.begin(), triedAddr.end(), sa) != triedAddr.end())
 			{
 				continue;
 			}
@@ -712,7 +741,7 @@ bool Connection::DoConnect()
 			m_socket = INVALID_SOCKET;
 		}
 
-		freeaddrinfo(addr_list);
+		if (resolvedLists.empty()) freeaddrinfo(addr_list);
 
 		if (m_socket == INVALID_SOCKET)
 		{
@@ -850,7 +879,8 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 	if (ret != 0)
 	{
 #ifdef WIN32
-		ret = select((int)m_socket + 1, &rset, &wset, nullptr, m_timeout ? &ts : nullptr);
+		ret = m_deadline ? (m_deadline->Wait(m_socket, true, true) ? 1 : 0) :
+			select((int)m_socket + 1, &rset, &wset, nullptr, m_timeout ? &ts : nullptr);
 #else
 		// poll: an fd_set holds descriptors below 1024 only, and FD_SET of a
 		// higher one (many connections, a raised descriptor limit) wrote past it
@@ -858,7 +888,12 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 		pfd.fd = m_socket;
 		pfd.events = POLLIN | POLLOUT;
 		pfd.revents = 0;
-		ret = poll(&pfd, 1, m_timeout ? m_timeout * 1000 : -1);
+		if (m_deadline)
+		{
+			ret = m_deadline->Wait(m_socket, true, true) ? 1 : 0;
+			pfd.revents = POLLIN | POLLOUT;
+		}
+		else ret = poll(&pfd, 1, m_timeout ? m_timeout * 1000 : -1);
 #endif
 		//we are waiting for connect to complete now
 		if (ret < 0)
@@ -903,6 +938,7 @@ bool Connection::ConnectWithTimeout(void* address, int address_len)
 	}
 
 	//put socket back in blocking mode
+	if (m_deadline) return !m_deadline->Stopped();
 #ifdef WIN32
 	mode = 0;
 	if (ioctlsocket(m_socket, FIONBIO, &mode) != 0)
@@ -1056,8 +1092,11 @@ bool Connection::StartTls(bool isClient, const char* certFile, const char* keyFi
 
 	m_tlsSocket = std::make_unique<TlsSocket>(m_socket, isClient, m_host.c_str(), certFile, keyFile, m_cipher.c_str(), m_certVerifLevel);
 	m_tlsSocket->SetSuppressErrors(m_suppressErrors);
+	m_tlsSocket->SetDeadline(m_deadline);
 
-	return m_tlsSocket->Start();
+	bool started = m_tlsSocket->Start();
+	m_tlsProbeFailure = m_tlsSocket->GetProbeFailure();
+	return started;
 }
 
 void Connection::CloseTls()

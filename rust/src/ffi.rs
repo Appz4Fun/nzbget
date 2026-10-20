@@ -3,6 +3,97 @@
 
 use std::ffi::{c_char, c_int, CStr};
 
+#[path = "tlscipher/native.rs"]
+mod tls_cipher_native;
+
+#[no_mangle]
+pub extern "C" fn nzbget_rs_tls_cipher_pin(protocol: c_int, bits: u32, flags: u32) -> c_int {
+    use crate::tlscipher::{eligible, Protocol, Suite};
+    let version = match protocol { 12 => Protocol::Tls12, 13 => Protocol::Tls13, _ => return 0 };
+    if bits > u16::MAX.into() { return 0; }
+    let suite = Suite { name: String::new(), algorithm: String::new(), protocol: version, security_bits: bits as u16,
+        aead: flags & 1 != 0, certificate: flags & 2 != 0, ephemeral: flags & 4 != 0 };
+    if eligible(&suite) { protocol } else { 0 }
+}
+
+fn cipher_response(result: Result<String, crate::tlscipher::Error>) -> RsBuf {
+    match result {
+        Ok(json) => into_buf(json.into_bytes()),
+        Err(error) => {
+            let mut message = Vec::new();
+            crate::escape::json_encode(error.0.as_bytes(), &mut message);
+            let mut out = b"{\"Error\":\"".to_vec(); out.extend(message); out.extend_from_slice(b"\"}"); into_buf(out)
+        }
+    }
+}
+
+/// # Safety
+/// backend points to a complete non-null callback table. Its context transfers
+/// to Rust exactly once, including rejected/duplicate starts. Callbacks are
+/// thread-safe for the documented single-worker use and must never unwind.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_tls_cipher_start(backend: *const tls_cipher_native::Io) -> RsBuf {
+    if backend.is_null() { return cipher_response(Err(crate::tlscipher::Error("Missing TLS backend."))); }
+    cipher_response(tls_cipher_native::start(unsafe { *backend }))
+}
+/// # Safety
+/// id is null or a readable NUL-terminated string; null/empty queries current job.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_tls_cipher_status(id: *const c_char) -> RsBuf {
+    let id = if id.is_null() { None } else {
+        let Ok(value) = unsafe { CStr::from_ptr(id) }.to_str() else {
+            return cipher_response(Err(crate::tlscipher::Error("Invalid cipher job ID.")));
+        };
+        (!value.is_empty()).then_some(value)
+    };
+    cipher_response(tls_cipher_native::service().status(id))
+}
+/// # Safety
+/// id points to a readable NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_tls_cipher_cancel(id: *const c_char) -> RsBuf {
+    if id.is_null() { return cipher_response(Err(crate::tlscipher::Error("Missing cipher job ID."))); }
+    let Ok(id) = unsafe { CStr::from_ptr(id) }.to_str() else { return cipher_response(Err(crate::tlscipher::Error("Invalid cipher job ID."))); };
+    cipher_response(tls_cipher_native::service().cancel(id).and_then(|()| tls_cipher_native::service().status(Some(id))))
+}
+#[no_mangle]
+pub extern "C" fn nzbget_rs_tls_cipher_shutdown() { tls_cipher_native::service().shutdown(); }
+/// # Safety
+/// argv contains argc valid NUL-terminated strings from main; argc must be 5.
+#[no_mangle]
+pub unsafe extern "C" fn nzbget_rs_tls_cipher_resolver(argc: c_int, argv: *const *const c_char) -> c_int {
+    if argc != 5 || argv.is_null() { return 2; }
+    let pointers = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+    let mut args = Vec::new();
+    for &pointer in &pointers[1..] {
+        if pointer.is_null() { return 2; }
+        let Ok(value) = unsafe { CStr::from_ptr(pointer) }.to_str() else { return 2; };
+        args.push(value.to_owned());
+    }
+    tls_cipher_native::resolver(&args)
+}
+
+#[cfg(test)]
+mod tls_cipher_abi_tests {
+    use super::*;
+    #[test]
+    fn cipher_pin_validates_protocol_security_and_authentication_flags() {
+        assert_eq!(nzbget_rs_tls_cipher_pin(13, 128, 3), 13);
+        assert_eq!(nzbget_rs_tls_cipher_pin(12, 128, 7), 12);
+        for (protocol, bits, flags) in [(11, 256, 7), (12, 128, 3), (13, 64, 7), (13, 128, 1), (13, 128, 2), (13, u32::MAX, 7)] {
+            assert_eq!(nzbget_rs_tls_cipher_pin(protocol, bits, flags), 0);
+        }
+    }
+    #[test]
+    fn invalid_utf8_status_id_is_an_error_instead_of_current_job() {
+        let bytes = [255u8, 0];
+        let response = unsafe { nzbget_rs_tls_cipher_status(bytes.as_ptr().cast()) };
+        let text = unsafe { std::slice::from_raw_parts(response.data.cast::<u8>(), response.len) };
+        assert!(text.starts_with(b"{\"Error\":"));
+        unsafe { nzbget_rs_free(response); }
+    }
+}
+
 #[repr(C)]
 pub struct RsBuf {
     pub data: *mut c_char,

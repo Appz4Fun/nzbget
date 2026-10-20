@@ -4625,5 +4625,107 @@
   "config_server_issues": {
     "message": "issues",
     "description": "Plural label after a count of configuration health notices in a compact list row, including errors, warnings and informational checks."
+  },
+  "tls_cipher_title": {
+    "message": "Optimize TLS ciphers"
+  },
+  "tls_cipher_excluded": {
+    "message": "Ciphers excluded by the security policy"
+  },
+  "tls_cipher_compatibility": {
+    "message": "Cipher compatibility"
+  },
+  "tls_cipher_supported": {
+    "message": "Supported"
+  },
+  "tls_cipher_unsupported": {
+    "message": "Unsupported"
+  },
+  "tls_cipher_unknown": {
+    "message": "Unknown / untested"
+  },
+  "tls_cipher_testing_algorithm": {
+    "message": "Testing algorithm"
+  },
+  "tls_cipher_explanation": {
+    "message": "Measure cipher speed on this NZBGet computer and test each encrypted news server. The fastest supported cipher is saved for each fully tested server. Tests briefly use CPU and server connections. A reload is required to activate saved settings."
+  },
+  "tls_cipher_algorithm": {
+    "message": "Algorithm"
+  },
+  "tls_cipher_speed": {
+    "message": "Local decryption speed"
+  },
+  "tls_cipher_spread": {
+    "message": "Sample range / details"
+  },
+  "tls_cipher_server": {
+    "message": "Server"
+  },
+  "tls_cipher_previous": {
+    "message": "Previous cipher"
+  },
+  "tls_cipher_selected": {
+    "message": "Selected cipher"
+  },
+  "tls_cipher_outcome": {
+    "message": "Outcome"
+  },
+  "tls_cipher_again": {
+    "message": "Run again"
+  },
+  "tls_cipher_unmeasured": {
+    "message": "Unmeasured"
+  },
+  "tls_cipher_default": {
+    "message": "System default"
+  },
+  "tls_cipher_common_unknown": {
+    "message": "Common supported ciphers: not fully established"
+  },
+  "tls_cipher_common": {
+    "message": "Common supported ciphers"
+  },
+  "tls_cipher_none": {
+    "message": "None"
+  },
+  "tls_cipher_reload": {
+    "message": "Cipher settings are saved. Reload NZBGet to use them for new connections."
+  },
+  "tls_cipher_browser_conflict": {
+    "message": "Settings were saved, but your server editor changed. Refresh Settings to see the saved ciphers; your edits have been retained."
+  },
+  "tls_cipher_save_servers": {
+    "message": "Save your server changes before optimizing TLS ciphers."
+  },
+  "tls_cipher_starting": {
+    "message": "Starting cipher tests…"
+  },
+  "tls_cipher_unavailable": {
+    "message": "TLS cipher optimization requires a TLS-enabled Rust backend."
+  },
+  "tls_cipher_measuring": {
+    "message": "Measuring local cipher speed…"
+  },
+  "tls_cipher_probing": {
+    "message": "Testing server cipher support…"
+  },
+  "tls_cipher_saving": {
+    "message": "Saving cipher settings…"
+  },
+  "tls_cipher_completed": {
+    "message": "Tests completed."
+  },
+  "tls_cipher_cancelled": {
+    "message": "Tests cancelled."
+  },
+  "tls_cipher_failed": {
+    "message": "Tests failed."
+  },
+  "tls_cipher_saved": {
+    "message": "Saved"
+  },
+  "tls_cipher_unchanged": {
+    "message": "Unchanged"
   }
 }

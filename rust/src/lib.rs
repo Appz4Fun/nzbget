@@ -36,6 +36,7 @@ pub mod text;
 pub mod url;
 pub mod urlcoord;
 pub mod util;
+pub mod tlscipher;
 pub mod webdownload;
 pub mod webserver;
 pub mod webutil;

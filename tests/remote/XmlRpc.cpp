@@ -23,6 +23,7 @@
 #include <boost/test/unit_test.hpp>
 #include "XmlRpc.h"
 #include "Options.h"
+#include "Json.h"
 
 BOOST_AUTO_TEST_SUITE(RemoteTest)
 
@@ -410,6 +411,61 @@ BOOST_AUTO_TEST_CASE(TestProtectedOptions)
 	BOOST_CHECK(Options::OptEntry("JsonP", "yes").Restricted());
 	BOOST_CHECK(!Options::OptEntry("DupeSearchUrl", "x").Restricted());
 	BOOST_CHECK(!Options::OptEntry("DupeCheck", "yes").Restricted());
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherRejectsRestrictedAndAddAccounts)
+{
+	for (const char* method : {"tlscipherstart", "tlscipherstatus", "tlsciphercancel"})
+	{
+		for (auto access : {XmlRpcProcessor::uaRestricted, XmlRpcProcessor::uaAdd})
+		{
+			std::string request = std::string("{\"method\":\"") + method + "\",\"params\":[],\"id\":1}";
+			XmlRpcProcessor rpc;
+			rpc.SetUserAccess(access); rpc.SetHttpMethod(XmlRpcProcessor::hmPost); rpc.SetUrl("/jsonrpc");
+			rpc.SetRequest(request.data()); rpc.Execute();
+			BOOST_CHECK(std::string(rpc.GetResponse()).find("Access denied") != std::string::npos);
+		}
+	}
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherRejectsGetAndMalformedPost)
+{
+	for (const char* method : {"tlscipherstart", "tlscipherstatus", "tlsciphercancel"})
+	{
+		std::string url = std::string("/jsonrpc/") + method;
+		std::string reply = RpcReply(url.c_str(), XmlRpcProcessor::hmGet);
+		BOOST_CHECK(reply.find("\"error\"") != std::string::npos);
+	}
+	for (const char* request : {
+		R"({"method":"tlscipherstart","params":["host.invalid"],"id":1})",
+		R"({"method":"tlscipherstatus","params":[42],"id":1})",
+		R"({"method":"tlsciphercancel","params":[],"id":1})",
+		R"({"method":"tlscipherstatus","params":["bad\u0000id"],"id":1})",
+		R"({"method":"tlscipherstatus","params":["one","two"],"id":1})"})
+	{
+		std::string reply = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, request);
+		BOOST_CHECK(reply.find("Invalid cipher") != std::string::npos);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(TlsCipherStatusIsStructuredAndReportsUnavailableBackend)
+{
+	std::string reply = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"tlscipherstatus","params":[],"id":1})");
+	auto document = Json::Deserialize(reply);
+	BOOST_REQUIRE(document && document->is_object());
+	BOOST_REQUIRE(document->as_object().contains("result"));
+	const auto& result = document->as_object().at("result");
+	BOOST_REQUIRE(result.is_object());
+	BOOST_REQUIRE(result.as_object().contains("Available"));
+#if defined(NZBGET_USE_RUST) && !defined(DISABLE_TLS) && (defined(__APPLE__) || defined(__linux__))
+	BOOST_CHECK(result.as_object().at("Available").as_bool());
+	std::string stale = RpcReply("/jsonrpc", XmlRpcProcessor::hmPost, R"({"method":"tlscipherstatus","params":["unknown-fixture-job"],"id":1})");
+	BOOST_CHECK(stale.find("unknown cipher job") != std::string::npos);
+#else
+	BOOST_CHECK(!result.as_object().at("Available").as_bool());
+	BOOST_CHECK(reply.find("unavailable") != std::string::npos);
+#endif
+	BOOST_CHECK(reply.size() <= 1024 * 1024);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
