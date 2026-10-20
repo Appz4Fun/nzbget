@@ -50,8 +50,8 @@ python3 site/check.py build/site
 
 Inspect every changed guide at desktop and phone widths, in both themes when relevant. Confirm accessible full-size links and complete print captures. The Pages workflow publishes only the canonical default branch. Verify the actual deployed page, image bytes and build revision after a merge; a successful local build is not publication evidence.
 
-### Review and live UI handoff
+### Review and live UI delivery
 
-Preserve the currently assigned default integrator and live deployer. Obtain exact-head independent and GitHub reviews, resolve actionable threads, and refresh default ancestry before integration. Retain the original registered signed squash commit and canonical xbmc4lyfe author and committer identities; confirm GitHub verification after publishing.
+Preserve the currently assigned default integrator, shared scheduling, authorization and release holds. The PR owner owns deployment and live verification under the shared PR delivery policy in AGENTS.md. Obtain exact-head independent and GitHub reviews, resolve actionable threads, and refresh default ancestry before integration. Retain the original registered signed squash commit and canonical xbmc4lyfe author and committer identities; confirm GitHub verification after publishing.
 
-For an authorized UI-only rollout, the live owner stages the exact merged WebUI assets, preserves the current daemon binary, process, configuration and providers, installs atomically with a recovery copy, and checks served asset hashes and warm service health. The UI owner then checks all main tabs and Settings sections at desktop and phone widths without saving, reloading, shutting down, testing providers, or changing live values. Report merged, published, installed, verified, and any separate backend hold distinctly.
+For an authorized UI-only rollout, the PR owner stages the exact merged WebUI assets, preserves the current daemon binary, process, configuration and providers, installs atomically with a recovery copy, and checks served asset hashes and warm service health. The same PR owner then checks all main tabs and Settings sections at desktop and phone widths without saving, reloading, shutting down, testing providers, or changing live values. Report merged, published, installed, verified, and any separate backend hold distinctly.

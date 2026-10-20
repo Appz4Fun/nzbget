@@ -8,7 +8,8 @@ merge, and deployment remain separate outcomes.
   and a prospective plan; it does not erase an earlier HOLD.
 - In coordinated migration work, the designated Root approves scope and
   qualification and alone integrates the default branch. The operations
-  coordinator owns worker admissions; LIVE owns authorized deployment. Use
+  coordinator owns worker admissions; the PR owner performs authorized deployment
+  and verifies the result under the shared PR delivery policy in AGENTS.md. Use
   the current canonical remote ref rather than an old announcement.
 - Keep exact `xbmc4lyfe` author and committer identities. Verify local Git
   signatures, HTTPS GitHub identity, and GitHub signature verification for

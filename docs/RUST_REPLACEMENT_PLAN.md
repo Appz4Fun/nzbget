@@ -6,11 +6,11 @@ Identify NZBGet daemon routines that can be completely replaced by Rust, remove 
 
 ## Scope and decision
 
-The user has now authorized execution through complete Rust migration and C++ removal, with largest measured wins first and Codex approval before signed squash integration. The confirmed fork target is `Appz4Fun/nzbget:dupe-article-fallback`; this remote has neither `master` nor `main`. Refresh that branch before each implementation/integration stage. Follow existing runtime lane ownership, worker scheduling, and backend holds. Deployment still belongs to its separately authorized owner.
+The user has now authorized execution through complete Rust migration and C++ removal, with largest measured wins first and Codex approval before signed squash integration. The confirmed fork target is `Appz4Fun/nzbget:dupe-article-fallback`; this remote has neither `master` nor `main`. Refresh that branch before each implementation/integration stage. Follow existing runtime lane ownership, worker scheduling, and backend holds. The PR owner performs authorized deployment and live verification under the shared PR delivery policy in AGENTS.md.
 
 The user explicitly requires thorough local Codex review and then PR-level Codex sign-off. Repair and resolve all findings before squash integration into `dupe-article-fallback`. Bind both review stages to the actual resulting source; if review fixes or fresh-base composition change the head, obtain applicable validation and PR-level review of that final head. Preserve the signed working history and prepare the locally signed canonical squash before its final published-head review.
 
-Work is ordered by evidence value. Each candidate receives a written decision: `reject`, `defer`, `Rust-only helper`, or `replacement-ready`. `replacement-ready` means code, correctness evidence, whole-caller performance evidence, integrated checks, and review are complete; integration and deployment still follow their separate owners and gates. An interim helper, fallback, or faster kernel does not complete a component's migration. Track every remaining application implementation, C++ adapter/header, test harness, platform build, and C++ dependency in `docs/RUST_MIGRATION_STATUS.md` until the final C++ removal audit passes.
+Work is ordered by evidence value. Each candidate receives a written decision: `reject`, `defer`, `Rust-only helper`, or `replacement-ready`. `replacement-ready` means code, correctness evidence, whole-caller performance evidence, integrated checks, and review are complete; the PR owner still owns delivery through coordinated integration and verified deployment, with their separate authorization and release gates. An interim helper, fallback, or faster kernel does not complete a component's migration. Track every remaining application implementation, C++ adapter/header, test harness, platform build, and C++ dependency in `docs/RUST_MIGRATION_STATUS.md` until the final C++ removal audit passes.
 
 ## Phase 1: Build a source-bound inventory
 
@@ -97,7 +97,7 @@ Current Rust-enabled source already routes PatchParts to Rust for nonempty donor
 - Rust/C++ ownership and reachability inventory.
 - Profile-backed ordered candidate list with estimated share of real workload cost and measurement limitations.
 - One frozen qualification plan and evidence packet per selected candidate.
-- Per-candidate decision record with parity, C++ deletion scope, per-fixture speedup and interval, review state, and remaining integration/deployment owner actions.
+- Per-candidate decision record with parity, C++ deletion scope, per-fixture speedup and interval, review state, and the PR owner's remaining integration/deployment actions.
 - Updated source inventory identifying completed Rust replacements, temporary fallbacks still awaiting removal, and final mandatory Rust platform builds.
 
 ## Project constraints

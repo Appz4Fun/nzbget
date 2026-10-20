@@ -21,9 +21,37 @@ this project. Human instructions and current coordination ownership take priorit
   the reviewed tree, fresh sole-parent base and actual final-head reviews.
   Never substitute a GitHub-generated merge or squash commit for the locally
   signed canonical commit; lease only an owned feature ref when rewriting.
-- Integration and deployment belong to their designated coordinating owners.
-  A source fix, tool installation, or documentation change does not release a
-  performance or deployment hold.
+- Coordinate canonical default-branch writes and backend hold release with their
+  designated owners. The PR owner remains responsible for deployment as described
+  below. A source fix, tool installation, or documentation change does not release
+  a performance or deployment hold.
+
+## Own your PR through deployment
+
+- The agent that opens a PR owns delivery through fixes, review, integration,
+  redeployment, and verification. Do not leave deployment to a central redeployer
+  or report the work complete at merge.
+- Fix actionable review findings and request review again after changes. Pull in
+  the actual upstream default, resolve conflicts, and repeat affected validation
+  and review. Before a signed squash merge into the default branch, require g2g
+  review of the actual final head, resolved actionable discussions, and green
+  required pre-merge CI checks. Older-head approval does not cover later changes.
+- After merge, the same agent follows required default-branch CI/CD to completion,
+  fixes failures, and performs the authorized redeployment of the exact merged
+  artifact. An automated deployment pipeline may perform installation; the PR
+  owner triggers it when needed, monitors it, and verifies the deployed result.
+- Preserve shared scheduling, locks, authorization, release holds, backups, and
+  rollback requirements. Request your execution slot from the scheduling owner;
+  that coordination does not transfer deployment responsibility. Carry existing
+  human authorization forward without asking for it again.
+- Verify the installed revision or artifact, service health, preservation checks,
+  and the changed behavior. Retain deployment and recovery evidence. A green
+  build or successful merge alone is not proof of a successful deployment.
+- For a change with no deployable artifact, record why deployment does not apply.
+  Published documentation still requires its applicable publishing checks.
+  Keep blocked deployment work owned and report the exact blocker. Do not archive
+  the owning chat until delivery is verified or the human explicitly accepts a
+  handoff or an undeployed outcome.
 
 ## Capture evidence before interpreting it
 
@@ -117,7 +145,7 @@ Read [the WebUI procedures](docs/WEBUI_AGENT_PROCEDURES.md) for tested commands.
   Keep accessible full-size links and complete print pictures. Validate the
   locked site build, links, and prose before claiming publication.
 - For an explicitly authorized UI-only deployment, preserve backend, process,
-  configuration and providers; the live owner installs exact assets atomically
+  configuration and providers; the PR owner installs exact assets atomically
   with recovery evidence. Post-deployment UI checks are read-only. UI approval
   never clears a backend rollout hold.
 

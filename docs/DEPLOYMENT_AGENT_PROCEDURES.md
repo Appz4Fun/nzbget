@@ -1,16 +1,48 @@
-## LIVE deployment and preservation
+## Deployment and preservation
 
 ### Ownership and authorization
 
 - The designated integration coordinator owns the canonical default branch and
-  backend qualification/hold release. LIVE performs separately human-authorized
-  deployment; the designated operations coordinator schedules shared-worker work.
+  backend qualification/hold release. Each PR owner performs that PR's authorized
+  deployment and verifies the result. The designated operations coordinator
+  schedules shared-worker work; there is no central redeployer to take over
+  unfinished PR delivery.
 - Carry existing direct human authorization forward. Surface changed scope or
   conflicting instructions; do not introduce blanket reapproval flows.
 - A source merge, UI release, signed identity repair, installed tool, or skipped
   benchmark check does not release a backend performance hold.
 - Keep this guidance additive when consolidating other lanes' procedures. Preserve
   dirty work and immutable reviewed candidates through isolated worktrees.
+
+### PR owner delivery lifecycle
+
+1. Own the PR from implementation through deployment. Fix actionable review
+   comments, resolve discussions with supporting evidence, and request review
+   again after fixes. Refresh the actual upstream default, resolve conflicts, and
+   repeat affected checks and review after head or base changes.
+2. Require g2g review of the actual final head and green required pre-merge checks
+   before integration. Prepare the locally signed squash against the fresh default
+   using the identity and reviewed-tree safeguards below. Coordinate the default
+   write with the integration owner.
+3. Follow required default-branch CI/CD after merge. Investigate and fix failures
+   through the same review and validation process. Deploy the exact merged,
+   qualified artifact yourself under the existing authorization and release holds;
+   request the shared execution slot rather than handing off to a central agent.
+   When CD installs the artifact automatically, trigger it if needed and monitor
+   its actual terminal result.
+4. Verify the installed artifact or revision, service health, preservation of
+   existing state, and the changed behavior. Preserve rollback material and record
+   what was deployed, the checks performed, their results, and remaining limits.
+   A successful job alone does not establish the deployed artifact's identity or
+   the correctness of the live behavior.
+5. Keep ownership when access, scheduling, or a release hold blocks deployment.
+   Report the concrete blocker and required next action; do not silently delegate
+   deployment or archive the chat. A different owner may take over only through
+   an explicit human-accepted handoff.
+6. If no artifact requires deployment, record that scope decision and its reason.
+   For published documentation, follow the applicable publishing pipeline and
+   verify publication. Finish or archive only after verified delivery or explicit
+   human acceptance of a handoff or an undeployed outcome.
 
 ### GitHub identity and immutable input
 

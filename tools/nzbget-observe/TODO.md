@@ -19,8 +19,9 @@ qualification. Integration does not certify these pending gates.
   PAR fine-attribution overhead remains HOLD. No new timings qualify this code.
 - Automatic CI checks formatting only. Admitted remote test/Clippy proof remains
   required; do not restore automatic uncoordinated heavy builds.
-- Deployment and live validation require the designated LIVE owner. Source merge
-  does not release backend rollout or failed performance holds.
+- The PR owner performs authorized deployment and live validation under the
+  shared PR delivery policy in AGENTS.md. Source merge does not release backend
+  rollout or failed performance holds.
 
 Prepared 37-test source-manifest SHA-256:
 `8fc77a4bc2fb4c82282a0a1ed063ef4719550665cab44dd8439e44db9cdc25e7`.

@@ -180,8 +180,9 @@ test "$github_verified" = true || exit 1
 ```
 
 Confirm that origin names the canonical repository before fetching. Root owns
-scope, qualification, hold release and default integration; LIVE owns separately
-authorized installation/restart and deployment checks. Report source review,
+scope, qualification, hold release and default integration; the PR owner performs
+authorized installation/restart and deployment checks under the shared PR delivery
+policy in AGENTS.md. Report source review,
 controlled validation, numerical qualification, configured publication, observed
 activation, integration, and live verification separately. No signature, smoke
 test or pinned tool setup alone proves faster behavior or a deployed release.
