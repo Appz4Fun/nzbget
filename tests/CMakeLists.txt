@@ -24,6 +24,15 @@ if(EXTERNAL_DEPS)
 endif()
 
 target_link_libraries(${TESTS_TARGET} PRIVATE libnzbget Boost::unit_test_framework)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	# Fault injection stays in the test executable; libnzbget and the daemon
+	# retain their ordinary syscall bindings and production ABI.
+	target_compile_definitions(${TESTS_TARGET} PRIVATE NZBGET_TEST_CIPHER_XATTR_WRAP)
+	target_link_options(${TESTS_TARGET} PRIVATE
+		"LINKER:--wrap=flistxattr"
+		"LINKER:--wrap=fgetxattr"
+		"LINKER:--wrap=fsetxattr")
+endif()
 
 apply_compiler_flags(${TESTS_TARGET})
 apply_sanitizers(${TESTS_TARGET})

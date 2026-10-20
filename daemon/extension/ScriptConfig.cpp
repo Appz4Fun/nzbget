@@ -86,7 +86,12 @@ bool CopyCipherAttributes(int source, int target)
 	return fcopyfile(source, target, nullptr, COPYFILE_SECURITY | COPYFILE_XATTR) == 0;
 #else
 	ssize_t size = flistxattr(source, nullptr, 0);
-	if (size < 0 || size > 65536) return false;
+	if (size < 0)
+	{
+		int error = errno;
+		return error == ENOTSUP || error == EOPNOTSUPP;
+	}
+	if (size > 65536) return false;
 	std::vector<char> names(static_cast<size_t>(size));
 	if (size && flistxattr(source, names.data(), names.size()) != size) return false;
 	size_t cursor = 0, total = 0;

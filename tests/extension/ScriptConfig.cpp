@@ -21,6 +21,102 @@
 #include <future>
 #include <thread>
 #endif
+#ifdef NZBGET_TEST_CIPHER_XATTR_WRAP
+#include <sys/xattr.h>
+#include <fcntl.h>
+#include <cerrno>
+
+// Only nzbget_tests links these --wrap symbols. Calls from its static daemon
+// library reach the real transaction; inactive tests pass through to libc.
+extern "C" ssize_t __real_flistxattr(int, char*, size_t);
+extern "C" ssize_t __real_fgetxattr(int, const char*, void*, size_t);
+extern "C" int __real_fsetxattr(int, const char*, const void*, size_t, int);
+namespace
+{
+enum class CipherAttributeFailure { None, InitialList, NamesList, GetSize, GetValue, Set };
+constexpr char CipherAttributeName[] = "user.nzbget-cipher-fixture";
+constexpr char CipherAttributeValue[] = "fixture-metadata";
+struct CipherAttributeFault
+{
+	CipherAttributeFailure stage;
+	int error;
+	bool attributes;
+	dev_t sourceDevice = 0;
+	ino_t sourceInode = 0;
+	int source = -1, target = -1;
+	unsigned lists = 0, gets = 0, sets = 0;
+	bool validArguments = true;
+	std::string observedValue;
+};
+thread_local CipherAttributeFault* cipherAttributeFault = nullptr;
+bool IsCipherAttributeSource(int fd)
+{
+	struct stat metadata;
+	return fstat(fd, &metadata) == 0 && metadata.st_dev == cipherAttributeFault->sourceDevice &&
+		metadata.st_ino == cipherAttributeFault->sourceInode;
+}
+struct CipherAttributeScope
+{
+	CipherAttributeFault* previous = cipherAttributeFault;
+	explicit CipherAttributeScope(CipherAttributeFault& fault) { cipherAttributeFault = &fault; }
+	~CipherAttributeScope() { cipherAttributeFault = previous; }
+};
+}
+extern "C" ssize_t __wrap_flistxattr(int fd, char* names, size_t size)
+{
+	if (!cipherAttributeFault || !IsCipherAttributeSource(fd)) return __real_flistxattr(fd, names, size);
+	auto& fault = *cipherAttributeFault;
+	++fault.lists;
+	if (fault.lists == 1)
+	{
+		fault.source = fd;
+		fault.validArguments &= names == nullptr && size == 0 && (fcntl(fd, F_GETFL) & O_ACCMODE) == O_RDONLY;
+		if (fault.stage == CipherAttributeFailure::InitialList) { errno = fault.error; return -1; }
+		if (!fault.attributes) { errno = fault.error; return 0; } // stale errno is not an error.
+		return sizeof(CipherAttributeName);
+	}
+	fault.validArguments &= fd == fault.source && names && size == sizeof(CipherAttributeName);
+	if (fault.stage == CipherAttributeFailure::NamesList) { errno = fault.error; return -1; }
+	if (!names || size < sizeof(CipherAttributeName)) { errno = ERANGE; return -1; }
+	memcpy(names, CipherAttributeName, sizeof(CipherAttributeName));
+	return sizeof(CipherAttributeName);
+}
+extern "C" ssize_t __wrap_fgetxattr(int fd, const char* name, void* value, size_t size)
+{
+	if (!cipherAttributeFault || !IsCipherAttributeSource(fd) || !name || strcmp(name, CipherAttributeName))
+		return __real_fgetxattr(fd, name, value, size);
+	auto& fault = *cipherAttributeFault;
+	++fault.gets;
+	fault.validArguments &= fd == fault.source && name && !strcmp(name, CipherAttributeName);
+	if (fault.gets == 1)
+	{
+		fault.validArguments &= value == nullptr && size == 0;
+		if (fault.stage == CipherAttributeFailure::GetSize) { errno = fault.error; return -1; }
+		return sizeof(CipherAttributeValue) - 1;
+	}
+	fault.validArguments &= value && size == sizeof(CipherAttributeValue) - 1;
+	if (fault.stage == CipherAttributeFailure::GetValue) { errno = fault.error; return -1; }
+	if (!value || size < sizeof(CipherAttributeValue) - 1) { errno = ERANGE; return -1; }
+	memcpy(value, CipherAttributeValue, sizeof(CipherAttributeValue) - 1);
+	return sizeof(CipherAttributeValue) - 1;
+}
+extern "C" int __wrap_fsetxattr(int fd, const char* name, const void* value, size_t size, int flags)
+{
+	if (!cipherAttributeFault || !name || strcmp(name, CipherAttributeName)) return __real_fsetxattr(fd, name, value, size, flags);
+	auto& fault = *cipherAttributeFault;
+	struct stat metadata;
+	if (fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_dev != fault.sourceDevice ||
+		metadata.st_ino == fault.sourceInode || (fcntl(fd, F_GETFL) & O_ACCMODE) != O_WRONLY)
+		return __real_fsetxattr(fd, name, value, size, flags);
+	++fault.sets;
+	fault.target = fd;
+	fault.validArguments &= fd != fault.source && value && size == sizeof(CipherAttributeValue) - 1 && flags == 0;
+	if (!value || size != sizeof(CipherAttributeValue) - 1) { errno = EINVAL; return -1; }
+	fault.observedValue.assign(static_cast<const char*>(value), size);
+	if (fault.stage == CipherAttributeFailure::Set) { errno = fault.error; return -1; }
+	return 0;
+}
+#endif
 
 BOOST_AUTO_TEST_SUITE(ExtensionTest)
 
@@ -256,6 +352,86 @@ static std::string ReadCipherTestFile(const fs::path& path)
 	std::ifstream file(path, std::ios::binary);
 	return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
+
+#ifdef NZBGET_TEST_CIPHER_XATTR_WRAP
+static void CheckCipherAttributeTransaction(CipherAttributeFailure stage, int error, bool attributes, bool saved)
+{
+	TempConfigFile file;
+	const std::string original = "# original\r\nExtension.Option=original\r\n";
+	const std::string replacement = "# original\r\nExtension.Option=replacement\r\n";
+	{ std::ofstream out(file.path, std::ios::binary); out << original; }
+	BOOST_REQUIRE(chmod(file.path.string().c_str(), 0640) == 0);
+	OptionsGuard guard;
+	Options options("nzbget", file.path.string().c_str(), true, nullptr, nullptr); g_Options = &options;
+	ScriptConfig config;
+	std::string snapshot; BOOST_REQUIRE(config.ReadCipherSnapshot(snapshot));
+	struct stat before, after;
+	BOOST_REQUIRE(stat(file.path.string().c_str(), &before) == 0);
+	CipherAttributeFault fault{stage, error, attributes};
+	fault.sourceDevice = before.st_dev; fault.sourceInode = before.st_ino;
+	ScriptConfig::CipherCommit result;
+	{
+		CipherAttributeScope scope(fault);
+		result = config.CommitCipherPatch(snapshot, replacement, [] { return false; });
+	}
+	BOOST_CHECK(result == (saved ? ScriptConfig::CipherCommit::Saved : ScriptConfig::CipherCommit::Failed));
+	BOOST_CHECK_EQUAL(ReadCipherTestFile(file.path), saved ? replacement : original);
+	BOOST_REQUIRE(stat(file.path.string().c_str(), &after) == 0);
+	BOOST_CHECK_EQUAL(after.st_mode, before.st_mode);
+	BOOST_CHECK_EQUAL(after.st_uid, before.st_uid);
+	BOOST_CHECK_EQUAL(after.st_gid, before.st_gid);
+	if (saved) BOOST_CHECK(after.st_ino != before.st_ino);
+	else
+	{
+		BOOST_CHECK_EQUAL(after.st_dev, before.st_dev);
+		BOOST_CHECK_EQUAL(after.st_ino, before.st_ino);
+		BOOST_CHECK_EQUAL(after.st_size, before.st_size);
+		BOOST_CHECK_EQUAL(after.st_mtim.tv_sec, before.st_mtim.tv_sec);
+		BOOST_CHECK_EQUAL(after.st_mtim.tv_nsec, before.st_mtim.tv_nsec);
+		BOOST_CHECK_EQUAL(after.st_ctim.tv_sec, before.st_ctim.tv_sec);
+		BOOST_CHECK_EQUAL(after.st_ctim.tv_nsec, before.st_ctim.tv_nsec);
+	}
+	BOOST_CHECK(fault.validArguments);
+	BOOST_CHECK(fault.source >= 0);
+	BOOST_CHECK_EQUAL(fault.lists, stage == CipherAttributeFailure::InitialList || !attributes ? 1U : 2U);
+	BOOST_CHECK_EQUAL(fault.gets, !attributes || stage == CipherAttributeFailure::NamesList ? 0U :
+		stage == CipherAttributeFailure::GetSize ? 1U : 2U);
+	BOOST_CHECK_EQUAL(fault.sets, attributes && (stage == CipherAttributeFailure::Set || stage == CipherAttributeFailure::None) ? 1U : 0U);
+	if (fault.sets)
+	{
+		BOOST_CHECK(fault.target >= 0 && fault.target != fault.source);
+		BOOST_CHECK_EQUAL(fault.observedValue, CipherAttributeValue);
+	}
+	std::string prefix = "." + file.path.filename().string() + ".tls-";
+	for (const auto& entry : fs::directory_iterator(file.path.parent_path()))
+		BOOST_CHECK(entry.path().filename().string().rfind(prefix, 0) != 0);
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchUnsupportedSourceAttributes)
+{
+	for (int error : {ENOTSUP, EOPNOTSUPP})
+		BOOST_TEST_CONTEXT("initial unsupported errno=" << error)
+			CheckCipherAttributeTransaction(CipherAttributeFailure::InitialList, error, false, true);
+	for (int error : {EACCES, EIO, EBADF, ENOMEM, ERANGE, EINVAL})
+		BOOST_TEST_CONTEXT("initial fatal errno=" << error)
+			CheckCipherAttributeTransaction(CipherAttributeFailure::InitialList, error, false, false);
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchAttributeCopyFailuresPreserveOriginal)
+{
+	for (auto stage : {CipherAttributeFailure::NamesList, CipherAttributeFailure::GetSize,
+		CipherAttributeFailure::GetValue, CipherAttributeFailure::Set})
+		for (int error : {ENOTSUP, EOPNOTSUPP, EACCES, EIO, ENODATA})
+			BOOST_TEST_CONTEXT("stage=" << static_cast<int>(stage) << " errno=" << error)
+				CheckCipherAttributeTransaction(stage, error, true, false);
+}
+
+BOOST_AUTO_TEST_CASE(CipherPatchAttributeCopyControls)
+{
+	CheckCipherAttributeTransaction(CipherAttributeFailure::None, EACCES, false, true);
+	CheckCipherAttributeTransaction(CipherAttributeFailure::None, 0, true, true);
+}
+#endif
 
 BOOST_AUTO_TEST_CASE(CipherPatchConflictPreservesOriginal)
 {
